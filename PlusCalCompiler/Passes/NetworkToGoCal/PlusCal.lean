@@ -1,0 +1,325 @@
+import PlusCalCompiler.NetworkPlusCal.Syntax
+import PlusCalCompiler.GoCal.Syntax
+import Mathlib.Data.List.AList
+import Extra.AList
+import Extra.Prod
+import Batteries.Data.HashMap
+
+/-! # Compilation from Guarded PlusCal to a subset of Go
+
+
+-/
+
+namespace NetworkPlusCal
+  open CoreTLAPlus
+
+  macro "chan_from_name!" t:term : term => `(term| s!"{$t}_")
+  macro "thread!" "(" t:term ", " t':term ")" : term => `(term| s!"thread_{$t}_{$t'}")
+  macro "rx_thread!" "(" t:term ", " t':term ", " t'':term ")" : term => `(term| s!"thread_{$t}_{$t'}_{$t''}")
+  macro "either_mutex!" : term => `(term| "either_mutex")
+  macro "cancel!" : term => `(term| "cancel")
+  macro "chan!" "(" t:term ")" : term => `(term| s!"chan_{$t}")
+
+  def AtomicBranch.freeVars (B : AtomicBranch Typ (Expression Typ)) : List String :=
+    let ⟨bound, free⟩ := B.precondition.elim ⟨[], []⟩ getFreeVars
+    let ⟨_, free'⟩ := getFreeVars B.action -- NOTE: this block should not contain `bound` variables
+    free' \ bound ∪ free
+    where
+      getFreeVars {b b' : Bool} (B : Block (Statement Typ (Expression Typ) b) b') : List String × List String := Id.run do
+        let mut bound : List String := []
+        let mut free : List String := []
+
+        let f : {b : Bool} → Statement Typ (Expression Typ) b false → List String × List String
+          | true, .await _ e => ⟨[], e.freeVars⟩
+          | true, .let _ x _ _ e => ⟨[x], e.freeVars⟩
+          | false, .assign _ ref e => ⟨[], ref.freeVars Expression.freeVars ∪ e.freeVars⟩
+          | false, .multicast _ chan bs e => ⟨[], []⟩
+          | false, .send _ chan e => ⟨[], chan.freeVars Expression.freeVars \ [chan.name] ∪ e.freeVars⟩
+          | false, .assert _ e => ⟨[], e.freeVars⟩
+          | false, .print _ e => ⟨[], e.freeVars⟩
+          | false, .skip _ => ⟨[], []⟩
+
+        for S in B.begin do
+          let ⟨bound', free'⟩ := f S
+          bound := bound ++ bound'
+          free := free ++ free'
+
+        match b', b, B.last with
+        | false, _, S =>
+          let ⟨bound', free'⟩ := f S
+          bound := bound ++ bound'
+          free := free ++ free'
+        | true, false, .goto _ _ => pure ()
+
+        return ⟨bound, free⟩
+
+  /--
+    Compiles a single branch of an atomic `either` into a block of GoCal statements with the same semantics.
+  -/
+  def AtomicBranch.toGoCal (label : String) (i : Nat) (B : AtomicBranch Typ (Expression Typ)) (vars : List (String × Typ × Expression Typ)) : GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs :=
+    let commit : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := [
+      --.send default (.var default "commit") (.record default []),
+      .assign default ⟨"cont", []⟩ (.bool default false)
+    ]
+
+    let (condsVars, conds) : List (String × Typ) × _ := match B.precondition with
+      | none => ([], commit)
+      | some B => B.toList.foldr (init := ([], commit)) λ
+        | NetworkPlusCal.Statement.await _ e, (vars, B) => (vars, [.if default (.prefix default .«¬» e) [] B])
+        | NetworkPlusCal.Statement.let pos x τ «=|∈» e, (vars, B) =>
+          /-
+            FIXME: how do we solve the following problem?
+
+            ```
+            with x ∈ 1..10;
+            await x = 3;
+            print x;
+            \* ...
+            ```
+
+            This block is always enabled, and `x` will always be `3` after the precondition (meaning `print` will always output `3`).
+            How do we handle such case where the value chosen by `with` actually depends on the `await`s that are after?
+            Randomly select a value until one satisfies the remainder of the precondition?
+          -/
+          (vars.concat (x, τ), if «=|∈» then sorry else .assign pos ⟨x, []⟩ e :: B)
+
+    let todo : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := compileBlock B.action.begin
+
+    let next : GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs := match B.action.last with
+      | .goto pos "Done" => .send pos (.var default "done") (.record pos [])
+      | .goto pos l => .assign pos ⟨"_", []⟩ <| .opcall pos (.var pos l) (.var default "self" :: .var default "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var default s!"{v}_")
+
+    let toLock := B.freeVars ∩ vars.map Prod.fst |>.eraseDups
+    let allVars : List (String × Typ) := toLock.filterMap λ v ↦ do
+      let ⟨τ, _⟩ ← vars.lookup v
+      match τ with
+      | .int | .str | .bool | .record _ | .tuple _ | .seq _ | .set _ | .function _ _ => return (v, τ)
+      | _ => failure
+
+    let lockAll :=
+      --GoCal.Statement.receive default (.var default either_mutex!) ⟨"_", []⟩ ::
+      toLock.map λ v ↦ GoCal.Statement.receive default (.var default (chan_from_name! v)) ⟨v, []⟩
+    let unlockAll :=
+      --GoCal.Statement.send default (.var default either_mutex!) (.record default []) ::
+      toLock.map λ v ↦ GoCal.Statement.send default (.var default (chan_from_name! v)) (.var default v)
+
+    {
+      name := s!"{label}_{i}"
+      params :=
+        ⟨"self", .address⟩ ::
+        --⟨cancel!, .channel (.record [])⟩ ::
+        ⟨either_mutex!, .channel (.record [])⟩ ::
+        ⟨"done", .channel (.record [])⟩ ::
+        -- TODO: add `self`
+        vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
+      returnType := [.record []]
+      body :=
+        --.make default "commit" (.channel (.record [])) (.inl .none) ::
+        -- Declare variables first, so that we can use them outside the goroutine
+        ((allVars ++ condsVars).map λ ⟨v, τ⟩ ↦ match h : τ with
+              | .int | .str | .bool => .make default v τ (h ▸ .none)
+              | .record _ | .tuple _ | .seq _ | .set _ => .make default v τ (h ▸ [])
+              | .function _ _ => .make default v τ (h ▸ .inr [])
+              | .var _ | .const _ | .operator _ _ | .channel _ | .address => panic! "Invalid variable type") ++
+        -- (condsVars.map λ (v, τ) ↦ match h : τ with
+        --   | .int | .str | .bool => .make default v τ (h ▸ .none)
+        --   | .record _ | .tuple _ | .seq _ | .set _ => .make default v τ (h ▸ [])
+        --   | .function _ _ => .make default v τ (h ▸ .inr [])
+        --   | .var _ | .const _ | .operator _ _ | .channel _ => panic! "Invalid variable type") ++
+        [
+          -- .go default [
+          --   .make default "cont" .bool (.some <| .bool default true),
+          --   .while default (.var default "cont") <|
+          --     lockAll ++ [
+          --       .select default [
+          --         .receive [] (by simp) (.var default cancel!) <|
+          --           .assign default ⟨"cont", []⟩ (.bool default false) ::
+          --           unlockAll,
+          --         .default <|
+          --           conds ++ [
+          --             .if default (.var default "cont") unlockAll []
+          --           ]
+          --       ]
+          --     ]
+          --   ],
+          -- .select default [
+          --   .receive [] (by simp) (.var default cancel!) [],
+          --   .receive [] (by simp) (.var default "commit") <|
+          --     .close default (.var default cancel!) ::
+          --     todo ++ unlockAll ++ [
+          --       .go default [next]
+          --     ]
+          -- ],
+          .make default "cont" .bool (.some <| .bool default true),
+          .while default (.var default "cont") [
+            .select default [
+              .receive ["_", "cont"] (by simp) (.var default either_mutex!) [
+                .if default (.var default "cont") (lockAll ++ conds ++ [
+                  .if default (.prefix default .«¬» <| .var default "cont") (
+                    .close default (.var default either_mutex!) ::
+                    todo ++ [.go default [next]]
+                  ) [
+                    .send default (.var default either_mutex!) (.record default [])
+                  ]
+                ] ++ unlockAll) []
+              ],
+              -- .default <| conds ++ [
+              -- ]
+            ]
+          ],
+          .return default [.record default []]
+        ]
+    }
+  where
+    compileBlock (B : List (Statement Typ (Expression Typ) false false)) : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := do
+      match ← B with
+      | .skip _ => []
+      | .print pos e => [.print pos e]
+      | .assert pos e => [.if pos (.prefix pos .«¬» e) [.panic pos <| .str pos s!"Expression '{e}' evaluated to 'false'!"] []]
+      | .assign pos ref e =>
+        -- TODO: handle indices (transform into tuples)
+        let ref' := { name := ref.name, args := [] : GoCal.LHS _ }
+        [.assign pos ref' e]
+      | .send pos chan e =>
+        let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic pos <| .str pos "send not implemented"]⟩
+        todo! "compile send to go"
+          -- [.send pos _ e]
+      | .multicast pos chan bs e =>
+        let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic pos <| .str pos "multicast not implemented"]⟩
+        todo! "compile multicast to go"
+
+  def AtomicBlock.toGoCal (B : NetworkPlusCal.AtomicBlock Typ (Expression Typ)) (vars : List (String × Typ × Expression Typ)) : List (GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs) :=
+    let label := B.label
+    let fn := B.branches.zipIdx.foldl (init := []) λ branches ⟨B, i⟩ ↦ branches.concat <| B.toGoCal label i vars
+
+    let calls := fn.map λ ⟨name, _, _, _⟩ ↦
+      GoCal.Statement.go default [
+        .assign default ⟨"_", []⟩ <|
+          .opcall default (.var default name) (.var default "self" :: /-.var default cancel! ::-/ .var default either_mutex! :: .var default "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var default v)
+      ]
+
+    fn.concat {
+      name := label
+      params := ⟨"self", .address⟩ :: ⟨"done", .channel (.record [])⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨v, .channel τ⟩
+      returnType := [.record []]
+      body := [
+        .make default either_mutex! (.channel (.record [])) (.inl (.some ⟨1⟩)),
+        .send default (.var default either_mutex!) (.record default []),
+        --.make default cancel! (.channel (.record [])) (.inl .none)
+      ] ++ calls ++ [
+        .return default [.record default []]
+      ]
+    }
+
+  def Thread.toGoCal (procName : String) (i : Nat) (vars : List (String × Typ × Expression Typ)) : Thread Typ (Expression Typ) → List (GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs)
+    -- NOTE: in practice, this should never happen as all threads must contain at least one block (the parser should enforce it)
+    | .code [] => [{
+      name := thread!(procName, i)
+      params := ⟨"self", .address⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
+      returnType := [.channel (.record [])]
+      body := [
+        .make default "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
+        .go default [.send default (.var default "done") (.record default [])],
+        .return default [.var default "done"]
+      ]
+    }]
+    | .code blocks@h:(_ :: _) =>
+      let blocks' := blocks >>= λ B ↦ B.toGoCal vars
+
+      blocks'.concat {
+        name := thread!(procName, i)
+        params := ⟨"self", .address⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
+        returnType := [.channel (.record [])]
+        body := [
+          .make default "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
+          .assign default ⟨"_", []⟩ <|
+            .opcall default (.var default <| blocks.head (List.ne_nil_iff_exists_cons.mpr ⟨_, _, h⟩) |>.label) (.var default "self" :: .var default "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var default s!"{v}_"),
+          .return default [.var default "done"]
+        ]
+      }
+    | .rx chan rx' τ inbox => match h : τ with
+      | .var _ | .const _ | .operator _ _ | .channel _ | .address => panic! "Cannot receive some datatypes through channels"
+      | .int | .str | .bool | .record _ | .tuple _ | .seq _ | .set _ | .function _ _ =>
+        [{
+          name := rx_thread!(procName, rx', inbox)
+          params := ⟨"self", .address⟩ :: ⟨chan.name, .channel τ⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
+          returnType := [.record []]
+          body := [
+            .make default rx' τ (match h' : τ with
+              | .int | .str | .bool => none
+              | .record _ | .tuple _ | .seq _ | .set _ => []
+              | .function _ _ => .inr []
+              | .var _ | .const _ | .operator _ _ | .channel _ => nomatch h, h'),
+            .make default inbox (.seq τ) [],
+            .make default "ok" .bool (.some <| .bool default true),
+            .while default (.var default "ok") [
+              .select default [
+                .receive [rx', "ok"] (by rfl) (.var default chan.name) [
+                  .if default (.var default "ok") [
+                    .receive default (.var default s!"{inbox}_") ⟨inbox, []⟩,
+                    .send default (.var default s!"{inbox}_") (.opcall default (.var default "Append") [.var default inbox, .var default rx'])
+                  ] []
+                ]
+              ]
+            ],
+            .return default [.record default []]
+          ]
+        }]
+
+  /--
+    Generates a function named after the process `P` that:
+    - takes all local variables which are declared `@parameter`, and put them inside cells (glorified channels);
+    - asserts that all parameters have sensical values as indicated by the specification;
+    - initializes all the other local variables to their given values inside cells;
+    - initializes channels for receiving values from the outside world, if needed;
+    - initializes a channel `Done` which marks whenever the process as a whole has finished executing;
+    - calls all its threads one by one;
+    - waits for all `done` channels of all individual threads to be sent a message, then sends a message to its `Done` channel;
+    - returns `Done` and all the channels used to communicate with the outside world.
+  -/
+  def Process.toGoCal (P : Process Typ (Expression Typ)) : List (GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs) :=
+    let ⟨vars, params⟩ := P.locals.toList.partitionMap λ
+      | ⟨v, τ, true, e⟩ => .inl (v, τ, e)
+      | ⟨v, τ, false, e⟩ => .inr (v, τ, e)
+
+    let fns := P.threads.zipIdx >>= λ ⟨T, i⟩ ↦ T.toGoCal P.name i (vars ++ params)
+
+    let ⟨threads, channels⟩ := P.threads.zipIdx.partitionMap
+      λ | ⟨.code _, i⟩ => .inl (thread!(P.name, i))
+        | ⟨.rx _ rx τ inbox, _⟩ => .inr (rx_thread!(P.name, rx, inbox), τ)
+
+    let calls : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := threads.map λ v ↦ .make default s!"done_{v}" (.channel (.record [])) <| .inr <|
+      .opcall default (.var default v) (.var default "self" :: (vars ++ params).map λ ⟨v, _, _⟩ ↦ .var default v)
+    let calls' : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := channels.map λ ⟨v, _⟩ ↦ .assign default ⟨"_", []⟩ <|
+      .opcall default (.var default v) <| .var default "self" :: .var default chan!(v) :: ((vars ++ params).map λ ⟨v, _, _⟩ ↦ .var default v)
+
+    fns.concat {
+      name := P.name
+      params := ⟨"self", .address⟩ :: params.map (λ ⟨v, τ, _⟩ ↦ ⟨chan_from_name! v, τ⟩)
+      returnType := .channel (.record []) :: channels.map λ ⟨_, τ⟩ ↦ .channel τ
+      body :=
+        .make default "done" (.channel (.record [])) (.inl (.some ⟨1⟩)) ::
+        -- Initialize local variables
+        (vars >>= λ ⟨v, τ, e⟩ ↦ [ .make default v (.channel τ) (.inl (.some ⟨1⟩)), .send default (.var default v) e]) ++
+        -- Box parameters
+        (params >>= λ ⟨v, τ, _⟩ ↦ [ .make default v (.channel τ) (.inl (.some ⟨1⟩)), .send default (.var default v) (.var default <| chan_from_name! v) ]) ++
+        -- Initialize channels to receive message from the outside world
+        (channels.map λ ⟨v, τ⟩ ↦ .make default chan!(v) (.channel τ) (.inl (some ⟨10000⟩))) ++
+        -- Call every thread in parallel
+        calls ++
+        -- Also call every receiving thread in parallel, if there are any
+        calls' ++
+        [
+          -- Wait until all threads have finished, then signal the `done` channel
+          .go default <|
+            threads.map (λ v ↦ .receive default (.var default s!"done_{v}") ⟨"_", []⟩) ++
+            [
+              .send default (.var default "done") (.record default [])
+            ],
+          -- Return the `done` channel, as well as all channels that are used to communicate with the outside world
+          .return default <| .var default "done" :: channels.map λ ⟨v, _⟩ ↦ .var default chan!(v)
+        ]
+    }
+
+  def Algorithm.toGoCal (a : Algorithm Typ (Expression Typ)) : List (GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs) :=
+    a.procs.foldl (init := []) λ funcs proc ↦ funcs ++ proc.toGoCal

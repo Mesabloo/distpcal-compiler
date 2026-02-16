@@ -1,0 +1,37 @@
+*.out
+*.old
+# TLC state files 
+*.st
+*.fp
+# Editted files
+*.*~
+# Lake
+.lake/
+
+.DS_Store
+
+log.log
+
+.vscode
+
+Test.lean
+
+# Latexmk
+*aux
+*bbl
+*blg
+*fdb_latexmk
+*fls
+*log
+*lox
+*pag
+*pdf
+*main.synctex.gz
+
+# Minted
+
+*minted
+
+.pcvc/
+.tmp/
+tests/**/*.go
