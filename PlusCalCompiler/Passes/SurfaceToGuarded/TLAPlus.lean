@@ -45,28 +45,28 @@ namespace SurfaceTLAPlus
     | .ok ⟨res, warns⟩ => res <$ tell (.transWarning <$> warns)
 
   private partial def toCore' (pos : SourceSpan) : Expression Annotation → m (CoreTLAPlus.Expression Typ)
-    | .var v => pure (.var pos v)
+    | .var v => pure (.var v @@ pos)
     | .opCall ⟨pos', fn⟩ args => match fn, args with
-      | .var "Seq", [⟨_, .tuple es⟩] => .seq pos <$> traverse ↿toCore' es
+      | .var "Seq", [⟨_, .tuple es⟩] => (.seq · @@ pos) <$> traverse ↿toCore' es
       | .var "Seq", _ => throw (.seqWrongArgument pos)
-      | e, es => .opcall pos <$> toCore' pos' e <*> traverse ↿toCore' es
+      | e, es => (.opcall · · @@ pos) <$> toCore' pos' e <*> traverse ↿toCore' es
     | e@(.prefixCall ⟨_, op⟩ e₁) => do
       let e₁ ← (↿toCore') e₁
       match op with
-      | .«\neg » _ => return .prefix pos .«¬» e₁
+      | .«\neg » _ => return .prefix .«¬» e₁ @@ pos
       | _ => throw (.unsupportedExpressionKind pos e)
     | e@(.infixCall e₁ ⟨_, op⟩ e₂) => do
       let e₁ ← (↿toCore') e₁
       let e₂ ← (↿toCore') e₂
       match op with
-      | .«\in» => return .infix pos e₁ .«∈» e₂
-      | .«\notin» => return .prefix pos .«¬» (.infix pos e₁ .«∈» e₂)
-      | .«/= » _ => return .prefix pos .«¬» (.infix pos e₁ .«=» e₂)
-      | .«=» => return .infix pos e₁ .«=» e₂
+      | .«\in» => return .infix e₁ .«∈» e₂ @@ pos
+      | .«\notin» => return .prefix .«¬» (.infix e₁ .«∈» e₂ @@ pos) @@ pos
+      | .«/= » _ => return .prefix .«¬» (.infix e₁ .«=» e₂ @@ pos) @@ pos
+      | .«=» => return .infix e₁ .«=» e₂ @@ pos
       | .«.» => match e₂ with
-        | .var _ v => return .access pos e₁ v
+        | .var v => return .access e₁ v @@ pos
         | _ => throw (.invalidDottedAccessor pos)
-      | .«\cup » _ => return .infix pos e₁ .«∪» e₂
+      | .«\cup » _ => return .infix e₁ .«∪» e₂ @@ pos
       | _ => throw (.unsupportedExpressionKind pos e)
     | e@(.postfixCall _ _) => throw (.unsupportedExpressionKind pos e)
     | .parens ⟨pos, e⟩ => toCore' pos e
@@ -77,13 +77,13 @@ namespace SurfaceTLAPlus
     | e@(.fforall _ _) => throw (.unsupportedExpressionKind pos e)
     | e@(.eexists _ _) => throw (.unsupportedExpressionKind pos e)
     | e@(.choose _ _ _) => throw (.unsupportedExpressionKind pos e)
-    | .set es => .set pos <$> traverse ↿toCore' es
+    | .set es => (.set · @@ pos) <$> traverse ↿toCore' es
     | e@(.collect _ _ _) => throw (.unsupportedExpressionKind pos e)
     | e@(.map' _ _) => throw (.unsupportedExpressionKind pos e)
-    | .fnCall fn args => .funcall pos <$> (↿toCore') fn <*> traverse ↿toCore' args
+    | .fnCall fn args => (.funcall · · @@ pos) <$> (↿toCore') fn <*> traverse ↿toCore' args
     | e@(.fn _ _) => throw (.unsupportedExpressionKind pos e)
     | e@(.fnSet _ _) => throw (.unsupportedExpressionKind pos e)
-    | .record fs => .record pos <$> fs.mapM λ ⟨anns, v, e⟩ ↦ do
+    | .record fs => (.record · @@ pos) <$> fs.mapM λ ⟨anns, v, e⟩ ↦ do
       let ⟨τ, _, e⟩ ← variableHasTypeAndInit? v anns true e
       pure ⟨v.data, τ, ← (↿toCore') e⟩
     | e@(.recordSet _) => throw (.unsupportedExpressionKind pos e)
@@ -94,8 +94,8 @@ namespace SurfaceTLAPlus
     | e@(.case _ _) => throw (.unsupportedExpressionKind pos e)
     | e@(.conj _) => throw (.unsupportedExpressionKind pos e)
     | e@(.disj _) => throw (.unsupportedExpressionKind pos e)
-    | .nat raw => pure (.nat pos raw)
-    | .str raw => pure (.str pos raw)
+    | .nat raw => pure (.nat raw @@ pos)
+    | .str raw => pure (.str raw @@ pos)
     | e@.at => throw (.unsupportedExpressionKind pos e)
     | e@(.stutter _ _) => throw (.unsupportedExpressionKind pos e)
 

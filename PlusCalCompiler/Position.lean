@@ -98,3 +98,94 @@ instance instTraversableLocated : Traversable Located where
 
 instance (priority := high) {α β} : Function.HasUncurry (SourceSpan → α → β) (Located α) β where
   uncurry f x := f x.segment x.data
+
+---------------
+
+private def Internal.initSourceMap : IO (IO.Ref (Std.HashMap USize SourceSpan)) :=
+  IO.mkRef (Std.HashMap.emptyWithCapacity 60)
+
+/--
+  A hashmap associating arbitrary data to source positions.
+-/
+@[never_extract, noinline, init Internal.initSourceMap]
+private unsafe opaque Internal.sourceMap : IO.Ref (Std.HashMap USize SourceSpan)
+
+@[never_extract, noinline]
+private unsafe def Internal.registerSourceImpl {α : Type} [Inhabited α] (x : α) (pos : SourceSpan) : α :=
+  let res := unsafeIO do
+    let _ ← IO.println s!"New position {pos} at {ptrAddrUnsafe x}"
+    Internal.sourceMap.modifyGet (x, Std.HashMap.insert · (ptrAddrUnsafe x) pos)
+  match res with
+  | .error e => panic! e.toString
+  | .ok x => x
+
+@[never_extract, noinline]
+private unsafe def Internal.posOfImpl {α : Type} (x : α) : SourceSpan :=
+  (unsafeBaseIO Internal.sourceMap.get)[ptrAddrUnsafe x]?.getD default_or_ofNonempty%
+
+@[implemented_by Internal.registerSourceImpl, never_extract]
+abbrev registerSource {α : Type} [Inhabited α] (x : α) (_ : SourceSpan) : α := x
+infix:60 " @@ " => registerSource
+
+@[implemented_by Internal.posOfImpl, never_extract]
+abbrev posOf {α : Type} (x : α) : SourceSpan := default_or_ofNonempty%
+
+open Lean Parser Term in section
+  def posIndices : Parser := leading_parser
+    atomic ("(" >> nonReservedSymbol "indices") >> " := " >> "[" >> many numLit >> "]" >> ")" >> ppSpace
+
+  /--
+    Match arbitrary expressions, together with the positions attached to them.
+    If some expressions may not be attached positions (e.g. proofs), one can specify `(indices := [n₁ ... nₙ])` to
+    only match on the positions of the `nᵢ`-th discriminant (`1`-based indexing).
+  -/
+  @[term_parser]
+  def matchSource : Parser := leading_parser:leadPrec
+    "match_source " >> optional generalizingParam >> optional motive >> optional posIndices >> sepBy1 matchDiscr "," >>
+    " with " >> ppDedent matchAlts
+
+  macro_rules
+  | `(term| match_source $[(generalizing := $generalize)]? $[(motive := $motive)]? $[(indices := [$idx*])]? $discr,* with $alts:matchAlts) => withFreshMacroScope do
+    let discr := discr.getElems
+    let idx : Array ℕ := match idx with
+      | .none => Array.range' 1 discr.size
+      | .some idx => idx.map λ n ↦ n.getNat
+
+    let (lets, discr) ← idx.foldlM (init := (#[], discr)) λ ⟨lets, discr'⟩ num ↦ withFreshMacroScope do
+      if let .some d := discr[num - 1]? then
+        let `(matchDiscr| $[$h:ident :]? $e:term) := d | Macro.throwUnsupported
+        let x := mkCIdent (`pos |>.num num)
+        return (lets.push (x, ← `(term| $(mkIdent ``posOf):ident $e)), discr'.push <| ← `(matchDiscr| $[$h:ident :]? $x:term))
+      else
+        Macro.throwError s!"Not enough discriminants: must have at least {num} discriminants"
+
+    -- Since `idx` can contain multiple copies of the same index, there may be several `let` introduced for the same expression.
+    -- Let's hope that Lean optimises them out.
+
+    let «match» : Term ← `(term| match $[(generalizing := $generalize)]? $[(motive := $motive)]? $discr,* with $alts)
+    let e : Term ← lets.foldlM (init := «match») λ «match» (x, e) ↦ `(term| let $x:ident := $e; $«match»)
+    return e
+end
+
+-- section
+--   private inductive X
+--     | x (n : ℕ)
+--     deriving BEq, Inhabited
+
+--   set_option linter.style.nameCheck false in
+--   set_option linter.constructorNameAsVariable false in
+--   private unsafe def __ : Bool :=
+--     let x : X := .x 0 @@ ⟨⟨1, 1⟩, ⟨1, 2⟩⟩
+--     let y : X := .x 1 @@ ⟨⟨1, 3⟩, ⟨1, 4⟩⟩
+
+--     -- dbg_trace "Address of x: {ptrAddrUnsafe x}; Address of y: {ptrAddrUnsafe y}"
+
+--     assert! x != y
+--     match_source x, y with
+--     | .x _, .x _, posx, posy =>
+--       assert! posx == ⟨⟨1, 1⟩, ⟨1, 2⟩⟩
+--       assert! posy == ⟨⟨1, 3⟩, ⟨1, 4⟩⟩
+--       true
+
+--   #guard unsafe __
+-- end

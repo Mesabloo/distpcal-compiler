@@ -27,32 +27,32 @@ namespace GoCal
   partial scoped instance instToFormatExpression : Std.ToFormat (Expression Typ) where
     format :=
       let formatPos (pos : SourceSpan) : Std.Format := if pos = default then .nil else f!"/* {pos} */ "
-      let rec go : Expression Typ → Nat → Std.Format
-        | .var pos name => λ _ ↦ formatPos pos ++ f!"{name}"
-        | .str pos raw => λ _ ↦ formatPos pos ++ f!"`{raw}`"
-        | .nat pos raw => λ _ ↦ formatPos pos ++ f!"{raw}"
-        | .bool pos raw => λ _ ↦ formatPos pos ++ f!"{raw}"
-        | .set pos elems => λ _ ↦ formatPos pos ++ "SetLiteral(" ++ Std.Format.joinSuffix (elems.map (go · 0)) ", " ++ ")"
-        | .record pos fields => λ _ ↦
+      let rec go (e : Expression Typ) (prec : Nat) : Std.Format := match_source e with
+        | .var name, pos => formatPos pos ++ f!"{name}"
+        | .str raw, pos => formatPos pos ++ f!"`{raw}`"
+        | .nat raw, pos => formatPos pos ++ f!"{raw}"
+        | .bool raw, pos => formatPos pos ++ f!"{raw}"
+        | .set elems, pos => formatPos pos ++ "SetLiteral(" ++ Std.Format.joinSuffix (elems.map (go · 0)) ", " ++ ")"
+        | .record fields, pos =>
           let ⟨τs, es⟩ := fields.unzipWith (λ ⟨v, τ, _⟩ ↦ (v, τ)) (λ ⟨v, _, e⟩ ↦ (v, e))
           formatPos pos ++ "struct"
             ++ .bracket "{" (.joinSuffix (τs.map λ ⟨v, τ⟩ ↦ v ++ " " ++ Std.format τ) "; ") "}"
             ++ .bracket "{" (.joinSuffix (es.map λ ⟨v, e⟩ ↦ v ++ ": " ++ go e 0) ", ") "}"
-        | .prefix pos op e => (formatPos pos ++ ·) ∘ match op with
-          | .«¬» => .«prefix» go 6 "!" e
-          | .«-» => .«prefix» go 6 "-" e
-        | .infix pos e₁ op e₂ => (formatPos pos ++ ·) ∘ match op with
-          | .«=» => .«infixl» go 3 "==" e₁ e₂
-          | .«>» => .«infixl» go 3 ">" e₁ e₂
-          | .«∪» => λ _ ↦ f!"SetUnion({go e₁ 0}, {go e₂ 0}, )"
-          | .«∈» => λ _ ↦ f!"SetIn({go e₁ 0}, {go e₂ 0}, )"
-          | .«-» => .«infixl» go 4 "-" e₁ e₂
-          | .«+» => .«infixl» go 4 "+" e₁ e₂
-        | .funcall pos fn args => λ _ ↦ formatPos pos ++ go fn 30 ++ .join (args.map λ e ↦ .sbracket (go e 0))
-        | .opcall pos fn args => λ _ ↦ formatPos pos ++ go fn 30 ++ .paren (.joinSuffix (args.map (go · 0)) ", ")
-        | .access pos e x => λ _ ↦ formatPos pos ++ go e 30 ++ "." ++ x
-        | .seq pos es => λ _ ↦ formatPos pos ++ f!"Seq({Std.Format.joinSuffix (es.map (go · 0)) ", "})"
-        | .except pos fn upds => λ _ ↦ formatPos pos ++ f!"TODO upd"
+        | .prefix op e, pos => formatPos pos ++ match op with
+          | .«¬» => .«prefix» go 6 "!" e prec
+          | .«-» => .«prefix» go 6 "-" e prec
+        | .infix e₁ op e₂, pos => formatPos pos ++ match op with
+          | .«=» => .«infixl» go 3 "==" e₁ e₂ prec
+          | .«>» => .«infixl» go 3 ">" e₁ e₂ prec
+          | .«∪» => f!"SetUnion({go e₁ 0}, {go e₂ 0}, )"
+          | .«∈» => f!"SetIn({go e₁ 0}, {go e₂ 0}, )"
+          | .«-» => .«infixl» go 4 "-" e₁ e₂ prec
+          | .«+» => .«infixl» go 4 "+" e₁ e₂ prec
+        | .funcall fn args, pos => formatPos pos ++ go fn 30 ++ .join (args.map λ e ↦ .sbracket (go e 0))
+        | .opcall fn args, pos => formatPos pos ++ go fn 30 ++ .paren (.joinSuffix (args.map (go · 0)) ", ")
+        | .access e x, pos => formatPos pos ++ go e 30 ++ "." ++ x
+        | .seq es, pos => formatPos pos ++ f!"Seq({Std.Format.joinSuffix (es.map (go · 0)) ", "})"
+        | .except fn upds, pos => formatPos pos ++ f!"TODO upd"
       (go · 0)
 
   universe u

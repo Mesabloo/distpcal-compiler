@@ -129,35 +129,35 @@ namespace CoreTLAPlus
     · contradiction
 
   theorem eval_mem_ext {M₁ M₂ : Memory} (mem_ext : ∀ v, M₁.lookup v = M₂.lookup v) : {e : Expression Typ} → eval M₁ e = eval M₂ e
-    | .var pos name => by
+    | .var name => by
       unfold eval
       rw [mem_ext name]
-    | .str pos raw => by unfold eval; rfl
-    | .nat pos raw => by unfold eval; rfl
-    | .bool pos raw => by unfold eval; rfl
-    | .set pos elems => by
+    | .str raw => by unfold eval; rfl
+    | .nat raw => by unfold eval; rfl
+    | .bool raw => by unfold eval; rfl
+    | .set elems => by
       have IH : ∀ e ∈ elems, eval M₁ e = eval M₂ e := λ _ _ ↦ eval_mem_ext mem_ext
       unfold eval
       congr
       ext1 ⟨e, e_in⟩
       apply IH _ e_in
-    | .record pos fields => by
+    | .record fields => by
       have IH : ∀ f ∈ fields, eval M₁ f.2.2 = eval M₂ f.2.2 := λ f f_in ↦ eval_mem_ext mem_ext
       unfold eval
       congr
       ext ⟨⟨x, τ, e⟩, f_in⟩
       dsimp
       erw [IH ⟨x, τ, e⟩ f_in]
-    | .prefix pos op e => by
+    | .prefix op e => by
       have IH : eval M₁ e = eval M₂ e := eval_mem_ext mem_ext
       unfold eval
       rw [IH]
-    | .infix pos e₁ op e₂ => by
+    | .infix e₁ op e₂ => by
       have IH₁ : eval M₁ e₁ = eval M₂ e₁ := eval_mem_ext mem_ext
       have IH₂ : eval M₁ e₂ = eval M₂ e₂ := eval_mem_ext mem_ext
       unfold eval
       rw [IH₁, IH₂]
-    | .funcall pos fn args => by
+    | .funcall fn args => by
       have IH₁ : eval M₁ fn = eval M₂ fn := eval_mem_ext mem_ext
       have IH₂ : ∀ e ∈ args, eval M₁ e = eval M₂ e := λ _ _ ↦ eval_mem_ext mem_ext
       unfold eval
@@ -167,17 +167,17 @@ namespace CoreTLAPlus
         rw [IH₂ _ arg_in]
       · ext1
         congr
-    | .access pos e x => by
+    | .access e x => by
       have IH : eval M₁ e = eval M₂ e := eval_mem_ext mem_ext
       unfold eval
       rw [IH]
-    | .seq pos es => by
+    | .seq es => by
       have IH : ∀ e ∈ es, eval M₁ e = eval M₂ e := λ _ _ ↦ eval_mem_ext mem_ext
       unfold eval
       congr
       ext1 ⟨e, e_in⟩
       apply IH _ e_in
-    | .opcall pos fn args => by
+    | .opcall fn args => by
       have IH₁ : eval M₁ fn = eval M₂ fn := eval_mem_ext mem_ext
       have IH₂ : ∀ e ∈ args, eval M₁ e = eval M₂ e := λ _ _ ↦ eval_mem_ext mem_ext
       unfold eval
@@ -186,7 +186,7 @@ namespace CoreTLAPlus
       ext ⟨e, e_in⟩
       dsimp
       rw [IH₂ e e_in]
-    | .except pos fn upds => by
+    | .except fn upds => by
       have IH₁ : eval M₁ fn = eval M₂ fn := eval_mem_ext mem_ext
       have IH₂ : ∀ r ∈ upds, eval M₁ r.2 = eval M₂ r.2 := λ _upd _ ↦ eval_mem_ext mem_ext
       have IH₃ : ∀ r ∈ upds, ∀ k ∈ r.1, match k with | .inr _ => True | .inl es => ∀ e ∈ es, eval M₁ e = eval M₂ e := λ _upd _ k _ ↦ match k with
@@ -228,15 +228,15 @@ namespace CoreTLAPlus
         _ < _ := by decreasing_trivial
 
   theorem eval_not_fv_irrel {M : Memory} {v} : {e : Expression Typ} → v ∉ e.freeVars → eval M e = eval (M.erase v) e
-    | .var pos name, v_not_in_e => by
+    | .var name, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       rw [List.mem_singleton] at v_not_in_e
       unfold eval
       rw [AList.lookup_erase_ne (Ne.symm v_not_in_e)]
-    | .str pos raw, v_not_in_e => by unfold eval; rfl
-    | .nat pos raw, v_not_in_e => by unfold eval; rfl
-    | .bool pos raw, v_not_in_e => by unfold eval; rfl
-    | .set pos elems, v_not_in_e => by
+    | .str raw, v_not_in_e => by unfold eval; rfl
+    | .nat raw, v_not_in_e => by unfold eval; rfl
+    | .bool raw, v_not_in_e => by unfold eval; rfl
+    | .set elems, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.mem_flatMap, not_exists, not_and] at v_not_in_e
 
@@ -248,7 +248,7 @@ namespace CoreTLAPlus
       apply IH _ e_in
       apply v_not_in_e ⟨e, e_in⟩
       apply List.mem_attach
-    | .record pos fields, v_not_in_e => by
+    | .record fields, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.mem_flatMap, not_exists, not_and] at v_not_in_e
 
@@ -259,14 +259,14 @@ namespace CoreTLAPlus
       ext1 ⟨f, f_in⟩
       dsimp
       rw [IH _ f_in]
-    | .prefix pos op e, v_not_in_e => by
+    | .prefix op e, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
 
       have IH : eval M e = eval (M.erase v) e := eval_not_fv_irrel v_not_in_e
 
       unfold eval
       rw [IH]
-    | .infix pos e₁ op e₂, v_not_in_e => by
+    | .infix e₁ op e₂, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.not_mem_union_iff] at v_not_in_e
 
@@ -275,7 +275,7 @@ namespace CoreTLAPlus
 
       unfold eval
       rw [IH₁, IH₂]
-    | .funcall pos fn args, v_not_in_e => by
+    | .funcall fn args, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.not_mem_union_iff, List.mem_flatMap, not_exists, not_and] at v_not_in_e
 
@@ -289,14 +289,14 @@ namespace CoreTLAPlus
         rw [IH₂ _ arg_in]
       · ext1
         congr
-    | .access pos e x, v_not_in_e => by
+    | .access e x, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
 
       have IH : eval M e = eval (M.erase v) e := eval_not_fv_irrel v_not_in_e
 
       unfold eval
       rw [IH]
-    | .seq pos es, v_not_in_e => by
+    | .seq es, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.mem_flatMap, not_exists, not_and] at v_not_in_e
 
@@ -308,7 +308,7 @@ namespace CoreTLAPlus
       apply IH _ e_in
       apply v_not_in_e ⟨e, e_in⟩
       apply List.mem_attach
-    | .opcall pos fn args, v_not_in_e => by
+    | .opcall fn args, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.not_mem_union_iff, List.mem_flatMap, not_exists, not_and] at v_not_in_e
 
@@ -322,7 +322,7 @@ namespace CoreTLAPlus
         rw [IH₂ _ e_in]
       · ext1
         congr
-    | .except pos fn upds, v_not_in_e => by
+    | .except fn upds, v_not_in_e => by
       unfold Expression.freeVars at v_not_in_e
       simp_rw [List.not_mem_union_iff, List.mem_flatMap, not_exists, not_and] at v_not_in_e
 
@@ -382,7 +382,7 @@ namespace CoreTLAPlus
 
   theorem eval_subst {M : Memory} {e e'} {v} {x} (h : x ∉ prims) (eval_e' : M ⊢ e' ⇒ v) : eval M (e.replace x e') = eval (M.insert x v) e := by
     cases e with
-    | var pos name =>
+    | var name =>
       by_cases x_eq : x = name
       · subst x_eq
         rw [Expression.replace, ite_cond_eq_true _ _ (eq_true rfl)]
@@ -391,10 +391,10 @@ namespace CoreTLAPlus
       · rw [Expression.replace, ite_cond_eq_false _ _ (eq_false x_eq)]
         conv_rhs => unfold eval; rw [AList.lookup_insert_ne (Ne.symm x_eq)]
         conv_lhs => unfold eval
-    | str pos raw | nat pos raw | bool pos raw =>
+    | str raw | nat raw | bool raw =>
       unfold Expression.replace eval
       rfl
-    | set pos elems =>
+    | set elems =>
       unfold Expression.replace eval
       congr 1
       simp_rw [List.attach_map, List.traverse_map, Function.comp_def]
@@ -405,7 +405,7 @@ namespace CoreTLAPlus
       congr
       ext1 ⟨e, e_in⟩
       apply IH _ e_in
-    | record pos fields =>
+    | record fields =>
       unfold Expression.replace eval
       congr 1
       simp_rw [List.attach_map, List.traverse_map, Function.comp_def]
@@ -417,12 +417,12 @@ namespace CoreTLAPlus
       funext ⟨⟨y, τ, e⟩, f_in⟩
       congr 1
       apply IH _ f_in
-    | «prefix» pos op e =>
+    | «prefix» op e =>
       have IH : eval M (e.replace x e') = eval (M.insert x v) e := eval_subst h eval_e'
 
       unfold Expression.replace eval
       congr 1
-    | «infix» pos e₁ op e₂ =>
+    | «infix» e₁ op e₂ =>
       have IH₁ : eval M (e₁.replace x e') = eval (M.insert x v) e₁ := eval_subst h eval_e'
       have IH₂ : eval M (e₂.replace x e') = eval (M.insert x v) e₂ := eval_subst h eval_e'
 
@@ -430,7 +430,7 @@ namespace CoreTLAPlus
       congr 1
       ext1 e₁
       congr 1
-    | funcall pos fn args =>
+    | funcall fn args =>
       have IH₁ : eval M (fn.replace x e') = eval (M.insert x v) fn := eval_subst h eval_e'
       have IH₂ : ∀ arg ∈ args, eval M (arg.replace x e') = eval (M.insert x v) arg := λ _ _ ↦ eval_subst h eval_e'
 
@@ -443,12 +443,12 @@ namespace CoreTLAPlus
         rw [IH₂ _ arg_in]
       · ext1
         congr
-    | access pos e y =>
+    | access e y =>
       have IH : eval M (e.replace x e') = eval (M.insert x v) e := eval_subst h eval_e'
 
       unfold Expression.replace eval
       congr 1
-    | seq pos es =>
+    | seq es =>
       unfold Expression.replace eval
       congr 1
       simp_rw [List.attach_map, List.traverse_map, Function.comp_def]
@@ -459,7 +459,7 @@ namespace CoreTLAPlus
       congr
       ext ⟨e, e_in⟩ : 1
       apply IH _ e_in
-    | opcall pos fn args =>
+    | opcall fn args =>
       unfold Expression.replace eval
       congr 1
       · simp_rw [List.attach_map, List.traverse_map, Function.comp_def]
@@ -473,7 +473,7 @@ namespace CoreTLAPlus
       · have IH₁ : eval M (fn.replace x e') = eval (M.insert x v) fn := eval_subst h eval_e'
         ext1 args
         congr 1
-    | except pos fn upds =>
+    | except fn upds =>
       unfold Expression.replace eval
       congr 1
       · apply_rules [eval_subst]
@@ -534,17 +534,19 @@ namespace CoreTLAPlus
     (x_not_prim : x ∉ prims) (x_not_mem_fv : x ∉ e.freeVars) :
       eval M (e.replace x e') = eval M e := by
     cases e with
-    | var pos name =>
+    | var name =>
       have : x ≠ name := by
         unfold Expression.freeVars at x_not_mem_fv
         exact List.ne_of_not_mem_cons x_not_mem_fv
 
       unfold Expression.replace
-      rw [if_neg ‹x ≠ name›]
-    | str pos raw | nat pos raw | bool pos raw =>
+      extract_lets +lift
+      split <;> first | contradiction | injections; subst_vars
+      erw [if_neg ‹x ≠ _›]
+    | str raw | nat raw | bool raw =>
       unfold Expression.replace
       rfl
-    | set pos es =>
+    | set es =>
       unfold Expression.replace
 
       unfold Expression.freeVars at x_not_mem_fv
@@ -563,7 +565,7 @@ namespace CoreTLAPlus
       congr 2
       ext ⟨e, e_in⟩ : 1
       apply IH _ e_in
-    | record pos fields =>
+    | record fields =>
       unfold Expression.replace
 
       unfold Expression.freeVars at x_not_mem_fv
@@ -588,7 +590,7 @@ namespace CoreTLAPlus
       dsimp [Function.comp]
       congr 1
       apply IH _ field_in_fields
-    | «prefix» pos op e =>
+    | «prefix» op e =>
       unfold Expression.freeVars at x_not_mem_fv
 
       have IH : eval M (e.replace x e') = eval M e :=
@@ -596,7 +598,7 @@ namespace CoreTLAPlus
 
       unfold Expression.replace eval
       congr 1
-    | «infix» pos e₁ op e₂ =>
+    | «infix» e₁ op e₂ =>
       unfold Expression.freeVars at x_not_mem_fv
       rw [List.mem_union_iff] at x_not_mem_fv
       push_neg at x_not_mem_fv
@@ -610,7 +612,7 @@ namespace CoreTLAPlus
       congr 1
       ext1 e₁
       congr 1
-    | access pos e y =>
+    | access e y =>
       unfold Expression.replace
 
       unfold Expression.freeVars at x_not_mem_fv
@@ -621,7 +623,7 @@ namespace CoreTLAPlus
 
       unfold eval
       rw [IH]
-    | seq pos es =>
+    | seq es =>
       unfold Expression.replace
 
       unfold Expression.freeVars at x_not_mem_fv
@@ -640,7 +642,7 @@ namespace CoreTLAPlus
       congr 2
       ext ⟨e, e_in⟩ : 1
       apply IH _ e_in
-    | funcall pos fn args | opcall pos fn args =>
+    | funcall fn args | opcall fn args =>
       unfold Expression.freeVars at x_not_mem_fv
       rw [List.mem_union_iff, List.mem_flatMap] at x_not_mem_fv
       push_neg at x_not_mem_fv
@@ -658,7 +660,7 @@ namespace CoreTLAPlus
       · have IH₁ : eval M (fn.replace x e') = eval M fn := eval_subst_of_not_mem_fv x_not_prim x_not_mem_fv.1
         ext1 args
         congr 1
-    | except pos e upds =>
+    | except e upds =>
       unfold Expression.replace eval
 
       unfold Expression.freeVars at x_not_mem_fv
@@ -732,19 +734,21 @@ namespace CoreTLAPlus
         _ < sizeOf upds := by decreasing_trivial
         _ < _ := by simp +arith
 
-  theorem neval_subst_of_mem_fv_of_neval.{u} {M : Memory.{u}} {x} {e e' : Expression.{u} Typ}
+  theorem neval_subst_of_mem_fv_of_neval {M : Memory} {x} {e e' : Expression.{0} Typ}
     (x_in_fv_e : x ∈ e.freeVars) (neval_e' : M ⊢ e' ↯) :
       M ⊢ e.replace x e' ↯ := by
     cases e with
-    | var pos name =>
+    | var name =>
       unfold Expression.freeVars at x_in_fv_e
       cases propext List.mem_singleton ▸ x_in_fv_e
       unfold Expression.replace
+      extract_lets +lift
+      split <;> first | contradiction | injections; subst_vars
       rwa [if_pos rfl]
-    | str pos raw | nat pos raw | bool pos raw =>
+    | str raw | nat raw | bool raw =>
       unfold Expression.freeVars at x_in_fv_e
       nomatch x_in_fv_e
-    | «prefix» pos op e | access pos e x =>
+    | «prefix» op e | access e x =>
       unfold Expression.freeVars at x_in_fv_e
       unfold Expression.replace eval
       simp_rw [Option.bind_eq_bind, Option.bind_eq_none_iff]
@@ -752,7 +756,7 @@ namespace CoreTLAPlus
       apply neval_subst_of_mem_fv_of_neval x_in_fv_e at neval_e'
       rw [neval_e'] at eval_e_subst
       contradiction
-    | «infix» pos e₁ op e₂ =>
+    | «infix» e₁ op e₂ =>
       unfold Expression.freeVars at x_in_fv_e
       rw [List.mem_union_iff] at x_in_fv_e
       unfold Expression.replace eval
@@ -765,7 +769,7 @@ namespace CoreTLAPlus
       · apply neval_subst_of_mem_fv_of_neval x_in_fv_e₂ at neval_e'
         rw [neval_e'] at eval_e₂_subst
         contradiction
-    | set pos es | seq pos es =>
+    | set es | seq es =>
       unfold Expression.freeVars at x_in_fv_e
       rw [List.mem_flatMap] at x_in_fv_e
 
@@ -785,7 +789,7 @@ namespace CoreTLAPlus
 
       erw [Option.map_eq_none_iff, List.traverse_eq_none]
       exists _, e_in
-    | record pos fields =>
+    | record fields =>
       unfold Expression.freeVars at x_in_fv_e
       rw [List.mem_flatMap] at x_in_fv_e
 
@@ -802,7 +806,7 @@ namespace CoreTLAPlus
       · exact List.mem_attach fields ⟨a, a_in⟩
       · exact List.mem_attach fields.attach ⟨_, _⟩
       · erwa [Option.map_eq_none_iff]
-    | funcall pos fn args | opcall pos fn args =>
+    | funcall fn args | opcall fn args =>
       unfold Expression.freeVars at x_in_fv_e
       rw [List.mem_union_iff, List.mem_flatMap] at x_in_fv_e
 
@@ -834,7 +838,7 @@ namespace CoreTLAPlus
           rw [neval_e']
           intro _
           contradiction
-    | except pos e upds =>
+    | except e upds =>
       unfold Expression.freeVars at x_in_fv_e
       erw [List.mem_union_iff, List.mem_flatMap] at x_in_fv_e
 
@@ -861,7 +865,7 @@ namespace CoreTLAPlus
               | Sum.inl es => Sum.inl (List.map (λ e ↦ Expression.replace e x e') es)
               | Sum.inr x => Sum.inr x
 
-          let g : List (Expression.{u} Typ) ⊕ String → Option (List Value ⊕ String) :=
+          let g : List (Expression.{0} Typ) ⊕ String → Option (List Value ⊕ String) :=
             fun x_2 ↦ match x_2 with
               | Sum.inr x_3 => pure (Sum.inr x_3)
               | Sum.inl es => Sum.inl <$> List.traverse (fun ⟨x, _⟩ ↦ eval M x) es.attach
@@ -968,7 +972,7 @@ namespace CoreTLAPlus
         _ < sizeOf upds := by decreasing_trivial
         _ < _ := by simp +arith
 
-  theorem eval_subst_iff.{u} {M : Memory.{u}} {e e' : Expression.{u} Typ} {v} {x} (h : x ∉ prims) :
+  theorem eval_subst_iff {M : Memory} {e e' : Expression.{0} Typ} {v} {x} (h : x ∉ prims) :
       M ⊢ e.replace x e' ⇒ v ↔ if x ∈ e.freeVars then ∃ v', M ⊢ e' ⇒ v' ∧ M.insert x v' ⊢ e ⇒ v else M ⊢ e ⇒ v := by
     iff_intro h' h'
     · split_ifs with h''
@@ -994,7 +998,7 @@ namespace CoreTLAPlus
       M ⊢ e ↯ ∨ (∃ v, M ⊢ e ⇒ v) :=
     Option.eq_none_or_eq_some _
 
-  theorem eval_plus_spec.{u} {M : Memory.{u}} {pos} {e₁ e₂ : Expression.{u} Typ} {v} (h : M ⊢ .infix pos e₁ .«+» e₂ ⇒ v) :
+  theorem eval_plus_spec.{u} {M : Memory.{u}} {e₁ e₂ : Expression.{u} Typ} {v} (h : M ⊢ .infix e₁ .«+» e₂ ⇒ v) :
       ∃ n₁ n₂, M ⊢ e₁ ⇒ .int n₁ ∧ M ⊢ e₂ ⇒ .int n₂ ∧ v = .int (n₁ + n₂) := by
     unfold eval at h
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
@@ -1003,18 +1007,18 @@ namespace CoreTLAPlus
     cases h
     exists n₁, n₂
 
-  theorem eval_plus_intro.{u} {M : Memory.{u}} {pos} {e₁ e₂} {n₁ n₂} (h₁ : M ⊢ e₁ ⇒ .int n₁) (h₂ : M ⊢ e₂ ⇒ .int n₂) : M ⊢ .infix pos e₁ .«+» e₂ ⇒ .int (n₁ + n₂) := by
+  theorem eval_plus_intro.{u} {M : Memory.{u}} {e₁ e₂} {n₁ n₂} (h₁ : M ⊢ e₁ ⇒ .int n₁) (h₂ : M ⊢ e₂ ⇒ .int n₂) : M ⊢ .infix e₁ .«+» e₂ ⇒ .int (n₁ + n₂) := by
     unfold eval
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff]
     exists _, h₁, _, h₂
 
-  theorem eval_plus_iff.{u} {M : Memory.{u}} {pos} {e₁ e₂ : Expression.{u} Typ} {v} : M ⊢ .infix pos e₁ .«+» e₂ ⇒ v ↔ ∃ n₁ n₂, M ⊢ e₁ ⇒ .int n₁ ∧ M ⊢ e₂ ⇒ .int n₂ ∧ v = .int (n₁ + n₂) := by
+  theorem eval_plus_iff.{u} {M : Memory.{u}} {e₁ e₂ : Expression.{u} Typ} {v} : M ⊢ .infix e₁ .«+» e₂ ⇒ v ↔ ∃ n₁ n₂, M ⊢ e₁ ⇒ .int n₁ ∧ M ⊢ e₂ ⇒ .int n₂ ∧ v = .int (n₁ + n₂) := by
     constructor
     · exact eval_plus_spec
     · rintro ⟨n₁, n₂, h₁, h₂, rfl⟩
       apply eval_plus_intro <;> assumption
 
-  theorem eval_gt_spec.{u} {M : Memory.{u}} {pos} {e₁ e₂} {v} (h : M ⊢ .infix pos e₁ .«>» e₂ ⇒ v) :
+  theorem eval_gt_spec.{u} {M : Memory.{u}} {e₁ e₂} {v} (h : M ⊢ .infix e₁ .«>» e₂ ⇒ v) :
       ∃ n₁ n₂, M ⊢ e₁ ⇒ .int n₁ ∧ M ⊢ e₂ ⇒ .int n₂ ∧ v = .bool (decide (n₁ > n₂)) := by
     unfold eval at h
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
@@ -1023,7 +1027,7 @@ namespace CoreTLAPlus
     cases h
     exists n₁, n₂
 
-  theorem neval_gt_spec.{u} {M : Memory.{u}} {pos} {e₁ e₂} (h : M ⊢ .infix pos e₁ .«>» e₂ ↯) :
+  theorem neval_gt_spec.{u} {M : Memory.{u}} {e₁ e₂} (h : M ⊢ .infix e₁ .«>» e₂ ↯) :
       (∀ v, M ⊢ e₁ ⇒ v → ∀ n, v ≠ .int n) ∨ (∀ v, M ⊢ e₂ ⇒ v → ∀ n, v ≠ .int n) := by
     unfold eval at h
     simp_rw [Option.bind_eq_bind, Option.bind_eq_none_iff] at h
@@ -1032,14 +1036,14 @@ namespace CoreTLAPlus
     obtain ⟨⟨v₁, eval_e₁, n₁, rfl⟩, ⟨v₂, eval_e₂, n₂, rfl⟩⟩ := h
     cases h _ eval_e₁ _ eval_e₂
 
-  theorem eval_gt_intro.{u} {M : Memory.{u}} {pos} {e₁ e₂} {n₁ n₂} (h₁ : M ⊢ e₁ ⇒ .int n₁) (h₂ : M ⊢ e₂ ⇒ .int n₂) : M ⊢ .infix pos e₁ .«>» e₂ ⇒ .bool (decide (n₁ > n₂)) := by
+  theorem eval_gt_intro.{u} {M : Memory.{u}} {e₁ e₂} {n₁ n₂} (h₁ : M ⊢ e₁ ⇒ .int n₁) (h₂ : M ⊢ e₂ ⇒ .int n₂) : M ⊢ .infix e₁ .«>» e₂ ⇒ .bool (decide (n₁ > n₂)) := by
     unfold eval
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff]
     exists _, h₁, _, h₂
 
-  theorem neval_gt_intro.{u} {M : Memory.{u}} {pos} {e₁ e₂}
+  theorem neval_gt_intro.{u} {M : Memory.{u}} {e₁ e₂}
     (h : ∀ v₁ v₂, M ⊢ e₁ ⇒ v₁ → M ⊢ e₂ ⇒ v₂ → ((∀ n₁, v₁ ≠ .int n₁) ∨ (∀ n₂, v₂ ≠ .int n₂))) :
-      M ⊢ .infix pos e₁ .«>» e₂ ↯ := by
+      M ⊢ .infix e₁ .«>» e₂ ↯ := by
     unfold eval
     simp_rw [Option.bind_eq_bind, Option.bind_eq_none_iff]
     intros v₁ eval_e₁ v₂ eval_e₂
@@ -1047,30 +1051,30 @@ namespace CoreTLAPlus
     · obtain h|h := h _ _ eval_e₁ eval_e₂ <;> nomatch h _ rfl
     · rfl
 
-  theorem eval_gt_iff.{u} {M : Memory.{u}} {pos} {e₁ e₂} {v} : M ⊢ .infix pos e₁ .«>» e₂ ⇒ v ↔ ∃ n₁ n₂, M ⊢ e₁ ⇒ .int n₁ ∧ M ⊢ e₂ ⇒ .int n₂ ∧ v = .bool (decide (n₁ > n₂)) := by
+  theorem eval_gt_iff.{u} {M : Memory.{u}} {e₁ e₂} {v} : M ⊢ .infix e₁ .«>» e₂ ⇒ v ↔ ∃ n₁ n₂, M ⊢ e₁ ⇒ .int n₁ ∧ M ⊢ e₂ ⇒ .int n₂ ∧ v = .bool (decide (n₁ > n₂)) := by
     constructor
     · exact eval_gt_spec
     · rintro ⟨n₁, n₂, h₁, h₂, rfl⟩
       apply eval_gt_intro <;> assumption
 
-  theorem eval_nat_spec.{u} {M : Memory.{u}} {pos} {x} {v} (h : M ⊢ .nat pos x ⇒ v) : v = .int x.toInt! := by
+  theorem eval_nat_spec.{u} {M : Memory.{u}} {x} {v} (h : M ⊢ .nat x ⇒ v) : v = .int x.toInt! := by
     unfold eval at h
     cases h
     rfl
 
-  theorem eval_nat_intro.{u} {M : Memory.{u}} {pos} {x} {n} (h : x.toInt! = n) : M ⊢ .nat pos x ⇒ .int n := by
+  theorem eval_nat_intro.{u} {M : Memory.{u}} {x} {n} (h : x.toInt! = n) : M ⊢ .nat x ⇒ .int n := by
     unfold eval
     rw [h]
     rfl
 
-  theorem eval_nat_iff.{u} {M : Memory.{u}} {pos} {x} {v} : M ⊢ .nat pos x ⇒ v ↔ v = .int x.toInt! := by
+  theorem eval_nat_iff.{u} {M : Memory.{u}} {x} {v} : M ⊢ .nat x ⇒ v ↔ v = .int x.toInt! := by
     constructor
     · exact eval_nat_spec
     · rintro rfl
       apply eval_nat_intro
       rfl
 
-  theorem eval_plus_0_eq {pos₁} {M} {e₁ e₂} {n} (h₁ : M ⊢ e₁ ⇒ .int n) (h₂ : M ⊢ e₂ ⇒ .int 0) : eval M (.infix pos₁ e₁ .«+» e₂) = eval M e₁ := by
+  theorem eval_plus_0_eq {M} {e₁ e₂} {n} (h₁ : M ⊢ e₁ ⇒ .int n) (h₂ : M ⊢ e₂ ⇒ .int 0) : eval M (.infix e₁ .«+» e₂) = eval M e₁ := by
     conv_lhs => unfold eval
     ext v
     erw [Option.bind_eq_some_iff]
@@ -1090,7 +1094,7 @@ namespace CoreTLAPlus
       dsimp
       erw [Int.add_zero]
 
-  theorem eval_plus_gt_eq_gt_minus {pos₁ pos₂} {M} {e₁ e₂ e₃} : eval M (.infix pos₁ (.infix pos₂ e₁ .«+» e₂) .«>» e₃) = eval M (.infix pos₁ e₁ .«>» (.infix pos₂ e₃ .«-» e₂)) := by
+  theorem eval_plus_gt_eq_gt_minus {M} {e₁ e₂ e₃} : eval M (.infix (.infix e₁ .«+» e₂) .«>» e₃) = eval M (.infix e₁ .«>» (.infix e₃ .«-» e₂)) := by
     unfold eval
     ext v
     repeat erw [Option.bind_eq_some_iff]
@@ -1148,20 +1152,20 @@ namespace CoreTLAPlus
         congr 3
         simp +arith
 
-  theorem eval_nat_minus {M} {pos₁ pos₂ pos₃ pos₄} {n₁ n₂ : ℕ} (h : n₁ ≥ n₂) :
-      eval M (.infix pos₁ (.nat pos₂ (toString n₁)) .«-» (.nat pos₃ (toString n₂))) = eval M (.nat pos₄ (toString (n₁ - n₂))) := by
+  theorem eval_nat_minus {M} {n₁ n₂ : ℕ} (h : n₁ ≥ n₂) :
+      eval M (.infix (.nat (toString n₁)) .«-» (.nat (toString n₂))) = eval M (.nat (toString (n₁ - n₂))) := by
     unfold eval eval
     repeat erw [Nat.repr_toInt!]
     grind
 
-  theorem eval_nat_plus {M} {pos₁ pos₂ pos₃ pos₄} {n₁ n₂ : ℕ} :
-      eval M (.infix pos₁ (.nat pos₂ (toString n₁)) .«+» (.nat pos₃ (toString n₂))) = eval M (.nat pos₄ (toString (n₁ + n₂))) := by
+  theorem eval_nat_plus {M} {n₁ n₂ : ℕ} :
+      eval M (.infix (.nat (toString n₁)) .«+» (.nat (toString n₂))) = eval M (.nat (toString (n₁ + n₂))) := by
     unfold eval eval
     repeat erw [Nat.repr_toInt!]
     grind
 
-  theorem eval_infix_congr {M} {pos e₁ e₁' op e₂ e₂'} (h₁ : eval M e₁ = eval M e₁') (h₂ : eval M e₂ = eval M e₂') :
-      eval M (.infix pos e₁ op e₂) = eval M (.infix pos e₁' op e₂') := by
+  theorem eval_infix_congr {M} {e₁ e₁' op e₂ e₂'} (h₁ : eval M e₁ = eval M e₁') (h₂ : eval M e₂ = eval M e₂') :
+      eval M (.infix e₁ op e₂) = eval M (.infix e₁' op e₂') := by
     unfold eval
     ext v
     repeat erw [Option.bind_eq_some_iff]
@@ -1193,15 +1197,15 @@ namespace CoreTLAPlus
             exists _, eval_e₂'_eq_v₂'
       }
 
-  theorem eval_plus_nat_plus {M} {pos₁ pos₂ pos₃ pos₄ pos₅} {e₁} {n₁ n₂ : ℕ} :
-      eval M (.infix pos₁ e₁ .«+» (.infix pos₂ (.nat pos₃ (toString n₁)) .«+» (.nat pos₄ (toString n₂)))) =
-        eval M (.infix pos₁ e₁ .«+» (.nat pos₅ (toString (n₁ + n₂)))) := by
+  theorem eval_plus_nat_plus {M} {e₁} {n₁ n₂ : ℕ} :
+      eval M (.infix e₁ .«+» (.infix (.nat (toString n₁)) .«+» (.nat (toString n₂)))) =
+        eval M (.infix e₁ .«+» (.nat (toString (n₁ + n₂)))) := by
     apply eval_infix_congr
     · rfl
     · exact eval_nat_plus
 
-  theorem eval_plus_assoc {M} {e₁ e₂ e₃} {pos₁ pos₂} :
-      eval M (.infix pos₁ (.infix pos₂ e₁ .«+» e₂) .«+» e₃) = eval M (.infix pos₁ e₁ .«+» (.infix pos₂ e₂ .«+» e₃)) := by
+  theorem eval_plus_assoc {M} {e₁ e₂ e₃} :
+      eval M (.infix (.infix e₁ .«+» e₂) .«+» e₃) = eval M (.infix e₁ .«+» (.infix e₂ .«+» e₃)) := by
     conv_lhs =>
       unfold eval
       pattern (occs := 1) eval M _
@@ -1235,7 +1239,7 @@ namespace CoreTLAPlus
         · contradiction
       · contradiction
 
-  theorem eval_Head_to_is_nonempty_seq {M : Memory} {pos} {e} {es} {v} (h₁ : M ⊢ e ⇒ .prim "Head") (h₂ : M ⊢ .opcall pos e es ⇒ v) :
+  theorem eval_Head_to_is_nonempty_seq {M : Memory} {e} {es} {v} (h₁ : M ⊢ e ⇒ .prim "Head") (h₂ : M ⊢ .opcall e es ⇒ v) :
       ∃ (h₃ : es.length = 1), ∃ vs, M ⊢ es[0] ⇒ .seq vs ∧ ∃ vs', vs = v :: vs' := by
     unfold eval at h₂
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff] at h₂
@@ -1255,7 +1259,7 @@ namespace CoreTLAPlus
     rw [← e_eq] at eval_e
     refine ⟨List.length_singleton, _, eval_e, _, rfl⟩
 
-  theorem neval_Head {M : Memory} {pos} {e} {es} (h₁ : M ⊢ e ⇒ .prim "Head") (h₂ : M ⊢ .opcall pos e es ↯) :
+  theorem neval_Head {M : Memory} {e} {es} (h₁ : M ⊢ e ⇒ .prim "Head") (h₂ : M ⊢ .opcall e es ↯) :
       es.length ≠ 1 ∨ (∃ e ∈ es, ∀ v', M ⊢ e ⇒ v' → ∀ v vs, v' ≠ .seq (v :: vs)) := by
     by_contra! h
 
@@ -1278,11 +1282,11 @@ namespace CoreTLAPlus
       nomatch h₂ _ rfl
     · exact h₃ _ rfl
 
-  theorem eval_Head.{u} {M : Memory.{u}} {pos} : M ⊢ .var pos "Head" ⇒ .prim "Head" := by
+  theorem eval_Head.{u} {M : Memory.{u}} : M ⊢ .var "Head" ⇒ .prim "Head" := by
     unfold eval
     rfl
 
-  theorem eval_Tail_is_seq {M : Memory} {pos} {e} {es} {v} (h₁ : M ⊢ e ⇒ .prim "Tail") (h₂ : M ⊢ .opcall pos e es ⇒ v) :
+  theorem eval_Tail_is_seq {M : Memory} {e} {es} {v} (h₁ : M ⊢ e ⇒ .prim "Tail") (h₂ : M ⊢ .opcall e es ⇒ v) :
       ∃ (h₃ : es.length = 1), ∃ v' vs, M ⊢ es[0] ⇒ .seq (v' :: vs) ∧ v = .seq vs := by
     unfold eval at h₂
     erw [Option.bind_eq_some_iff] at h₂
@@ -1302,7 +1306,7 @@ namespace CoreTLAPlus
     refine ⟨?_, v', vs', ‹_›, rfl⟩
     simp
 
-  theorem neval_Tail {M : Memory} {pos} {e} {es} (h₁ : M ⊢ e ⇒ .prim "Tail") (h₂ : M ⊢ .opcall pos e es ↯) :
+  theorem neval_Tail {M : Memory} {e} {es} (h₁ : M ⊢ e ⇒ .prim "Tail") (h₂ : M ⊢ .opcall e es ↯) :
       es.length ≠ 1 ∨ (∃ e ∈ es, ∀ v', M ⊢ e ⇒ v' → ∀ v vs, v' ≠ .seq (v :: vs)) := by
     by_contra! h
 
@@ -1325,12 +1329,12 @@ namespace CoreTLAPlus
       nomatch h₂ _ rfl
     · exact h₃ _ rfl
 
-  theorem eval_Tail.{u} {M : Memory.{u}} {pos} : M ⊢ .var pos "Tail" ⇒ .prim "Tail" := by
+  theorem eval_Tail.{u} {M : Memory.{u}} : M ⊢ .var "Tail" ⇒ .prim "Tail" := by
     unfold eval
     rfl
 
-  theorem eval_Tail_intro {M : Memory} {pos} {e} {es} {vs} (v) (h₁ : es.length = 1) (h₂ : M ⊢ e ⇒ .prim "Tail") (h₃ : M ⊢ es[0] ⇒ .seq (v :: vs)) :
-      M ⊢ .opcall pos e es ⇒ .seq vs := by
+  theorem eval_Tail_intro {M : Memory} {e} {es} {vs} (v) (h₁ : es.length = 1) (h₂ : M ⊢ e ⇒ .prim "Tail") (h₃ : M ⊢ es[0] ⇒ .seq (v :: vs)) :
+      M ⊢ .opcall e es ⇒ .seq vs := by
     unfold eval
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff]
     refine ⟨[.seq (v :: vs)], ?_, .prim "Tail", ‹_›, ?_⟩
@@ -1340,7 +1344,7 @@ namespace CoreTLAPlus
     · simp_rw [prims_Tail, Bind.bindLeft, Option.bind_eq_bind, Option.bind_eq_some_iff]
       exists Tail
 
-  theorem eval_Len_is_int {M : Memory} {pos} {e} {es} {v} (h₁ : M ⊢ e ⇒ .prim "Len") (h₂ : M ⊢ .opcall pos e es ⇒ v) :
+  theorem eval_Len_is_int {M : Memory} {e} {es} {v} (h₁ : M ⊢ e ⇒ .prim "Len") (h₂ : M ⊢ .opcall e es ⇒ v) :
       ∃ (h₃ : es.length = 1), ∃ vs, M ⊢ es[0] ⇒ .seq vs ∧ v = .int vs.length := by
     unfold eval at h₂
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff] at h₂
@@ -1361,8 +1365,8 @@ namespace CoreTLAPlus
     rw [← e_eq] at eval_e
     refine ⟨List.length_singleton, _, eval_e, rfl⟩
 
-  theorem eval_Len_intro {M : Memory} {pos} {e} {es} {vs} {n} (h₁ : es.length = 1) (h₂ : M ⊢ e ⇒ .prim "Len") (h₃ : M ⊢ es[0] ⇒ .seq vs) (h₄ : n = vs.length) :
-      M ⊢ .opcall pos e es ⇒ .int n := by
+  theorem eval_Len_intro {M : Memory} {e} {es} {vs} {n} (h₁ : es.length = 1) (h₂ : M ⊢ e ⇒ .prim "Len") (h₃ : M ⊢ es[0] ⇒ .seq vs) (h₄ : n = vs.length) :
+      M ⊢ .opcall e es ⇒ .int n := by
     unfold eval
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff]
     refine ⟨[.seq vs], ?_, .prim "Len", ‹_›, ?_⟩
@@ -1375,15 +1379,15 @@ namespace CoreTLAPlus
       rw [dite_cond_eq_true (eq_true List.length_singleton), h₄]
       rfl
 
-  theorem eval_Len.{u} {M : Memory.{u}} {pos} : M ⊢ .var pos "Len" ⇒ .prim "Len" := by
+  theorem eval_Len.{u} {M : Memory.{u}} : M ⊢ .var "Len" ⇒ .prim "Len" := by
     unfold eval
     rfl
 
-  theorem eval_var_pos_irrel.{u} {M : Memory.{u}} {pos₁ pos₂} {x} : eval M (.var pos₁ x) = eval M (.var pos₂ x) := by
+  theorem eval_var_pos_irrel.{u} {M : Memory.{u}} {x} : eval M (.var x) = eval M (.var x) := by
     unfold eval
     rfl
 
-  theorem eval_var.{u} {M : Memory.{u}} {pos} {x} : eval M (.var pos x) = if h : x ∈ prims.{u} then primFromName x h else M.lookup x := by
+  theorem eval_var.{u} {M : Memory.{u}} {x} : eval M (.var x) = if h : x ∈ prims.{u} then primFromName x h else M.lookup x := by
     unfold eval
     rfl
 

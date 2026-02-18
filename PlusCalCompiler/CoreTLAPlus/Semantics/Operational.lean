@@ -142,13 +142,13 @@ namespace CoreTLAPlus
   local instance {α} [DecidableEq α] (a : α) (as : List α) : Decidable (a ∈ as) := List.instDecidableMemOfLawfulBEq a as
 
   def eval.{u} (M : Memory.{u}) : Expression Typ → Option Value.{u}
-    | .var _ name => if h : name ∈ prims.{u} then primFromName name h else M.lookup name
-    | .str _ raw => return .str raw
-    | .nat _ raw => return .int (String.toInt! raw)
-    | .bool _ raw => return .bool raw
-    | .set _ elems => .set <$> elems.attach.traverse λ ⟨e, _⟩ ↦ eval M e
-    | .record _ fields => .record <$> fields.attach.traverse λ ⟨⟨n, _τ, e⟩, _⟩ ↦ (n, ·) <$> eval M e
-    | .prefix _ op e => do
+    | .var name => if h : name ∈ prims.{u} then primFromName name h else M.lookup name
+    | .str raw => return .str raw
+    | .nat raw => return .int (String.toInt! raw)
+    | .bool raw => return .bool raw
+    | .set elems => .set <$> elems.attach.traverse λ ⟨e, _⟩ ↦ eval M e
+    | .record fields => .record <$> fields.attach.traverse λ ⟨⟨n, _τ, e⟩, _⟩ ↦ (n, ·) <$> eval M e
+    | .prefix op e => do
       let e ← eval M e
       match op with
       | .«-» => match e with
@@ -157,7 +157,7 @@ namespace CoreTLAPlus
       | .«¬» => match e with
         | .bool b => return .bool !b
         | _ => throw ()
-    | .infix _ e₁ op e₂ => do
+    | .infix e₁ op e₂ => do
       let e₁ ← eval M e₁
       let e₂ ← eval M e₂
       match op with
@@ -182,22 +182,22 @@ namespace CoreTLAPlus
           -- can we compare functions?
           return .bool (decide (e₁ = e₂))
         | _, _ => throw ()
-    | .funcall _ fn args => do
+    | .funcall fn args => do
       let args ← args.attach.traverse λ ⟨e, _⟩ ↦ eval M e
       let .fn fn ← eval M fn | throw ()
       let tup : Value := if let [arg] := args then arg else Value.tuple args
       let ⟨_, v⟩ ← fn.find? λ ⟨k, _⟩ ↦ k == tup
       return v
-    | .access _ e x => do
+    | .access e x => do
       let .record bs ← eval M e | throw ()
       bs.lookup x
-    | .seq _ es => .seq <$> es.attach.traverse λ ⟨e, _⟩ ↦ eval M e
-    | .opcall _ fn args => do
+    | .seq es => .seq <$> es.attach.traverse λ ⟨e, _⟩ ↦ eval M e
+    | .opcall fn args => do
       let args ← args.attach.traverse λ ⟨e, _⟩ ↦ eval M e
       match ← eval M fn with
       | .prim op => (· <| args) =<< prims.lookup op
       | _ => throw ()
-    | .except _ fn upds => do
+    | .except fn upds => do
       let fn ← eval M fn
       let upds : List (List (List Value ⊕ String) × Value.{u}) ← upds.attach.traverse λ ⟨⟨upd, e⟩, _⟩ ↦ do
         let upd ← upd.attach.traverse λ | ⟨.inr x, _⟩ => pure (.inr x)
