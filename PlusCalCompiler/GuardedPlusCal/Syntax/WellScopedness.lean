@@ -10,136 +10,136 @@ namespace GuardedPlusCal
   variable {Expr Typ : Type u} (Expr_WellScoped : (Γ : Scope) → Expr → Prop)
 
   protected def AtomicBranch.WellScoped (Br : AtomicBranch Typ Expr) («Σ» Δ Γ Ξ : Scope) («Σ_disj_Δ» : Disjoint «Σ» Δ := by simp [*]) («Σ_disj_Γ» : Disjoint «Σ» Γ := by simp [*]) (Δ_disj_Γ : Disjoint Δ Γ := by simp [*]) («Σ_disj_Ξ» : Disjoint «Σ» Ξ := by simp [*]) (Δ_disj_Ξ : Disjoint Δ Ξ := by simp [*]) (Γ_disj_Ξ : Disjoint Γ Ξ := by simp [*]) : Prop := match Br with
-    | ⟨.some ⟨[], .let pos x τ «=|∈» e⟩, B⟩ => ∃ (h₁ : x ∉ «Σ») (h₂ : x ∉ Δ) (h₃ : x ∉ Γ) (h₄ : x ∉ Ξ), Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, B⟩ «Σ» Δ Γ (insert x Ξ)
-    | ⟨.some ⟨.let pos x τ «=|∈» e :: Ss, I⟩, B⟩ => ∃ (h₁ : x ∉ «Σ») (h₂ : x ∉ Δ) (h₃ : x ∉ Γ) (h₄ : x ∉ Ξ), Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.some ⟨Ss, I⟩, B⟩ «Σ» Δ Γ (insert x Ξ)
-    | ⟨.some ⟨[], .await pos e⟩, B⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, B⟩ «Σ» Δ Γ Ξ
-    | ⟨.some ⟨.await pos e :: Ss, I⟩, B⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.some ⟨Ss, I⟩, B⟩ «Σ» Δ Γ Ξ
-    | ⟨.some ⟨[], .receive pos chan ref⟩, B⟩ =>
+    | ⟨.some ⟨[], .let x τ «=|∈» e⟩, B⟩ => ∃ (h₁ : x ∉ «Σ») (h₂ : x ∉ Δ) (h₃ : x ∉ Γ) (h₄ : x ∉ Ξ), Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, B⟩ «Σ» Δ Γ (insert x Ξ)
+    | ⟨.some ⟨.let x τ «=|∈» e :: Ss, I⟩, B⟩ => ∃ (h₁ : x ∉ «Σ») (h₂ : x ∉ Δ) (h₃ : x ∉ Γ) (h₄ : x ∉ Ξ), Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.some ⟨Ss, I⟩, B⟩ «Σ» Δ Γ (insert x Ξ)
+    | ⟨.some ⟨[], .await e⟩, B⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, B⟩ «Σ» Δ Γ Ξ
+    | ⟨.some ⟨.await e :: Ss, I⟩, B⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.some ⟨Ss, I⟩, B⟩ «Σ» Δ Γ Ξ
+    | ⟨.some ⟨[], .receive chan ref⟩, B⟩ =>
       ref.name ∈ Γ ∧ chan.name ∈ Δ ∧ (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧
       AtomicBranch.WellScoped ⟨.none, B⟩ «Σ» Δ Γ Ξ
-    | ⟨.some ⟨.receive pos chan ref :: Ss, I⟩, B⟩ =>
+    | ⟨.some ⟨.receive chan ref :: Ss, I⟩, B⟩ =>
       ref.name ∈ Γ ∧ chan.name ∈ Δ ∧ (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧
       AtomicBranch.WellScoped ⟨.some ⟨Ss, I⟩, B⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, .skip pos :: Ss, I⟩ => AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, .print pos e :: Ss, I⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, .assert pos e :: Ss, I⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, .send pos chan e :: Ss, I⟩ =>
+    | ⟨.none, .skip :: Ss, I⟩ => AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
+    | ⟨.none, .print e :: Ss, I⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
+    | ⟨.none, .assert e :: Ss, I⟩ => Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
+    | ⟨.none, .send chan e :: Ss, I⟩ =>
       Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ chan.name ∈ Δ ∧ (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧
       AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, .multicast pos chan filter e :: Ss, I⟩ =>
+    | ⟨.none, .multicast chan filter e :: Ss, I⟩ =>
       chan ∈ Δ ∧ (∀ r ∈ filter, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) r.2.2.2) ∧ (∀ r ∈ filter, r.1 ∉ «Σ» ∧ r.1 ∉ Γ ∧ r.1 ∉ Ξ) ∧
       Expr_WellScoped («Σ» ∪ Γ ∪ Ξ ∪ (filter.map Prod.fst).toFinset) e ∧ AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, .assign pos ref e :: Ss, I⟩ =>
+    | ⟨.none, .assign ref e :: Ss, I⟩ =>
       Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ ref.name ∈ Γ ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧
       AtomicBranch.WellScoped ⟨.none, Ss, I⟩ «Σ» Δ Γ Ξ
-    | ⟨.none, [], .goto pos l⟩ => True
+    | ⟨.none, [], .goto l⟩ => True
 
   @[mk_iff]
   protected inductive AtomicBranch.WellScopedPrecond («Σ» Δ Γ : Scope) («Σ_disj_Δ» : Disjoint «Σ» Δ := by simp [*]) («Σ_disj_Γ» : Disjoint «Σ» Γ := by simp [*]) (Δ_disj_Γ : Disjoint Δ Γ := by simp [*]) :
       Option (Block (Statement Typ Expr true) false) → (Ξ Ξ' : Scope) → («Σ_disj_Ξ» : Disjoint «Σ» Ξ := by simp [*]) → (Δ_disj_Ξ : Disjoint Δ Ξ := by simp [*]) → (Γ_disj_Ξ : Disjoint Γ Ξ := by simp [*]) → («Σ_disj_Ξ'» : Disjoint «Σ» Ξ' := by simp [*]) → (Δ_disj_Ξ' : Disjoint Δ Ξ' := by simp [*]) → (Γ_disj_Ξ' : Disjoint Γ Ξ' := by simp [*]) → Prop where
     | none {Ξ} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) :
       AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› Option.none Ξ Ξ
-    | some_await_end {Ξ pos e} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
-      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.end <| .await pos e) Ξ Ξ
-    | some_let_end {Ξ pos x τ «=|∈» e} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
+    | some_await_end {Ξ e} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
+      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.end <| .await e) Ξ Ξ
+    | some_let_end {Ξ x τ «=|∈» e} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
         (h₁ : x ∉ «Σ») → (h₂ : x ∉ Δ) → (h₃ : x ∉ Γ) → (h₄ : x ∉ Ξ) →
-      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.end <| .let pos x τ «=|∈» e) Ξ (insert x Ξ)
-    | some_receive_end {Ξ pos chan ref} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : ref.name ∈ Γ → chan.name ∈ Δ →
+      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.end <| .let x τ «=|∈» e) Ξ (insert x Ξ)
+    | some_receive_end {Ξ chan ref} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : ref.name ∈ Γ → chan.name ∈ Δ →
         (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) → (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) →
-      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.end <| .receive pos chan ref) Ξ Ξ
-    | some_await_cons {Ξ pos e B Ξ'} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
+      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.end <| .receive chan ref) Ξ Ξ
+    | some_await_cons {Ξ e B Ξ'} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
         {h₁ : Disjoint «Σ» Ξ'} → {h₂ : Disjoint Δ Ξ'} → {h₃ : Disjoint Γ Ξ'} → AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some B) Ξ Ξ' →
-      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.cons (.await pos e) B) Ξ Ξ'
-    | some_let_cons {Ξ pos x τ «=|∈» e B Ξ'} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
+      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.cons (.await e) B) Ξ Ξ'
+    | some_let_cons {Ξ x τ «=|∈» e B Ξ'} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e →
         (h₁ : x ∉ «Σ») → (h₂ : x ∉ Δ) → (h₃ : x ∉ Γ) → (h₄ : x ∉ Ξ) →
         {h₅ : Disjoint «Σ» Ξ'} → {h₆ : Disjoint Δ Ξ'} → {h₇ : Disjoint Γ Ξ'} → AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some B) (insert x Ξ) Ξ' →
-      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.cons (.let pos x τ «=|∈» e) B) Ξ Ξ'
-    | some_receive_cons {Ξ pos chan ref B Ξ'} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : ref.name ∈ Γ → chan.name ∈ Δ →
+      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.cons (.let x τ «=|∈» e) B) Ξ Ξ'
+    | some_receive_cons {Ξ chan ref B Ξ'} («Σ_disj_Ξ» : Disjoint «Σ» Ξ) (Δ_disj_Ξ : Disjoint Δ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ) : ref.name ∈ Γ → chan.name ∈ Δ →
         (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) → (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) →
         {h₅ : Disjoint «Σ» Ξ'} → {h₆ : Disjoint Δ Ξ'} → {h₇ : Disjoint Γ Ξ'} → AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some B) Ξ Ξ' →
-      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.cons (.receive pos chan ref) B) Ξ Ξ'
+      AtomicBranch.WellScopedPrecond «Σ» Δ Γ ‹_› ‹_› ‹_› (Option.some <| Block.cons (.receive chan ref) B) Ξ Ξ'
 
-  theorem AtomicBranch.WellScopedPrecond.some_await_cons' {«Σ» Δ Γ Ξ Ξ' : Scope} {pos e} {B : Block (Statement Typ Expr true) false}
+  theorem AtomicBranch.WellScopedPrecond.some_await_cons' {«Σ» Δ Γ Ξ Ξ' : Scope} {e} {B : Block (Statement Typ Expr true) false}
     {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
-    (h : AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.cons (.await pos e) B) Ξ Ξ') :
+    (h : AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.cons (.await e) B) Ξ Ξ') :
       Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some B) Ξ Ξ' := by
     rw [AtomicBranch.wellScopedPrecond_iff _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ Ξ Ξ'] at h
     obtain h|h|h|h|h|h|h := h
     1-4,6-7:  absurd h
               nofun
-    · obtain ⟨_, _, B', _, IH, _⟩ := h
+    · obtain ⟨_, B', _, IH, _⟩ := h
       injections
       rw [← Block.ext_iff (B := B) (B' := B') ‹_› ‹_›] at IH
-      subst pos e
+      subst e
       trivial
 
-  theorem AtomicBranch.WellScopedPrecond.some_await_end' {«Σ» Δ Γ Ξ Ξ' : Scope} {pos e}
+  theorem AtomicBranch.WellScopedPrecond.some_await_end' {«Σ» Δ Γ Ξ Ξ' : Scope} {e}
     {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
-    (h : AtomicBranch.WellScopedPrecond (Typ := Typ) Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.end (.await pos e)) Ξ Ξ') :
+    (h : AtomicBranch.WellScopedPrecond (Typ := Typ) Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.end (.await e)) Ξ Ξ') :
       Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ Ξ' = Ξ := by
     rw [AtomicBranch.wellScopedPrecond_iff _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ Ξ Ξ'] at h
     obtain h|h|h|h|h|h|h := h
     1,3-7:  absurd h
             nofun
-    · obtain ⟨_, _, _, _, rfl, _, _, _⟩ := h
+    · obtain ⟨_, _, _, rfl, _, _, _⟩ := h
       injections
-      subst pos e
+      subst e
       trivial
 
-  theorem AtomicBranch.WellScopedPrecond.some_let_cons' {«Σ» Δ Γ Ξ Ξ' : Scope} {pos name τ «=|∈» e} {B : Block (Statement Typ Expr true) false}
+  theorem AtomicBranch.WellScopedPrecond.some_let_cons' {«Σ» Δ Γ Ξ Ξ' : Scope} {name τ «=|∈» e} {B : Block (Statement Typ Expr true) false}
     {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
-    (h : AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.cons (.let pos name τ «=|∈» e) B) Ξ Ξ') :
+    (h : AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.cons (.let name τ «=|∈» e) B) Ξ Ξ') :
       ∃ (h₁ : name ∉ «Σ») (h₂ : name ∉ Δ) (h₃ : name ∉ Γ) (_ : name ∉ Ξ) (_ : Disjoint «Σ» Ξ') (_ : Disjoint Δ Ξ') (_ : Disjoint Γ Ξ'),
         Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some B) (insert name Ξ) Ξ' := by
     rw [AtomicBranch.wellScopedPrecond_iff _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ Ξ Ξ'] at h
     obtain h|h|h|h|h|h|h := h
     1-5,7:  absurd h
             nofun
-    · obtain ⟨_, _, _, _, _, B', _, _, _, _, _, IH, _⟩ := h
+    · obtain ⟨_, _, _, _, B', _, _, _, _, _, IH, _⟩ := h
       injections
       rw [← Block.ext_iff (B := B) (B' := B') ‹_› ‹_›] at IH
-      subst pos name τ «=|∈» e
+      subst name τ «=|∈» e
       exists ‹_›, ‹_›, ‹_›, ‹_›, ‹_›, ‹_›, ‹_›
 
-  theorem AtomicBranch.WellScopedPrecond.some_let_end' {«Σ» Δ Γ Ξ Ξ' : Scope} {pos name τ «=|∈» e}
+  theorem AtomicBranch.WellScopedPrecond.some_let_end' {«Σ» Δ Γ Ξ Ξ' : Scope} {name τ «=|∈» e}
     {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
-    (h : AtomicBranch.WellScopedPrecond (Typ := Typ) Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.end (.let pos name τ «=|∈» e)) Ξ Ξ') :
+    (h : AtomicBranch.WellScopedPrecond (Typ := Typ) Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.end (.let name τ «=|∈» e)) Ξ Ξ') :
       ∃ (_ : name ∉ «Σ») (_ : name ∉ Δ) (_ : name ∉ Γ) (_ : name ∉ Ξ), Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) e ∧ Ξ' = insert name Ξ := by
     rw [AtomicBranch.wellScopedPrecond_iff _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ Ξ Ξ'] at h
     obtain h|h|h|h|h|h|h := h
     1-2,4-7:  absurd h
               nofun
-    · obtain ⟨_, _, _, _, _, _, _, _, _,_, _, rfl, _, _, _⟩ := h
+    · obtain ⟨_, _, _, _, _, _, _, _,_, _, rfl, _, _, _⟩ := h
       injections
-      subst pos name τ «=|∈» e
+      subst name τ «=|∈» e
       exists ‹_›, ‹_›, ‹_›, ‹_›
 
-  theorem AtomicBranch.WellScopedPrecond.some_receive_cons' {«Σ» Δ Γ Ξ Ξ' : Scope} {pos chan ref} {B : Block (Statement Typ Expr true) false}
+  theorem AtomicBranch.WellScopedPrecond.some_receive_cons' {«Σ» Δ Γ Ξ Ξ' : Scope} {chan ref} {B : Block (Statement Typ Expr true) false}
     {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
-    (h : AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.cons (.receive pos chan ref) B) Ξ Ξ') :
+    (h : AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.cons (.receive chan ref) B) Ξ Ξ') :
       ref.name ∈ Γ ∧ chan.name ∈ Δ ∧ (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧
         AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some B) Ξ Ξ' := by
     rw [AtomicBranch.wellScopedPrecond_iff _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ Ξ Ξ'] at h
     obtain h|h|h|h|h|h|h := h
     1-6:  absurd h
           nofun
-    · obtain ⟨_, _, _, B', _, _, _, _, IH, _⟩ := h
+    · obtain ⟨_, _, B', _, _, _, _, IH, _⟩ := h
       injections
       rw [← Block.ext_iff (B := B) (B' := B') ‹_› ‹_›] at IH
-      subst pos chan ref
+      subst chan ref
       trivial
 
-  theorem AtomicBranch.WellScopedPrecond.some_receive_end' {«Σ» Δ Γ Ξ Ξ' : Scope} {pos chan ref}
+  theorem AtomicBranch.WellScopedPrecond.some_receive_end' {«Σ» Δ Γ Ξ Ξ' : Scope} {chan ref}
     {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
-    (h : AtomicBranch.WellScopedPrecond (Typ := Typ) Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.end (.receive pos chan ref)) Ξ Ξ') :
+    (h : AtomicBranch.WellScopedPrecond (Typ := Typ) Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› (.some <| Block.end (.receive chan ref)) Ξ Ξ') :
       ref.name ∈ Γ ∧ chan.name ∈ Δ ∧ (∀ idx ∈ chan.args, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_WellScoped («Σ» ∪ Γ ∪ Ξ) idx) ∧ Ξ' = Ξ := by
     rw [AtomicBranch.wellScopedPrecond_iff _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ Ξ Ξ'] at h
     obtain h|h|h|h|h|h|h := h
     1-3,5-7:  absurd h
               nofun
-    · obtain ⟨_, _, _, _, _, _, _, _, rfl, _, _, _⟩ := h
+    · obtain ⟨_, _, _, _, _, _, _, rfl, _, _, _⟩ := h
       injections
-      subst pos chan ref
+      subst chan ref
       trivial
 
   theorem AtomicBranch.scope_supset_of_wellscoped_precond {B : Option (Block (Statement Typ Expr true) false)} {«Σ» Δ Γ Ξ Ξ' : Scope} {«Σ_disj_Δ» : Disjoint «Σ» Δ} {«Σ_disj_Γ» : Disjoint «Σ» Γ} {Δ_disj_Γ : Disjoint Δ Γ} {«Σ_disj_Ξ» : Disjoint «Σ» Ξ} {Δ_disj_Ξ : Disjoint Δ Ξ} {Γ_disj_Ξ : Disjoint Γ Ξ} {«Σ_disj_Ξ'» : Disjoint «Σ» Ξ'} {Δ_disj_Ξ' : Disjoint Δ Ξ'} {Γ_disj_Ξ' : Disjoint Γ Ξ'}
@@ -168,13 +168,13 @@ namespace GuardedPlusCal
         AtomicBranch.WellScopedPrecond Expr_WellScoped «Σ» Δ Γ ‹_› ‹_› ‹_› Br.precondition Ξ Ξ' ∧ AtomicBranch.WellScoped Expr_WellScoped ⟨.none, Br.action⟩ «Σ» Δ Γ Ξ' := by
     iff_rintro h ⟨Ξ', Ξ'_sup_Ξ, h₁, h₂, h₃, precond_ws, action_ws⟩
     · fun_induction AtomicBranch.WellScoped Expr_WellScoped Br «Σ» Δ Γ Ξ with
-      | case1 Ξ h₁ h₂ h₃ _ x =>
+      | case1 Ξ h₁ h₂ h₃ x =>
         obtain ⟨h₁', h₂', h₃', h₄', _, h⟩ := h
 
         refine ⟨insert x Ξ, Finset.subset_insert _ _, ?_, ?_, ?_, ?_, h⟩
         1-3:  rw [Finset.disjoint_insert_right]; trivial
         · apply AtomicBranch.WellScopedPrecond.some_let_end <;> assumption
-      | case2 Ξ h₁ h₂ h₃ _ x _ _ _ Ss I _ IH =>
+      | case2 Ξ h₁ h₂ h₃ x _ _ _ Ss I _ IH =>
         obtain ⟨h₁', h₂', h₃', h₄', _, h⟩ := h
         obtain ⟨Ξ', Ξ'_supset, h₁'', h₂'', h₃'', _, h⟩ := IH h₁' h₂' h₃' h
 
@@ -192,7 +192,7 @@ namespace GuardedPlusCal
         1-3:  assumption
         · apply AtomicBranch.WellScopedPrecond.some_await_end
           assumption
-      | case4 Ξ h₁ h₂ h₃ _ _ Ss I _ IH =>
+      | case4 Ξ h₁ h₂ h₃ _ Ss I _ IH =>
         obtain ⟨_, h⟩ := h
         obtain ⟨Ξ', Ξ'_supset, h₁', h₂', h₃', _, h⟩ := IH h
 
@@ -205,7 +205,7 @@ namespace GuardedPlusCal
         refine ⟨Ξ, Finset.Subset.rfl, ?_, ?_, ?_, ?_, h⟩
         1-3: assumption
         · apply AtomicBranch.WellScopedPrecond.some_receive_end <;> assumption
-      | case6 Ξ h₁ h₂ h₃ _ _ _ Ss I _ IH =>
+      | case6 Ξ h₁ h₂ h₃ _ _ Ss I _ IH =>
         obtain ⟨h₁', h₂', h₃', h₄', h⟩ := h
         obtain ⟨Ξ', Ξ'_supset, h₁'', h₂'', h₃'', _, h⟩ := IH h
 
@@ -267,27 +267,27 @@ namespace GuardedPlusCal
       simp [Block.ofList_cons_of_non_empty h']
       simp [Block.ofList_singleton] at wellscoped_Ss
       cases S with
-      | «let» pos name τ «=|∈» e =>
+      | «let» name τ «=|∈» e =>
         obtain ⟨_, _, _, _, _, rfl⟩ := AtomicBranch.WellScopedPrecond.some_let_end' Expr_WellScoped wellscoped_Ss
         apply AtomicBranch.WellScopedPrecond.some_let_cons <;> assumption
-      | await pos e =>
+      | await e =>
         obtain ⟨_, rfl⟩ := AtomicBranch.WellScopedPrecond.some_await_end' Expr_WellScoped wellscoped_Ss
         apply AtomicBranch.WellScopedPrecond.some_await_cons <;> assumption
-      | receive pos chan ref =>
+      | receive chan ref =>
         obtain ⟨_, _, _, _, rfl⟩ := AtomicBranch.WellScopedPrecond.some_receive_end' Expr_WellScoped wellscoped_Ss
         apply AtomicBranch.WellScopedPrecond.some_receive_cons <;> assumption
     | cons S Ss h IH =>
       simp [Block.ofList_cons_of_non_empty h, Block.ofList_cons_of_non_empty (List.append_ne_nil_of_left_ne_nil h _)] at wellscoped_Ss ⊢
       cases S with
-      | «let» pos name τ «=|∈» e =>
+      | «let» name τ «=|∈» e =>
         obtain ⟨_, _, _, _, _, _, _, _, h⟩ := AtomicBranch.WellScopedPrecond.some_let_cons' Expr_WellScoped wellscoped_Ss
         specialize IH h
         apply AtomicBranch.WellScopedPrecond.some_let_cons <;> assumption
-      | await pos e =>
+      | await e =>
         obtain ⟨_, h⟩ := AtomicBranch.WellScopedPrecond.some_await_cons' Expr_WellScoped wellscoped_Ss
         specialize IH h
         apply AtomicBranch.WellScopedPrecond.some_await_cons <;> assumption
-      | receive pos chan ref =>
+      | receive chan ref =>
         obtain ⟨_, _, _, _, h⟩ := AtomicBranch.WellScopedPrecond.some_receive_cons' Expr_WellScoped wellscoped_Ss
         specialize IH h
         apply AtomicBranch.WellScopedPrecond.some_receive_cons <;> assumption
@@ -387,26 +387,26 @@ namespace GuardedPlusCal
     | some_receive_end «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ _ _ _ =>
       obtain _|_|_|_|_|_ := h'
       rfl
-    | @some_await_cons _ _ _ B _ _ _ _ _ «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ IH =>
+    | @some_await_cons _ _ B _ _ _ _ _ «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ IH =>
       rw [AtomicBranch.wellScopedPrecond_iff  _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ _ Ξ''] at h'
-      obtain ⟨_|_, -⟩|⟨_, _, -, _|_, -⟩|⟨_, _, _, _, _, -, -, -, -, -, _|_, -⟩|⟨_, _, _, -, -, -, -, _|_, -⟩
-            |⟨_, _, _, -, h', _⟩|⟨_, _, _, _, _, -, -, -, -, -, -, -, _|_, -⟩|⟨_, _, _, -, -, -, -, -, -, _|_, -⟩ := h'
+      obtain ⟨_|_, -⟩|⟨_, -, _|_, -⟩|⟨_, _, _, _, -, -, -, -, -, _|_, -⟩|⟨_, _, -, -, -, -, _|_, -⟩
+            |⟨_, _, -, h', _⟩|⟨_, _, _, _, -, -, -, -, -, -, -, _|_, -⟩|⟨_, _, -, -, -, -, -, -, _|_, -⟩ := h'
       injections; subst_eqs
       apply IH
       conv at h' => enter [8, 1]; apply Block.ext_iff (B := B) ‹_› ‹_› |>.symm
       assumption
-    | @some_let_cons _ _ _ _ _ _ B _ «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ h₁ h₂ h₃ h₄ _ _ _ _ IH =>
+    | @some_let_cons _ _ _ _ _ B _ «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ h₁ h₂ h₃ h₄ _ _ _ _ IH =>
       rw [AtomicBranch.wellScopedPrecond_iff  _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ _ Ξ''] at h'
-      obtain ⟨_|_, -⟩|⟨_, _, -, _|_, -⟩|⟨_, _, _, _, _, -, -, -, -, -, _|_, -⟩|⟨_, _, _, -, -, -, -, _|_, -⟩
-            |⟨_, _, _, -, -, _|_⟩|⟨_, _, _, _, _, _, -, _, _, _, _, h', _⟩|⟨_, _, _, -, -, -, -, -, -, _|_, -⟩ := h'
+      obtain ⟨_|_, -⟩|⟨_, -, _|_, -⟩|⟨_, _, _, _, -, -, -, -, -, _|_, -⟩|⟨_, _, -, -, -, -, _|_, -⟩
+            |⟨_, _, -, -, _|_⟩|⟨_, _, _, _, _, -, _, _, _, _, h', _⟩|⟨_, _, -, -, -, -, -, -, _|_, -⟩ := h'
       injections; subst_eqs
       apply IH
       conv at h' => enter [8, 1]; apply Block.ext_iff (B := B) ‹_› ‹_› |>.symm
       assumption
-    | @some_receive_cons _ _ _ _ B _ «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ _ _ _ _ _ _ _ IH =>
+    | @some_receive_cons _ _ _ B _ «Σ_disj_Ξ» Δ_disj_Ξ Γ_disj_Ξ _ _ _ _ _ _ _ _ IH =>
       rw [AtomicBranch.wellScopedPrecond_iff  _ «Σ» Δ Γ ‹_› ‹_› ‹_› _ _ Ξ''] at h'
-      obtain ⟨_|_, -⟩|⟨_, _, -, _|_, -⟩|⟨_, _, _, _, _, -, -, -, -, -, _|_, -⟩|⟨_, _, _, -, -, -, -, _|_, -⟩
-            |⟨_, _, _, -, -, _|_⟩|⟨_, _, _, _, _, _, -, -, -, -, -, -, _|_⟩|⟨_, _, _, _, -, -, -, -, h', _⟩ := h'
+      obtain ⟨_|_, -⟩|⟨_, -, _|_, -⟩|⟨_, _, _, _, -, -, -, -, -, _|_, -⟩|⟨_, _, -, -, -, -, _|_, -⟩
+            |⟨_, _, -, -, _|_⟩|⟨_, _, _, _, _, -, -, -, -, -, -, _|_⟩|⟨_, _, _, -, -, -, -, h', _⟩ := h'
       injections; subst_eqs
       apply IH
       conv at h' => enter [8, 1]; apply Block.ext_iff (B := B) ‹_› ‹_› |>.symm
@@ -442,16 +442,16 @@ namespace GuardedPlusCal
   variable (Expr_FreshIn : Expr → String → Prop)
 
   protected def Statement.FreshIn {b b' : Bool} (S : Statement Typ Expr b b') (x : String) := match b, b', S with
-    | _, _, .let _ y _ _ e => x ≠ y ∧ Expr_FreshIn e x
-    | _, _, .await _ e => Expr_FreshIn e x
-    | _, _, .receive _ chan ref => chan.name ≠ x ∧ ref.name ≠ x ∧ (∀ arg ∈ chan.args, Expr_FreshIn arg x) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_FreshIn idx x)
-    | _, _, .skip _ => True
-    | _, _, .goto _ _ => True
-    | _, _, .print _ e => Expr_FreshIn e x
-    | _, _, .assert _ e => Expr_FreshIn e x
-    | _, _, .send _ chan e => chan.name ≠ x ∧ (∀ arg ∈ chan.args, Expr_FreshIn arg x) ∧ Expr_FreshIn e x
-    | _, _, .multicast _ chan filter e => chan ≠ x ∧ (∀ b ∈ filter, b.1 ≠ x ∧ Expr_FreshIn b.2.2.2 x) ∧ Expr_FreshIn e x
-    | _, _, .assign _ ref e => ref.name ≠ x ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_FreshIn idx x) ∧ Expr_FreshIn e x
+    | _, _, .let y _ _ e => x ≠ y ∧ Expr_FreshIn e x
+    | _, _, .await e => Expr_FreshIn e x
+    | _, _, .receive chan ref => chan.name ≠ x ∧ ref.name ≠ x ∧ (∀ arg ∈ chan.args, Expr_FreshIn arg x) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_FreshIn idx x)
+    | _, _, .skip => True
+    | _, _, .goto _ => True
+    | _, _, .print e => Expr_FreshIn e x
+    | _, _, .assert e => Expr_FreshIn e x
+    | _, _, .send chan e => chan.name ≠ x ∧ (∀ arg ∈ chan.args, Expr_FreshIn arg x) ∧ Expr_FreshIn e x
+    | _, _, .multicast chan filter e => chan ≠ x ∧ (∀ b ∈ filter, b.1 ≠ x ∧ Expr_FreshIn b.2.2.2 x) ∧ Expr_FreshIn e x
+    | _, _, .assign ref e => ref.name ≠ x ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, Expr_FreshIn idx x) ∧ Expr_FreshIn e x
 
   protected structure AtomicBranch.FreshIn (Br : AtomicBranch Typ Expr) (x : String) : Prop where
     fresh_in_precond : ∀ S ∈ Br.precondition.elim [] Block.toList, Statement.FreshIn Expr_FreshIn S x

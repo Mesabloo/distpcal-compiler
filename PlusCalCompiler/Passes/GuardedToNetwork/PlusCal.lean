@@ -74,12 +74,13 @@ namespace GuardedPlusCal
         -/
 
         for S in B.begin.concat B.last do
+          let pos := posOf S
           let S' ← match S with
-            | .await pos e =>
-              pure <| .await pos <| (newInstrs.map λ ⟨r, e⟩ ↦ r.substOf e).foldr (init := e) λ ⟨k, e'⟩ e ↦ e.replace k e'
-            | .let pos x τ «=|∈» e =>
-              pure <| .let pos x τ «=|∈» <| (newInstrs.map λ ⟨r, e⟩ ↦ r.substOf e).foldr (init := e) λ ⟨k, e'⟩ e ↦ e.replace k e'
-            | .receive pos chan ref => match Prod.fst <$> chans.find? chan.name with
+            | .await e =>
+              pure <| .await ((newInstrs.map λ ⟨r, e⟩ ↦ r.substOf e).foldr (init := e) λ ⟨k, e'⟩ e ↦ e.replace k e') @@ pos
+            | .let x τ «=|∈» e =>
+              pure <| .let x τ «=|∈» ((newInstrs.map λ ⟨r, e⟩ ↦ r.substOf e).foldr (init := e) λ ⟨k, e'⟩ e ↦ e.replace k e') @@ pos
+            | .receive chan ref => match Prod.fst <$> chans.find? chan.name with
               | .some (.channel τ) | .some (.function _ (.channel τ)) =>
                 newInstrs := newInstrs ++ [
                   ⟨ref, .opcall (.var "Head") [.var (inbox ++ procName)]⟩,
@@ -88,36 +89,36 @@ namespace GuardedPlusCal
                 i := i + 1
                 rxs := rxs.concat ⟨s!"rx_{i}", τ, chan⟩
 
-                pure <| .await pos (.infix (.opcall (.var "Len") [.var (inbox ++ procName)]) .«>» (.nat s!"{i - 1}"))
+                pure <| .await (.infix (.opcall (.var "Len") [.var (inbox ++ procName)]) .«>» (.nat s!"{i - 1}")) @@ pos
               | .some τ =>
                 -- return `await FALSE` in case of wrong type, which actually should never happen
-                let _ : Inhabited (NetworkPlusCal.Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) true false) := ⟨.await pos <| .bool false⟩
+                let _ : Inhabited (NetworkPlusCal.Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) true false) := ⟨.await (.bool false) @@ pos⟩
                 pure <| panic! s!"Channel {chan.name} has wrong type {repr τ}"
               | .none =>
                 -- return `await FALSE` in case of wrong type, which actually should never happen
-                let _ : Inhabited (NetworkPlusCal.Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) true false) := ⟨.await pos <| .bool false⟩
+                let _ : Inhabited (NetworkPlusCal.Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) true false) := ⟨.await (.bool false) @@ pos⟩
                 pure <| panic! s!"Channel {chan.name} not found in algorithm"
 
           B' := match B' with
             | none => some (NetworkPlusCal.Block.end S')
             | some B' => some (NetworkPlusCal.Block.concat B' S')
 
-        return (B', (λ ⟨r, e⟩ ↦ .assign default r e) <$> newInstrs, rxs)
+        return (B', (λ ⟨r, e⟩ ↦ .assign r e) <$> newInstrs, rxs)
 
 
     -- This one is basically the identity transformation between two types with the same shape.
     -- However, it may not be safe to just use `unsafeCast` in this case, I don't know.
     processBlock (B : Block (Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) false) true) : NetworkPlusCal.Block (NetworkPlusCal.Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) false) true := {
-      begin := B.begin.map λ
-        | .skip pos => .skip pos
-        | .print pos e => .print pos e
-        | .assert pos e => .assert pos e
-        | .send pos chan e => .send pos chan e
-        | .multicast pos chan bs e => .multicast pos chan bs e
-        | .assign pos ref e => .assign pos ref e
+      begin := B.begin.map λ S ↦ match_source S with
+        | .skip, pos => .skip @@ pos
+        | .print e, pos => .print e @@ pos
+        | .assert e, pos => .assert e @@ pos
+        | .send chan e, pos => .send chan e @@ pos
+        | .multicast chan bs e, pos => .multicast chan bs e @@ pos
+        | .assign ref e, pos => .assign ref e @@ pos
 
-      last := match B.last with
-        | .goto pos l => .goto pos l
+      last := match_source B.last with
+        | .goto l, pos => .goto l @@ pos
     }
 
   def Process.toNetwork (inbox : String) (chans : Std.HashMap.{_, 0} String (CoreTLAPlus.Typ × List (CoreTLAPlus.Expression CoreTLAPlus.Typ))) (P : Process.{0} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)) : NetworkPlusCal.Process.{0} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) :=

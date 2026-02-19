@@ -85,57 +85,76 @@ namespace GuardedPlusCal
   -- * etc. etc.
   inductive Statement.{u} (Typ Expr : Type u) : Bool → Bool → Type u
     -- Statements that appear in pre-conditions
-    | «let» (pos : SourceSpan) (name : String) (τ : Typ) («=|∈» : Bool) (e : Expr) : Statement Typ Expr true false
-    | await (pos : SourceSpan) (e : Expr) : Statement Typ Expr true false
-    | receive (pos : SourceSpan) (chan : ChanRef Expr) (ref : Ref Expr) : Statement Typ Expr true false
+    | «let» (name : String) (τ : Typ) («=|∈» : Bool) (e : Expr) : Statement Typ Expr true false
+    | await (e : Expr) : Statement Typ Expr true false
+    | receive (chan : ChanRef Expr) (ref : Ref Expr) : Statement Typ Expr true false
     -- Other statements
-    | skip (pos : SourceSpan) : Statement Typ Expr false false
-    | goto (pos : SourceSpan) (label : String) : Statement Typ Expr false true
-    | print (pos : SourceSpan) (e : Expr) : Statement Typ Expr false false
-    | assert (pos : SourceSpan) (e : Expr) : Statement Typ Expr false false
-    | send (pos : SourceSpan) (chan : ChanRef Expr) (e : Expr) : Statement Typ Expr false false
-    | multicast (pos : SourceSpan) (chan : String) (filter : List (String × Typ × Bool × Expr)) (e : Expr) : Statement Typ Expr false false
-    | assign (pos : SourceSpan) (ref : Ref Expr) (e : Expr) : Statement Typ Expr false false
+    | skip : Statement Typ Expr false false
+    | goto (label : String) : Statement Typ Expr false true
+    | print (e : Expr) : Statement Typ Expr false false
+    | assert (e : Expr) : Statement Typ Expr false false
+    | send (chan : ChanRef Expr) (e : Expr) : Statement Typ Expr false false
+    | multicast (chan : String) (filter : List (String × Typ × Bool × Expr)) (e : Expr) : Statement Typ Expr false false
+    | assign (ref : Ref Expr) (e : Expr) : Statement Typ Expr false false
+
+  instance instInhabitedTerminalStatement.{u} {Typ Expr : Type u} : Inhabited (Statement Typ Expr false true) where
+    default := .goto default
+  instance instInhabitedGuardStatement.{u} {Typ Expr : Type u} [Inhabited Expr] : Inhabited (Statement Typ Expr true false) where
+    default := .await default
+  instance instInhabitedExecutionStatement.{u} {Typ Expr : Type u} : Inhabited (Statement Typ Expr false false) where
+    default := .skip
 
   -- This is not ONLY the free vars of the statement, but something close
   def Statement.freeVars.{u} {Typ Expr : Type u} (f : Expr → List String) : {b b' : Bool} → Statement Typ Expr b b' → List String
-    | false, false, .skip _ => []
-    | false, true, .goto _ _ => []
-    | false, false, .print _ e => f e
-    | false, false, .assert _ e => f e
-    | false, false, .send _ chan e => chan.freeVars f ++ f e
-    | false, false, .multicast _ chan filter e => chan :: filter.flatMap (λ ⟨_, _, _, e⟩ ↦ f e) ++ (f e \ filter.map Prod.fst)
-    | false, false, .assign _ ref e => ref.freeVars f ++ f e
-    | true, false, .let _ x _ _ e => x :: f e
-    | true, false, .await _ e => f e
-    | true, false, .receive _ chan ref => chan.freeVars f ++ ref.freeVars f
+    | false, false, .skip => []
+    | false, true, .goto _ => []
+    | false, false, .print e => f e
+    | false, false, .assert e => f e
+    | false, false, .send chan e => chan.freeVars f ++ f e
+    | false, false, .multicast chan filter e => chan :: filter.flatMap (λ ⟨_, _, _, e⟩ ↦ f e) ++ (f e \ filter.map Prod.fst)
+    | false, false, .assign ref e => ref.freeVars f ++ f e
+    | true, false, .let x _ _ e => x :: f e
+    | true, false, .await e => f e
+    | true, false, .receive chan ref => chan.freeVars f ++ ref.freeVars f
+
+  -- def Statement.traverseExpr {Typ Expr Expr' : Type} {F : Type → Type} [Applicative F] [Inhabited Expr'] {b b'} (f : Expr → F Expr') (S : Statement Typ Expr b b') : F (Statement Typ Expr' b b') := match_source (indices := [3]) b, b', S with
+  --     | true, false, .let name τ «=|∈» e, pos => (.let name τ «=|∈» · @@ pos) <$> f e
+  --     | true, false, .await e, pos => (.await · @@ pos) <$> f e
+  --     | true, false, .receive chan ref, pos => (.receive · · @@ pos) <$> traverse f chan <*> traverse f ref
+  --     | false, false, .skip, pos => pure (.skip @@ pos)
+  --     | false, true, .goto label, pos => pure (.goto label @@ pos)
+  --     | false, false, .print e, pos => (.print · @@ pos) <$> f e
+  --     | false, false, .assert e, pos => (.assert · @@ pos) <$> f e
+  --     | false, false, .send chan e, pos => (.send · · @@ pos) <$> traverse f chan <*> f e
+  --     | false, false, .multicast chan filter e, pos => (.multicast chan · · @@ pos) <$> traverse (λ ⟨name, τ, «=|∈», e⟩ ↦ (name, τ, «=|∈», ·) <$> f e) filter <*> f e
+  --     | false, false, .assign ref e, pos => (.assign · · @@ pos) <$> traverse f ref <*> f e
 
   instance instBifunctorStatement {b b'} : Bifunctor (Statement · · b b') where
-    bimap f g
-      | .let pos name τ «=|∈» e => .let pos name (f τ) «=|∈» (g e)
-      | .await pos e => .await pos (g e)
-      | .receive pos chan ref => .receive pos (g <$> chan) (g <$> ref)
-      | .skip pos => .skip pos
-      | .goto pos label => .goto pos label
-      | .print pos e => .print pos (g e)
-      | .assert pos e => .assert pos (g e)
-      | .send pos chan e => .send pos (g <$> chan) (g e)
-      | .multicast pos chan filter e => .multicast pos chan (filter.map λ ⟨name, τ, «=|∈», e⟩ ↦ ⟨name, f τ, «=|∈», g e⟩) (g e)
-      | .assign pos ref e => .assign pos (g <$> ref) (g e)
+    bimap f g S := match_source S with
+      | .let name τ «=|∈» e, pos => .let name (f τ) «=|∈» (g e) @@ pos
+      | .await e, pos => .await (g e) @@ pos
+      | .receive chan ref, pos => .receive (g <$> chan) (g <$> ref) @@ pos
+      | .skip, pos => .skip @@ pos
+      | .goto label, pos => .goto label @@ pos
+      | .print e, pos => .print (g e) @@ pos
+      | .assert e, pos => .assert (g e) @@ pos
+      | .send chan e, pos => .send (g <$> chan) (g e) @@ pos
+      | .multicast chan filter e, pos => .multicast chan (filter.map λ ⟨name, τ, «=|∈», e⟩ ↦ ⟨name, f τ, «=|∈», g e⟩) (g e) @@ pos
+      | .assign ref e, pos => .assign (g <$> ref) (g e) @@ pos
   -- TODO: prove that it is lawful
 
   instance instBitraversableStatement {b b'} : Bitraversable (Statement · · b b') where
-    bitraverse f g
-      | .let pos name τ «=|∈» e => (.let pos name · «=|∈» ·) <$> f τ <*> g e
-      | .await pos e => .await pos <$> g e
-      | .receive pos chan ref => .receive pos <$> traverse g chan <*> traverse g ref
-      | .skip pos => pure (.skip pos)
-      | .goto pos label => pure (.goto pos label)
-      | .print pos e => .print pos <$> g e
-      | .assert pos e => .print pos <$> g e
-      | .send pos chan e => .send pos <$> traverse g chan <*> g e
-      | .multicast pos chan filter e => .multicast pos chan <$> traverse (λ ⟨name, τ, «=|∈», e⟩ ↦ (name, ·, «=|∈», ·) <$> f τ <*> g e) filter <*> g e
-      | .assign pos ref e => .assign pos <$> traverse g ref <*> g e
+    bitraverse f g S := match_source S with
+      | .let name τ «=|∈» e, pos => (.let name · «=|∈» · @@ pos) <$> f τ <*> g e
+      | .await e, pos => (.await · @@ pos) <$> g e
+      | .receive chan ref, pos => (.receive · · @@ pos) <$> traverse g chan <*> traverse g ref
+      | .skip, pos => pure (.skip @@ pos)
+      | .goto label, pos => pure (.goto label @@ pos)
+      | .print e, pos => (.print · @@ pos) <$> g e
+      | .assert e, pos => (.assert · @@ pos) <$> g e
+      | .send chan e, pos => (.send · · @@ pos) <$> traverse g chan <*> g e
+      | .multicast chan filter e, pos => (.multicast chan · · @@ pos) <$> traverse (λ ⟨name, τ, «=|∈», e⟩ ↦ (name, ·, «=|∈», ·) <$> f τ <*> g e) filter <*> g e
+      | .assign ref e, pos => (.assign · · @@ pos) <$> traverse g ref <*> g e
   -- TODO: prove that it is lawful
 
   structure AtomicBranch.{u} (Typ Expr : Type u) : Type u where

@@ -111,20 +111,16 @@ private def Internal.initSourceMap : IO (IO.Ref (Std.HashMap USize SourceSpan)) 
 private unsafe opaque Internal.sourceMap : IO.Ref (Std.HashMap USize SourceSpan)
 
 @[never_extract, noinline]
-private unsafe def Internal.registerSourceImpl {α : Type} [Inhabited α] (x : α) (pos : SourceSpan) : α :=
-  let res := unsafeIO do
-    let _ ← IO.println s!"New position {pos} at {ptrAddrUnsafe x}"
+private unsafe def Internal.registerSourceImpl {α : Type} (x : α) (pos : SourceSpan) : α :=
+  unsafeBaseIO do
     Internal.sourceMap.modifyGet (x, Std.HashMap.insert · (ptrAddrUnsafe x) pos)
-  match res with
-  | .error e => panic! e.toString
-  | .ok x => x
 
 @[never_extract, noinline]
 private unsafe def Internal.posOfImpl {α : Type} (x : α) : SourceSpan :=
   (unsafeBaseIO Internal.sourceMap.get)[ptrAddrUnsafe x]?.getD default_or_ofNonempty%
 
 @[implemented_by Internal.registerSourceImpl, never_extract]
-abbrev registerSource {α : Type} [Inhabited α] (x : α) (_ : SourceSpan) : α := x
+abbrev registerSource {α : Type} (x : α) (_ : SourceSpan) : α := x
 infix:60 " @@ " => registerSource
 
 @[implemented_by Internal.posOfImpl, never_extract]

@@ -199,7 +199,7 @@ namespace SurfacePlusCal
     let rec checkBlockIsGuarded (pos : SourceSpan) : List (Located (Statement Annotation)) → (inPrecond : Bool := true) → m (GuardedPlusCal.AtomicBranch Typ (Located (Expression Annotation)))
       -- PRECOND
       | ⟨pos, .with bs Ss'⟩ :: Ss, true => do
-        let Is := bs.map λ ⟨x, «=|∈», e⟩ ↦ GuardedPlusCal.Statement.let pos x.data sorry «=|∈».data e
+        let Is := bs.map λ ⟨x, «=|∈», e⟩ ↦ GuardedPlusCal.Statement.let x.data sorry «=|∈».data e @@ pos
         let Ss' ← Ss'.traverse λ | .inl ⟨pos, l⟩ => throw <| .labelInWithStatement pos l
                                  | .inr S => pure S
         let B ← checkBlockIsGuarded pos (Ss' ++ Ss) true
@@ -210,7 +210,7 @@ namespace SurfacePlusCal
         }
       | ⟨pos, .await e⟩ :: Ss, true => do
         let B ← checkBlockIsGuarded pos Ss true
-        let I : GuardedPlusCal.Statement .. := .await pos e
+        let I : GuardedPlusCal.Statement .. := .await e @@ pos
         return { B with
           precondition := .some <| B.precondition.elim (GuardedPlusCal.Block.end I) (GuardedPlusCal.Block.cons I)
         }
@@ -224,7 +224,7 @@ namespace SurfacePlusCal
             if !Expression.stripPosEq expr ⟨p, .fnCall ⟨p, .var c.name⟩ (c.args.head?.getD [])⟩ && !Expression.stripPosEq expr ⟨p, .var c.name⟩ then
               throw <| .cannotReceiveFromNonMailbox pos
           let B ← checkBlockIsGuarded pos Ss true
-          let I : GuardedPlusCal.Statement .. := .receive pos ⟨c.name, c.args.head?.getD []⟩ ⟨r.name, r.args⟩
+          let I : GuardedPlusCal.Statement .. := .receive ⟨c.name, c.args.head?.getD []⟩ ⟨r.name, r.args⟩ @@ pos
           return { B with
             precondition := .some <| B.precondition.elim (GuardedPlusCal.Block.end I) (GuardedPlusCal.Block.cons I)
           }
@@ -234,23 +234,23 @@ namespace SurfacePlusCal
       | ⟨pos, .skip⟩ :: Ss, _ => do
         let B ← checkBlockIsGuarded pos Ss false
         return { B with
-          action := B.action.cons (.skip pos)
+          action := B.action.cons (.skip @@ pos)
         }
       | ⟨pos, .print e⟩ :: Ss, _ => do
         let B ← checkBlockIsGuarded pos Ss false
         return { B with
-          action := B.action.cons (.print pos e)
+          action := B.action.cons (.print e @@ pos)
         }
       | ⟨pos, .assert e⟩ :: Ss, _ => do
         let B ← checkBlockIsGuarded pos Ss false
         return { B with
-          action := B.action.cons (.assert pos e)
+          action := B.action.cons (.assert e @@ pos)
         }
       | ⟨pos, .assign bs⟩ :: Ss, _ => match bs with
         | [⟨⟨_, r⟩, e⟩] => do
           let B ← checkBlockIsGuarded pos Ss false
           return { B with
-            action := B.action.cons (.assign pos ⟨r.name, r.args⟩ e)
+            action := B.action.cons (.assign ⟨r.name, r.args⟩ e @@ pos)
           }
         | [] => unreachable!
         | _ => throw <| .unexpectedParallelAssignment pos
@@ -260,7 +260,7 @@ namespace SurfacePlusCal
           unless (c.args.head?.getD []).length = args'.length do throw <| .channelReferenceExpectedNIndices p c.name ((c.args.head?.map List.length).getD 0) args'.length
           let B ← checkBlockIsGuarded pos Ss true
           return { B with
-            action := B.action.cons (.send pos ⟨c.name, c.args.head?.getD []⟩ e)
+            action := B.action.cons (.send ⟨c.name, c.args.head?.getD []⟩ e @@ pos)
           }
         else
           throw <| .unknownChannel p c.name
@@ -272,12 +272,12 @@ namespace SurfacePlusCal
             pure ⟨name.data, τ, «=|∈», e⟩
           let B ← checkBlockIsGuarded pos Ss true
           return { B with
-            action := B.action.cons (.multicast pos c bs e)
+            action := B.action.cons (.multicast c bs e @@ pos)
           }
         else
           throw <| .unknownChannel p c
       -- goto
-      | [⟨pos, .goto l⟩], _ => return { precondition := .none, action := GuardedPlusCal.Block.end (.goto pos l.data)}
+      | [⟨pos, .goto l⟩], _ => return { precondition := .none, action := GuardedPlusCal.Block.end (.goto l.data @@ pos)}
       -- errors
       | ⟨pos, .while ..⟩ :: _, _ => throw <| .unexpectedWhileStatement pos
       | ⟨pos, .if ..⟩ :: _, _ => throw <| .unexpectedIfStatement pos

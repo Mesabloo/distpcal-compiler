@@ -30,14 +30,14 @@ namespace NetworkPlusCal
         let mut free : List String := []
 
         let f : {b : Bool} → Statement Typ (Expression Typ) b false → List String × List String
-          | true, .await _ e => ⟨[], e.freeVars⟩
-          | true, .let _ x _ _ e => ⟨[x], e.freeVars⟩
-          | false, .assign _ ref e => ⟨[], ref.freeVars Expression.freeVars ∪ e.freeVars⟩
-          | false, .multicast _ chan bs e => ⟨[], []⟩
-          | false, .send _ chan e => ⟨[], chan.freeVars Expression.freeVars \ [chan.name] ∪ e.freeVars⟩
-          | false, .assert _ e => ⟨[], e.freeVars⟩
-          | false, .print _ e => ⟨[], e.freeVars⟩
-          | false, .skip _ => ⟨[], []⟩
+          | true, .await e => ⟨[], e.freeVars⟩
+          | true, .let x _ _ e => ⟨[x], e.freeVars⟩
+          | false, .assign ref e => ⟨[], ref.freeVars Expression.freeVars ∪ e.freeVars⟩
+          | false, .multicast chan bs e => ⟨[], []⟩
+          | false, .send chan e => ⟨[], chan.freeVars Expression.freeVars \ [chan.name] ∪ e.freeVars⟩
+          | false, .assert e => ⟨[], e.freeVars⟩
+          | false, .print e => ⟨[], e.freeVars⟩
+          | false, .skip => ⟨[], []⟩
 
         for S in B.begin do
           let ⟨bound', free'⟩ := f S
@@ -49,7 +49,7 @@ namespace NetworkPlusCal
           let ⟨bound', free'⟩ := f S
           bound := bound ++ bound'
           free := free ++ free'
-        | true, false, .goto _ _ => pure ()
+        | true, false, .goto _ => pure ()
 
         return ⟨bound, free⟩
 
@@ -64,9 +64,9 @@ namespace NetworkPlusCal
 
     let (condsVars, conds) : List (String × Typ) × _ := match B.precondition with
       | none => ([], commit)
-      | some B => B.toList.foldr (init := ([], commit)) λ
-        | NetworkPlusCal.Statement.await _ e, (vars, B) => (vars, [.if default (.prefix .«¬» e) [] B])
-        | NetworkPlusCal.Statement.let pos x τ «=|∈» e, (vars, B) =>
+      | some B => B.toList.foldr (init := ([], commit)) λ S (vars, B) ↦ match_source S with
+        | NetworkPlusCal.Statement.await e, pos => (vars, [.if pos (.prefix .«¬» e) [] B])
+        | NetworkPlusCal.Statement.let x τ «=|∈» e, pos =>
           /-
             FIXME: how do we solve the following problem?
 
@@ -85,9 +85,9 @@ namespace NetworkPlusCal
 
     let todo : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := compileBlock B.action.begin
 
-    let next : GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs := match B.action.last with
-      | .goto pos "Done" => .send pos (.var "done") (.record [])
-      | .goto pos l => .assign pos ⟨"_", []⟩ <| .opcall (.var l) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var (chan_from_name! v))
+    let next : GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs := match_source B.action.last with
+      | .goto "Done", pos => .send pos (.var "done") (.record [])
+      | .goto l, pos => .assign pos ⟨"_", []⟩ <| .opcall (.var l) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var (chan_from_name! v))
 
     let toLock := B.freeVars ∩ vars.map Prod.fst |>.eraseDups
     let allVars : List (String × Typ) := toLock.filterMap λ v ↦ do
@@ -172,19 +172,19 @@ namespace NetworkPlusCal
     }
   where
     compileBlock (B : List (Statement Typ (Expression Typ) false false)) : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := do
-      match ← B with
-      | .skip _ => []
-      | .print pos e => [.print pos e]
-      | .assert pos e => [.if pos (.prefix .«¬» e) [.panic pos <| .str s!"Expression '{e}' evaluated to 'false'!"] []]
-      | .assign pos ref e =>
+      match_source ← B with
+      | .skip, _ => []
+      | .print e, pos => [.print pos e]
+      | .assert e, pos => [.if pos (.prefix .«¬» e) [.panic pos <| .str s!"Expression '{e}' evaluated to 'false'!"] []]
+      | .assign ref e, pos =>
         -- TODO: handle indices (transform into tuples)
         let ref' := { name := ref.name, args := [] : GoCal.LHS _ }
         [.assign pos ref' e]
-      | .send pos chan e =>
+      | .send chan e, pos =>
         let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic pos <| .str "send not implemented"]⟩
         todo! "compile send to go"
           -- [.send pos _ e]
-      | .multicast pos chan bs e =>
+      | .multicast chan bs e, pos =>
         let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic pos <| .str "multicast not implemented"]⟩
         todo! "compile multicast to go"
 

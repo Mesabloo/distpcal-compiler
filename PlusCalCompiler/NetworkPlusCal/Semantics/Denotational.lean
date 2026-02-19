@@ -52,7 +52,7 @@ namespace NetworkPlusCal
 
   -- for FIFOs, we push on the right, and pop on the left
   def Statement.reducing : {b b' : Bool} → Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) b b' → Set (LocalState false × List Behavior × LocalState b')
-    | true, false, .let _ name _ «=|∈» e =>
+    | true, false, .let name _ «=|∈» e =>
       {⟨σ, ε, σ'⟩ | ∃ M T F v,
         T ∪ M ⊢ e ⇒ v ∧
         AList.lookup name (T ∪ M) = none ∧
@@ -62,19 +62,19 @@ namespace NetworkPlusCal
           | true, _ => False
           | false, v => σ' = .running M (T.insert name v) F
       }
-    | true, false, .await _ e => test e (.bool true)
-    | false, false, .skip _ => id
-    | false, true, .goto _ label => {⟨σ, ε, σ'⟩ | ∃ M T F, σ = .running M T F ∧ σ' = .done M T F label ∧ ε = []}
-    | false, false, .print _ e => {⟨σ, ε, σ'⟩ | ∃ M T F v, σ = .running M T F ∧ σ' = .running M T F ∧ T ∪ M ⊢ e ⇒ v ∧ ε = [.print v]}
-    | false, false, .assert _ e => test e (.bool true)
-    | false, false, .send _ chan e =>
+    | true, false, .await e => test e (.bool true)
+    | false, false, .skip => id
+    | false, true, .goto label => {⟨σ, ε, σ'⟩ | ∃ M T F, σ = .running M T F ∧ σ' = .done M T F label ∧ ε = []}
+    | false, false, .print e => {⟨σ, ε, σ'⟩ | ∃ M T F v, σ = .running M T F ∧ σ' = .running M T F ∧ T ∪ M ⊢ e ⇒ v ∧ ε = [.print v]}
+    | false, false, .assert e => test e (.bool true)
+    | false, false, .send chan e =>
       {⟨σ, ε, σ'⟩ | ∃ M T F v vs vs',
         T ∪ M ⊢ e ⇒ v ∧ List.Forall₂ (T ∪ M ⊢ · ⇒ ·) chan.args vs ∧
         F.lookup ⟨chan.name, vs⟩ = .some vs' ∧
         σ = .running M T F ∧ σ' = .running M T (F.replace ⟨chan.name, vs⟩ (vs'.concat v)) ∧ ε = [.send {chan with args := vs} v]
       }
-    | false, false, .multicast _ chan filter e => sorry
-    | false, false, .assign _ ref e =>
+    | false, false, .multicast chan filter e => sorry
+    | false, false, .assign ref e =>
       {⟨σ, ε, σ'⟩ | ∃ M T F M' v vss,
         T ∪ M ⊢ e ⇒ v ∧ List.Forall₂ (List.Forall₂ (T ∪ M ⊢ · ⇒ ·)) ref.args vss ∧
         Memory.updateRef M {ref with args := vss} v = some M' ∧ ref.name ∉ T ∧
@@ -90,31 +90,31 @@ namespace NetworkPlusCal
       {⟨σ, ε, σ'⟩ | ∃ M T F, σ = .running M T F ∧ σ' = .running M T F ∧ ε = 1}
 
   def Statement.aborting : {b b' : Bool} → Statement CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) b b' → Set (LocalState false × List Behavior)
-    | true, false, .let _ name _ «=|∈» e =>
+    | true, false, .let name _ «=|∈» e =>
       -- the set of all states which fail to reduce `e`
       {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
       -- the set of states that reduce `e` to anything else than a set when `«=|∈»` is `true`
       ∪ {⟨σ, ε⟩ | ∃ M T F v, T ∪ M ⊢ e ⇒ v ∧ σ = .running M T F ∧ ε = [] ∧ match «=|∈», v with
         | true, .set vs | false, _ => False
         | true, _ => True}
-    | true, false, .await _ e =>
+    | true, false, .await e =>
       {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
       ∪ {⟨σ, ε⟩ | ∃ M T F v, (∀ b, v ≠ .bool b) ∧ T ∪ M ⊢ e ⇒ v ∧ σ = .running M T F ∧ ε = []}
-    | false, false, .skip _ => ∅
-    | false, true, .goto _ label => ∅
-    | false, false, .print _ e => {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
-    | false, false, .assert _ e =>
+    | false, false, .skip => ∅
+    | false, true, .goto label => ∅
+    | false, false, .print e => {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
+    | false, false, .assert e =>
       -- the set of all states that fail to reduce `e`
       {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
       -- the set of all states that reduce `e` to something else than `TRUE`
       ∪ {⟨σ, ε⟩ | ∃ M T F v, v ≠ .bool true ∧ T ∪ M ⊢ e ⇒ v ∧ σ = .running M T F ∧ ε = []}
-    | false, false, .send _ chan e =>
+    | false, false, .send chan e =>
       {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
       ∪ {⟨σ, ε⟩ | ∃ e ∈ chan.args, ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
       ∪ {⟨σ, ε⟩ | ∃ M T F vs, List.Forall₂ (T ∪ M ⊢ · ⇒ ·) chan.args vs ∧
         F.lookup ⟨chan.name, vs⟩ = none ∧ σ = .running M T F ∧ ε = []}
-    | false, false, .multicast _ chan filter e => sorry
-    | false, false, .assign _ ref e =>
+    | false, false, .multicast chan filter e => sorry
+    | false, false, .assign ref e =>
       {⟨σ, ε⟩ | ∃ M T F, (ref.name ∉ M ∨ ref.name ∈ T) ∧ σ = .running M T F ∧ ε = []}
       ∪ {⟨σ, ε⟩ | ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}
       ∪ {⟨σ, ε⟩ | ∃ arg ∈ ref.args, ∃ e ∈ arg, ∃ M T F, T ∪ M ⊢ e ↯ ∧ σ = .running M T F ∧ ε = []}

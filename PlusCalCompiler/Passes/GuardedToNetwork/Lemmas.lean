@@ -47,12 +47,12 @@ namespace GuardedPlusCal
     precond_wf : match Br.precondition with
       | .some B => ∀ S ∈ B.toList, match S with
         -- Every `receive` does so from its mailbox (there must be one) which is well-typed.
-        | .receive _ c _ => ∃ v, mailbox = .some v ∧ match v with
+        | .receive c _ => ∃ v, mailbox = .some v ∧ match v with
           | .var x => c.name = x ∧ c.args = [] ∧ ∃ τ, Prod.fst <$> fifos.find? c.name = .some (.channel τ)
           | .funcall (.var x) [.var "self"] => c.name = x ∧ c.args = [.var "self"] ∧ ∃ τ₁ τ₂, Prod.fst <$> fifos.find? c.name = .some (.function τ₁ (.channel τ₂))
           | _ => False
-        | .await _ _ => True
-        | .let _ _ _ _ _ => True
+        | .await _ => True
+        | .let _ _ _ _ => True
       | .none => True
 
   protected structure Process.wellFormed
@@ -1286,7 +1286,7 @@ namespace GuardedToNetwork
           mpure_intro
           right
           cases B <;> trivial
-        | receive pos chan ref =>
+        | receive chan ref =>
           conv => simp_match
           split <;> {
             mspec Std.Do.Spec.pure
@@ -1307,7 +1307,7 @@ namespace GuardedToNetwork
 
   theorem GuardedPlusCal.Thread.toNetwork.processBlock.last_eq
     {actionₛ : GuardedPlusCal.Block (GuardedPlusCal.Statement SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) false) true} :
-    (GuardedPlusCal.Thread.toNetwork.processBlock actionₛ).last = match actionₛ.last with | .goto pos label => .goto pos label := by
+    (GuardedPlusCal.Thread.toNetwork.processBlock actionₛ).last = match_source actionₛ.last with | .goto label, pos => .goto label @@ pos := by
       rfl
 
   theorem GuardedPlusCal.Thread.toNetwork.processBlock.begin_empty_if
@@ -1319,34 +1319,34 @@ namespace GuardedToNetwork
   theorem GuardedPlusCal.Thread.toNetwork.processBlock.begin_eq_cons_if
     {actionₛ : GuardedPlusCal.Block (GuardedPlusCal.Statement SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) false) true} {S Ss}
     (h : (GuardedPlusCal.Thread.toNetwork.processBlock actionₛ).begin = S :: Ss) :
-      ∃ S' Ss', actionₛ.begin = S' :: Ss' ∧ S = (match S' with
-        | .skip pos => .skip pos
-        | .print pos e => .print pos e
-        | .assert pos e => .assert pos e
-        | .send pos chan e => .send pos chan e
-        | .multicast pos chan bs e => .multicast pos chan bs e
-        | .assign pos ref e => .assign pos ref e) ∧ Ss = Ss'.map λ
-          | .skip pos => .skip pos
-          | .print pos e => .print pos e
-          | .assert pos e => .assert pos e
-          | .send pos chan e => .send pos chan e
-          | .multicast pos chan bs e => .multicast pos chan bs e
-          | .assign pos ref e => .assign pos ref e := by
+      ∃ S' Ss', actionₛ.begin = S' :: Ss' ∧ S = (match_source S' with
+        | .skip, pos => .skip @@ pos
+        | .print e, pos => .print e @@ pos
+        | .assert e, pos => .assert e @@ pos
+        | .send chan e, pos => .send chan e @@ pos
+        | .multicast chan bs e, pos => .multicast chan bs e @@ pos
+        | .assign ref e, pos => .assign ref e @@ pos) ∧ Ss = Ss'.map λ S' ↦ match_source S' with
+          | .skip, pos => .skip @@ pos
+          | .print e, pos => .print e @@ pos
+          | .assert e, pos => .assert e @@ pos
+          | .send chan e, pos => .send chan e @@ pos
+          | .multicast chan bs e, pos => .multicast chan bs e @@ pos
+          | .assign ref e, pos => .assign ref e @@ pos := by
     erw [List.map_eq_cons_iff] at h
     obtain ⟨S, Ss, _, rfl, rfl⟩ := h
     exists S, Ss
 
-  theorem GuardedPlusCal.Thread.toNetwork.processBlock.end_eq_end {pos label} :
-    GuardedPlusCal.Thread.toNetwork.processBlock (.end (.goto pos label)) = .end (.goto pos label) := by
+  theorem GuardedPlusCal.Thread.toNetwork.processBlock.end_eq_end {label} :
+    GuardedPlusCal.Thread.toNetwork.processBlock (.end (.goto label)) = .end (.goto label) := by
       rfl
 
-  theorem GuardedPlusCal.Thread.toNetwork.processBlock.cons_eq_cons {S} {B} : GuardedPlusCal.Thread.toNetwork.processBlock (.cons S B) = .cons (match S with
-    | .skip pos => .skip pos
-    | .print pos e => .print pos e
-    | .assert pos e => .assert pos e
-    | .send pos chan e => .send pos chan e
-    | .multicast pos chan bs e => .multicast pos chan bs e
-    | .assign pos ref e => .assign pos ref e) (GuardedPlusCal.Thread.toNetwork.processBlock B) := by
+  theorem GuardedPlusCal.Thread.toNetwork.processBlock.cons_eq_cons {S} {B} : GuardedPlusCal.Thread.toNetwork.processBlock (.cons S B) = .cons (match_source S with
+    | .skip, pos => .skip @@ pos
+    | .print e, pos => .print e @@ pos
+    | .assert e, pos => .assert e @@ pos
+    | .send chan e, pos => .send chan e @@ pos
+    | .multicast chan bs e, pos => .multicast chan bs e @@ pos
+    | .assign ref e, pos => .assign ref e @@ pos) (GuardedPlusCal.Thread.toNetwork.processBlock B) := by
       rfl
 
   -- TODO: move into CoreTLAPlus
@@ -1617,19 +1617,19 @@ namespace GuardedToNetwork
       rw [← NetworkPlusCal.LocalState.div_glue₃, AtomicBranch.div_empty] at h
       assumption
 
-  lemma NetworkPlusCal.Statement.abort_skip.{u} {pos} :
-      ⟦@NetworkPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧⊥ = ∅ := by
+  lemma NetworkPlusCal.Statement.abort_skip.{u} :
+      ⟦@NetworkPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧⊥ = ∅ := by
     ext ⟨⟨M, T, F, l⟩, ε⟩
     iff_rintro ⟨rfl, _, _⟩ (_|_)
 
-  lemma GuardedPlusCal.Statement.strong_refinement.skip.{u} {pos} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)} :
+  lemma GuardedPlusCal.Statement.strong_refinement.skip.{u} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)} :
       StrongRefinement (· ∼[mailbox] ·)
-        ⟦@GuardedPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧*
-        ⟦@GuardedPlusCal.Statement.skip CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧⊥
-        ⟦@GuardedPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧∞
-        ⟦@NetworkPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧*
-        ⟦@NetworkPlusCal.Statement.skip CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧⊥
-        ⟦@NetworkPlusCal.Statement.skip CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ) pos⟧∞ := by
+        ⟦@GuardedPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧*
+        ⟦@GuardedPlusCal.Statement.skip CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧⊥
+        ⟦@GuardedPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧∞
+        ⟦@NetworkPlusCal.Statement.skip.{u} CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧*
+        ⟦@NetworkPlusCal.Statement.skip CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧⊥
+        ⟦@NetworkPlusCal.Statement.skip CoreTLAPlus.Typ (CoreTLAPlus.Expression CoreTLAPlus.Typ)⟧∞ := by
     rw [NetworkPlusCal.Statement.abort_skip, NetworkPlusCal.Statement.div_empty]
     apply StrongRefinement.ofTerminating
     rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ⟨Mₜ', Tₜ', Fₜ', lₜ'⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim sem_Sₜ
@@ -1641,16 +1641,16 @@ namespace GuardedToNetwork
     · exact relatesTo_eq_label sim
 
   lemma GuardedPlusCal.Statement.strong_refinement.print.{u}
-    {pos} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
+    {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
     {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => e.FreshIn inbox) :
       StrongRefinement (· ∼[mailbox] ·)
-        ⟦@GuardedPlusCal.Statement.print.{u} CoreTLAPlus.Typ _ pos e⟧*
-        ⟦@GuardedPlusCal.Statement.print CoreTLAPlus.Typ _ pos e⟧⊥
-        ⟦@GuardedPlusCal.Statement.print CoreTLAPlus.Typ _ pos e⟧∞
-        ⟦@NetworkPlusCal.Statement.print.{u} CoreTLAPlus.Typ _ pos e⟧*
-        ⟦@NetworkPlusCal.Statement.print CoreTLAPlus.Typ _ pos e⟧⊥
-        ⟦@NetworkPlusCal.Statement.print CoreTLAPlus.Typ _ pos e⟧∞ := by
+        ⟦@GuardedPlusCal.Statement.print.{u} CoreTLAPlus.Typ _ e⟧*
+        ⟦@GuardedPlusCal.Statement.print CoreTLAPlus.Typ _ e⟧⊥
+        ⟦@GuardedPlusCal.Statement.print CoreTLAPlus.Typ _ e⟧∞
+        ⟦@NetworkPlusCal.Statement.print.{u} CoreTLAPlus.Typ _ e⟧*
+        ⟦@NetworkPlusCal.Statement.print CoreTLAPlus.Typ _ e⟧⊥
+        ⟦@NetworkPlusCal.Statement.print CoreTLAPlus.Typ _ e⟧∞ := by
     rw [NetworkPlusCal.Statement.div_empty]
     apply StrongRefinement.ofNonDiverging
     · rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ⟨Mₜ', Tₜ', Fₜ', lₜ'⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim sem_Sₜ
@@ -1695,16 +1695,16 @@ namespace GuardedToNetwork
             exact wf
 
   lemma GuardedPlusCal.Statement.strong_refinement.assert.{u}
-    {pos} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
+    {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
     {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => e.FreshIn inbox) :
       StrongRefinement (· ∼[mailbox] ·)
-        ⟦@GuardedPlusCal.Statement.assert.{u} CoreTLAPlus.Typ _ pos e⟧*
-      ⟦@GuardedPlusCal.Statement.assert CoreTLAPlus.Typ _ pos e⟧⊥
-      ⟦@GuardedPlusCal.Statement.assert CoreTLAPlus.Typ _ pos e⟧∞
-        ⟦@NetworkPlusCal.Statement.assert.{u} CoreTLAPlus.Typ _ pos e⟧*
-        ⟦@NetworkPlusCal.Statement.assert CoreTLAPlus.Typ _ pos e⟧⊥
-        ⟦@NetworkPlusCal.Statement.assert CoreTLAPlus.Typ _ pos e⟧∞ := by
+        ⟦@GuardedPlusCal.Statement.assert.{u} CoreTLAPlus.Typ _ e⟧*
+      ⟦@GuardedPlusCal.Statement.assert CoreTLAPlus.Typ _ e⟧⊥
+      ⟦@GuardedPlusCal.Statement.assert CoreTLAPlus.Typ _ e⟧∞
+        ⟦@NetworkPlusCal.Statement.assert.{u} CoreTLAPlus.Typ _ e⟧*
+        ⟦@NetworkPlusCal.Statement.assert CoreTLAPlus.Typ _ e⟧⊥
+        ⟦@NetworkPlusCal.Statement.assert CoreTLAPlus.Typ _ e⟧∞ := by
     rw [NetworkPlusCal.Statement.div_empty]
     apply StrongRefinement.ofNonDiverging
     · rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ⟨Mₜ', Tₜ', Fₜ', lₜ'⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim sem_Sₜ
@@ -1750,16 +1750,16 @@ namespace GuardedToNetwork
         }
 
   lemma GuardedPlusCal.Statement.strong_refinement.send.{u}
-    {pos chan} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
+    {chan} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
     {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => chan.name ≠ inbox ∧ (∀ arg ∈ chan.args, arg.FreshIn inbox) ∧ e.FreshIn inbox) :
       StrongRefinement (· ∼[mailbox] ·)
-        ⟦@GuardedPlusCal.Statement.send.{u} CoreTLAPlus.Typ _ pos chan e⟧*
-        ⟦@GuardedPlusCal.Statement.send CoreTLAPlus.Typ _ pos chan e⟧⊥
-        ⟦@GuardedPlusCal.Statement.send CoreTLAPlus.Typ _ pos chan e⟧∞
-        ⟦@NetworkPlusCal.Statement.send.{u} CoreTLAPlus.Typ _ pos chan e⟧*
-        ⟦@NetworkPlusCal.Statement.send CoreTLAPlus.Typ _ pos chan e⟧⊥
-        ⟦@NetworkPlusCal.Statement.send CoreTLAPlus.Typ _ pos chan e⟧∞ := by
+        ⟦@GuardedPlusCal.Statement.send.{u} CoreTLAPlus.Typ _ chan e⟧*
+        ⟦@GuardedPlusCal.Statement.send CoreTLAPlus.Typ _ chan e⟧⊥
+        ⟦@GuardedPlusCal.Statement.send CoreTLAPlus.Typ _ chan e⟧∞
+        ⟦@NetworkPlusCal.Statement.send.{u} CoreTLAPlus.Typ _ chan e⟧*
+        ⟦@NetworkPlusCal.Statement.send CoreTLAPlus.Typ _ chan e⟧⊥
+        ⟦@NetworkPlusCal.Statement.send CoreTLAPlus.Typ _ chan e⟧∞ := by
     rw [NetworkPlusCal.Statement.div_empty]
     apply StrongRefinement.ofNonDiverging
     · rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ⟨Mₜ', Tₜ', Fₜ', lₜ'⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim sem_Sₜ
@@ -2173,19 +2173,19 @@ namespace GuardedToNetwork
               }
 
   lemma GuardedPlusCal.Statement.strong_refinement.assign.{u}
-    {pos ref} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
+    {ref} {mailbox : Option (CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ × String)}
     {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => ref.name ≠ inbox ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, idx.FreshIn inbox) ∧ e.FreshIn inbox)
     {«Σ» Γ Ξ : Scope}
     (self_in_Ξ : "self" ∈ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ)
     (wellscoped : e.WellScoped («Σ» ∪ Γ ∪ Ξ) ∧ ref.name ∈ Γ ∧ ∀ arg ∈ ref.args, ∀ idx ∈ arg, idx.WellScoped («Σ» ∪ Γ ∪ Ξ)) :
       StrongRefinement (· ∼[mailbox] ·)
-        ⟦@GuardedPlusCal.Statement.assign.{u} CoreTLAPlus.Typ _ pos ref e⟧*
-        ⟦@GuardedPlusCal.Statement.assign CoreTLAPlus.Typ _ pos ref e⟧⊥
-        ⟦@GuardedPlusCal.Statement.assign CoreTLAPlus.Typ _ pos ref e⟧∞
-        ⟦@NetworkPlusCal.Statement.assign.{u} CoreTLAPlus.Typ _ pos ref e⟧*
-        ⟦@NetworkPlusCal.Statement.assign CoreTLAPlus.Typ _ pos ref e⟧⊥
-        ⟦@NetworkPlusCal.Statement.assign CoreTLAPlus.Typ _ pos ref e⟧∞ := by
+        ⟦@GuardedPlusCal.Statement.assign.{u} CoreTLAPlus.Typ _ ref e⟧*
+        ⟦@GuardedPlusCal.Statement.assign CoreTLAPlus.Typ _ ref e⟧⊥
+        ⟦@GuardedPlusCal.Statement.assign CoreTLAPlus.Typ _ ref e⟧∞
+        ⟦@NetworkPlusCal.Statement.assign.{u} CoreTLAPlus.Typ _ ref e⟧*
+        ⟦@NetworkPlusCal.Statement.assign CoreTLAPlus.Typ _ ref e⟧⊥
+        ⟦@NetworkPlusCal.Statement.assign CoreTLAPlus.Typ _ ref e⟧∞ := by
     rw [NetworkPlusCal.Statement.div_empty]
     apply StrongRefinement.ofNonDiverging
     · rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ⟨Mₜ', Tₜ', Fₜ', lₜ'⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim sem_Sₜ
@@ -2437,44 +2437,47 @@ namespace GuardedToNetwork
     {«Σ» Γ Δ Ξ : Scope}
     (self_in_Ξ : "self" ∈ Ξ) (Γ_disj_Ξ : Disjoint Γ Ξ)
     (wellscoped : match S with
-      | .skip pos => True
-      | .print pos e => CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ)
-      | .assert pos e => CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ)
-      | .send pos chan e =>
+      | .skip => True
+      | .print e => CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ)
+      | .assert e => CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ)
+      | .send chan e =>
         CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ) ∧ chan.name ∈ Δ ∧ (∀ idx ∈ chan.args, CoreTLAPlus.Expression.WellScoped idx («Σ» ∪ Γ ∪ Ξ))
-      | .multicast pos chan bs e =>
+      | .multicast chan bs e =>
         chan ∈ Δ ∧ (∀ r ∈ bs, CoreTLAPlus.Expression.WellScoped r.2.2.2 («Σ» ∪ Γ ∪ Ξ)) ∧ (∀ r ∈ bs, r.1 ∉ «Σ» ∧ r.1 ∉ Γ ∧ r.1 ∉ Ξ) ∧
         CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ ∪ (bs.map Prod.fst).toFinset)
-      | .assign pos ref e =>
+      | .assign ref e =>
         CoreTLAPlus.Expression.WellScoped e («Σ» ∪ Γ ∪ Ξ) ∧ ref.name ∈ Γ ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, CoreTLAPlus.Expression.WellScoped idx («Σ» ∪ Γ ∪ Ξ)))
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => S.FreshIn CoreTLAPlus.Expression.FreshIn inbox) :
-      StrongRefinement (· ∼[mailbox] ·) ⟦S⟧* ⟦S⟧⊥ ⟦S⟧∞ ⟦match S with
-        | .skip pos => NetworkPlusCal.Statement.skip pos
-        | .print pos e => NetworkPlusCal.Statement.print pos e
-        | .assert pos e => NetworkPlusCal.Statement.assert pos e
-        | .send pos chan e => NetworkPlusCal.Statement.send pos chan e
-        | .multicast pos chan bs e => NetworkPlusCal.Statement.multicast pos chan bs e
-        | .assign pos ref e => NetworkPlusCal.Statement.assign pos ref e⟧* ⟦match S with
-        | .skip pos => NetworkPlusCal.Statement.skip pos
-        | .print pos e => NetworkPlusCal.Statement.print pos e
-        | .assert pos e => NetworkPlusCal.Statement.assert pos e
-        | .send pos chan e => NetworkPlusCal.Statement.send pos chan e
-        | .multicast pos chan bs e => NetworkPlusCal.Statement.multicast pos chan bs e
-        | .assign pos ref e => NetworkPlusCal.Statement.assign pos ref e⟧⊥ ⟦match S with
-        | .skip pos => NetworkPlusCal.Statement.skip pos
-        | .print pos e => NetworkPlusCal.Statement.print pos e
-        | .assert pos e => NetworkPlusCal.Statement.assert pos e
-        | .send pos chan e => NetworkPlusCal.Statement.send pos chan e
-        | .multicast pos chan bs e => NetworkPlusCal.Statement.multicast pos chan bs e
-        | .assign pos ref e => NetworkPlusCal.Statement.assign pos ref e⟧∞ := by
+      StrongRefinement (· ∼[mailbox] ·) ⟦S⟧* ⟦S⟧⊥ ⟦S⟧∞
+        ⟦match_source S with
+        | .skip, pos => NetworkPlusCal.Statement.skip @@ pos
+        | .print e, pos => NetworkPlusCal.Statement.print e @@ pos
+        | .assert e, pos => NetworkPlusCal.Statement.assert e @@ pos
+        | .send chan e, pos => NetworkPlusCal.Statement.send chan e @@ pos
+        | .multicast chan bs e, pos => NetworkPlusCal.Statement.multicast chan bs e @@ pos
+        | .assign ref e, pos => NetworkPlusCal.Statement.assign ref e @@ pos⟧*
+        ⟦match_source S with
+        | .skip, pos => NetworkPlusCal.Statement.skip @@ pos
+        | .print e, pos => NetworkPlusCal.Statement.print e @@ pos
+        | .assert e, pos => NetworkPlusCal.Statement.assert e @@ pos
+        | .send chan e, pos => NetworkPlusCal.Statement.send chan e @@ pos
+        | .multicast chan bs e, pos => NetworkPlusCal.Statement.multicast chan bs e @@ pos
+        | .assign ref e, pos => NetworkPlusCal.Statement.assign ref e @@ pos⟧⊥
+        ⟦match_source S with
+        | .skip, pos => NetworkPlusCal.Statement.skip @@ pos
+        | .print e, pos => NetworkPlusCal.Statement.print e @@ pos
+        | .assert e, pos => NetworkPlusCal.Statement.assert e @@ pos
+        | .send chan e, pos => NetworkPlusCal.Statement.send chan e @@ pos
+        | .multicast chan bs e, pos => NetworkPlusCal.Statement.multicast chan bs e @@ pos
+        | .assign ref e, pos => NetworkPlusCal.Statement.assign ref e @@ pos⟧∞ := by
     cases S with
-    | skip pos => apply strong_refinement.skip
-    | print pos e => apply strong_refinement.print <;> assumption
-    | assert pos e => apply strong_refinement.assert <;> assumption
-    | send pos chan e => apply strong_refinement.send <;> assumption
+    | skip => apply strong_refinement.skip
+    | print e => apply strong_refinement.print <;> assumption
+    | assert e => apply strong_refinement.assert <;> assumption
+    | send chan e => apply strong_refinement.send <;> assumption
     -- TODO: should be almost as painful as send
-    | multicast pos chan filter e => sorry
-    | assign pos ref e => apply strong_refinement.assign <;> assumption
+    | multicast chan filter e => sorry
+    | assign ref e => apply strong_refinement.assign <;> assumption
 
   theorem CoreTLAPlus.doUpdate_eq_doUpdate {v₂ v' : CoreTLAPlus.Value} {vss : List (List CoreTLAPlus.Value)} :
       GuardedPlusCal.Memory.updateRef.doUpdate v₂ v' vss = CoreTLAPlus.eval.doUpdate v' (Sum.inl <$> vss) v₂ := by
@@ -2509,10 +2512,10 @@ namespace GuardedToNetwork
           cases h _ _ _ rfl rfl
         · rfl
 
-  theorem NetworkPlusCal.Statement.reorder_let {p pos} {r} {e e': CoreTLAPlus.Expression SurfaceTLAPlus.Typ} {name} {τ : CoreTLAPlus.Typ} {«=|∈»}
+  theorem NetworkPlusCal.Statement.reorder_let {r} {e e': CoreTLAPlus.Expression SurfaceTLAPlus.Typ} {name} {τ : CoreTLAPlus.Typ} {«=|∈»}
     (h₁ : e'.FreshIn name) (h₂ : r.name ∉ CoreTLAPlus.prims) (h₃ : ∀ arg ∈ r.args, ∀ idx ∈ arg, idx.FreshIn name) (h₄ : r.name ≠ name) :
-      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧* =
-      ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧* := by
+      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧* =
+      ⟦NetworkPlusCal.Statement.let name τ «=|∈» ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧* := by
     ext ⟨⟨Ma, Ta, Fa, _⟩, ε, ⟨Mc, Tc, Fc, _⟩⟩
     constructor
     · rintro ⟨⟨Mb, Tb, Fb, _⟩, ε₁, ε₂, ⟨⟨_, _, _⟩, rfl, red_assign, _|_, rfl⟩, ⟨⟨_, _, _⟩, -, red_let, _|_, rfl⟩, rfl⟩
@@ -3058,9 +3061,9 @@ namespace GuardedToNetwork
           rwa [AList.lookup_union, AList.lookup_insert_ne h₄.symm, Option.orElse_eq_none]
         -- · rfl
 
-  theorem NetworkPlusCal.Statement.reorder_await {p pos} {r} {e e': CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ} (h' : r.name ∉ CoreTLAPlus.prims.{0}) :
-      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos e⟧* =
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧* := by
+  theorem NetworkPlusCal.Statement.reorder_await {r} {e e': CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ} (h' : r.name ∉ CoreTLAPlus.prims.{0}) :
+      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e⟧* =
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧* := by
     ext ⟨⟨Ma, Ta, Fa, _⟩, ε, ⟨Mc, Tc, Fc, _⟩⟩
     constructor
     · rintro ⟨⟨Mb, Tb, Fb, _⟩, ε₁, ε₂, ⟨⟨⟩, rfl, red_assign, _|_, rfl⟩, ⟨⟨⟩, -, red_await, _|_, rfl⟩, rfl⟩
@@ -3302,9 +3305,6 @@ namespace GuardedToNetwork
     (eval_e' : CoreTLAPlus.eval (T ∪ M) e' = some v)
     (upd_eq : GuardedPlusCal.Memory.updateRef.doUpdate v (AList.get M r.name r_name_in_M) vss = some v') :
       CoreTLAPlus.eval.{u, u} (T ∪ M) (CoreTLAPlus.Expression.except (CoreTLAPlus.Expression.var r.name) [(Sum.inl <$> r.args, e')]) = some v' := by
-    -- TODO: since we were able to update in memory at all the indices,
-    -- `M[r.name]` has the correct shape to be evaluated as an except
-    -- I guess this is proven by induction on `r.args` and `vss` simultaneously
     simp_rw [List.traverse_eq_some] at eval_args
     generalize r.args = args at *
     generalize v''_eq : AList.get M r.name r_name_in_M = v'' at *
@@ -3404,25 +3404,25 @@ namespace GuardedToNetwork
           dsimp
           conv in List.find? _ _ => apply tup_not_in_dom
 
-  theorem NetworkPlusCal.Statement.reorder_await'.{u} {p pos}
+  theorem NetworkPlusCal.Statement.reorder_await'.{u}
     {r : GuardedPlusCal.Ref (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
     {e e' : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
     (h' : r.name ∉ CoreTLAPlus.prims.{u}) :
-      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧⊥ ∪
-        ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos e⟧⊥ ⊇
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos ((↿e.replace) <| r.substOf e')⟧⊥ ∪
-        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧⊥ := by
+      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧⊥ ∪
+        ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e⟧⊥ ⊇
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) ((↿e.replace) <| r.substOf e')⟧⊥ ∪
+        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧⊥ := by
     have generic_reorder_await' {e'' : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
       (neval_imp_neval : ∀ M, M ⊢ e' ↯ → M ⊢ e'' ↯)
       (eval_imp_eval : ∀ M T {v v' vss}, List.traverse (List.traverse (CoreTLAPlus.eval (T ∪ M))) r.args = some vss
           → (r_name_in_M : r.name ∈ M) → r.name ∉ T → T ∪ M ⊢ e' ⇒ v → GuardedPlusCal.Memory.updateRef.doUpdate v (AList.get M r.name r_name_in_M) vss = some v'
           → T ∪ M ⊢ e'' ⇒ v') :
-        ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) p r e'⟧⊥
-        ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) p r e'⟧*
-          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos e⟧⊥ ⊇
-        ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (e.replace r.name e'')⟧⊥
-        ∪ ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (e.replace r.name e'')⟧*
-          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) p r e'⟧⊥ := by as_aux_lemma =>
+        ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e'⟧⊥
+        ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e'⟧*
+          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) e⟧⊥ ⊇
+        ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (e.replace r.name e'')⟧⊥
+        ∪ ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (e.replace r.name e'')⟧*
+          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e'⟧⊥ := by as_aux_lemma =>
       rintro ⟨⟨Ma, Ta, Fa, _⟩, _⟩ (⟨rfl, abort_await⟩|⟨⟨Mb, Tb, Fb, _⟩, ε₁, ε₂, red_await, abort_assign, rfl⟩)
       · obtain abort_await|abort_await := abort_await
         · obtain ⟨_, _, _, neval_e_subst, _|_, rfl⟩ := abort_await
@@ -3696,8 +3696,8 @@ namespace GuardedToNetwork
     · exact NetworkPlusCal.Statement.reorder_await'.aux_neval_except
     · exact λ M T v v' vss ↦ NetworkPlusCal.Statement.reorder_await'.aux_eval_except h'
 
-  theorem NetworkPlusCal.Statement.sem_await_congr.{u} {pos₁ pos₂} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ} (h : ∀ M : GuardedPlusCal.Memory.{u}, CoreTLAPlus.eval M e₁ = CoreTLAPlus.eval M e₂) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₁ e₁⟧* = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₂ e₂⟧* := by
+  theorem NetworkPlusCal.Statement.sem_await_congr.{u} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ} (h : ∀ M : GuardedPlusCal.Memory.{u}, CoreTLAPlus.eval M e₁ = CoreTLAPlus.eval M e₂) :
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₁⟧* = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₂⟧* := by
     ext ⟨⟨Ma, Ta, Fa, _⟩, _, ⟨Mb, Tb, Fb, _⟩⟩
     constructor
     · rintro ⟨⟨⟩, rfl, ⟨_, _, _, _|_, _|_, eval_e₁, rfl⟩, _|_, rfl⟩
@@ -3710,8 +3710,8 @@ namespace GuardedToNetwork
       assumption
 
   /-- A slightly weaker version of `NetworkPlusCal.Statement.sem_await_congr`. -/
-  theorem NetworkPlusCal.Statement.sem_await_congr'.{u} {pos₁ pos₂} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ} (h : ∀ M : GuardedPlusCal.Memory.{u}, M ⊢ e₁ ⇒ .bool true ↔ M ⊢ e₂ ⇒ .bool true) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₁ e₁⟧* = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₂ e₂⟧* := by
+  theorem NetworkPlusCal.Statement.sem_await_congr'.{u} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ} (h : ∀ M : GuardedPlusCal.Memory.{u}, M ⊢ e₁ ⇒ .bool true ↔ M ⊢ e₂ ⇒ .bool true) :
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₁⟧* = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₂⟧* := by
     ext ⟨⟨Ma, Ta, Fa, _⟩, _, ⟨Mb, Tb, Fb, _⟩⟩
     iff_rintro ⟨⟨⟩, rfl, ⟨_, _, _, _|_, _|_, eval_e₁, rfl⟩, _|_, rfl⟩ ⟨⟨⟩, rfl, ⟨_, _, _, _|_, _|_, eval_e₂, rfl⟩, _|_, rfl⟩
     · rw [h (Ta ∪ Ma)] at eval_e₁
@@ -3721,16 +3721,16 @@ namespace GuardedToNetwork
       sem_redn Ma, Ta, Fa
       assumption
 
-  theorem NetworkPlusCal.Statement.sem_await_of_imp.{u} {pos₁ pos₂} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ} (h : ∀ M : GuardedPlusCal.Memory.{u}, M ⊢ e₁ ⇒ .bool true → M ⊢ e₂ ⇒ .bool true) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₁ e₁⟧* ⊆ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₂ e₂⟧* := by
+  theorem NetworkPlusCal.Statement.sem_await_of_imp.{u} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ} (h : ∀ M : GuardedPlusCal.Memory.{u}, M ⊢ e₁ ⇒ .bool true → M ⊢ e₂ ⇒ .bool true) :
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₁⟧* ⊆ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₂⟧* := by
     rintro ⟨⟨Ma, Ta, Fa, _⟩, _, ⟨Mb, Tb, Fb, _⟩⟩ ⟨⟨⟩, rfl, ⟨_, _, _, _|_, _|_, eval_e₁, rfl⟩, _|_, rfl⟩
     apply h (Ta ∪ Ma) at eval_e₁
     sem_redn Ma, Ta, Fa
     assumption
 
-  theorem NetworkPlusCal.Statement.abort_await_congr.{u} {pos₁ pos₂} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
+  theorem NetworkPlusCal.Statement.abort_await_congr.{u} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (h₂ : ∀ M : GuardedPlusCal.Memory.{u}, CoreTLAPlus.eval M e₁ = CoreTLAPlus.eval M e₂) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₁ e₁⟧⊥ = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₂ e₂⟧⊥ := by
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₁⟧⊥ = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₂⟧⊥ := by
     ext ⟨⟨Ma, Ta, Fa, _⟩, _⟩
     constructor
     · rintro ⟨rfl, ⟨_, _, _, eval_e₁, _|_, rfl⟩|⟨_, _, _, v, v_not_bool, eval_e₁, _|_, rfl⟩⟩
@@ -3752,9 +3752,9 @@ namespace GuardedToNetwork
         right
         exists Ma, Ta, Fa, v
 
-  theorem NetworkPlusCal.Statement.abort_await_of_imp.{u} {pos₁ pos₂} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
+  theorem NetworkPlusCal.Statement.abort_await_of_imp.{u} {e₁ e₂ : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (h₂ : ∀ (M : GuardedPlusCal.Memory.{u}) v, (∀ b, v ≠ .some (.bool b)) → CoreTLAPlus.eval M e₁ = v → CoreTLAPlus.eval M e₂ = v) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₁ e₁⟧⊥ ⊆ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos₂ e₂⟧⊥ := by
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₁⟧⊥ ⊆ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e₂⟧⊥ := by
     rintro ⟨⟨Ma, Ta, Fa, _⟩, _⟩ ⟨rfl, ⟨_, _, _, eval_e₁, _|_, rfl⟩|⟨_, _, _, v, v_not_bool, eval_e₁, _|_, rfl⟩⟩
     · apply h₂ at eval_e₁
       · exists rfl
@@ -3768,25 +3768,24 @@ namespace GuardedToNetwork
       · rintro b (_|_)
         exact v_not_bool _ rfl
 
-  theorem NetworkPlusCal.Statement.reorder_let'.{u} {p pos name «=|∈»} {τ : SurfaceTLAPlus.Typ} {r} {e e': CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
+  theorem NetworkPlusCal.Statement.reorder_let'.{u} {name «=|∈»} {τ : SurfaceTLAPlus.Typ} {r} {e e': CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
     (h' : r.name ∉ CoreTLAPlus.prims.{u}) (h'' : name ≠ r.name) (h''' : name ∉ e'.freeVars)
     (h''' : ∀ arg ∈ r.args, ∀ e ∈ arg, name ∉ e.freeVars) :
-      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧⊥ ∪
-        ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧⊥ ⊇
-      ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» ((↿e.replace) <| r.substOf e')⟧⊥ ∪
-        ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) p r e'⟧⊥ := by
-    -- TODO: adapt proof of NetworkPlusCal.Statement.reorder_await'
+      ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧⊥ ∪
+        ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧⊥ ⊇
+      ⟦NetworkPlusCal.Statement.let name τ «=|∈» ((↿e.replace) <| r.substOf e')⟧⊥ ∪
+        ⟦NetworkPlusCal.Statement.let name τ «=|∈» ((↿e.replace) <| r.substOf e')⟧* ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e'⟧⊥ := by
     have generic_reorder_await' {e'' : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
       (neval_imp_neval : ∀ M, M ⊢ e' ↯ → M ⊢ e'' ↯)
       (eval_imp_eval : ∀ M T {v v' vss}, List.traverse (List.traverse (CoreTLAPlus.eval (T ∪ M))) r.args = some vss
           → (r_name_in_M : r.name ∈ M) → r.name ∉ T → T ∪ M ⊢ e' ⇒ v → GuardedPlusCal.Memory.updateRef.doUpdate v (AList.get M r.name r_name_in_M) vss = some v'
           → T ∪ M ⊢ e'' ⇒ v') :
-        ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) p r e'⟧⊥
-        ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) p r e'⟧*
-          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧⊥ ⊇
-        ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (e.replace r.name e'')⟧⊥
-        ∪ ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (e.replace r.name e'')⟧*
-          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) p r e'⟧⊥ := by as_aux_lemma =>
+        ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e'⟧⊥
+        ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e'⟧*
+          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧⊥ ⊇
+        ⟦NetworkPlusCal.Statement.let name τ «=|∈» (e.replace r.name e'')⟧⊥
+        ∪ ⟦NetworkPlusCal.Statement.let name τ «=|∈» (e.replace r.name e'')⟧*
+          ∘ᵣ₁ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e'⟧⊥ := by as_aux_lemma =>
       rintro ⟨⟨Ma, Ta, Fa, _⟩, _⟩ (⟨rfl, abort_let⟩|⟨⟨Mb, Tb, Fb, _⟩, ε₁, ε₂, red_let, abort_assign, rfl⟩)
       · obtain abort_let|abort_let := abort_let
         · obtain ⟨_, _, _, neval_e_subst, _|_, rfl⟩ := abort_let
@@ -4113,13 +4112,13 @@ namespace GuardedToNetwork
     · exact NetworkPlusCal.Statement.reorder_await'.aux_neval_except
     · exact λ M T v v' vss ↦ NetworkPlusCal.Statement.reorder_await'.aux_eval_except h'
 
-  theorem AtomicBranch.correctness_precond_let.{u} {nameₛ} {mailboxₛ} {pos name} {τ : CoreTLAPlus.Typ.{u}} {«=|∈»} {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
+  theorem AtomicBranch.correctness_precond_let.{u} {nameₛ} {mailboxₛ} {name} {τ : CoreTLAPlus.Typ.{u}} {«=|∈»} {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (wf : match mailboxₛ with | none => True | some _ => inbox ++ nameₛ ≠ name ∧ CoreTLAPlus.Expression.FreshIn e (inbox ++ nameₛ))
     --(wf : match mailboxₛ with | none => True | some _ => inbox ++ nameₛ ∉ (GuardedPlusCal.Statement.let pos name τ «=|∈» e).freeVars CoreTLAPlus.Expression.freeVars)
     (wf' : name ≠ "self") :
       StrongRefinement.Terminating (· ∼[Option.map (fun x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·)
-        ⟦GuardedPlusCal.Statement.let pos name τ «=|∈» e⟧* ⟦GuardedPlusCal.Statement.let pos name τ «=|∈» e⟧⊥
-        ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧* := by
+        ⟦GuardedPlusCal.Statement.let name τ «=|∈» e⟧* ⟦GuardedPlusCal.Statement.let name τ «=|∈» e⟧⊥
+        ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧* := by
     rintro ⟨Mₜ, Tₜ, Fₜ, _⟩ ⟨Mₜ', Tₜ', Fₜ', _⟩ ε ⟨Mₛ, Tₛ, Fₛ, _⟩ sim_σₛ_σₜ ⟨_, rfl, ⟨_, _, _, v', eval_e, _, _|_, rfl, next⟩, rfl, rfl⟩
     split at next using vs <;> try contradiction
     1:  obtain ⟨v', v'_in, next⟩ := next
@@ -4206,11 +4205,11 @@ namespace GuardedToNetwork
             simp_rw [AList.lookup_union, sim_σₛ_σₜ.left _ name_neq, ← AList.lookup_union]
             assumption
 
-  theorem AtomicBranch.correctness_precond_await.{u} {nameₛ} {mailboxₛ} {pos} {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
+  theorem AtomicBranch.correctness_precond_await.{u} {nameₛ} {mailboxₛ} {e : CoreTLAPlus.Expression.{u} CoreTLAPlus.Typ}
     (wf : match mailboxₛ with | none => True | some _ => CoreTLAPlus.Expression.FreshIn e (inbox ++ nameₛ)) : -- (GuardedPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos e).freeVars CoreTLAPlus.Expression.freeVars) :
       StrongRefinement.Terminating (· ∼[Option.map (λ x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·)
-        ⟦GuardedPlusCal.Statement.await.{u} (Typ := CoreTLAPlus.Typ) pos e⟧* ⟦GuardedPlusCal.Statement.await.{u} (Typ := CoreTLAPlus.Typ) pos e⟧⊥
-        ⟦NetworkPlusCal.Statement.await.{u} (Typ := CoreTLAPlus.Typ) pos e⟧* := by
+        ⟦GuardedPlusCal.Statement.await.{u} (Typ := CoreTLAPlus.Typ) e⟧* ⟦GuardedPlusCal.Statement.await.{u} (Typ := CoreTLAPlus.Typ) e⟧⊥
+        ⟦NetworkPlusCal.Statement.await.{u} (Typ := CoreTLAPlus.Typ) e⟧* := by
     rintro ⟨Mₜ, Tₜ, Fₜ, _⟩ ⟨Mₜ', Tₜ', Fₜ', _⟩ ε ⟨Mₛ, Tₛ, Fₛ, _⟩ sim_σₛ_σₜ ⟨_, rfl, ⟨_, _, _, _|_, _|_, eval_e, rfl⟩, _|_, rfl⟩
     left
     sem_exists Mₛ, Tₛ, Fₛ
@@ -4232,21 +4231,21 @@ namespace GuardedToNetwork
         · assumption
 
   set_option linter.unusedTactic false in
-  theorem AtomicBranch.correctness_precond_receive {nameₛ : String} {mailboxₛ : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ} {pos : SourceSpan}
+  theorem AtomicBranch.correctness_precond_receive {nameₛ : String} {mailboxₛ : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
     {chan : GuardedPlusCal.ChanRef.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
     {ref : GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
-    (wf : GuardedPlusCal.Statement.FreshIn.{0} CoreTLAPlus.Expression.FreshIn (GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) pos chan ref) (inbox ++ nameₛ))
+    (wf : GuardedPlusCal.Statement.FreshIn.{0} CoreTLAPlus.Expression.FreshIn (GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) chan ref) (inbox ++ nameₛ))
     (wf₂ : ref.name ≠ "self")
     (wf' : match mailboxₛ with
       | .var x => chan = {name := x, args := [] : GuardedPlusCal.ChanRef (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
       | .funcall (.var x) [.var "self"] => chan = {name := x, args := [.var "self"] : GuardedPlusCal.ChanRef (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
       | _ => False) :
       StrongRefinement.Terminating (· ∼[.some (mailboxₛ, inbox ++ nameₛ)] ·)
-        ⟦GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) pos chan ref⟧*
-        ⟦GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) pos chan ref⟧⊥
-        (⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ) (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat "0"))⟧* ∘ᵣ₂
-         ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) pos ref (CoreTLAPlus.Expression.opcall (.var "Head") [.var (inbox ++ nameₛ)])⟧* ∘ᵣ₂
-         ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) pos ⟨inbox ++ nameₛ, []⟩ (CoreTLAPlus.Expression.opcall (Typ := SurfaceTLAPlus.Typ) (.var "Tail") [.var (inbox ++ nameₛ)])⟧*) := by
+        ⟦GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) chan ref⟧*
+        ⟦GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) chan ref⟧⊥
+        (⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ) (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat "0"))⟧* ∘ᵣ₂
+         ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) ref (CoreTLAPlus.Expression.opcall (.var "Head") [.var (inbox ++ nameₛ)])⟧* ∘ᵣ₂
+         ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) ⟨inbox ++ nameₛ, []⟩ (CoreTLAPlus.Expression.opcall (Typ := SurfaceTLAPlus.Typ) (.var "Tail") [.var (inbox ++ nameₛ)])⟧*) := by
     rintro ⟨Maₜ, Taₜ, Faₜ, _⟩ ⟨Mdₜ, Tdₜ, Fdₜ, _⟩ ε ⟨Maₛ, Tₛ, Fₛ, _⟩ sim_σₛ_σₜ ⟨⟨Mcₜ, Tcₜ, Fcₜ, _⟩, _, _, red_await, ⟨⟨Mbₜ, Tbₜ, Fbₜ, _⟩, ε₁, ε₂, red_assign_ref, red_assign_inbox, rfl⟩, rfl⟩
     obtain ⟨⟨⟩, rfl, ⟨_, _, _, _|_, _|_, eval_len_inbox, rfl⟩, _|_, rfl⟩ := red_await
     obtain ⟨⟨⟩, -, ⟨_, _, _, _, v, vss, eval_Head_inbox, eval_ref_args, upd_Maₜ_eq_Mcₜ, _, _|_, _|_, rfl⟩, _|_, rfl⟩ := red_assign_ref
@@ -4573,11 +4572,11 @@ namespace GuardedToNetwork
     | cons x xs IH =>
       erw [List.foldl_cons, ← List.foldl_map, sem_assoc', List.foldr_cons, List.foldl_map, IH]
 
-  lemma GuardedPlusCal.Statement.strong_refinement.await.{u} {mailbox} {pos} {e : CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ}
+  lemma GuardedPlusCal.Statement.strong_refinement.await.{u} {mailbox} {e : CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ}
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => e.FreshIn inbox) :
       StrongRefinement.Aborting (· ∼[mailbox] ·)
-        ⟦GuardedPlusCal.Statement.await.{u} (Typ := SurfaceTLAPlus.Typ) pos e⟧⊥
-        ⟦NetworkPlusCal.Statement.await.{u} (Typ := SurfaceTLAPlus.Typ) pos e⟧⊥ := by
+        ⟦GuardedPlusCal.Statement.await.{u} (Typ := SurfaceTLAPlus.Typ) e⟧⊥
+        ⟦NetworkPlusCal.Statement.await.{u} (Typ := SurfaceTLAPlus.Typ) e⟧⊥ := by
     rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim ⟨rfl, ⟨_, _, _, eval_e_eq_v, _|_, rfl⟩|⟨_, _, _, v, v_not_bool, eval_e_eq_v, _|_, rfl⟩⟩
       <;> exists [], le_rfl, relatesTo_eq_label sim
       <;> [ (left; use Mₛ, Tₛ, Fₛ, ?_, rfl)
@@ -4605,12 +4604,12 @@ namespace GuardedToNetwork
     {newInstrs : List (GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)}
     {precondₛ : GuardedPlusCal.Block.{0} (GuardedPlusCal.Statement SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) true) false}
     {Ss Ss' : List (GuardedPlusCal.Statement.{0} SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) true false)}
-    {pos : SourceSpan} {e : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
+    {e : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
     {«Σ» Γ Δ Ξ : Scope}
     {«Σ_disj_Δ» : Disjoint («Σ» \ {"self"}) (Δ \ {"self"})} {«Σ_disj_Γ» : Disjoint («Σ» \ {"self"}) (Γ \ {"self"})} {Δ_disj_Γ : Disjoint (Δ \ {"self"}) (Γ \ {"self"})}
     («prims_in_Σ» : CoreTLAPlus.prims.keys.toFinset ⊆ «Σ» \ {"self"})
     (e_wellscoped : CoreTLAPlus.Expression.WellScoped e («Σ» \ {"self"} ∪ Γ \ {"self"} ∪ Ξ))
-    (h : precondₛ.begin.concat precondₛ.last = Ss ++ GuardedPlusCal.Statement.await pos e :: Ss')
+    (h : precondₛ.begin.concat precondₛ.last = Ss ++ GuardedPlusCal.Statement.await e :: Ss')
     (wf : match mailboxₛ with
       | none => True
       | some _ => ∀ S ∈ precondₛ.toList, GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn S (inbox ++ nameₛ))
@@ -4633,16 +4632,16 @@ namespace GuardedToNetwork
         (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} Ss)
         (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ Ss)
         (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ Ss)
-        (⟦B⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
-        (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
-        (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅)) :
+        (⟦B⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
+        (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
+        (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅)) :
     ----
       i = newInstrs.length / 2 ∧
       Even newInstrs.length ∧
-      (if h'' : !(Ss ++ [GuardedPlusCal.Statement.await pos e]).isEmpty then
+      (if h'' : !(Ss ++ [GuardedPlusCal.Statement.await e]).isEmpty then
         ∃ (_ : Disjoint («Σ» \ {"self"}) Ξ) (_ : Disjoint (Δ \ {"self"}) Ξ) (_ : Disjoint (Γ \ {"self"}) Ξ),
           GuardedPlusCal.AtomicBranch.WellScopedPrecond (flip CoreTLAPlus.Expression.WellScoped) («Σ» \ {"self"}) (Δ \ {"self"}) (Γ \ {"self"}) ‹_› ‹_› ‹_›
-            (.some (GuardedPlusCal.Block.ofList (Ss ++ [GuardedPlusCal.Statement.await pos e]) (propext List.isEmpty_eq_false_iff ▸ Bool.not_eq_true' _ ▸ h''))) {"self"} Ξ
+            (.some (GuardedPlusCal.Block.ofList (Ss ++ [GuardedPlusCal.Statement.await e]) (propext List.isEmpty_eq_false_iff ▸ Bool.not_eq_true' _ ▸ h''))) {"self"} Ξ
       else Ξ = {"self"}) ∧
       (∀ (k : Nat) (_ : k < newInstrs.length),
         (∀ arg ∈ newInstrs[k].1.args, ∀ idx ∈ arg, CoreTLAPlus.Expression.WellScoped idx ((«Σ» \ {"self"}) ∪ (Γ \ {"self"} ∪ {inbox ++ nameₛ}) ∪ Ξ)) ∧
@@ -4651,24 +4650,24 @@ namespace GuardedToNetwork
         (Odd k → inbox ++ nameₛ ∉ «Σ» \ {"self"} ∧ newInstrs[k] = ⟨⟨inbox ++ nameₛ, []⟩, .opcall (.var "Tail") [.var (inbox ++ nameₛ)]⟩)) ∧
       (newInstrs ≠ [] → mailboxₛ.isSome) ∧
       StrongRefinement (· ∼[Option.map (λ x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·)
-        (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (Ss ++ [GuardedPlusCal.Statement.await pos e]))
-        (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.await pos e]))
-        (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.await pos e]))
+        (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (Ss ++ [GuardedPlusCal.Statement.await e]))
+        (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.await e]))
+        (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.await e]))
         (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-          ⟦NetworkPlusCal.Statement.await pos (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₂
-          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
+          ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₂
+          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
         (B.elim ∅ (⟦·⟧⊥) ∪
           B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₁
-            ⟦NetworkPlusCal.Statement.await pos (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
           (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-            ⟦NetworkPlusCal.Statement.await pos (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
-            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
+            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
         (B.elim ∅ (⟦·⟧∞) ∪
           B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₁
-            ⟦NetworkPlusCal.Statement.await pos (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧∞ ∪
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧∞ ∪
           (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-            ⟦NetworkPlusCal.Statement.await pos (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
-            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅) := by {
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
+            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅) := by {
     have newInstrs_shape' : ∀ r ∈ newInstrs, r.1.name ∉ CoreTLAPlus.prims.{0} := by
       rw [List.forall_mem_iff_getElem]
       intros i i_le
@@ -4684,10 +4683,10 @@ namespace GuardedToNetwork
         rwa [newInstrs_i_eq]
 
     have reorder_await_newInstrs :
-        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (List.foldr (λ x e ↦ e.replace (GuardedPlusCal.Ref.substOf x.1 x.2).1 (GuardedPlusCal.Ref.substOf x.1 x.2).2) e newInstrs)⟧* ∘ᵣ₂
-          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs =
-        List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs ∘ᵣ₂
-          ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos e⟧* := by
+        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace (GuardedPlusCal.Ref.substOf x.1 x.2).1 (GuardedPlusCal.Ref.substOf x.1 x.2).2) e newInstrs)⟧* ∘ᵣ₂
+          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs =
+        List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs ∘ᵣ₂
+          ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) e⟧* := by
       clear inv i_eq newInstrs_len_even newInstrs_shape mailbox_some
       induction newInstrs with
       | nil =>
@@ -4698,8 +4697,8 @@ namespace GuardedToNetwork
         simp_rw [List.foldr_cons, List.foldl_cons]
         have r_name_not_in : newInstr.1.name ∉ CoreTLAPlus.prims.{0} := newInstrs_shape' newInstr List.mem_cons_self
 
-        have : List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) ({x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default newInstr.1 newInstr.2⟧*) newInstrs =
-            ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default newInstr.1 newInstr.2⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs := by
+        have : List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) ({x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) newInstr.1 newInstr.2⟧*) newInstrs =
+            ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) newInstr.1 newInstr.2⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs := by
           rw [← List.foldl_map]
           nth_rw 2 [← List.foldl_map]
           apply sem_assoc'
@@ -4711,7 +4710,7 @@ namespace GuardedToNetwork
     and_intros
     · assumption
     · assumption
-    · have : (!(Ss ++ [GuardedPlusCal.Statement.await pos e]).isEmpty) = true := by simp
+    · have : (!(Ss ++ [GuardedPlusCal.Statement.await e]).isEmpty) = true := by simp
       rw [dite_cond_eq_true (eq_true this)]
 
       split_ifs at wellscoped with h
@@ -4738,7 +4737,7 @@ namespace GuardedToNetwork
               | (dsimp; erw [NetworkPlusCal.Block.div_empty]) ]
 
       have newInstrs_div_empty : newInstrs.foldr (init := ∅)
-          (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) = ∅ := by
+          (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) = ∅ := by
         clear * -
         induction newInstrs with
         | nil =>
@@ -4764,18 +4763,18 @@ namespace GuardedToNetwork
           | none => apply True.intro
           | some mailboxₛ =>
             dsimp at wf ⊢
-            specialize wf (.await pos e) _
+            specialize wf (.await e) _
             · simp_all
             · assumption
       · rw [List.foldr_concat, Relation.lcomp₁.right_empty_eq_empty, Set.union_empty, abort_assoc']
 
         -- reorder await
         have reorder_await_newInstrs' :
-            ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
-              ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₁
-                newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅ ⊆
-            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem)
-              ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos e⟧⊥ := by
+            ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
+              ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₁
+                newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅ ⊆
+            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem)
+              ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) e⟧⊥ := by
           clear * - newInstrs_shape'
           induction newInstrs with
           | nil =>
@@ -4807,7 +4806,7 @@ namespace GuardedToNetwork
           apply reorder_await_newInstrs'
         · conv =>
             enter [3, 2, 2]
-            apply List.foldr_map (f := λ (x : _ × _) ↦ NetworkPlusCal.Statement.assign default x.1 x.2)
+            apply List.foldr_map (f := λ (x : _ × _) ↦ NetworkPlusCal.Statement.assign x.1 x.2)
                                 (g := λ x y ↦ ⟦x⟧⊥ ∪ ⟦x⟧* ∘ᵣ₁ y)
                     |>.symm
           rw [abort_assoc', List.foldr_map, List.foldr_map, Relation.lcomp₁.right_union_eq_union, ← Set.union_assoc, ← Relation.lcomp₁.left_lcomp₂_eq]
@@ -4824,7 +4823,7 @@ namespace GuardedToNetwork
 
             have wf' : match (motive := _ → Prop) mailboxₛ with
                 | none => True
-                | some _ => GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn (GuardedPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos e) (inbox ++ nameₛ) := by
+                | some _ => GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn (GuardedPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) e) (inbox ++ nameₛ) := by
               cases mailboxₛ with
               | none => apply True.intro
               | some val =>
@@ -4842,16 +4841,16 @@ namespace GuardedToNetwork
               apply StrongRefinement.Terminating.Id
             | some B =>
               convert inv.1 using 2
-              rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
-                  ← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
+              rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
+                  ← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
                   foldl_red_eq_foldr_red]
   }
 
-  lemma GuardedPlusCal.Statement.strong_refinement.let.{u} {mailbox} {pos name «=|∈»} {τ : SurfaceTLAPlus.Typ} {e : CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ}
+  lemma GuardedPlusCal.Statement.strong_refinement.let.{u} {mailbox} {name «=|∈»} {τ : SurfaceTLAPlus.Typ} {e : CoreTLAPlus.Expression.{u} SurfaceTLAPlus.Typ}
     (wf : match mailbox with | .none => True | .some ⟨_, inbox⟩ => inbox ≠ name ∧ e.FreshIn inbox) :
       StrongRefinement.Aborting (· ∼[mailbox] ·)
-        ⟦GuardedPlusCal.Statement.let pos name τ «=|∈» e⟧⊥
-        ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧⊥ := by
+        ⟦GuardedPlusCal.Statement.let name τ «=|∈» e⟧⊥
+        ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧⊥ := by
     rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim ⟨rfl, ⟨_, _, _, eval_e, _|_, rfl⟩|⟨_, _, _, v, eval_e, _|_, rfl, h⟩⟩
     · exists [], le_rfl
       constructor
@@ -4904,13 +4903,13 @@ namespace GuardedToNetwork
     {newInstrs : List (GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)}
     {precondₛ : GuardedPlusCal.Block.{0} (GuardedPlusCal.Statement SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) true) false}
     {Ss Ss' : List (GuardedPlusCal.Statement.{0} SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) true false)}
-    {pos : SourceSpan} {name : String} {τ : SurfaceTLAPlus.Typ} {«=|∈» : Bool} {e : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
+    {name : String} {τ : SurfaceTLAPlus.Typ} {«=|∈» : Bool} {e : CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ}
     {«Σ» Γ Δ Ξ : Scope}
     {«Σ_disj_Δ» : Disjoint («Σ» \ {"self"}) (Δ \ {"self"})} {«Σ_disj_Γ» : Disjoint («Σ» \ {"self"}) (Γ \ {"self"})} {Δ_disj_Γ : Disjoint (Δ \ {"self"}) (Γ \ {"self"})}
     («prims_in_Σ» : CoreTLAPlus.prims.keys.toFinset ⊆ «Σ» \ {"self"})
     (e_wellscoped : CoreTLAPlus.Expression.WellScoped e («Σ» \ {"self"} ∪ Γ \ {"self"} ∪ Ξ))
     (name_wellscoped : name ∉ «Σ» \ {"self"} ∪ Δ \ {"self"} ∪ Γ \ {"self"} ∪ Ξ)
-    (h : precondₛ.begin.concat precondₛ.last = Ss ++ GuardedPlusCal.Statement.let pos name τ «=|∈» e :: Ss')
+    (h : precondₛ.begin.concat precondₛ.last = Ss ++ GuardedPlusCal.Statement.let name τ «=|∈» e :: Ss')
     (wf : match mailboxₛ with
       | none => True
       | some _ => ∀ S ∈ precondₛ.toList, GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn S (inbox ++ nameₛ))
@@ -4933,16 +4932,16 @@ namespace GuardedToNetwork
         (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} Ss)
         (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ Ss)
         (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ Ss)
-        (⟦B⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
-        (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
-        (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅)) :
+        (⟦B⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
+        (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
+        (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅)) :
     ----
       i = newInstrs.length / 2 ∧
       Even newInstrs.length ∧
-      (if h'' : !(Ss ++ [GuardedPlusCal.Statement.let pos name τ «=|∈» e]).isEmpty then
+      (if h'' : !(Ss ++ [GuardedPlusCal.Statement.let name τ «=|∈» e]).isEmpty then
         ∃ (_ : Disjoint («Σ» \ {"self"}) (insert name Ξ)) (_ : Disjoint (Δ \ {"self"}) (insert name Ξ)) (_ : Disjoint (Γ \ {"self"}) (insert name Ξ)),
           GuardedPlusCal.AtomicBranch.WellScopedPrecond (flip CoreTLAPlus.Expression.WellScoped) («Σ» \ {"self"}) (Δ \ {"self"}) (Γ \ {"self"}) ‹_› ‹_› ‹_›
-            (.some (GuardedPlusCal.Block.ofList (Ss ++ [GuardedPlusCal.Statement.let pos name τ «=|∈» e]) (propext List.isEmpty_eq_false_iff ▸ Bool.not_eq_true' _ ▸ h''))) {"self"} (insert name Ξ)
+            (.some (GuardedPlusCal.Block.ofList (Ss ++ [GuardedPlusCal.Statement.let name τ «=|∈» e]) (propext List.isEmpty_eq_false_iff ▸ Bool.not_eq_true' _ ▸ h''))) {"self"} (insert name Ξ)
       else (insert name Ξ) = {"self"}) ∧
       (∀ (k : Nat) (_ : k < newInstrs.length),
         (∀ arg ∈ newInstrs[k].1.args, ∀ idx ∈ arg, CoreTLAPlus.Expression.WellScoped idx ((«Σ» \ {"self"}) ∪ (Γ \ {"self"} ∪ {inbox ++ nameₛ}) ∪ insert name Ξ)) ∧
@@ -4951,24 +4950,24 @@ namespace GuardedToNetwork
         (Odd k → inbox ++ nameₛ ∉ «Σ» \ {"self"} ∧ newInstrs[k] = ⟨⟨inbox ++ nameₛ, []⟩, .opcall (.var "Tail") [.var (inbox ++ nameₛ)]⟩)) ∧
       (newInstrs ≠ [] → mailboxₛ.isSome) ∧
       StrongRefinement (· ∼[Option.map (λ x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·)
-        (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (Ss ++ [GuardedPlusCal.Statement.let pos name τ «=|∈» e]))
-        (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.let pos name τ «=|∈» e]))
-        (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.let pos name τ «=|∈» e]))
+        (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (Ss ++ [GuardedPlusCal.Statement.let name τ «=|∈» e]))
+        (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.let name τ «=|∈» e]))
+        (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.let name τ «=|∈» e]))
         (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-          ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₂
-          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
+          ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₂
+          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
         (B.elim ∅ (⟦·⟧⊥) ∪
           B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₁
-            ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
+            ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
           (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-            ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
-            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
+            ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
+            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅)
         (B.elim ∅ (⟦·⟧∞) ∪
           B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₁
-            ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧∞ ∪
+            ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧∞ ∪
           (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-            ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
-            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅) := by {
+            ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧*) ∘ᵣ₁
+            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅) := by {
     repeat rw [Finset.notMem_union] at name_wellscoped
     obtain ⟨⟨⟨_, _⟩, name_not_in_Γ⟩, name_not_in⟩ := name_wellscoped
 
@@ -4985,7 +4984,7 @@ namespace GuardedToNetwork
         obtain ⟨_, rfl⟩ := mailbox_some
 
         have name_neq : name ≠ inbox ++ nameₛ := by
-          specialize wf (.let pos name τ «=|∈» e) (by simp_all)
+          specialize wf (.let name τ «=|∈» e) (by simp_all)
           unfold GuardedPlusCal.Statement.FreshIn at wf
           obtain ⟨_, _⟩ := wf
           symm
@@ -5028,10 +5027,10 @@ namespace GuardedToNetwork
             rwa [newInstrs_i_eq]
 
     have reorder_let :
-        ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₂
-          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs =
-        List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs ∘ᵣ₂
-          ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧* := by
+        ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₂
+          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs =
+        List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs ∘ᵣ₂
+          ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧* := by
       rw [List.foldr_map]
 
       clear inv i_eq newInstrs_len_even newInstrs_shape mailbox_some
@@ -5045,8 +5044,8 @@ namespace GuardedToNetwork
 
         obtain ⟨r_name_not_in, name_fresh_in_r_args, name_fresh, r_name_neq⟩ := newInstrs_shape' newInstr List.mem_cons_self
 
-        have : List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) ({x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default newInstr.1 newInstr.2⟧*) newInstrs =
-            ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default newInstr.1 newInstr.2⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs := by
+        have : List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) ({x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) newInstr.1 newInstr.2⟧*) newInstrs =
+            ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) newInstr.1 newInstr.2⟧* ∘ᵣ₂ List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs := by
           rw [← List.foldl_map]
           nth_rw 2 [← List.foldl_map]
           apply sem_assoc'
@@ -5061,7 +5060,7 @@ namespace GuardedToNetwork
     and_intros
     · assumption
     · assumption
-    · have : (!(Ss ++ [GuardedPlusCal.Statement.let pos name τ «=|∈» e]).isEmpty) = true := by simp
+    · have : (!(Ss ++ [GuardedPlusCal.Statement.let name τ «=|∈» e]).isEmpty) = true := by simp
 
       rw [dite_cond_eq_true (eq_true this)]
       simp only [Finset.disjoint_insert_right]
@@ -5097,7 +5096,7 @@ namespace GuardedToNetwork
               | (dsimp; erw [NetworkPlusCal.Block.div_empty]) ]
 
       have newInstrs_div_empty : newInstrs.foldr (init := ∅)
-          (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) = ∅ := by
+          (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) = ∅ := by
         clear * -
         induction newInstrs with
         | nil =>
@@ -5123,7 +5122,7 @@ namespace GuardedToNetwork
           · cases mailboxₛ with
             | none => apply True.intro
             | some _ =>
-              obtain ⟨_, _⟩ := wf (.let pos name τ «=|∈» e) (by simp_all)
+              obtain ⟨_, _⟩ := wf (.let name τ «=|∈» e) (by simp_all)
               trivial
           · split_ifs at wellscoped
             · obtain ⟨_, _, _, wellscoped⟩ := wellscoped
@@ -5136,11 +5135,11 @@ namespace GuardedToNetwork
 
         -- reorder let
         have reorder_let_newInstrs' :
-            ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
-              ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₁
-                newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) ∅ ⊆
-            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem)
-              ⟦NetworkPlusCal.Statement.let pos name τ «=|∈» e⟧⊥ := by
+            ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧⊥ ∪
+              ⟦NetworkPlusCal.Statement.let name τ «=|∈» (List.foldr (λ x e ↦ e.replace x.1 x.2) e (List.map (λ x ↦ GuardedPlusCal.Ref.substOf x.1 x.2) newInstrs))⟧* ∘ᵣ₁
+                newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) ∅ ⊆
+            newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem)
+              ⟦NetworkPlusCal.Statement.let name τ «=|∈» e⟧⊥ := by
           clear * - newInstrs_shape'
           induction newInstrs with
           | nil =>
@@ -5181,7 +5180,7 @@ namespace GuardedToNetwork
           apply reorder_let_newInstrs'
         · conv =>
             enter [3, 2, 2]
-            apply List.foldr_map (f := λ (x : _ × _) ↦ NetworkPlusCal.Statement.assign default x.1 x.2)
+            apply List.foldr_map (f := λ (x : _ × _) ↦ NetworkPlusCal.Statement.assign x.1 x.2)
                                 (g := λ x y ↦ ⟦x⟧⊥ ∪ ⟦x⟧* ∘ᵣ₁ y)
                     |>.symm
           rw [abort_assoc', List.foldr_map, List.foldr_map, Relation.lcomp₁.right_union_eq_union, ← Set.union_assoc, ← Relation.lcomp₁.left_lcomp₂_eq]
@@ -5198,7 +5197,7 @@ namespace GuardedToNetwork
 
             have wf' : match (motive := _ → Prop) mailboxₛ with
                 | none => True
-                | some _ => GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn (GuardedPlusCal.Statement.let pos name τ «=|∈» e) (inbox ++ nameₛ) := by
+                | some _ => GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn (GuardedPlusCal.Statement.let name τ «=|∈» e) (inbox ++ nameₛ) := by
               cases mailboxₛ with
               | none => apply True.intro
               | some val =>
@@ -5216,13 +5215,13 @@ namespace GuardedToNetwork
               apply StrongRefinement.Terminating.Id
             | some B =>
               convert inv.1 using 2
-              rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
-                  ← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
+              rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
+                  ← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
                   foldl_red_eq_foldr_red]
   }
 
   theorem GuardedPlusCal.Statement.strong_refinement.receive.{u} {mailbox}
-    {pos : SourceSpan} {chan : GuardedPlusCal.ChanRef.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
+    {chan : GuardedPlusCal.ChanRef.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
     {ref : GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
     (inbox_not_prim : inbox ∉ CoreTLAPlus.prims.{u})
     (ref_name_neq : ref.name ≠ inbox)
@@ -5233,20 +5232,20 @@ namespace GuardedToNetwork
       chan = { name := x, args := [CoreTLAPlus.Expression.var "self"] }
     | _ => False) :
       StrongRefinement.Aborting (· ∼[some (mailbox, inbox)] ·)
-        ⟦GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) pos chan ref⟧⊥
-        (⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos
+        ⟦GuardedPlusCal.Statement.receive (Typ := SurfaceTLAPlus.Typ) chan ref⟧⊥
+        (⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ)
           (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
             (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var inbox])
             CoreTLAPlus.InfixOperator.«>» (CoreTLAPlus.Expression.nat (toString 0)))⟧⊥ ∪
-          ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos
+          ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ)
             (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
               (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var inbox])
               CoreTLAPlus.InfixOperator.«>» (CoreTLAPlus.Expression.nat (toString 0)))⟧* ∘ᵣ₁
-            (⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) pos ref
+            (⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) ref
               (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var inbox])⟧⊥ ∪
-              ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) pos ref
+              ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) ref
                 (CoreTLAPlus.Expression.opcall (Typ := SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var inbox])⟧* ∘ᵣ₁
-                ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) pos { name := inbox, args := [] }
+                ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) { name := inbox, args := [] }
                   (CoreTLAPlus.Expression.opcall (Typ := SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var inbox])⟧⊥)) := by
     rintro ⟨Mₜ, Tₜ, Fₜ, lₜ⟩ ε ⟨Mₛ, Tₛ, Fₛ, lₛ⟩ sim
            (abort_await|⟨⟨Mᵤ, Tᵤ, Fᵤ, lᵤ⟩, ε₁, ε₂, red_await, abort_head|⟨⟨Mᵥ, Tᵥ, Fᵥ, lᵥ⟩, ε₂, ε₃, red_head, abort_tail, rfl⟩, rfl⟩)
@@ -5487,7 +5486,7 @@ namespace GuardedToNetwork
 
   private theorem AtomicBranch.correctness_precond_receive'.reorder_await.{u}
     {newInstrs : List (GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)}
-    {nameₛ : String} {pos : SourceSpan} {i : Nat}
+    {nameₛ : String} {i : Nat}
     {«Σ» Γ Ξ : Scope}
     («Σ_disj_Γ» : Disjoint («Σ» \ {"self"}) (Γ \ {"self"}))
     («prims_in_Σ» : CoreTLAPlus.prims.{u}.keys.toFinset ⊆ «Σ» \ {"self"})
@@ -5498,12 +5497,12 @@ namespace GuardedToNetwork
         CoreTLAPlus.Expression.WellScoped newInstrs[k].2 ((«Σ» \ {"self"}) ∪ (Γ \ {"self"} ∪ {inbox ++ nameₛ}) ∪ Ξ) ∧
         (Even k → ∃ r, r.name ≠ inbox ++ nameₛ ∧ r.name ∈ Γ \ {"self"} ∧ newInstrs[k] = ⟨r ,.opcall (.var "Head") [.var (inbox ++ nameₛ)]⟩) ∧
         (Odd k → inbox ++ nameₛ ∉ «Σ» \ {"self"} ∧ newInstrs[k] = ⟨⟨inbox ++ nameₛ, []⟩, .opcall (.var "Tail") [.var (inbox ++ nameₛ)]⟩)) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧* ∘ᵣ₂
-        List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs =
-      List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs ∘ᵣ₂
-        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (newInstrs.length / 2).repr)) .«>» (.nat s!"{i}"))⟧* := by
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧* ∘ᵣ₂
+        List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs =
+      List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs ∘ᵣ₂
+        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (newInstrs.length / 2).repr)) .«>» (.nat s!"{i}"))⟧* := by
     conv_lhs =>
-      enter [1, 1, 2, 1, 3, 1, 1]
+      enter [1, 1, 1, 1, 3, 1, 1]
       rw [← Nat.zero_div 2, ← List.length_nil (α := GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)]
 
     generalize ys_eq : ([] : List (GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)) = ys
@@ -5515,7 +5514,7 @@ namespace GuardedToNetwork
     have ys_len_even : Even ys.length := by rw [← ys_eq]; apply Even.zero
 
     conv_rhs =>
-      enter [2, 1, 2, 1, 3, 1, 1]
+      enter [2, 1, 1, 1, 3, 1, 1]
       rw [← Nat.add_zero (xs.length / 2), ← Nat.zero_div 2, ← List.length_nil, ys_eq, ← Nat.add_zero (xs.length / 2 + ys.length / 2), ← ite_cond_eq_true 0 1 (eq_true (ys_eq ▸ Even.zero : Even ys.length))]
 
     repeat rw [i_eq]
@@ -5541,7 +5540,7 @@ namespace GuardedToNetwork
       rw [if_pos h₂, Nat.add_zero, List.length_append, List.length_cons, List.length_singleton, h₃, ← Nat.add_assoc
          ] at IH
 
-      rw [← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
+      rw [← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
           List.map_cons, List.map_cons, foldl_red_eq_foldr_red,
           List.foldr_cons, List.foldr_cons,
           Relation.lcomp₂.assoc, Relation.lcomp₂.assoc, ← foldl_red_eq_foldr_red,
@@ -5771,7 +5770,7 @@ namespace GuardedToNetwork
 
   private theorem AtomicBranch.correctness_precond_receive'.reorder_await'.{u}
     {newInstrs : List (GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)}
-    {nameₛ : String} {pos : SourceSpan} {i : Nat}
+    {nameₛ : String} {i : Nat}
     {«Σ» Γ Ξ : Scope}
     («Σ_disj_Γ» : Disjoint («Σ» \ {"self"}) (Γ \ {"self"}))
     («prims_in_Σ» : CoreTLAPlus.prims.{u}.keys.toFinset ⊆ «Σ» \ {"self"})
@@ -5782,11 +5781,11 @@ namespace GuardedToNetwork
         CoreTLAPlus.Expression.WellScoped newInstrs[k].2 ((«Σ» \ {"self"}) ∪ (Γ \ {"self"} ∪ {inbox ++ nameₛ}) ∪ Ξ) ∧
         (Even k → ∃ r, r.name ≠ inbox ++ nameₛ ∧ r.name ∈ Γ \ {"self"} ∧ newInstrs[k] = ⟨r, .opcall (.var "Head") [.var (inbox ++ nameₛ)]⟩) ∧
         (Odd k → inbox ++ nameₛ ∉ «Σ» \ {"self"} ∧ newInstrs[k] = ⟨⟨inbox ++ nameₛ, []⟩, .opcall (.var "Tail") [.var (inbox ++ nameₛ)]⟩)) :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (toString (0 : Nat)))) .«>» (.nat s!"{i}"))⟧⊥
-        ∪ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (toString (0 : Nat)))) .«>» (.nat s!"{i}"))⟧*
-        ∘ᵣ₁ List.foldr (λ x y ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ y) ∅ newInstrs ⊆
-      newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem)
-        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (toString (newInstrs.length / 2)))) .«>» (.nat s!"{i}"))⟧⊥ := by
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (toString (0 : Nat)))) .«>» (.nat s!"{i}"))⟧⊥
+        ∪ ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (toString (0 : Nat)))) .«>» (.nat s!"{i}"))⟧*
+        ∘ᵣ₁ List.foldr (λ x y ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ y) ∅ newInstrs ⊆
+      newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem)
+        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (toString (newInstrs.length / 2)))) .«>» (.nat s!"{i}"))⟧⊥ := by
     conv in (occs := *) toString 0 =>
       all: rw [← Nat.zero_div 2, ← List.length_nil (α := GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)]
 
@@ -5853,8 +5852,8 @@ namespace GuardedToNetwork
       conv at IH =>
         enter [2, 2]
         change ?await ⊆ List.foldr
-          (λ x y ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ y)
-          ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos
+          (λ x y ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ y)
+          ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ)
               (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
                 (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)])
                             .«+» (.nat (toString (ys.length / 2 + 1 + xs.length / 2))))
@@ -5872,10 +5871,10 @@ namespace GuardedToNetwork
       · simp_rw [Relation.lcomp₁.right_union_eq_union, Set.union_assoc]
         conv_rhs => repeat rw [← Relation.lcomp₁.right_union_eq_union]
         conv_rhs =>
-          pattern ⟦NetworkPlusCal.Statement.assign default y₂.1 y₂.2⟧⊥ ∪ _
+          pattern ⟦NetworkPlusCal.Statement.assign y₂.1 y₂.2⟧⊥ ∪ _
           rw [Relation.lcomp₁.right_union_eq_union, ← Set.union_assoc]
         conv_rhs =>
-          pattern ⟦NetworkPlusCal.Statement.assign default y₂.1 y₂.2⟧* ∘ᵣ₁ _ ∘ᵣ₁ _
+          pattern ⟦NetworkPlusCal.Statement.assign y₂.1 y₂.2⟧* ∘ᵣ₁ _ ∘ᵣ₁ _
           rw [← Relation.lcomp₁.left_lcomp₂_eq]
 
         trans'
@@ -5891,7 +5890,7 @@ namespace GuardedToNetwork
           conv_rhs =>
             rw [Relation.lcomp₁.right_union_eq_union, ← Set.union_assoc]
           conv_rhs =>
-            pattern ⟦NetworkPlusCal.Statement.assign default y₁.1 y₁.2⟧* ∘ᵣ₁ _ ∘ᵣ₁ _
+            pattern ⟦NetworkPlusCal.Statement.assign y₁.1 y₁.2⟧* ∘ᵣ₁ _ ∘ᵣ₁ _
             rw [← Relation.lcomp₁.left_lcomp₂_eq]
 
           trans'
@@ -6146,7 +6145,7 @@ namespace GuardedToNetwork
     {i : Nat}
     {newInstrs : List (GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) × CoreTLAPlus.Expression.{0} SurfaceTLAPlus.Typ)}
     {Ss Ss' : List (GuardedPlusCal.Statement.{0} SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) true false)}
-    {pos : SourceSpan} {chan : GuardedPlusCal.ChanRef.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
+    {chan : GuardedPlusCal.ChanRef.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
     {ref : GuardedPlusCal.Ref.{0} (CoreTLAPlus.Expression SurfaceTLAPlus.Typ)}
     {«Σ» Γ Δ Ξ : Scope}
     {«Σ_disj_Δ» : Disjoint («Σ» \ {"self"}) (Δ \ {"self"})} {«Σ_disj_Γ» : Disjoint («Σ» \ {"self"}) (Γ \ {"self"})} {Δ_disj_Γ : Disjoint (Δ \ {"self"}) (Γ \ {"self"})}
@@ -6155,7 +6154,7 @@ namespace GuardedToNetwork
     (h₃ : ∀ idx ∈ chan.args, flip CoreTLAPlus.Expression.WellScoped («Σ» \ {"self"} ∪ Γ \ {"self"} ∪ Ξ) idx)
     (h₄ : ∀ arg ∈ ref.args, ∀ idx ∈ arg, flip CoreTLAPlus.Expression.WellScoped («Σ» \ {"self"} ∪ Γ \ {"self"} ∪ Ξ) idx)
     (h₅ : ref.name ≠ inbox ++ nameₛ)
-    (h' : precondₛ.begin.concat precondₛ.last = Ss ++ GuardedPlusCal.Statement.receive pos chan ref :: Ss')
+    (h' : precondₛ.begin.concat precondₛ.last = Ss ++ GuardedPlusCal.Statement.receive chan ref :: Ss')
     (h'' : inbox ++ nameₛ ∉ «Σ» \ {"self"})
     (wf : ∀ S ∈ precondₛ.toList, GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn S (inbox ++ nameₛ))
     (wf'' : match (motive := _ → Prop) mailboxₛ with
@@ -6182,9 +6181,9 @@ namespace GuardedToNetwork
           (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} Ss)
           (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ Ss)
           (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ Ss)
-          (⟦B⟧* ∘ᵣ₂ List.foldl (λ sem (x : _ × _) ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
-          (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧* ∘ᵣ₁ sem) ∅)
-          (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧* ∘ᵣ₁ sem) ∅)) :
+          (⟦B⟧* ∘ᵣ₂ List.foldl (λ sem (x : _ × _) ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} newInstrs)
+          (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧* ∘ᵣ₁ sem) ∅)
+          (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧* ∘ᵣ₁ sem) ∅)) :
     ----
       i + 1 = (newInstrs ++
         [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
@@ -6192,10 +6191,10 @@ namespace GuardedToNetwork
       Even (newInstrs ++
         [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
          ({ name := inbox ++ nameₛ, args := [] }, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])]).length ∧
-      (if h'' : !(Ss ++ [GuardedPlusCal.Statement.receive pos chan ref]).isEmpty then
+      (if h'' : !(Ss ++ [GuardedPlusCal.Statement.receive chan ref]).isEmpty then
         ∃ (_ : Disjoint («Σ» \ {"self"}) Ξ) (_ : Disjoint (Δ \ {"self"}) Ξ) (_ : Disjoint (Γ \ {"self"}) Ξ),
           GuardedPlusCal.AtomicBranch.WellScopedPrecond (flip CoreTLAPlus.Expression.WellScoped) («Σ» \ {"self"}) (Δ \ {"self"}) (Γ \ {"self"}) ‹_› ‹_› ‹_›
-            (.some (GuardedPlusCal.Block.ofList (Ss ++ [GuardedPlusCal.Statement.receive pos chan ref]) (propext List.isEmpty_eq_false_iff ▸ Bool.not_eq_true' _ ▸ h''))) {"self"} Ξ
+            (.some (GuardedPlusCal.Block.ofList (Ss ++ [GuardedPlusCal.Statement.receive chan ref]) (propext List.isEmpty_eq_false_iff ▸ Bool.not_eq_true' _ ▸ h''))) {"self"} Ξ
       else Ξ = {"self"}) ∧
       (∀ (k : Nat) (_ : k < (newInstrs ++
           [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
@@ -6217,64 +6216,64 @@ namespace GuardedToNetwork
           ({ name := inbox ++ nameₛ, args := [] }, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])]) ≠ [] → (Option.some mailboxₛ).isSome) ∧
       StrongRefinement
         (· ∼[.some (mailboxₛ, inbox ++ nameₛ)] ·)
-        (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (Ss ++ [GuardedPlusCal.Statement.receive pos chan ref]))
-        (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.receive pos chan ref]))
-        (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.receive pos chan ref]))
+        (List.foldr (⟦·⟧* ∘ᵣ₂ ·) {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (Ss ++ [GuardedPlusCal.Statement.receive chan ref]))
+        (List.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.receive chan ref]))
+        (List.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅ (Ss ++ [GuardedPlusCal.Statement.receive chan ref]))
         (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-          ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos
+          ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ)
             (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
               (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
               CoreTLAPlus.InfixOperator.«>»
               (CoreTLAPlus.Expression.nat (toString i)))⟧* ∘ᵣ₂
-          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default x.1 x.2⟧*)
+          List.foldl (λ sem x ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) x.1 x.2⟧*)
             {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ}
             (newInstrs ++
               [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
                ({ name := inbox ++ nameₛ, args := [] }, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])]))
         (B.elim ∅ (⟦·⟧⊥) ∪
           B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₁
-            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ)
               (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
                 (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
                 CoreTLAPlus.InfixOperator.«>»
                 (CoreTLAPlus.Expression.nat (toString i)))⟧⊥ ∪
           (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ)
               (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
                 (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
                 CoreTLAPlus.InfixOperator.«>»
                 (CoreTLAPlus.Expression.nat (toString i)))⟧*) ∘ᵣ₁
-            List.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧* ∘ᵣ₁ sem) ∅
+            List.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧* ∘ᵣ₁ sem) ∅
               (newInstrs ++
                 [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
                  ({ name := inbox ++ nameₛ, args := [] }, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])]))
         (B.elim ∅ (⟦·⟧∞) ∪
           B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₁
-            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ)
               (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
                 (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
                 CoreTLAPlus.InfixOperator.«>»
                 (CoreTLAPlus.Expression.nat (toString i)))⟧∞ ∪
           (B.elim {x | x.1 = x.2.2 ∧ x.2.1 = Trace.τ} (⟦·⟧*) ∘ᵣ₂
-            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos
+            ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ)
               (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
                 (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
                 CoreTLAPlus.InfixOperator.«>»
                 (CoreTLAPlus.Expression.nat (toString i)))⟧*) ∘ᵣ₁
-            List.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧* ∘ᵣ₁ sem) ∅
+            List.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧* ∘ᵣ₁ sem) ∅
               (newInstrs ++
                 [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
                  ({ name := inbox ++ nameₛ, args := [] }, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])])) := by {
   have reorder_await' :
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧* ∘ᵣ₂
-        List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs =
-      List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) default r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs ∘ᵣ₂
-        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (newInstrs.length / 2).repr)) .«>» (.nat s!"{i}"))⟧* :=
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧* ∘ᵣ₂
+        List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs =
+      List.foldl (λ x (r, e) ↦ x ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := CoreTLAPlus.Typ) r e⟧*) {⟨x, e, y⟩ | x = y ∧ e = Trace.τ} newInstrs ∘ᵣ₂
+        ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (newInstrs.length / 2).repr)) .«>» (.nat s!"{i}"))⟧* :=
     AtomicBranch.correctness_precond_receive'.reorder_await.{0} «Σ_disj_Γ» «prims_in_Σ» i_eq newInstrs_len_even newInstrs_shape
 
   have await_eq {i : Nat} :
-      ⟦NetworkPlusCal.Statement.await.{0} (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat s!"{i}"))⟧* =
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧* := by
+      ⟦NetworkPlusCal.Statement.await.{0} (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat s!"{i}"))⟧* =
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧* := by
     apply NetworkPlusCal.Statement.sem_await_congr'
     intro M
     simp_rw [CoreTLAPlus.eval_gt_iff, CoreTLAPlus.eval_plus_iff, CoreTLAPlus.eval_nat_iff]
@@ -6291,8 +6290,8 @@ namespace GuardedToNetwork
       · erwa [Nat.repr_toInt!, Nat.repr_toInt!, Int.add_zero] at h
 
   have await_eq' {i : Nat} :
-      ⟦NetworkPlusCal.Statement.await.{0} (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat s!"{i}"))⟧⊥ =
-      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧⊥ := by
+      ⟦NetworkPlusCal.Statement.await.{0} (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat s!"{i}"))⟧⊥ =
+      ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ) (.infix (.opcall (.var "Len") [.var (inbox ++ nameₛ)]) .«+» (.nat (0 : Nat).repr)) .«>» (.nat s!"{i}"))⟧⊥ := by
     apply NetworkPlusCal.Statement.abort_await_congr
     intros M
     · ext v
@@ -6316,7 +6315,7 @@ namespace GuardedToNetwork
     apply Even.add
     · assumption
     · simp
-  · have : (!(Ss ++ [GuardedPlusCal.Statement.receive pos chan ref]).isEmpty) = true := by simp
+  · have : (!(Ss ++ [GuardedPlusCal.Statement.receive chan ref]).isEmpty) = true := by simp
 
     rw [dite_cond_eq_true (eq_true this)]
     split_ifs at wellscoped with h''
@@ -6398,7 +6397,7 @@ namespace GuardedToNetwork
     have newInstrs_div_empty : (newInstrs ++
                 [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
                  ({ name := inbox ++ nameₛ, args := [] }, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Tail") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])]).foldr (init := ∅)
-        (λ (x : _ × _) sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem) = ∅ := by
+        (λ (x : _ × _) sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem) = ∅ := by
       clear * -
       generalize (newInstrs ++
                 [(ref, CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Head") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)]),
@@ -6434,7 +6433,7 @@ namespace GuardedToNetwork
         conv => enter [4, 1]; change ?await
 
         have : -- TODO: extract as lemma?
-            ?await = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
+            ?await = ⟦NetworkPlusCal.Statement.await (Typ := CoreTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := CoreTLAPlus.Typ)
               (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [.var (inbox ++ nameₛ)]) .«>» (.nat "0"))⟧* := by
           ext ⟨⟨Ma, Fa, _⟩, _, ⟨Mb, Fb, _⟩⟩
           apply exists_congr
@@ -6478,15 +6477,15 @@ namespace GuardedToNetwork
         -- then prove that `await Len(inbox) > 0; ref := Head(inbox); inbox := Tail(inbox)` refines `receive(mailbox, ref)`
         rw [this]; clear this
         apply AtomicBranch.correctness_precond_receive
-        · specialize wf (.receive pos chan ref) (by simp_all)
+        · specialize wf (.receive chan ref) (by simp_all)
           assumption
         · rw [Finset.mem_sdiff, Finset.notMem_singleton] at h₁
           exact h₁.right
         · exact wf''
     · conv =>
         enter [3, 2, 2]
-        conv => enter [1]; change λ x sem ↦ ⟦NetworkPlusCal.Statement.assign default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign default x.1 x.2⟧* ∘ᵣ₁ sem
-        rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ ⟦x⟧⊥ ∪ ⟦x⟧* ∘ᵣ₁ y)]
+        conv => enter [1]; change λ x sem ↦ ⟦NetworkPlusCal.Statement.assign x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign x.1 x.2⟧* ∘ᵣ₁ sem
+        rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ ⟦x⟧⊥ ∪ ⟦x⟧* ∘ᵣ₁ y)]
         rw [List.map_append, List.map_cons, List.map_cons, List.map_nil, append_to_concat_concat]
         dsimp
 
@@ -6503,24 +6502,24 @@ namespace GuardedToNetwork
 
       conv in ⟦_⟧* ∘ᵣ₁ _ ∘ᵣ₁ _ =>
         rw [await_eq, ← Relation.lcomp₁.left_lcomp₂_eq,
-            ← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
+            ← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
             ← foldl_red_eq_foldr_red, List.foldl_map, reorder_await', Relation.lcomp₁.left_lcomp₂_eq]
       conv in ⟦_⟧* ∘ᵣ₁ _ ∘ᵣ₁ _ ∘ᵣ₁ _ =>
         rw [await_eq, ← Relation.lcomp₁.left_lcomp₂_eq,
-            ← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
+            ← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
             ← foldl_red_eq_foldr_red, List.foldl_map, reorder_await', Relation.lcomp₁.left_lcomp₂_eq]
       repeat rw [← Set.union_assoc]
 
       have reorder_await_newInstrs' :
-          ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
+          ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
               (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
               CoreTLAPlus.InfixOperator.«>» (CoreTLAPlus.Expression.nat (toString i)))⟧⊥
-            ∪ ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
+            ∪ ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
                 (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
                 CoreTLAPlus.InfixOperator.«>» (CoreTLAPlus.Expression.nat (toString i)))⟧*
-            ∘ᵣ₁ List.foldr (λ x y ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ y) ∅ newInstrs ⊆
-          newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default x.1 x.2⟧* ∘ᵣ₁ sem)
-            ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) pos (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
+            ∘ᵣ₁ List.foldr (λ x y ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ y) ∅ newInstrs ⊆
+          newInstrs.foldr (λ x sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) x.1 x.2⟧* ∘ᵣ₁ sem)
+            ⟦NetworkPlusCal.Statement.await (Typ := SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression.infix (Typ := SurfaceTLAPlus.Typ)
               (CoreTLAPlus.Expression.opcall (CoreTLAPlus.Expression.var "Len") [CoreTLAPlus.Expression.var (inbox ++ nameₛ)])
               CoreTLAPlus.InfixOperator.«>» (CoreTLAPlus.Expression.nat (toString (i - newInstrs.length / 2))))⟧⊥ := by
         rw [await_eq, await_eq']
@@ -6541,11 +6540,11 @@ namespace GuardedToNetwork
         apply reorder_await_newInstrs'
       · conv =>
           enter [3, 2, 2, 1, 1]
-          rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x sem ↦ ⟦x⟧⊥ ∪ ⟦x⟧* ∘ᵣ₁ sem),
+          rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x sem ↦ ⟦x⟧⊥ ∪ ⟦x⟧* ∘ᵣ₁ sem),
               abort_assoc', List.foldr_map, List.foldr_map]
         conv in (occs := *) List.foldl _ _ _ =>
           all:
-            rw [← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
+            rw [← List.foldl_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ x ∘ᵣ₂ ⟦y⟧*),
                 foldl_red_eq_foldr_red, List.foldr_map]
         rw [Set.union_assoc, ← Relation.lcomp₁.right_union_eq_union, Set.union_assoc, ← Relation.lcomp₁.right_union_eq_union,
             ← Relation.lcomp₁.right_union_eq_union, Relation.lcomp₁.right_union_eq_union, ← Set.union_assoc, ← Relation.lcomp₁.left_lcomp₂_eq]
@@ -6604,7 +6603,7 @@ namespace GuardedToNetwork
             apply StrongRefinement.Terminating.Id
           | some B =>
             conv in (occs := 3) List.foldr _ _ _ =>
-              rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign default x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
+              rw [← List.foldr_map (f := λ x : _ × _ ↦ NetworkPlusCal.Statement.assign x.1 x.2) (g := λ x y ↦ ⟦x⟧* ∘ᵣ₂ y),
                   ← foldl_red_eq_foldr_red, List.foldl_map]
             exact inv.1
   }
@@ -6617,12 +6616,12 @@ namespace GuardedToNetwork
     {«Σ» Γ Ξ : Scope}
     (wf' : ∀ S ∈ precondₛ.toList, match S with
         -- Every `receive` does so from its mailbox (there must be one) which is well-typed.
-        | .receive _ c _ => ∃ v, mailboxₛ = .some v ∧ match v with
+        | .receive c _ => ∃ v, mailboxₛ = .some v ∧ match v with
           | .var x => c.name = x ∧ c.args = [] ∧ ∃ τ, Prod.fst <$> fifosₛ.find? c.name = .some (.channel τ)
           | .funcall (.var x) [.var "self"] => c.name = x ∧ c.args = [.var "self"] ∧ ∃ τ₁ τ₂, Prod.fst <$> fifosₛ.find? c.name = .some (.function τ₁ (.channel τ₂))
           | _ => False
-        | .await _ _ => True
-        | .let _ _ _ _ _ => True)
+        | .await _ => True
+        | .let _ _ _ _ => True)
     (inbox_fresh_in_Br : match (motive := _ → Prop) mailboxₛ with
       | .none => True
       | .some _ => inbox ++ nameₛ ∉ «Σ» \ {"self"} ∧ ∀ S ∈ precondₛ.toList, GuardedPlusCal.Statement.FreshIn CoreTLAPlus.Expression.FreshIn S (inbox ++ nameₛ))
@@ -6662,9 +6661,9 @@ namespace GuardedToNetwork
         (newInstrs ≠ [] → mailboxₛ.isSome) ∧
         StrongRefinement (· ∼[Option.map (λ x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·)
           (Ss.foldr (⟦·⟧* ∘ᵣ₂ ·) {(x, e, y) | x = y ∧ e = Trace.τ}) (Ss.foldr (λ S sem ↦ ⟦S⟧⊥ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅) (Ss.foldr (λ S sem ↦ ⟦S⟧∞ ∪ ⟦S⟧* ∘ᵣ₁ sem) ∅)
-          (⟦B⟧* ∘ᵣ₂ newInstrs.foldl (λ sem ⟨r, e⟩ ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧*) {(x, e, y) | x = y ∧ e = Trace.τ})
-          (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧* ∘ᵣ₁ sem) ∅)
-          (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) default r e⟧* ∘ᵣ₁ sem) ∅)⌝) ?step
+          (⟦B⟧* ∘ᵣ₂ newInstrs.foldl (λ sem ⟨r, e⟩ ↦ sem ∘ᵣ₂ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧*) {(x, e, y) | x = y ∧ e = Trace.τ})
+          (⟦B⟧⊥ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧⊥ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧* ∘ᵣ₁ sem) ∅)
+          (⟦B⟧∞ ∪ ⟦B⟧* ∘ᵣ₁ newInstrs.foldr (λ ⟨r, e⟩ sem ↦ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧∞ ∪ ⟦NetworkPlusCal.Statement.assign (Typ := SurfaceTLAPlus.Typ) r e⟧* ∘ᵣ₁ sem) ∅)⌝) ?step
 
     case pre =>
       simp
@@ -6691,13 +6690,13 @@ namespace GuardedToNetwork
         mpure inv
         obtain ⟨rfl, i_eq, -, -, rfl⟩ := inv
         cases S
-        case «let» pos name τ «=|∈» e =>
+        case «let» name τ «=|∈» e =>
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           mpure_intro
 
-          have h'' : precondₛ = GuardedPlusCal.Block.ofList ([] ++ GuardedPlusCal.Statement.let pos name τ «=|∈» e :: Ss') (by simp) := by
+          have h'' : precondₛ = GuardedPlusCal.Block.ofList ([] ++ GuardedPlusCal.Statement.let name τ «=|∈» e :: Ss') (by simp) := by
             apply GuardedPlusCal.Block.ofList_of_toList
             rwa [← GuardedPlusCal.Block.toList] at h'
           rw [h''] at precondₛ_wellscoped; clear h''
@@ -6732,14 +6731,14 @@ namespace GuardedToNetwork
           · trivial
           · repeat rw [Finset.notMem_union]
             trivial
-        case await pos e =>
+        case await e =>
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           simp_rw [GuardedPlusCal.Block.sem_end']
           mpure_intro
 
-          have h'' : precondₛ = GuardedPlusCal.Block.ofList ([] ++ GuardedPlusCal.Statement.await pos e :: Ss') (by simp) := by
+          have h'' : precondₛ = GuardedPlusCal.Block.ofList ([] ++ GuardedPlusCal.Statement.await e :: Ss') (by simp) := by
             apply GuardedPlusCal.Block.ofList_of_toList
             rwa [← GuardedPlusCal.Block.toList] at h'
           rw [h''] at precondₛ_wellscoped; clear h''
@@ -6772,14 +6771,14 @@ namespace GuardedToNetwork
           · nofun
           · nofun
           · trivial
-        case receive pos chan ref =>
+        case receive chan ref =>
           conv => simp_match
-          obtain ⟨e, rfl, h⟩ := wf' (.receive pos chan ref) (by simp_all)
+          obtain ⟨e, rfl, h⟩ := wf' (.receive chan ref) (by simp_all)
 
           obtain ⟨«inbox_not_in_Σ», h''⟩ := inbox_fresh_in_Br
-          obtain ⟨_, _, _, _⟩ := h'' (.receive pos chan ref) (by simp_all)
+          obtain ⟨_, _, _, _⟩ := h'' (.receive chan ref) (by simp_all)
 
-          have h''' : precondₛ = GuardedPlusCal.Block.ofList ([] ++ GuardedPlusCal.Statement.receive pos chan ref :: Ss') (by simp) := by
+          have h''' : precondₛ = GuardedPlusCal.Block.ofList ([] ++ GuardedPlusCal.Statement.receive chan ref :: Ss') (by simp) := by
             apply GuardedPlusCal.Block.ofList_of_toList
             rwa [GuardedPlusCal.Block.toList]
           rw [h'''] at precondₛ_wellscoped; clear h'''
@@ -6832,14 +6831,14 @@ namespace GuardedToNetwork
         mpure inv
         obtain ⟨Ξ', i_eq, newInstrs_len_even, wellscoped, newInstrs_shape, mailbox_some, inv⟩ := inv
         cases S --<;> mwp
-        case «let» pos name τ «=|∈» e =>
+        case «let» name τ «=|∈» e =>
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           simp_rw [GuardedPlusCal.Block.sem_concat']
           mpure_intro
 
-          have h'' : precondₛ = GuardedPlusCal.Block.ofList (Ss ++ GuardedPlusCal.Statement.let pos name τ «=|∈» e :: Ss') (by simp) := by
+          have h'' : precondₛ = GuardedPlusCal.Block.ofList (Ss ++ GuardedPlusCal.Statement.let name τ «=|∈» e :: Ss') (by simp) := by
             apply GuardedPlusCal.Block.ofList_of_toList
             rwa [← GuardedPlusCal.Block.toList] at h'
           rw [h''] at precondₛ_wellscoped; clear h''
@@ -6869,14 +6868,14 @@ namespace GuardedToNetwork
             | some _ => exact inbox_fresh_in_Br.right
           · repeat rw [Finset.notMem_union]
             trivial
-        case await pos e =>
+        case await e =>
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           mspec Std.Do.Spec.pure
           simp_rw [GuardedPlusCal.Block.sem_concat']
           mpure_intro
 
-          have h'' : precondₛ = GuardedPlusCal.Block.ofList (Ss ++ GuardedPlusCal.Statement.await pos e :: Ss') (by simp) := by
+          have h'' : precondₛ = GuardedPlusCal.Block.ofList (Ss ++ GuardedPlusCal.Statement.await e :: Ss') (by simp) := by
             apply GuardedPlusCal.Block.ofList_of_toList
             rwa [GuardedPlusCal.Block.toList]
           rw [h''] at precondₛ_wellscoped; clear h''
@@ -6903,14 +6902,14 @@ namespace GuardedToNetwork
           · cases mailboxₛ with
             | none => apply True.intro
             | some _ => exact inbox_fresh_in_Br.right
-        case receive pos chan ref =>
+        case receive chan ref =>
           conv => simp_match
-          obtain ⟨e, rfl, h⟩ := wf' (.receive pos chan ref) (by simp_all)
+          obtain ⟨e, rfl, h⟩ := wf' (.receive chan ref) (by simp_all)
 
           obtain ⟨«inbox_not_in_Σ», h''⟩ := inbox_fresh_in_Br
-          obtain ⟨_, _, _, _⟩ := h'' (.receive pos chan ref) (by simp_all)
+          obtain ⟨_, _, _, _⟩ := h'' (.receive chan ref) (by simp_all)
 
-          have h''' : precondₛ = GuardedPlusCal.Block.ofList (Ss ++ GuardedPlusCal.Statement.receive pos chan ref :: Ss') (by simp) := by
+          have h''' : precondₛ = GuardedPlusCal.Block.ofList (Ss ++ GuardedPlusCal.Statement.receive chan ref :: Ss') (by simp) := by
             apply GuardedPlusCal.Block.ofList_of_toList
             rwa [GuardedPlusCal.Block.toList]
           rw [h'''] at precondₛ_wellscoped; clear h'''
@@ -6974,12 +6973,12 @@ namespace GuardedToNetwork
     (wf' : match (motive := _ → Prop) precondₛ with
       | .some B => ∀ S ∈ B.toList, match S with
         -- Every `receive` does so from its mailbox (there must be one) which is well-typed.
-        | .receive _ c _ => ∃ v, mailboxₛ = .some v ∧ match v with
+        | .receive c _ => ∃ v, mailboxₛ = .some v ∧ match v with
           | .var x => c.name = x ∧ c.args = [] ∧ ∃ τ, Prod.fst <$> fifosₛ.find? c.name = .some (.channel τ)
           | .funcall (.var x) [.var "self"] => c.name = x ∧ c.args = [.var "self"] ∧ ∃ τ₁ τ₂, Prod.fst <$> fifosₛ.find? c.name = .some (.function τ₁ (.channel τ₂))
           | _ => False
-        | .await _ _ => True
-        | .let _ _ _ _ _ => True
+        | .await _ => True
+        | .let _ _ _ _ => True
       | .none => True)
     (inbox_fresh_in_Br : match (motive := _ → Prop) mailboxₛ with
       | .none => True
@@ -7046,12 +7045,12 @@ namespace GuardedToNetwork
     (wf' : match precondₛ with
       | .some B => ∀ S ∈ B.toList, match S with
         -- Every `receive` does so from its mailbox (there must be one) which is well-typed.
-        | .receive _ c _ => ∃ v, mailboxₛ = .some v ∧ match v with
+        | .receive c _ => ∃ v, mailboxₛ = .some v ∧ match v with
           | .var x => c.name = x ∧ c.args = [] ∧ ∃ τ, Prod.fst <$> fifosₛ.find? c.name = .some (.channel τ)
           | .funcall (.var x) [.var "self"] => c.name = x ∧ c.args = [.var "self"] ∧ ∃ τ₁ τ₂, Prod.fst <$> fifosₛ.find? c.name = .some (.function τ₁ (.channel τ₂))
           | _ => False
-        | .await _ _ => True
-        | .let _ _ _ _ _ => True
+        | .await _ => True
+        | .let _ _ _ _ => True
       | .none => True) :
       StrongRefinement (· ∼[Option.map (λ x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·)
         (precondₛ.elim {(x, e, y) | x = y ∧ e = Trace.τ} (⟦·⟧*)) (precondₛ.elim ∅ (⟦·⟧⊥)) (precondₛ.elim ∅ (⟦·⟧∞))
@@ -7074,13 +7073,13 @@ namespace GuardedToNetwork
       obtain ⟨precondₛ, rfl⟩ := comp_res_wp
       exact Std.Do.Id.of_wp_run_eq compile_eq _ (AtomicBranch.correctness_precond_spec wf' inbox_fresh_in_Br precondₛ_wellscoped «prims_in_Σ»)
 
-  lemma GuardedPlusCal.Statement.abort_goto {pos label} :
-      ⟦@GuardedPlusCal.Statement.goto SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) pos label⟧⊥ = ∅ := by
+  lemma GuardedPlusCal.Statement.abort_goto {label} :
+      ⟦@GuardedPlusCal.Statement.goto SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) label⟧⊥ = ∅ := by
     ext ⟨⟨Mₛ, Tₛ, Fₛ, lₛ⟩, ε⟩
     iff_rintro ⟨_|_, _, _⟩ (_|_)
 
-  lemma NetworkPlusCal.Statement.abort_goto {pos label} :
-      ⟦@NetworkPlusCal.Statement.goto SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) pos label⟧⊥ = ∅ := by
+  lemma NetworkPlusCal.Statement.abort_goto {label} :
+      ⟦@NetworkPlusCal.Statement.goto SurfaceTLAPlus.Typ (CoreTLAPlus.Expression SurfaceTLAPlus.Typ) label⟧⊥ = ∅ := by
     ext ⟨⟨Mₜ, Tₜ, Fₜ, lₜ⟩, ε⟩
     iff_rintro ⟨_|_, _, _⟩ (_|_)
 
@@ -7106,7 +7105,7 @@ namespace GuardedToNetwork
       conv in (occs := *) actionₛ =>
         all: apply GuardedPlusCal.Block.ext_iff (B' := {begin := [], last := actionₛ.last}) actionₜ_begin_nil rfl
 
-      cases actionₛ.last with | goto pos label =>
+      cases actionₛ.last with | goto label =>
       simp_rw [← GuardedPlusCal.Block.end.eq_def, GuardedPlusCal.Thread.toNetwork.processBlock.end_eq_end]
       conv in (occs := *) ⟦GuardedPlusCal.Block.end _⟧* => all: apply GuardedPlusCal.Block.sem_end
 
@@ -7135,13 +7134,13 @@ namespace GuardedToNetwork
       rintro rfl
       obtain ⟨S', Ss', actionₛ_begin_eq, rfl, rfl⟩ := GuardedPlusCal.Thread.toNetwork.processBlock.begin_eq_cons_if h
 
-      have process_actionₛ_eq : GuardedPlusCal.Thread.toNetwork.processBlock actionₛ = .cons (match (motive := GuardedPlusCal.Statement .. → NetworkPlusCal.Statement ..) S' with
-        | GuardedPlusCal.Statement.skip pos => NetworkPlusCal.Statement.skip pos
-        | GuardedPlusCal.Statement.print pos e => NetworkPlusCal.Statement.print pos e
-        | GuardedPlusCal.Statement.assert pos e => NetworkPlusCal.Statement.assert pos e
-        | GuardedPlusCal.Statement.send pos chan e => NetworkPlusCal.Statement.send pos chan e
-        | GuardedPlusCal.Statement.multicast pos chan bs e => NetworkPlusCal.Statement.multicast pos chan bs e
-        | GuardedPlusCal.Statement.assign pos ref e => NetworkPlusCal.Statement.assign pos ref e) (GuardedPlusCal.Thread.toNetwork.processBlock {actionₛ with begin := Ss'}) := by
+      have process_actionₛ_eq : GuardedPlusCal.Thread.toNetwork.processBlock actionₛ = .cons (match_source (motive := GuardedPlusCal.Statement .. → _ → NetworkPlusCal.Statement ..) S' with
+        | GuardedPlusCal.Statement.skip, pos => NetworkPlusCal.Statement.skip @@ pos
+        | GuardedPlusCal.Statement.print e, pos => NetworkPlusCal.Statement.print e @@ pos
+        | GuardedPlusCal.Statement.assert e, pos => NetworkPlusCal.Statement.assert e @@ pos
+        | GuardedPlusCal.Statement.send chan e, pos => NetworkPlusCal.Statement.send chan e @@ pos
+        | GuardedPlusCal.Statement.multicast chan bs e, pos => NetworkPlusCal.Statement.multicast chan bs e @@ pos
+        | GuardedPlusCal.Statement.assign ref e, pos => NetworkPlusCal.Statement.assign ref e @@ pos) (GuardedPlusCal.Thread.toNetwork.processBlock {actionₛ with begin := Ss'}) := by
           conv in (occs := *) actionₛ =>
             rw [GuardedPlusCal.Block.ext_iff (B' := {begin := S' :: Ss', last := actionₛ.last}) actionₛ_begin_eq rfl,
                 ← GuardedPlusCal.Block.cons.eq_1 (B := {actionₛ with begin := Ss'})]
@@ -7169,15 +7168,15 @@ namespace GuardedToNetwork
 
       have wellscoped :
           match (motive := _ → Prop) S' with
-          | .skip pos => True
-          | .print pos e => CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ)
-          | .assert pos e => CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ)
-          | .send pos chan e =>
+          | .skip => True
+          | .print e => CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ)
+          | .assert e => CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ)
+          | .send chan e =>
             CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ) ∧ chan.name ∈ (fifosₛ.keys.toFinset \ {"self"}) ∧ (∀ idx ∈ chan.args, CoreTLAPlus.Expression.WellScoped idx ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ))
-          | .multicast pos chan bs e =>
+          | .multicast chan bs e =>
             chan ∈ (fifosₛ.keys.toFinset \ {"self"}) ∧ (∀ r ∈ bs, CoreTLAPlus.Expression.WellScoped r.2.2.2 ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ)) ∧ (∀ r ∈ bs, r.1 ∉ («Σ» \ {"self"}) ∧ r.1 ∉ (Γ \ {"self"}) ∧ r.1 ∉ Ξ) ∧
             CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ ∪ (bs.map Prod.fst).toFinset)
-          | .assign pos ref e =>
+          | .assign ref e =>
             CoreTLAPlus.Expression.WellScoped e ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ) ∧ ref.name ∈ (Γ \ {"self"}) ∧ (∀ arg ∈ ref.args, ∀ idx ∈ arg, CoreTLAPlus.Expression.WellScoped idx ((«Σ» \ {"self"}) ∪ (Γ \ {"self"}) ∪ Ξ)) := by
         conv at actionₛ_wellscoped =>
           enter [2, 2]
