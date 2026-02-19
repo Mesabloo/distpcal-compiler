@@ -59,13 +59,13 @@ namespace NetworkPlusCal
   def AtomicBranch.toGoCal (label : String) (i : Nat) (B : AtomicBranch Typ (Expression Typ)) (vars : List (String × Typ × Expression Typ)) : GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs :=
     let commit : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := [
       --.send default (.var default "commit") (.record default []),
-      .assign default ⟨"cont", []⟩ (.bool false)
+      .assign ⟨"cont", []⟩ (.bool false)
     ]
 
     let (condsVars, conds) : List (String × Typ) × _ := match B.precondition with
       | none => ([], commit)
       | some B => B.toList.foldr (init := ([], commit)) λ S (vars, B) ↦ match_source S with
-        | NetworkPlusCal.Statement.await e, pos => (vars, [.if pos (.prefix .«¬» e) [] B])
+        | NetworkPlusCal.Statement.await e, pos => (vars, [.if (.prefix .«¬» e) [] B @@ pos])
         | NetworkPlusCal.Statement.let x τ «=|∈» e, pos =>
           /-
             FIXME: how do we solve the following problem?
@@ -81,13 +81,13 @@ namespace NetworkPlusCal
             How do we handle such case where the value chosen by `with` actually depends on the `await`s that are after?
             Randomly select a value until one satisfies the remainder of the precondition?
           -/
-          (vars.concat (x, τ), if «=|∈» then sorry else .assign pos ⟨x, []⟩ e :: B)
+          (vars.concat (x, τ), if «=|∈» then sorry else (.assign ⟨x, []⟩ e @@ pos) :: B)
 
     let todo : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := compileBlock B.action.begin
 
     let next : GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs := match_source B.action.last with
-      | .goto "Done", pos => .send pos (.var "done") (.record [])
-      | .goto l, pos => .assign pos ⟨"_", []⟩ <| .opcall (.var l) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var (chan_from_name! v))
+      | .goto "Done", pos => .send (.var "done") (.record []) @@ pos
+      | .goto l, pos => .assign ⟨"_", []⟩ (.opcall (.var l) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var (chan_from_name! v))) @@ pos
 
     let toLock := B.freeVars ∩ vars.map Prod.fst |>.eraseDups
     let allVars : List (String × Typ) := toLock.filterMap λ v ↦ do
@@ -98,10 +98,10 @@ namespace NetworkPlusCal
 
     let lockAll :=
       --GoCal.Statement.receive default (.var default either_mutex!) ⟨"_", []⟩ ::
-      toLock.map λ v ↦ GoCal.Statement.receive default (.var (chan_from_name! v)) ⟨v, []⟩
+      toLock.map λ v ↦ GoCal.Statement.receive (.var (chan_from_name! v)) ⟨v, []⟩
     let unlockAll :=
       --GoCal.Statement.send default (.var default either_mutex!) (.record default []) ::
-      toLock.map λ v ↦ GoCal.Statement.send default (.var (chan_from_name! v)) (.var v)
+      toLock.map λ v ↦ GoCal.Statement.send (.var (chan_from_name! v)) (.var v)
 
     {
       name := s!"{label}_{i}"
@@ -117,9 +117,9 @@ namespace NetworkPlusCal
         --.make default "commit" (.channel (.record [])) (.inl .none) ::
         -- Declare variables first, so that we can use them outside the goroutine
         ((allVars ++ condsVars).map λ ⟨v, τ⟩ ↦ match h : τ with
-              | .int | .str | .bool => .make default v τ (h ▸ .none)
-              | .record _ | .tuple _ | .seq _ | .set _ => .make default v τ (h ▸ [])
-              | .function _ _ => .make default v τ (h ▸ .inr [])
+              | .int | .str | .bool => .make v τ (h ▸ .none)
+              | .record _ | .tuple _ | .seq _ | .set _ => .make v τ (h ▸ [])
+              | .function _ _ => .make v τ (h ▸ .inr [])
               | .var _ | .const _ | .operator _ _ | .channel _ | .address => panic! "Invalid variable type") ++
         -- (condsVars.map λ (v, τ) ↦ match h : τ with
         --   | .int | .str | .bool => .make default v τ (h ▸ .none)
@@ -150,16 +150,16 @@ namespace NetworkPlusCal
           --       .go default [next]
           --     ]
           -- ],
-          .make default "cont" .bool (.some <| .bool true),
-          .while default (.var "cont") [
-            .select default [
+          .make "cont" .bool (.some <| .bool true),
+          .while (.var "cont") [
+            .select [
               .receive ["_", "cont"] (by simp) (.var either_mutex!) [
-                .if default (.var "cont") (lockAll ++ conds ++ [
-                  .if default (.prefix .«¬» <| .var "cont") (
-                    .close default (.var either_mutex!) ::
-                    todo ++ [.go default [next]]
+                .if (.var "cont") (lockAll ++ conds ++ [
+                  .if (.prefix .«¬» <| .var "cont") (
+                    .close (.var either_mutex!) ::
+                    todo ++ [.go [next]]
                   ) [
-                    .send default (.var either_mutex!) (.record [])
+                    .send (.var either_mutex!) (.record [])
                   ]
                 ] ++ unlockAll) []
               ],
@@ -167,25 +167,25 @@ namespace NetworkPlusCal
               -- ]
             ]
           ],
-          .return default [.record []]
+          .return [.record []]
         ]
     }
   where
     compileBlock (B : List (Statement Typ (Expression Typ) false false)) : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := do
       match_source ← B with
       | .skip, _ => []
-      | .print e, pos => [.print pos e]
-      | .assert e, pos => [.if pos (.prefix .«¬» e) [.panic pos <| .str s!"Expression '{e}' evaluated to 'false'!"] []]
+      | .print e, pos => [.print e @@ pos]
+      | .assert e, pos => [.if (.prefix .«¬» e) [.panic (.str s!"Expression '{e}' evaluated to 'false'!") @@ pos] []]
       | .assign ref e, pos =>
         -- TODO: handle indices (transform into tuples)
         let ref' := { name := ref.name, args := [] : GoCal.LHS _ }
-        [.assign pos ref' e]
+        [.assign ref' e @@ pos]
       | .send chan e, pos =>
-        let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic pos <| .str "send not implemented"]⟩
+        let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic (.str "send not implemented") @@ pos]⟩
         todo! "compile send to go"
           -- [.send pos _ e]
       | .multicast chan bs e, pos =>
-        let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic pos <| .str "multicast not implemented"]⟩
+        let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic (.str "multicast not implemented") @@ pos]⟩
         todo! "compile multicast to go"
 
   def AtomicBlock.toGoCal (B : NetworkPlusCal.AtomicBlock Typ (Expression Typ)) (vars : List (String × Typ × Expression Typ)) : List (GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs) :=
@@ -193,8 +193,8 @@ namespace NetworkPlusCal
     let fn := B.branches.zipIdx.foldl (init := []) λ branches ⟨B, i⟩ ↦ branches.concat <| B.toGoCal label i vars
 
     let calls := fn.map λ ⟨name, _, _, _⟩ ↦
-      GoCal.Statement.go default [
-        .assign default ⟨"_", []⟩ <|
+      GoCal.Statement.go [
+        .assign ⟨"_", []⟩ <|
           .opcall (.var name) (.var "self" :: /-.var default cancel! ::-/ .var either_mutex! :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var v)
       ]
 
@@ -203,11 +203,11 @@ namespace NetworkPlusCal
       params := ⟨"self", .address⟩ :: ⟨"done", .channel (.record [])⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨v, .channel τ⟩
       returnType := [.record []]
       body := [
-        .make default either_mutex! (.channel (.record [])) (.inl (.some ⟨1⟩)),
-        .send default (.var either_mutex!) (.record []),
+        .make either_mutex! (.channel (.record [])) (.inl (.some ⟨1⟩)),
+        .send (.var either_mutex!) (.record []),
         --.make default cancel! (.channel (.record [])) (.inl .none)
       ] ++ calls ++ [
-        .return default [.record []]
+        .return [.record []]
       ]
     }
 
@@ -218,9 +218,9 @@ namespace NetworkPlusCal
       params := ⟨"self", .address⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
       returnType := [.channel (.record [])]
       body := [
-        .make default "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
-        .go default [.send default (.var "done") (.record [])],
-        .return default [.var "done"]
+        .make "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
+        .go [.send (.var "done") (.record [])],
+        .return [.var "done"]
       ]
     }]
     | .code blocks@h:(_ :: _) =>
@@ -231,10 +231,10 @@ namespace NetworkPlusCal
         params := ⟨"self", .address⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
         returnType := [.channel (.record [])]
         body := [
-          .make default "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
-          .assign default ⟨"_", []⟩ <|
+          .make "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
+          .assign ⟨"_", []⟩ <|
             .opcall (.var <| blocks.head (List.ne_nil_iff_exists_cons.mpr ⟨_, _, h⟩) |>.label) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var (chan_from_name! v)),
-          .return default [.var "done"]
+          .return [.var "done"]
         ]
       }
     | .rx chan rx' τ inbox => match h : τ with
@@ -245,24 +245,24 @@ namespace NetworkPlusCal
           params := ⟨"self", .address⟩ :: ⟨chan.name, .channel τ⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
           returnType := [.record []]
           body := [
-            .make default rx' τ (match h' : τ with
+            .make rx' τ (match h' : τ with
               | .int | .str | .bool => none
               | .record _ | .tuple _ | .seq _ | .set _ => []
               | .function _ _ => .inr []
               | .var _ | .const _ | .operator _ _ | .channel _ => nomatch h, h'),
-            .make default inbox (.seq τ) [],
-            .make default "ok" .bool (.some <| .bool true),
-            .while default (.var "ok") [
-              .select default [
+            .make inbox (.seq τ) [],
+            .make "ok" .bool (.some <| .bool true),
+            .while (.var "ok") [
+              .select [
                 .receive [rx', "ok"] (by rfl) (.var chan.name) [
-                  .if default (.var "ok") [
-                    .receive default (.var s!"{inbox}_") ⟨inbox, []⟩,
-                    .send default (.var s!"{inbox}_") (.opcall (.var "Append") [.var inbox, .var rx'])
+                  .if (.var "ok") [
+                    .receive (.var s!"{inbox}_") ⟨inbox, []⟩,
+                    .send (.var s!"{inbox}_") (.opcall (.var "Append") [.var inbox, .var rx'])
                   ] []
                 ]
               ]
             ],
-            .return default [.record []]
+            .return [.record []]
           ]
         }]
 
@@ -288,9 +288,9 @@ namespace NetworkPlusCal
       λ | ⟨.code _, i⟩ => .inl (thread!(P.name, i))
         | ⟨.rx _ rx τ inbox, _⟩ => .inr (rx_thread!(P.name, rx, inbox), τ)
 
-    let calls : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := threads.map λ v ↦ .make default s!"done_{v}" (.channel (.record [])) <| .inr <|
+    let calls : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := threads.map λ v ↦ .make s!"done_{v}" (.channel (.record [])) <| .inr <|
       .opcall (.var v) (.var "self" :: (vars ++ params).map λ ⟨v, _, _⟩ ↦ .var v)
-    let calls' : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := channels.map λ ⟨v, _⟩ ↦ .assign default ⟨"_", []⟩ <|
+    let calls' : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := channels.map λ ⟨v, _⟩ ↦ .assign ⟨"_", []⟩ <|
       .opcall (.var v) <| .var "self" :: .var chan!(v) :: ((vars ++ params).map λ ⟨v, _, _⟩ ↦ .var v)
 
     fns.concat {
@@ -298,26 +298,26 @@ namespace NetworkPlusCal
       params := ⟨"self", .address⟩ :: params.map (λ ⟨v, τ, _⟩ ↦ ⟨chan_from_name! v, τ⟩)
       returnType := .channel (.record []) :: channels.map λ ⟨_, τ⟩ ↦ .channel τ
       body :=
-        .make default "done" (.channel (.record [])) (.inl (.some ⟨1⟩)) ::
+        .make "done" (.channel (.record [])) (.inl (.some ⟨1⟩)) ::
         -- Initialize local variables
-        (vars >>= λ ⟨v, τ, e⟩ ↦ [ .make default v (.channel τ) (.inl (.some ⟨1⟩)), .send default (.var v) e]) ++
+        (vars >>= λ ⟨v, τ, e⟩ ↦ [ .make v (.channel τ) (.inl (.some ⟨1⟩)), .send (.var v) e]) ++
         -- Box parameters
-        (params >>= λ ⟨v, τ, _⟩ ↦ [ .make default v (.channel τ) (.inl (.some ⟨1⟩)), .send default (.var v) (.var <| chan_from_name! v) ]) ++
+        (params >>= λ ⟨v, τ, _⟩ ↦ [ .make v (.channel τ) (.inl (.some ⟨1⟩)), .send (.var v) (.var <| chan_from_name! v) ]) ++
         -- Initialize channels to receive message from the outside world
-        (channels.map λ ⟨v, τ⟩ ↦ .make default chan!(v) (.channel τ) (.inl (some ⟨10000⟩))) ++
+        (channels.map λ ⟨v, τ⟩ ↦ .make chan!(v) (.channel τ) (.inl (some ⟨10000⟩))) ++
         -- Call every thread in parallel
         calls ++
         -- Also call every receiving thread in parallel, if there are any
         calls' ++
         [
           -- Wait until all threads have finished, then signal the `done` channel
-          .go default <|
-            threads.map (λ v ↦ .receive default (.var s!"done_{v}") ⟨"_", []⟩) ++
+          .go <|
+            threads.map (λ v ↦ .receive (.var s!"done_{v}") ⟨"_", []⟩) ++
             [
-              .send default (.var "done") (.record [])
+              .send (.var "done") (.record [])
             ],
           -- Return the `done` channel, as well as all channels that are used to communicate with the outside world
-          .return default <| .var "done" :: channels.map λ ⟨v, _⟩ ↦ .var chan!(v)
+          .return <| .var "done" :: channels.map λ ⟨v, _⟩ ↦ .var chan!(v)
         ]
     }
 

@@ -37,20 +37,20 @@ namespace GoCal
     | default (B : List α)
 
   inductive Statement (init : Typ → Type u) : Type u
-    | panic (pos : SourceSpan) (msg : Expr)
+    | panic (msg : Expr)
     /-- `var name τ`, `name := make(τ, ...)` or `name := τ(...)` depending on the given `τ` and `args`. -/
-    | make (pos : SourceSpan) (name : String) (τ : Typ) (args : init τ)
+    | make (name : String) (τ : Typ) (args : init τ)
     /-- Close the given channel, so that no more messages can be sent through it. -/
-    | close (pos : SourceSpan) (chan : Expr)
-    | assign (pos : SourceSpan) (ref : LHS Expr) (e : Expr)
-    | return (pos : SourceSpan) (e : List Expr)
-    | print (pos : SourceSpan) (e : Expr)
-    | go (pos : SourceSpan) (B : List (Statement init))
-    | while (pos : SourceSpan) (cond : Expr) (B : List (Statement init))
-    | if (pos : SourceSpan) (cond : Expr) (B₁ B₂ : List (Statement init))
-    | receive (pos : SourceSpan) («from» : Expr) («to» : LHS Expr)
-    | send (pos : SourceSpan) («to» : Expr) (e : Expr)
-    | select (pos : SourceSpan) (clauses : List (SelectClause Expr (Statement init)))
+    | close (chan : Expr)
+    | assign (ref : LHS Expr) (e : Expr)
+    | return (e : List Expr)
+    | print (e : Expr)
+    | go (B : List (Statement init))
+    | while (cond : Expr) (B : List (Statement init))
+    | if (cond : Expr) (B₁ B₂ : List (Statement init))
+    | receive («from» : Expr) («to» : LHS Expr)
+    | send («to» : Expr) (e : Expr)
+    | select (clauses : List (SelectClause Expr (Statement init)))
     deriving Inhabited
 
   structure Function (init : Typ → Type u) : Type u where

@@ -56,15 +56,15 @@ namespace GoCal
       (go · 0)
 
   universe u
-  variable {Expr : Type u} [Std.ToFormat Expr]
+  variable {Expr : Type} [Std.ToFormat Expr]
 
   private instance : Std.ToFormat (LHS Expr) where
     format lhs := f!"{lhs.name}" ++ .join (lhs.args.map λ e ↦ .sbracket <| Std.format e)
 
-  partial def Statement.pretty : Statement Typ Expr GoCal.Typ.initArgs → Std.Format
-    | .panic pos msg => formatPos pos ++ f!" panic({msg})"
+  partial def Statement.pretty (S : Statement Typ Expr GoCal.Typ.initArgs) : Std.Format := match_source S with
+    | .panic msg, pos => formatPos pos ++ f!" panic({msg})"
     -- depends on `args`, hence on `init`
-    | .make pos name τ args => formatPos pos ++ match τ, args with
+    | .make name τ args, pos => formatPos pos ++ match τ, args with
       | .int, .some e | .bool, .some e | .str, .some e => f!"var {name} {τ} = {e}"
       | .int, .none | .bool, .none | .str, .none => f!"var {name} {τ}"
       | .channel _, .inl .none => f!"{name} := make({τ})"
@@ -75,16 +75,16 @@ namespace GoCal
       | .var _, r | .const _, r | .operator _ _, r => nomatch r
       -- tuples and functions
       | τ, _ => todo! (default := Std.Format.text s!"{name} := make(...)") s!"formatter for `make` with {τ}"
-    | .close pos chan => formatPos pos ++ f!"close({chan})"
-    | .assign pos ref e => formatPos pos ++ f!"{ref} = {e}"
-    | .return pos e => formatPos pos ++ "return " ++ .joinSep e ", "
-    | .print pos e => formatPos pos ++ f!"println({e})"
-    | .go pos B => formatPos pos ++ "go func()" ++ .bracket "{" (formatBlock B) "}()"
-    | .while pos cond B => formatPos pos ++ f!"for {cond} " ++ .bracket "{" (formatBlock B) "}"
-    | .if pos cond B₁ B₂ => formatPos pos ++ f!"if {cond} " ++ .bracket "{" (formatBlock B₁) "}" ++ " else " ++ .bracket "{" (formatBlock B₂) "}"
-    | .receive pos «from» «to» => formatPos pos ++ f!"{«to»} = <-{«from»}"
-    | .send pos «to» e => formatPos pos ++ f!"{«to»} <- {e}"
-    | .select pos clauses =>
+    | .close chan, pos => formatPos pos ++ f!"close({chan})"
+    | .assign ref e, pos => formatPos pos ++ f!"{ref} = {e}"
+    | .return e, pos => formatPos pos ++ "return " ++ .joinSep e ", "
+    | .print e, pos => formatPos pos ++ f!"println({e})"
+    | .go B, pos => formatPos pos ++ "go func()" ++ .bracket "{" (formatBlock B) "}()"
+    | .while cond B, pos => formatPos pos ++ f!"for {cond} " ++ .bracket "{" (formatBlock B) "}"
+    | .if cond B₁ B₂, pos => formatPos pos ++ f!"if {cond} " ++ .bracket "{" (formatBlock B₁) "}" ++ " else " ++ .bracket "{" (formatBlock B₂) "}"
+    | .receive «from» «to», pos => formatPos pos ++ f!"{«to»} = <-{«from»}"
+    | .send «to» e, pos => formatPos pos ++ f!"{«to»} <- {e}"
+    | .select clauses, pos =>
       let formatClause : SelectClause Expr (Statement Typ Expr GoCal.Typ.initArgs) → Std.Format
         | .receive «to» _ «from» B =>
           let tos := Std.Format.joinSep «to» ", " ++ if !«to».isEmpty then " = " else ""
