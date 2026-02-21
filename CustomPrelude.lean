@@ -2,6 +2,7 @@ import Batteries.CodeAction
 
 import Aesop
 
+import Mathlib.Tactic.ApplyAt
 import Mathlib.Tactic.Conv
 import Mathlib.Tactic.Clean
 import Mathlib.Tactic.SimpRw
@@ -15,6 +16,7 @@ import Mathlib.Tactic.FindSyntax
 -- import Mathlib.Tactic.LiftLets
 -- import Mathlib.Tactic.ExtractLets
 import Batteries.Tactic.SeqFocus
+import Mathlib.Tactic.DefEqTransformations
 
 import Mathlib.Util.WhatsNew
 import Mathlib.Util.Delaborators

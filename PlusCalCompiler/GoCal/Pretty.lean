@@ -6,21 +6,45 @@ import Extra.List
 namespace GoCal
   open CoreTLAPlus (Typ Expression)
 
+  private def keywords : Std.HashSet String := {
+    -- keywords
+    "break", "case", "chan", "const", "continue", "default",
+    "defer", "else", "fallthrough", "for", "func", "go", "goto",
+    "if", "import", "interface", "map", "package", "range", "return",
+    "select", "struct", "switch", "type", "var",
+    -- types
+    "any", "bool", "byte", "comparable", "complex64", "complex128", "error",
+    "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune",
+    "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+    -- constants
+    "true", "false", "iota",
+    -- zero value
+    "nil",
+    -- functions
+    "append", "cap", "clear", "close", "complex", "copy", "delete", "imag",
+    "len", "make", "max", "min", "new", "panic", "print", "println", "real",
+    "recover"
+  }
+
+  @[inline]
+  private def sanitize (name : String) :=
+    if name ∈ keywords then f!"{name}__" else f!"{name}"
+
   partial scoped instance instToFormatTyp : Std.ToFormat Typ where
     format :=
       let rec go : Typ → Std.Format
         | .bool => "bool"
         | .int => "int"
         | .str => "string"
-        | .address => "Address"
-        | .function τ₁ τ₂ => f!"map[{go τ₁}]{go τ₂}"
-        | .set τ => f!"[]{go τ}"
-        | .seq τ => f!"[]{go τ}"
+        | .address => "Address[interface {}]"
+        | .function τ₁ τ₂ => f!"Func[{go τ₁}, {go τ₂}]"
+        | .set τ => f!"Set[{go τ}]"
+        | .seq τ => f!"Seq[{go τ}]"
         | .tuple _ => sorry
         | .operator τs τ => "func (" ++ .joinSuffix (τs.map λ τ ↦ f!"_ {go τ}") ", " ++ f!") {go τ}"
         | .var v => v
         | .const v => v
-        | .record fs => "struct {" ++ .joinSuffix (fs.map λ ⟨v, τ⟩ ↦ v ++ " " ++ go τ) "; " ++ "}"
+        | .record fs => "struct {" ++ .joinSuffix (fs.map λ ⟨v, τ⟩ ↦ sanitize v ++ " " ++ go τ) "; " ++ "}"
         | .channel τ => f!"chan {go τ}"
       go
 
@@ -28,7 +52,7 @@ namespace GoCal
     format :=
       let formatPos (pos : SourceSpan) : Std.Format := if pos = default then .nil else f!"/* {pos} */ "
       let rec go (e : Expression Typ) (prec : Nat) : Std.Format := match_source e with
-        | .var name, pos => formatPos pos ++ f!"{name}"
+        | .var name, pos => formatPos pos ++ sanitize name
         | .str raw, pos => formatPos pos ++ f!"`{raw}`"
         | .nat raw, pos => formatPos pos ++ f!"{raw}"
         | .bool raw, pos => formatPos pos ++ f!"{raw}"
@@ -36,8 +60,8 @@ namespace GoCal
         | .record fields, pos =>
           let ⟨τs, es⟩ := fields.unzipWith (λ ⟨v, τ, _⟩ ↦ (v, τ)) (λ ⟨v, _, e⟩ ↦ (v, e))
           formatPos pos ++ "struct"
-            ++ .bracket "{" (.joinSuffix (τs.map λ ⟨v, τ⟩ ↦ v ++ " " ++ Std.format τ) "; ") "}"
-            ++ .bracket "{" (.joinSuffix (es.map λ ⟨v, e⟩ ↦ v ++ ": " ++ go e 0) ", ") "}"
+            ++ .bracket "{" (.joinSuffix (τs.map λ ⟨v, τ⟩ ↦ sanitize v ++ " " ++ Std.format τ) "; ") "}"
+            ++ .bracket "{" (.joinSuffix (es.map λ ⟨v, e⟩ ↦ sanitize v ++ ": " ++ go e 0) ", ") "}"
         | .prefix op e, pos => formatPos pos ++ match op with
           | .«¬» => .«prefix» go 6 "!" e prec
           | .«-» => .«prefix» go 6 "-" e prec
@@ -50,8 +74,8 @@ namespace GoCal
           | .«+» => .«infixl» go 4 "+" e₁ e₂ prec
         | .funcall fn args, pos => formatPos pos ++ go fn 30 ++ .join (args.map λ e ↦ .sbracket (go e 0))
         | .opcall fn args, pos => formatPos pos ++ go fn 30 ++ .paren (.joinSuffix (args.map (go · 0)) ", ")
-        | .access e x, pos => formatPos pos ++ go e 30 ++ "." ++ x
-        | .seq es, pos => formatPos pos ++ f!"Seq({Std.Format.joinSuffix (es.map (go · 0)) ", "})"
+        | .access e x, pos => formatPos pos ++ go e 30 ++ "." ++ sanitize x
+        | .seq es, pos => formatPos pos ++ f!"SeqLiteral({Std.Format.joinSuffix (es.map (go · 0)) ", "})"
         | .except fn upds, pos => formatPos pos ++ f!"TODO upd"
       (go · 0)
 

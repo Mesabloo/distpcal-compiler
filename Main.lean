@@ -96,7 +96,7 @@ def DebugOptions.from (args : Array Option') : IO DebugOptions := do
   Output a compiler error on `stderr` and exit immediately with an exit code of `1`.
 -/
 @[noinline, specialize]
-private def printErrorAndExit {α β ε} [Colorized β] [ToString β] [CompilerDiagnostic ε β] (err : ε) (lines : List String) : IO α := do
+private def printErrorAndExit {α β ε} [Colorized β] [ToString β] [CompilerDiagnostic ε β] (err : ε) (lines : List String.Slice) : IO α := do
   IO.eprintln <| CompilerDiagnostic.pretty err lines
   IO.Process.exit 1
 
@@ -154,15 +154,14 @@ private partial def runCli (p : Parsed) : IO UInt32 := do
     let source ← match inputFile with
       | .path inputFile =>
         guardM (inputFile.pathExists.toIO) <|> do
-          spinner.cancel
-          IO.eprintln s!"File '{inputFile}' does not exist."
+          spinner.fail s!"File '{inputFile}' does not exist."
           IO.Process.exit 1
         IO.FS.readFile inputFile
       | .stdin =>
         IO.getStdin >>= IO.FS.Stream.readToEnd
     -- Better compute this ahead of time, even if it is not needed, than having to compute it possibly several times
     -- (e.g. in the presence of warnings)
-    let lines := source.split (· == '\n')
+    let lines := source.split (· == '\n') |>.toList
 
     let tks ← match SurfaceTLAPlus.Lexer.lexModule source with
       | .inl e => do
@@ -235,41 +234,48 @@ Please make sure that it is located at the start of a multiline comment."
     pure ()
 
   -- Translation to GoCal
-  let fns ← withSpinner "Outputting Go file…" λ spinner ↦ do
-    let fns := traverse (·.toGoCal) alg
+  let fns ← withSpinner "Outputting Go file…" λ spinner ↦
+    try do
+      let fns := traverse (·.toGoCal) alg
 
-    -- Pretty print GoCal into file/onto stdout
-    let pkgName := p.flag? "package" |>.elim "main" (·.as! String)
-    let header := s!"package {pkgName}\n\n"
+      -- Pretty print GoCal into file/onto stdout
+      let pkgName := p.flag? "package" |>.elim "main" (·.as! String)
+      let header := s!"package {pkgName}\n\nimport . \"github.com/mesabloo/distpcal-compiler/lib\"\n\n"
 
-    let _ {α : Type _} [Std.ToFormat α] : Std.ToFormat (List α) := ⟨(.joinSep · (.line ++ .line))⟩
-    let _ {α : Type _} [Std.ToFormat α] : Std.ToFormat (Located α) := {
-      format := λ ⟨pos, x⟩ ↦ if pos = default then f!"{x}" else f!"/* {pos} */ {x}"
-    }
+      let _ {α : Type _} [Std.ToFormat α] : Std.ToFormat (List α) := ⟨(.joinSep · (.line ++ .line))⟩
+      let _ {α : Type _} [Std.ToFormat α] : Std.ToFormat (Located α) := {
+        format := λ ⟨pos, x⟩ ↦ if pos = default then f!"{x}" else f!"/* {pos} */ {x}"
+      }
 
-    let _ : Std.ToFormat CoreTLAPlus.Typ.{0} := GoCal.instToFormatTyp
-    let _ : Std.ToFormat (CoreTLAPlus.Expression.{0} CoreTLAPlus.Typ) := GoCal.instToFormatExpression
+      let _ : Std.ToFormat CoreTLAPlus.Typ.{0} := GoCal.instToFormatTyp
+      let _ : Std.ToFormat (CoreTLAPlus.Expression.{0} CoreTLAPlus.Typ) := GoCal.instToFormatExpression
 
-    let maxDepth := 60 -- 120
-    if let .some path := p.flag? "output" |>.map (·.as! System.FilePath) then
-      let dir ← path.parent |>.getDM (throw ↑"Output path must be a file to be created, not a directory.")
-      guardM (dir.pathExists.toIO) <|> do
-        IO.eprintln s!"Directory `{dir}` does not exist."
-        IO.Process.exit 1
-      IO.FS.withFile (path.withExtension "go") .write λ handle ↦ do
-        let stream := IO.FS.Stream.ofHandle handle
+      let maxDepth := 60 -- 120
+      if let .some path := p.flag? "output" |>.map (·.as! System.FilePath) then
+        spinner.setTitle s!"Outputting Go file (to '{path.withExtension "go"}')…"
+        let dir ← path.parent |>.getDM do
+          throw ↑"Output path must be a file to be created, not a directory."
+        guardM (dir.pathExists.toIO) <|> do
+          throw ↑s!"Directory '{dir}' does not exist."
+        IO.FS.withFile (path.withExtension "go") .write λ handle ↦ do
+          let stream := IO.FS.Stream.ofHandle handle
+          stream.putStrLn header
+          stream.putStrLn <| (Std.format fns) |>.pretty (width := maxDepth)
+          stream.flush
+        spinner.success "Finished outputting Go file."
+      else
+        spinner.setTitle "Outputting Go file (to stdout)…"
+        spinner.success "Finished outputting Go file."
+        let stream ← IO.getStdout
         stream.putStrLn header
         stream.putStrLn <| (Std.format fns) |>.pretty (width := maxDepth)
         stream.flush
-      spinner.success "Finished outputting Go file."
-    else
-      spinner.success "Finished outputting Go file."
-      let stream ← IO.getStdout
-      stream.putStrLn header
-      stream.putStrLn <| (Std.format fns) |>.pretty (width := maxDepth)
-      stream.flush
 
-    pure fns
+      pure fns
+    catch e =>
+      spinner.fail e.toString
+      IO.Process.exit 1
+
 
   return 0
 

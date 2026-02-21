@@ -53,7 +53,7 @@ section
     open Char
     open SurfacePlusCal.Lexer (Located')
 
-    private abbrev TypeParser := SimpleParser Substring Char
+    private abbrev TypeParser := SimpleParser String.Slice Char
 
     @[inline]
     private def ws : TypeParser Unit := dropMany Unicode.whitespace

@@ -34,23 +34,25 @@ instance (c₁ c₂ : Cursor) : Decidable (c₁ < c₂) := by
   else apply Decidable.isFalse
        assumption
 
--- instance (c₁ c₂ : Cursor) : Decidable (c₁ = c₂) := by
---   if h : c₁.line = c₂.line ∧ c₁.col = c₂.col
---   then apply Decidable.isTrue
---        obtain ⟨_, _⟩ := c₁
---        obtain ⟨_, _⟩ := c₂
---        congr <;> {
---          obtain ⟨_, _⟩ := h
---          trivial
---        }
---   else apply Decidable.isFalse
---        intro _
---        obtain ⟨_, _⟩ := c₁
---        obtain ⟨_, _⟩ := c₂
---        injections
---        subst_vars
---        apply h
---        trivial
+instance (c₁ c₂ : Cursor) : Decidable (c₁ = c₂) := by
+  if h : c₁.line = c₂.line ∧ c₁.col = c₂.col
+  then apply Decidable.isTrue
+       obtain ⟨_, _⟩ := c₁
+       obtain ⟨_, _⟩ := c₂
+       congr <;> {
+         obtain ⟨_, _⟩ := h
+         trivial
+       }
+  else apply Decidable.isFalse
+       intro _
+       obtain ⟨_, _⟩ := c₁
+       obtain ⟨_, _⟩ := c₂
+       injections
+       subst_vars
+       apply h
+       trivial
+
+instance (c₁ c₂ : Cursor) : Decidable (c₁ ≤ c₂) := inferInstanceAs (Decidable (c₁ < c₂ ∨ c₁ = c₂))
 
 instance (c₁ c₂ : Cursor) : Decidable (c₁ > c₂) := inferInstanceAs (Decidable (_ ∨ _))
 
@@ -143,7 +145,7 @@ open Lean Parser Term in section
   macro_rules
   | `(term| match_source $[(generalizing := $generalize)]? $[(motive := $motive)]? $[(indices := [$idx*])]? $discr,* with $alts:matchAlts) => withFreshMacroScope do
     let discr := discr.getElems
-    let idx : Array ℕ := match idx with
+    let idx : Array Nat := match idx with
       | .none => Array.range' 1 discr.size
       | .some idx => idx.map λ n ↦ n.getNat
 

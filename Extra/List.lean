@@ -739,7 +739,7 @@ namespace List
       grind only
 
   private lemma even_len_cons_cons_of_even_len {ys : List α} {y₁ y₂ : α} (even_ys_len : Even ys.length) : Even (y₁ :: y₂ :: ys).length := by
-    simp [*]
+    grind only [= Nat.even_iff, = length_cons]
 
   def zipperEvenInduction {motive : (xs : List α) → (ys : List α) → Even xs.length → Even ys.length → Prop} (xs ys : List α) (even_xs_len : Even xs.length) (even_ys_len : Even ys.length)
     (nil : ∀ xs even_xs_len, motive xs [] even_xs_len Even.zero)

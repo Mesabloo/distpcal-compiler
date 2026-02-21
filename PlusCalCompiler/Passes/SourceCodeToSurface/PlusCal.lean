@@ -7,20 +7,20 @@ import Extra.List
 import PlusCalCompiler.Passes.SourceCodeToSurface.Common
 
 namespace SurfacePlusCal.Lexer
-  abbrev PlusCalLexer := SimpleParser Substring Char
+  abbrev PlusCalLexer := SimpleParser PositionedSlice Char
 
   private local instance {α} : Inhabited (PlusCalLexer α) where
     default := Parser.throwUnexpected none
 
   structure Located' (α : Type _) where
-    segment : Parser.Stream.Segment Substring
+    segment : Parser.Stream.Segment PositionedSlice
     data : α
     deriving Functor
 
   instance {σ τ : Type _} [Parser.Stream σ τ] [Repr (Parser.Stream.Position σ)] : Repr (Parser.Stream.Segment σ) :=
     inferInstanceAs (Repr (_ × _))
 
-  instance {α : Type _} [Repr (Parser.Stream.Segment Substring)] [Repr α] : Repr (Located' α) where
+  instance {α : Type _} [Repr (Parser.Stream.Segment PositionedSlice)] [Repr α] : Repr (Located' α) where
     reprPrec l _ :=
       .bracket
         "{ "
@@ -47,7 +47,7 @@ namespace SurfacePlusCal.Lexer
     variable {σ τ α : Type _} {m : Type _ → Type _} [Monad m] [Parser.Stream σ τ]
 
     /-- Surrounds the result of a parser `p` with its starting and ending positions. -/
-    private def located (p : SimpleParserT Substring Char m α) : SimpleParserT Substring Char m (Located' α) := do
+    private def located (p : SimpleParserT PositionedSlice Char m α) : SimpleParserT PositionedSlice Char m (Located' α) := do
       let startPos ← getPosition
       let res ← p
       let endPos ← getPosition

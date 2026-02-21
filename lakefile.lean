@@ -4,10 +4,10 @@ open Lake DSL
 ------ Dependencies
 require "leanprover-community" / "mathlib" @ git s!"v{Lean.versionString}"
 require "leanprover-community" / "batteries" @ git s!"v{Lean.versionString}"
-require "fgdorais" / "UnicodeBasic" @ git "625c5900a5af52f192722b844ba2a440e0dfbd59"
-require "fgdorais" / "Parser" @ git "1df69ca8eb5a66ab0c97dc54bf281194dd714a40"
+require "fgdorais" / "UnicodeBasic" @ git "ff04f5c424e50e23476d3539c7c0cc4956e971ad"
+require "fgdorais" / "Parser" @ git "d8428e25efb794c9147bb9beac1dfe2e51447c3e"
 require "leanprover" / "Cli" @ git s!"v{Lean.versionString}"
-require "leanprover-community" / "LeanSearchClient" @ git "99657ad92e23804e279f77ea6dbdeebaa1317b98"
+require "leanprover-community" / "LeanSearchClient" @ git "c5d5b8fe6e5158def25cd28eb94e4141ad97c843"
 require "algebraic-dev" / "Colorized" @ git "e631ffd114535e1ace876e1b7062d672f718454f"
 -- require mpl from git "https://github.com/sgraf812/mpl" @ "252f4d18ad8cf53aec243eba0e5989698c3ca509"
 

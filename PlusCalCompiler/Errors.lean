@@ -17,7 +17,7 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   hintsOf : ε → List α := λ _ ↦ []
 
 /-- Pretty basic error pretty printing. -/
-def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String) : String :=
+def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String.Slice) : String :=
   let header := if CompilerDiagnostic.isError ε then "error" else "warning"
   let color := if CompilerDiagnostic.isError ε then Colorized.Color.Red else .Yellow
   let headerPadding := String.replicate (header.length + 2) ' '

@@ -53,12 +53,12 @@ namespace CoreTLAPlus
   with @[computed_field] prec : PrefixOperator → Nat
     | .«¬» => 4
     | .«-» => 12
-  deriving BEq
+  deriving DecidableEq
 
-  instance : DecidableEq PrefixOperator := by
-    rintro (_|_) (_|_) <;> solve
-      | apply isTrue; rfl
-      | apply isFalse; nofun
+  -- instance : DecidableEq PrefixOperator := by
+  --   rintro (_|_) (_|_) <;> solve
+  --     | apply isTrue; rfl
+  --     | apply isFalse; nofun
 
   instance : ToString PrefixOperator where
     toString
@@ -85,12 +85,12 @@ namespace CoreTLAPlus
     | .«>» => 5
     | .«+» => 5
     | .«-» => 5
-  deriving BEq
+  deriving DecidableEq
 
-  instance : DecidableEq InfixOperator := by
-    rintro (_|_) (_|_) <;> solve
-      | apply isTrue; rfl
-      | apply isFalse; nofun
+  -- instance : DecidableEq InfixOperator := by
+  --   rintro (_|_) (_|_) <;> solve
+  --     | apply isTrue; rfl
+  --     | apply isFalse; nofun
 
   instance : ToString InfixOperator where
     toString

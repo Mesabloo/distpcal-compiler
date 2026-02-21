@@ -32,7 +32,7 @@ instance {α} [ToString α] : CompilerDiagnostic (Unexpected α) String where
 
 namespace SurfaceTLAPlus.Lexer
   /-- The type of lexers consuming characters of a string. -/
-  abbrev TLAPlusLexer := SimpleParser Substring Char
+  abbrev TLAPlusLexer := SimpleParser PositionedSlice Char
 
   private local instance {α} : Inhabited (TLAPlusLexer α) where
     default := Parser.throwUnexpected none
@@ -49,7 +49,7 @@ namespace SurfaceTLAPlus.Lexer
     variable {σ τ α : Type _} {m : Type _ → Type _} [Monad m] [Parser.Stream σ τ]
 
     /-- Surrounds the result of a parser `p` with its starting and ending positions. -/
-    private def located (p : SimpleParserT Substring Char m α) : SimpleParserT Substring Char m (Located' α) := do
+    private def located (p : SimpleParserT PositionedSlice Char m α) : SimpleParserT PositionedSlice Char m (Located' α) := do
       let startPos ← getPosition
       let res ← p
       let endPos ← getPosition
@@ -84,7 +84,7 @@ namespace SurfaceTLAPlus.Lexer
       let c ← Unicode.alpha <|> char '_'
       let cs ← takeMany (withBacktracking <| Unicode.alpha <|> char '_' <|> (String.front ∘ toString) <$> Unicode.digit)
 
-      return mapKeywordToToken (String.mk (cs.insertIdx 0 c).toList)
+      return mapKeywordToToken (String.ofList (cs.insertIdx 0 c).toList)
     where
       -- TODO: add all TLA⁺ reserved words
       mapKeywordToToken : String → Token α
@@ -374,7 +374,7 @@ namespace SurfaceTLAPlus.Lexer
       let _ ← chars r"\*"
       let ⟨content, _⟩ ← takeUntil (() <$ eol <|> endOfInput) anyToken
       -- TODO: perhaps there is a faster way to convert an array into a string?
-      return .inlineComment <| String.mk <| Array.toList content
+      return .inlineComment <| String.ofList <| Array.toList content
 
     private partial def blockComment (lexTLAToken : TLAPlusLexer (Located' (Token (Located' SurfacePlusCal.Token)))) (inner : Bool := false) : TLAPlusLexer (Token (Located' SurfacePlusCal.Token)) := do
       let _ ← chars "(*"
@@ -400,7 +400,7 @@ namespace SurfaceTLAPlus.Lexer
 
     -- TODO: support binary, octal and hexadecimal formats
     private def number {α} : TLAPlusLexer (Token α) :=
-      (.number ∘ String.mk ∘ Array.toList) <$> takeMany1 (withBacktracking ASCII.numeric)
+      (.number ∘ String.ofList ∘ Array.toList) <$> takeMany1 (withBacktracking ASCII.numeric)
 
     private def string {α} : TLAPlusLexer (Token α) := do
       let _ ← char '"'
@@ -438,27 +438,24 @@ namespace SurfaceTLAPlus.Lexer
     Prod.fst <$> Parser.takeUntil Parser.endOfInput (lexeme lexToken)
 
   def lexModule (s : String) : Unexpected Char ⊕ Array (Located (Token (Located SurfacePlusCal.Token))) :=
-    match lexModule'.run s with
+    match lexModule'.run ⟨s, ⟨1, 0⟩⟩ with
     | .error _ e => .inl <| errToUnexpected e
     | .ok str tokens =>
-      assert! str.isEmpty
+      assert! str.1.isEmpty
       -- TODO: we need to patch positions: from byte indices to line/column in UTF-8 codepoints
       --       this is very inefficient, as we have to traverse the whole token list, and overlapping
       --       parts of the stream for each token
       --       maybe one day I'll fix that, if it ends up being too slow?
       .inr <| tokens.map λ ⟨pos, tok⟩ ↦ ⟨mkPosition pos, (λ ⟨pos, tok⟩ ↦ ⟨mkPosition pos, tok⟩) <$> tok⟩
   where
-    posToLineCol (pos : String.Pos) : Cursor :=
-      let substr := s.extract 0 pos
-      let lineno := substr.count '\n' + 1
-      let lastLine := substr.takeRightWhile (λ c ↦ c != '\n')
-      ⟨lineno, lastLine.length⟩
+    @[inline]
+    posToLineCol (pos : Stream.Position PositionedSlice) : Cursor := pos.2
 
-    mkPosition (seg : Stream.Segment Substring) : SourceSpan :=
-      ⟨posToLineCol seg.fst, posToLineCol seg.snd⟩
+    mkPosition (seg : Stream.Segment PositionedSlice) : SourceSpan :=
+      ⟨posToLineCol seg.start, posToLineCol seg.stop⟩
 
-    errToUnexpected : Parser.Error.Simple Substring Char → Unexpected Char
-      | .unexpected pos token => { token, pos := mkPosition ⟨pos, s.next pos⟩, hints := [] }
+    errToUnexpected : Parser.Error.Simple PositionedSlice Char → Unexpected Char
+      | .unexpected pos token => { token, pos := mkPosition ⟨pos, pos⟩, hints := [] }
       | .addMessage err _ msg => let err := errToUnexpected err; {err with hints := err.hints.concat msg }
 
   -- #eval show IO _ from do
@@ -686,7 +683,7 @@ namespace SurfaceTLAPlus.Parser
         return (sign.elim' "" String.singleton ++ String.mk digits.toList).toInt!
 
     /-- Try to parse annotations in a comment, ignoring any raw text. -/
-    private def tryParseAnnotations' : TypeParser (List ((Nat × String.Pos) × (Nat × String.Pos) × CommentAnnotation)) := do
+    private def tryParseAnnotations' : TypeParser (List (Stream.Position (Stream.OfList Substring) × Stream.Position (Stream.OfList Substring) × CommentAnnotation)) := do
       let ⟨anns, _⟩ ← takeUntil endOfInput <| first [
         .inr <$> located parseAnnotation,
         .inl <$> first [
@@ -706,7 +703,7 @@ namespace SurfaceTLAPlus.Parser
             -- Concatenate all comments into a single one, then try to parse this for annotations
       match tryParseAnnotations'.run (Parser.Stream.mkOfList stream.toList) with
         | .ok s' res =>
-          assert! List.Forall (·.bsize = 0) s'.next
+          assert! List.Forall (Substring.Raw.bsize · == 0) s'.next
           return res.map λ ⟨start, «end», ann⟩ ↦
             let startPos := comments[start.fst]!.segment
             let endPos := comments[«end».fst]!.segment

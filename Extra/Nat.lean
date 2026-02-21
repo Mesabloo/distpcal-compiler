@@ -1,6 +1,7 @@
 import CustomPrelude
 import Mathlib.Data.List.Induction
 import Batteries.Data.String.Lemmas
+import Batteries.Data.Nat.Digits
 import Extra.String
 
 namespace Nat
@@ -44,7 +45,6 @@ namespace Nat
       ind _ (by obtain _|_ := Nat.eq_or_lt_of_not_lt h₂ <;> trivial) (div.induct' k k_pos ind base₁ base₂ (n / k))
   termination_by n
   decreasing_by
-    all_goals simp_wf
     · have h : n > k := by obtain _|_ := Nat.eq_or_lt_of_not_lt h₂ <;> trivial
       apply div_lt_self
       · trans k
@@ -54,85 +54,155 @@ namespace Nat
         · assumption
       · assumption
 
-  theorem String.get_cons_0 {s : List Char} {c : Char} : (String.mk (c :: s)).get 0 = c := rfl
+  -- https://github.com/leanprover/lean4/pull/12445
+  section UpgradeLean
 
-  theorem String.next_cons_0 {s : List Char} {c : Char} : (String.mk (c :: s)).next 0 = ⟨c.utf8Size⟩ := by
-    unfold String.next
-    rw [String.get_cons_0]
-    apply String.Pos.zero_addChar_eq
+    -- todo: lemmas about `ToString Nat` and `ToString Int`
 
-  theorem String.utf8GetAux_shunt {s i j p} : String.utf8GetAux s (i + p) (j + p) = String.utf8GetAux s i j := by
-    induction s generalizing i p with
-    | nil =>
-      rfl
-    | cons c s IH =>
-      unfold String.utf8GetAux
-      split_ifs with h₁ h₂ h₃
-      · rfl
-      · repeat rw [String.Pos.add_eq] at h₁
-        rw [String.Pos.ext_iff] at h₁ h₂
-        rw [Nat.add_right_cancel h₁] at h₂
-        contradiction
-      · subst i
-        contradiction
-      · conv_lhs =>
-          enter [2]
-          rw [String.Pos.addChar_eq, String.Pos.add_byteIdx, Nat.add_assoc]
-          conv => enter [1, 2]; rw [Nat.add_comm]
-          rw [← Nat.add_assoc]
-          change (i + c) + p
-        apply IH
+    variable {n b : Nat}
 
-  theorem String.get_skip_first {s : List Char} {c : Char} {i : String.Pos} : (String.mk (c :: s)).get (i + c) = (String.mk s).get i := by
-    dsimp [String.get, String.utf8GetAux]
-    rw [ite_cond_eq_false]
-    · conv_lhs => change String.utf8GetAux s (0 + ⟨c.utf8Size⟩) (i + ⟨c.utf8Size⟩)
-      rw [String.utf8GetAux_shunt]
-    · apply eq_false
-      rw [String.Pos.addChar_eq, String.Pos.ext_iff]
-      dsimp
+    private theorem isDigit_of_mem_toDigitsCore {c cs fuel}
+        (hc : c ∈ cs → c.isDigit) (hb₁ : 0 < b) (hb₂ : b ≤ 10) (h : c ∈ toDigitsCore b fuel n cs) :
+        c.isDigit := by
+      induction fuel generalizing n cs with rw [toDigitsCore] at h
+      | zero => exact hc h
+      | succ _ ih =>
+        split at h
+        case' isFalse => apply ih (fun h => ?_) h
+        all_goals
+          cases h with
+          | head      => simp [Nat.lt_of_lt_of_le (mod_lt _ hb₁) hb₂]
+          | tail _ hm => exact hc hm
 
-      have : c.utf8Size > 0 := by
-        dsimp [Char.utf8Size]
-        split_ifs <;> trivial
+    private theorem toDigitsCore_of_lt_base {cs fuel} (hb : n < b) (hf : n < fuel) :
+        toDigitsCore b fuel n cs = n.digitChar :: cs := by
+      unfold toDigitsCore
+      split <;> simp_all [mod_eq_of_lt]
 
-      omega
+    private theorem toDigitsCore_append {fuel cs₁ cs₂} :
+        toDigitsCore b fuel n cs₁ ++ cs₂ = toDigitsCore b fuel n (cs₁ ++ cs₂) := by
+      induction fuel generalizing n cs₁ with simp only [toDigitsCore]
+      | succ => split <;> simp_all
 
-  theorem String.utf8GetAux_shunt' {c : Char} {s i} (h : i.byteIdx ≥ c.utf8Size) : String.utf8GetAux s ((0 : String.Pos) + c) i = String.utf8GetAux s 0 (i - ⟨c.utf8Size⟩) := by
-    generalize (0 : String.Pos) = k
-    induction s generalizing k with
-    | nil =>
-      rfl
-    | cons c' s IH =>
-      dsimp [String.utf8GetAux]
-      split_ifs with h₁ h₂ h₃
-      · rfl
-      · subst i
-        rw [String.Pos.addChar_eq, String.Pos.sub_eq, String.Pos.ext_iff, Nat.add_sub_cancel_right] at h₂
-        contradiction
-      · subst k
-        rw [String.Pos.addChar_eq, String.Pos.sub_eq, String.Pos.ext_iff, Nat.sub_add_cancel h] at h₁
-        contradiction
-      · rw [String.Pos.addChar_right_comm, IH]
+    private theorem toDigitsCore_eq_toDigitsCore_nil_append {fuel cs₁} :
+        toDigitsCore b fuel n cs₁ = toDigitsCore b fuel n [] ++ cs₁ := by
+      simp [toDigitsCore_append]
 
-  theorem add_add_sub_cancel_right {m n k : Nat} (h : k ≥ n) : n + ((k - n) + m) = k + m := by
-    omega
+    private theorem toDigitsCore_eq_of_lt_fuel {n} {fuel₁ fuel₂ cs} (hb : 1 < b) (h₁ : n < fuel₁) (h₂ : n < fuel₂) :
+        toDigitsCore b fuel₁ n cs = toDigitsCore b fuel₂ n cs := by
+      cases fuel₁ <;> cases fuel₂ <;> try contradiction
+      simp only [toDigitsCore, Nat.div_eq_zero_iff]
+      split
+      · simp
+      · have := Nat.div_lt_self (by omega : 0 < n) hb
+        exact toDigitsCore_eq_of_lt_fuel hb (by omega) (by omega)
 
-  theorem String.next_cons_of_ge {s : List Char} {c : Char} {i : String.Pos} (h : i ≥ ⟨c.utf8Size⟩) : (String.mk (c :: s)).next i = ⟨c.utf8Size⟩ + (String.mk s).next (i - ⟨c.utf8Size⟩) := by
-    dsimp [String.next, String.get, String.utf8GetAux]
-    split_ifs
-    · subst i
-      change _ ≤ _ at h
-      rw [String.Pos.le_iff, String.Pos.byteIdx_zero, le_zero] at h
-      dsimp [Char.utf8Size] at h
-      split_ifs at h
-    · rw [String.utf8GetAux_shunt' h]
-      change _ ≤ _ at h
-      rw [String.Pos.le_iff] at h
-      repeat rw [String.Pos.add_eq]
-      repeat rw [String.Pos.sub_eq]
-      dsimp at h ⊢
-      rw [add_add_sub_cancel_right h, String.Pos.addChar_eq]
+    private theorem toDigitsCore_toDigitsCore {d fuel nf df cs}
+        (hb : 1 < b) (hn : 0 < n) (hd : d < b) (hf : b * n + d < fuel) (hnf : n < nf) (hdf : d < df) :
+        toDigitsCore b nf n (toDigitsCore b df d cs) = toDigitsCore b fuel (b * n + d) cs := by
+      cases fuel with
+      | zero => contradiction
+      | succ fuel =>
+        rw [toDigitsCore]
+        split
+        case isTrue h =>
+          have : b ≤ b * n + d := Nat.le_trans (Nat.le_mul_of_pos_right _ hn) (le_add_right _ _)
+          cases Nat.div_eq_zero_iff.mp h <;> omega
+        case isFalse =>
+          have h : (b * n + d) / b = n := by
+            rw [mul_add_div (by omega), Nat.div_eq_zero_iff.mpr (.inr hd), Nat.add_zero]
+          have := (Nat.lt_mul_iff_one_lt_left hn).mpr hb
+          simp only [toDigitsCore_of_lt_base hd hdf, mul_add_mod_self_left, mod_eq_of_lt hd, h]
+          apply toDigitsCore_eq_of_lt_fuel hb hnf (by omega)
+
+    theorem toDigits_of_base_le (hb : 1 < b) (h : b ≤ n) :
+        toDigits b n = toDigits b (n / b) ++ [digitChar (n % b)] := by
+      have := Nat.div_add_mod n b
+      rw (occs := [1]) [← Nat.div_add_mod n b,
+        ← toDigits_append_toDigits (by omega) (Nat.div_pos_iff.mpr (by omega)) (Nat.mod_lt n (by omega))]
+      rw [toDigits_of_lt_base (n := n % b) (Nat.mod_lt n (by omega))]
+
+    theorem toDigits_eq_if (hb : 1 < b) :
+        toDigits b n = if n < b then [digitChar n] else toDigits b (n / b) ++ [digitChar (n % b)] := by
+      split
+      · rw [toDigits_of_lt_base ‹_›]
+      · rw [toDigits_of_base_le hb (by omega)]
+
+    theorem length_toDigits_pos {b n : Nat} :
+        0 < (Nat.toDigits b n).length := by
+      simp [toDigits]
+      rw [toDigitsCore]
+      split
+      · simp
+      · rw [toDigitsCore_eq_toDigitsCore_nil_append]
+        simp
+
+    theorem length_toDigits_le_iff {n k : Nat} (hb : 1 < b) (h : 0 < k) :
+        (Nat.toDigits b n).length ≤ k ↔ n < b ^ k := by
+      match k with
+      | 0 => contradiction
+      | k + 1 =>
+        induction k generalizing n
+        · rw [toDigits_eq_if hb]
+          split <;> simp [*, length_toDigits_pos, ← Nat.pos_iff_ne_zero, - List.length_eq_zero_iff]
+        · rename_i ih
+          rw [toDigits_eq_if hb]
+          split
+          · rename_i hlt
+            simp [Nat.pow_add]
+            refine Nat.lt_of_lt_of_le hlt ?_
+            apply Nat.le_mul_of_pos_left
+            apply Nat.mul_pos
+            · apply Nat.pow_pos
+              omega
+            · omega
+          · simp [ih (n := n / b) (by omega), Nat.div_lt_iff_lt_mul (k := b) (by omega), Nat.pow_add]
+
+    theorem repr_eq_ofList_toDigits {n : Nat} :
+        n.repr = .ofList (toDigits 10 n) :=
+      (rfl)
+
+    theorem toString_eq_ofList_toDigits {n : Nat} :
+        toString n = .ofList (toDigits 10 n) :=
+      (rfl)
+
+    @[simp, grind norm]
+    theorem toString_eq_repr {n : Nat} :
+        toString n = n.repr :=
+      (rfl)
+
+    @[simp, grind norm]
+    theorem reprPrec_eq_repr {n i : Nat} :
+        reprPrec n i = n.repr :=
+      (rfl)
+
+    @[simp, grind norm]
+    theorem repr_eq_repr {n : Nat} :
+        repr n = n.repr :=
+      (rfl)
+
+    theorem repr_of_lt {n : Nat} (h : n < 10) :
+        n.repr = .singleton (digitChar n) := by
+      rw [repr_eq_ofList_toDigits, toDigits_of_lt_base h, String.singleton_eq_ofList]
+
+    theorem repr_of_ge {n : Nat} (h : 10 ≤ n) :
+        n.repr = (n / 10).repr ++ .singleton (digitChar (n % 10)) := by
+      simp [repr_eq_ofList_toDigits, toDigits_of_base_le (by omega) h, String.singleton_eq_ofList,
+        String.ofList_append]
+
+    theorem repr_eq_repr_append_repr {n : Nat} (h : 10 ≤ n) :
+        n.repr = (n / 10).repr ++ (n % 10).repr := by
+      rw [repr_of_ge h, repr_of_lt (n := n % 10) (by omega)]
+
+    theorem length_repr_pos {n : Nat} :
+        0 < n.repr.length := by
+      simpa [repr_eq_ofList_toDigits] using length_toDigits_pos
+
+    theorem length_repr_le_iff {n k : Nat} (h : 0 < k) :
+        n.repr.length ≤ k ↔ n < 10 ^ k := by
+      simpa [repr_eq_ofList_toDigits] using length_toDigits_le_iff (by omega) h
+
+  end UpgradeLean
 
   theorem String.digitChar_isDigit {n : Nat} (h : n < 10) : n.digitChar.isDigit := by
     decide +revert +kernel
@@ -145,22 +215,9 @@ namespace Nat
       motive k n ds :=
     Nat.toDigitsCore.induct base motive case1 case2 case3 k n ds
 
-  theorem toDigitsCore_append {base k n : Nat} {ds ds' : List Char} : toDigitsCore base k n (ds ++ ds') = toDigitsCore base k n ds ++ ds' := by
-    induction k, n, ds using toDigitsCore.induct' base with
-    | case1 n ds =>
-      dsimp [toDigitsCore]
-    | case2 fuel n ds n_div_base_eq =>
-      dsimp [toDigitsCore]
-      repeat rw [n_div_base_eq]
-      rfl
-    | case3 fuel n ds n_div_base_neq IH =>
-      dsimp [toDigitsCore]
-      repeat rw [ite_cond_eq_false _ _ (eq_false n_div_base_neq)]
-      rw [← IH, List.cons_append]
-
   theorem toDigitsCore_eq_append {base k n : Nat} {ds : List Char} : toDigitsCore base k n ds = toDigitsCore base k n [] ++ ds := by
     conv_lhs => enter [4]; rw [← List.nil_append ds]
-    apply toDigitsCore_append
+    grind only [toDigitsCore_append]
 
   theorem toDigitsCore_non_empty_of_succ {base k n : Nat} {ds : List Char} : (toDigitsCore base (k.succ) n ds).isEmpty = false := by
     generalize p_eq : k.succ = p
@@ -183,374 +240,202 @@ namespace Nat
       · apply IH
         omega
 
-  theorem String.endPos_empty : "".endPos = 0 := by rfl
+  -- theorem String.endPos_empty : "".endPos = 0 := by rfl
 
-  theorem String.endPos_cons {c cs} : (String.mk (c :: cs)).endPos = (String.mk cs).endPos + c := by
-    repeat rw [String.endPos, String.utf8ByteSize]
-    dsimp
-    rw [String.Pos.addChar_eq]
+  -- theorem String.endPos_cons {c cs} : (String.mk (c :: cs)).endPos = (String.mk cs).endPos + c := by
+  --   repeat rw [String.endPos, String.utf8ByteSize]
+  --   dsimp
+  --   rw [String.Pos.addChar_eq]
 
-  theorem String.foldl_nil {α} {f : α → Char → α} {init : α} : String.foldl f init "" = init := by
-    rw [String.foldl, String.foldlAux, String.endPos_empty]
-    split_ifs <;> trivial
+  -- theorem String.foldl_nil {α} {f : α → Char → α} {init : α} : String.foldl f init "" = init := by
+  --   rw [String.foldl, String.foldlAux, String.endPos_empty]
+  --   split_ifs <;> trivial
 
-  theorem String.Pos.add_comm {p₁ p₂ : String.Pos} : p₁ + p₂ = p₂ + p₁ := by
-    rw [String.Pos.add_eq, String.Pos.add_eq, Nat.add_comm]
+  -- theorem String.Pos.add_comm {p₁ p₂ : String.Pos} : p₁ + p₂ = p₂ + p₁ := by
+  --   rw [String.Pos.add_eq, String.Pos.add_eq, Nat.add_comm]
 
-  -- theorem String.foldlAux_shunt {α} {f : α → Char → α} {init : α} {c : Char} {s : List Char} :
-  --     String.foldlAux f {data := c :: s} ({ data := s : String}.endPos + c) { byteIdx := c.utf8Size } init =
-  --       String.foldlAux f {data := s} ({data := s : String}.endPos) 0 init := by
-  --   conv_lhs => enter [4]; change { byteIdx := c.utf8Size } + 0
+  -- -- theorem String.foldlAux_shunt {α} {f : α → Char → α} {init : α} {c : Char} {s : List Char} :
+  -- --     String.foldlAux f {data := c :: s} ({ data := s : String}.endPos + c) { byteIdx := c.utf8Size } init =
+  -- --       String.foldlAux f {data := s} ({data := s : String}.endPos) 0 init := by
+  -- --   conv_lhs => enter [4]; change { byteIdx := c.utf8Size } + 0
 
-  --   fun_induction String.foldlAux f ⟨s⟩ (String.endPos ⟨s⟩) 0 init with
-  --   | case1 i init h _ IH =>
-  --     unfold String.foldlAux
-  --     split_ifs with h'
-  --     · dsimp
-  --       rw [← IH]
-  --       congr 1
-  --       · rw [String.next_cons_of_ge]
-  --         · repeat rw [String.Pos.add_eq, String.Pos.sub_eq]
-  --           congr
-  --           simp
-  --         · change _ ≤ _ + _
-  --           rw [String.Pos.add_eq, String.Pos.le_iff]
-  --           simp
-  --       · congr 1
-  --         conv_lhs => enter [2]; rw [String.Pos.add_comm, String.Pos.add_eq]; change i + c
-  --         conv_rhs => rw [← String.get_skip_first (c := c)]
-  --     · dsimp
-  --       conv at h' => enter [1, 1]; rw [String.Pos.add_comm, String.Pos.add_eq]; change i + c
-  --       repeat rw [String.Pos.addChar_eq] at h'
-  --       erw [String.Pos.lt_iff, Nat.add_lt_add_iff_right, ← String.Pos.lt_iff] at h'
-  --       contradiction
-  --   | case2 i init h =>
-  --     unfold String.foldlAux
-  --     split_ifs with h'
-  --     · rw [String.Pos.addChar_eq, String.Pos.add_eq, Nat.add_comm] at h'
-  --       dsimp at h'
-  --       rw [Nat.add_lt_add_iff_right] at h'
-  --       contradiction
-  --     · rfl
+  -- --   fun_induction String.foldlAux f ⟨s⟩ (String.endPos ⟨s⟩) 0 init with
+  -- --   | case1 i init h _ IH =>
+  -- --     unfold String.foldlAux
+  -- --     split_ifs with h'
+  -- --     · dsimp
+  -- --       rw [← IH]
+  -- --       congr 1
+  -- --       · rw [String.next_cons_of_ge]
+  -- --         · repeat rw [String.Pos.add_eq, String.Pos.sub_eq]
+  -- --           congr
+  -- --           simp
+  -- --         · change _ ≤ _ + _
+  -- --           rw [String.Pos.add_eq, String.Pos.le_iff]
+  -- --           simp
+  -- --       · congr 1
+  -- --         conv_lhs => enter [2]; rw [String.Pos.add_comm, String.Pos.add_eq]; change i + c
+  -- --         conv_rhs => rw [← String.get_skip_first (c := c)]
+  -- --     · dsimp
+  -- --       conv at h' => enter [1, 1]; rw [String.Pos.add_comm, String.Pos.add_eq]; change i + c
+  -- --       repeat rw [String.Pos.addChar_eq] at h'
+  -- --       erw [String.Pos.lt_iff, Nat.add_lt_add_iff_right, ← String.Pos.lt_iff] at h'
+  -- --       contradiction
+  -- --   | case2 i init h =>
+  -- --     unfold String.foldlAux
+  -- --     split_ifs with h'
+  -- --     · rw [String.Pos.addChar_eq, String.Pos.add_eq, Nat.add_comm] at h'
+  -- --       dsimp at h'
+  -- --       rw [Nat.add_lt_add_iff_right] at h'
+  -- --       contradiction
+  -- --     · rfl
 
-  theorem String.foldl_eq_foldl {α} {f : α → Char → α} {init : α} {s : String} : String.foldl f init s = List.foldl f init s.data := String.foldl_eq f s init
-    -- let ⟨ss⟩ := s
-    -- dsimp
-    -- induction ss generalizing init with
-    -- | nil =>
-    --   rw [List.foldl_nil, String.foldl_nil]
-    -- | cons c s IH =>
-    --   rw [List.foldl_cons, String.foldl, String.foldlAux]
-    --   split_ifs with h₁
-    --   · dsimp
-    --     rw [String.get_cons_0, String.next_cons_0, String.foldlAux_shunt, ← String.foldl]
-    --     apply IH
-    --   · apply Nat.ge_of_not_lt at h₁
-    --     change 0 ≥ _ at h₁
-    --     rw [String.endPos_cons, String.Pos.addChar_eq] at h₁
+  -- theorem String.foldl_eq_foldl {α} {f : α → Char → α} {init : α} {s : String} : String.foldl f init s = List.foldl f init s.data := String.foldl_eq f s init
+  --   -- let ⟨ss⟩ := s
+  --   -- dsimp
+  --   -- induction ss generalizing init with
+  --   -- | nil =>
+  --   --   rw [List.foldl_nil, String.foldl_nil]
+  --   -- | cons c s IH =>
+  --   --   rw [List.foldl_cons, String.foldl, String.foldlAux]
+  --   --   split_ifs with h₁
+  --   --   · dsimp
+  --   --     rw [String.get_cons_0, String.next_cons_0, String.foldlAux_shunt, ← String.foldl]
+  --   --     apply IH
+  --   --   · apply Nat.ge_of_not_lt at h₁
+  --   --     change 0 ≥ _ at h₁
+  --   --     rw [String.endPos_cons, String.Pos.addChar_eq] at h₁
 
-    --     have : c.utf8Size > 0 := by
-    --       dsimp [Char.utf8Size]
-    --       split_ifs <;> trivial
+  --   --     have : c.utf8Size > 0 := by
+  --   --       dsimp [Char.utf8Size]
+  --   --       split_ifs <;> trivial
 
-    --     simp_all
+  --   --     simp_all
 
-  theorem String.foldl_push {α} {f : α → Char → α} {init : α} {c : Char} {s : String} : String.foldl f init (s.push c) = f (String.foldl f init s) c := by
-    let ⟨ss⟩ := s
-    rw [String.push, String.foldl_eq_foldl, String.foldl_eq_foldl]
-    apply List.foldl_concat
-
-  theorem String.append_push {c} {xs ys : String} : xs ++ ys.push c = (xs ++ ys).push c := by
-    change String.append xs (ys.push c) = (String.append xs ys).push c
-    rcases xs, ys with ⟨⟨xs⟩, ⟨ys⟩⟩
-    unfold String.push String.append
-    simp
-
-  theorem String.foldl_append {α} {f : α → Char → α} {init : α} {xs ys : String} : String.foldl f init (xs ++ ys) = String.foldl f (String.foldl f init xs) ys := by
-    obtain ⟨ys⟩ := ys
-    induction ys using List.reverseRecOn generalizing init with
-    | nil => rw [String.foldl_nil, String.append_empty]
-    | append_singleton ys y IH =>
-      change String.foldl f init (xs ++ String.push ⟨ys⟩ y) = String.foldl f (String.foldl f init xs) (String.push ⟨ys⟩ y)
-      erw [String.append_push]
-      repeat rw [String.foldl_push]
-      rw [IH]
-
-  theorem String.empty_isEmpty : "".isEmpty = true := rfl
-
-  theorem String.cons_non_empty {c : Char} {cs : List Char} : (String.mk (c :: cs)).isEmpty = false := by
-    unfold String.isEmpty
-    rw [String.endPos_cons, String.Pos.addChar_eq, beq_eq_false_iff_ne]
-
-    have : c.utf8Size > 0 := by
-      dsimp [Char.utf8Size]
-      split_ifs <;> simp
-
-    apply String.Pos.ne_zero_of_lt (a := 0)
-    rw [String.Pos.lt_iff, String.Pos.byteIdx_zero]
-    dsimp
-    omega
-
-  theorem String.isEmpty_append {s s' : String} : (s ++ s').isEmpty = (s.isEmpty && s'.isEmpty) := by
-    let ⟨cs⟩ := s
-    let ⟨cs'⟩ := s'
-    match cs, cs' with
-    | [], [] => rfl
-    | [], _ :: _ => erw [String.empty_append, String.empty_isEmpty, Bool.true_and]
-    | _ :: _, [] => erw [String.append_empty, String.empty_isEmpty, Bool.and_true]
-    | _ :: _, _ :: _ => erw [String.cons_non_empty, String.cons_non_empty, String.cons_non_empty]; rfl
-
-  theorem String.Pos.add_zero {p : String.Pos} : p + 0 = p := by
-    rw [String.Pos.add_eq, String.Pos.byteIdx_zero, Nat.add_zero]
-
-  theorem String.Pos.zero_add {p : String.Pos} : 0 + p = p := by
-    rw [String.Pos.add_comm, String.Pos.add_zero]
-
-  theorem String.cons_append {c : Char} {cs cs' : List Char} : String.mk (c :: cs) ++ (String.mk cs') = String.mk (c :: (cs ++ cs')) := by
-    change String.append _ _ = _
-    dsimp [String.append]
-
-  theorem String.endPos_append {s s' : String} : (s ++ s').endPos = s.endPos + s'.endPos := by
-    let ⟨cs⟩ := s
-    induction cs with
-    | nil => rw [String.empty_append, String.endPos_empty, String.Pos.zero_add]
-    | cons c cs IH =>
-      rw [String.cons_append, String.endPos_cons, String.endPos_cons]
-      conv_rhs => rw [String.Pos.addChar_eq, String.Pos.add_eq, Nat.add_assoc, Nat.add_comm c.utf8Size, ← Nat.add_assoc, ← String.Pos.addChar_eq, ← String.Pos.add_eq]
-      rw [← IH]
-      congr
-
-  theorem String.data_append {s s' : String} : (s ++ s').data = s.data ++ s'.data := rfl
-
-  theorem String.all_append {s s' : String} {p : Char → Bool} : (s ++ s').all p = (s.all p && s'.all p) := by
-    rw [Bool.eq_iff_iff, Bool.and_eq_true_eq_eq_true_and_eq_true]
-    repeat rw [String.all_iff]
-    constructor
-    · intro h
-      constructor
-      · intros c c_in
-        apply List.mem_append_left s'.data at c_in
-        rw [← String.data_append] at c_in
-        apply h
-        assumption
-      · intros c c_in
-        apply List.mem_append_right s.data at c_in
-        rw [← String.data_append] at c_in
-        apply h
-        assumption
-    · rintro ⟨h₁, h₂⟩
-      intros c c_in
-      rw [String.data_append, List.mem_append] at c_in
-      obtain c_in|c_in := c_in
-      · apply h₁
-        assumption
-      · apply h₂
-        assumption
-
-  theorem String.toNat?_append_singleton {s c} (h : c.isDigit) (h' : s.isEmpty = false) : (s ++ String.singleton c).toNat? = s.toNat? <&> λ k ↦ k * 10 + (c.toNat - 48) := by
-    unfold String.toNat?
-    split_ifs with h₁ h₂ h₃
-    · rw [String.foldl_append, String.foldl_singleton]
-      rfl
-    · unfold String.isNat at h₁ h₂
-      rw [Bool.and_eq_true_eq_eq_true_and_eq_true, Bool.not_eq_true_eq_eq_false] at h₁
-      rw [Bool.and_eq_true_eq_eq_true_and_eq_true, Bool.not_eq_true_eq_eq_false, not_and_or, Bool.eq_true_eq_not_eq_false,
-          Bool.bool_iff_false] at h₂
-      obtain ⟨h₁, h₃⟩ := h₁
-      obtain h₂|h₂ := h₂
-      · rw [h'] at h₂
-        contradiction
-      · rw [String.all_append, Bool.and_eq_true_eq_eq_true_and_eq_true] at h₃
-        obtain ⟨h₃, _⟩ := h₃
-        rw [h₂] at h₃
-        contradiction
-    · unfold String.isNat at h₁ h₃
-      rw [Bool.and_eq_true_eq_eq_true_and_eq_true] at h₃
-      obtain ⟨h₃, h₄⟩ := h₃
-      rw [Bool.bool_iff_false, Bool.and_eq_false_eq_eq_false_or_eq_false, or_iff_right] at h₁
-      · rw [String.all_append, Bool.and_eq_false_eq_eq_false_or_eq_false, or_iff_right] at h₁
-        · rw [String.all_singleton, h] at h₁
-          contradiction
-        · rwa [Bool.eq_true_eq_not_eq_false]
-      · rw [Bool.not_eq_true_eq_eq_false] at h₃
-        rw [Bool.eq_true_eq_not_eq_false, Bool.not_eq_true_eq_eq_false, String.isEmpty_append, h₃, Bool.false_and]
-    · rfl
-
-  theorem List.asString_append {xs ys : List Char} : (xs ++ ys).asString = xs.asString ++ ys.asString := rfl
-
-  theorem List.asString_singleton {c : Char} : [c].asString = String.singleton c := rfl
+  -- theorem String.isEmpty_append {s s' : String} : (s ++ s').isEmpty = (s.isEmpty && s'.isEmpty) := by
+  --   let ⟨cs⟩ := s
+  --   let ⟨cs'⟩ := s'
+  --   match cs, cs' with
+  --   | [], [] => rfl
+  --   | [], _ :: _ => erw [String.empty_append, String.empty_isEmpty, Bool.true_and]
+  --   | _ :: _, [] => erw [String.append_empty, String.empty_isEmpty, Bool.and_true]
+  --   | _ :: _, _ :: _ => erw [String.cons_non_empty, String.cons_non_empty, String.cons_non_empty]; rfl
 
   theorem add_ge_add_iff_right {k m n : Nat} : k + n ≥ m + n ↔ k ≥ m := Nat.add_le_add_iff_right
 
-  theorem List.asString_isEmpty {cs : List Char} : cs.asString.isEmpty = cs.isEmpty := by
-    unfold List.asString
-    cases cs with
-    | nil => rfl
-    | cons c cs => rw [List.isEmpty_cons, String.cons_non_empty]
+  theorem repr_not_empty {n : Nat} : ¬n.repr = "" := by
+    unfold Nat.repr toDigits toDigitsCore
+    extract_lets +lift d n'
+    split_ifs with h
+    · simp
+    · simp [toDigitsCore_eq_append (ds := [d])]
 
-  theorem repr_toNat? {n : Nat} : n.repr.toNat? = .some n := by
-    unfold Nat.repr Nat.toDigits
+  lemma toNat_digitChar_of_lt_ten {n : Nat} (h : n < 10) : n.digitChar.toNat = n + 48 := by
+    have : n = 0 ∨ n = 1 ∨ n = 2 ∨ n = 3 ∨ n = 4 ∨ n = 5 ∨ n = 6 ∨ n = 7 ∨ n = 8 ∨ n = 9 := by omega
 
-    generalize k_eq : n + 1 = k
-    have k_ge : k ≥ n + 1 := by simp [*]
-    clear k_eq
+    rcases this with _|_|_|_|_|_|_|_|_|_
+      <;> subst n
+      <;> rfl
 
-    induction n using div.induct' 10 (one_lt_succ_succ 8) generalizing k with
-    | base₁ n n_le_10 =>
-      have : n = 0 ∨ n = 1 ∨ n = 2 ∨ n = 3 ∨ n = 4 ∨ n = 5 ∨ n = 6 ∨ n = 7 ∨ n = 8 ∨ n = 9 := by
-        omega
-      obtain rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl := this <;> {
-        obtain ⟨k', rfl⟩ := succ_le_exists_succ k_ge
-        dsimp [toDigitsCore, digitChar, List.asString, String.toNat?]
-        rw [Option.ite_none_right_eq_some]
-        constructor
-        · dsimp [String.isNat]
-          rw [Bool.and_eq_true_eq_eq_true_and_eq_true, Bool.not_eq_true']
-          constructor
-          · rfl
-          · change String.all (String.singleton _) _ = true
-            rw [String.all_singleton]
-            rfl
-        · congr
-          change String.foldl _ _ (String.singleton _) = _
-          rw [String.foldl_singleton]
-          rfl
-      }
-    | base₂ =>
-      obtain ⟨k', rfl⟩ := succ_le_exists_succ k_ge
-      dsimp [toDigitsCore]
-      erw [← Nat.add_one, Nat.add_ge_add_iff_right] at k_ge
-      obtain ⟨k'', rfl⟩ := succ_le_exists_succ k_ge
-      dsimp [toDigitsCore, digitChar, List.asString, String.toNat?]
-      rw [Option.ite_none_right_eq_some]
+  theorem zero_toNat : '0'.toNat = 48 := (rfl)
 
-      have ten_eq : "10" = String.singleton '1' ++ String.singleton '0' := rfl
+  lemma _root_.Bool.or_true_false : (true || false) = true := rfl
 
-      constructor
-      · dsimp [String.isNat]
-        rw [Bool.and_eq_true_eq_eq_true_and_eq_true, Bool.not_eq_true']
-        constructor
-        · rfl
-        · rw [ten_eq, String.all_append, String.all_singleton, String.all_singleton]
-          rfl
-      · congr
-        rw [ten_eq, String.foldl_append, String.foldl_singleton, String.foldl_singleton]
-        rfl
-    | ind n n_gt_10 IH =>
-      have : n / 10 ≠ 0 := by omega
+  theorem toNat?_append_singleton {s c} (h : c.isDigit) (h' : s.isEmpty = false) : (s ++ String.singleton c).toNat? = (s.dropEndWhile '_').toNat? <&> λ k ↦ k * 10 + (c.toNat - 48) := by
+    unfold String.toNat? String.Slice.toNat?
 
-      obtain ⟨k', rfl⟩ := succ_le_exists_succ k_ge
+    have h'' : (s ++ String.singleton c).isEmpty = false := by
+      grind only [String.isEmpty_append_iff]
 
-      unfold toDigitsCore
-      rw [ite_cond_eq_false _ _ (eq_false this), toDigitsCore_eq_append, List.asString_append, List.asString_singleton,
-          String.toNat?_append_singleton]
-      · erw [IH k' (by omega), Option.map_eq_some_iff]
-        exists n / 10, rfl
+    split_ifs with h₁ h₂ h₃
+    · congr
 
-        have : n % 10 = 0 ∨ n % 10 = 1 ∨ n % 10 = 2 ∨ n % 10 = 3 ∨ n % 10 = 4 ∨ n % 10 = 5 ∨ n % 10 = 6 ∨ n % 10 = 7 ∨ n % 10 = 8 ∨ n % 10 = 9 := by
-          omega
-        obtain h|h|h|h|h|h|h|h|h|h := this <;> {
-          rw [h]
-          dsimp [digitChar, Char.toNat]
-          omega
-        }
-      · apply String.digitChar_isDigit
-        omega
-      · rw [List.asString_isEmpty]
-        erw [← Nat.add_one, Nat.add_ge_add_iff_right] at k_ge
-        obtain ⟨n', rfl⟩ := succ_lt_exists_succ n_gt_10
-        obtain ⟨k'', _|_⟩ := succ_le_exists_succ k_ge
-        apply toDigitsCore_non_empty_of_succ
+      have underscore_not_digit : ¬'_'.isDigit := by simp
+      have c_neq : c ≠ '_' := by rintro rfl; contradiction
 
-  theorem List.data_asString {cs : List Char} : cs.asString.data = cs := rfl
-
-  theorem String.get_0_eq_iff {s : String} {c : Char} : s.get 0 = c ↔ (∃ cs, s.data = c :: cs) ∨ s.data = [] ∧ c = default := by
-    dsimp [String.get]
-    cases s.data with
-    | nil =>
-      rw [or_iff_right]
-      · dsimp [String.utf8GetAux]
-        trans c = default
-        · constructor <;> (rintro rfl; rfl)
-        · simp
-      · nofun
-    | cons c cs =>
-      dsimp [String.utf8GetAux]
-      constructor
-      · rintro rfl
-        left
-        exists cs
-      · rintro (⟨_, _|_⟩|⟨_, _⟩)
-        · rfl
-        · contradiction
-
-  theorem repr_non_neg {n : Nat} : n.repr.get 0 ≠ '-' := by
-    have : ∀ c ∈ n.repr.data, c = '0' ∨ c = '1' ∨ c = '2' ∨ c = '3' ∨ c = '4' ∨ c = '5' ∨ c = '6' ∨ c = '7' ∨ c = '8' ∨ c = '9' := by
-      unfold Nat.repr toDigits
-
-      generalize digits_eq : [] = digits
-      generalize n + 1 = k
-
-      have : ∀ c ∈ digits, c = '0' ∨ c = '1' ∨ c = '2' ∨ c = '3' ∨ c = '4' ∨ c = '5' ∨ c = '6' ∨ c = '7' ∨ c = '8' ∨ c = '9' := by
-        rw [← digits_eq]
-        rintro _ (_|_)
-      clear digits_eq
-
-      induction k, n, digits using toDigitsCore.induct' 10 with
-      | case1 x ds =>
-        erwa [List.data_asString]
-      | case2 fuel n ds h =>
-        dsimp [toDigitsCore]
-        rw [h, List.data_asString, ite_cond_eq_true _ _ (eq_true (rfl : 0 = 0))]
-        intros c c_in
-        apply List.eq_or_mem_of_mem_cons at c_in
-        obtain rfl|c_in := c_in
-        · have : n % 10 = 0 ∨ n % 10 = 1 ∨ n % 10 = 2 ∨ n % 10 = 3 ∨ n % 10 = 4 ∨ n % 10 = 5 ∨ n % 10 = 6 ∨ n % 10 = 7 ∨ n % 10 = 8 ∨ n % 10 = 9 := by
-            omega
-          obtain h|h|h|h|h|h|h|h|h|h := this <;> {
-            rw [h]
-            dsimp [digitChar, Char.toNat]
-            simp
-          }
-        · apply this
-          assumption
-      | case3 fuel n ds h IH =>
-        dsimp [toDigitsCore]
-        rw [ite_cond_eq_false _ _ (eq_false h)]
-        apply IH
-        intros c c_in
-        apply List.eq_or_mem_of_mem_cons at c_in
-        obtain rfl|c_in := c_in
-        · have : n % 10 = 0 ∨ n % 10 = 1 ∨ n % 10 = 2 ∨ n % 10 = 3 ∨ n % 10 = 4 ∨ n % 10 = 5 ∨ n % 10 = 6 ∨ n % 10 = 7 ∨ n % 10 = 8 ∨ n % 10 = 9 := by
-            omega
-          obtain h|h|h|h|h|h|h|h|h|h := this <;> {
-            rw [h]
-            dsimp [digitChar, Char.toNat]
-            simp
-          }
-        · apply this
-          assumption
-
-    intro h
-    rw [String.get_0_eq_iff] at h
-    obtain ⟨cs, h⟩|⟨h, _⟩ := h
-    · rw [h] at this
-      simp_all
-    · unfold Nat.repr toDigits at h
-      have : (toDigitsCore 10 (n + 1) n []).isEmpty = false := toDigitsCore_non_empty_of_succ
-      rw [List.data_asString] at h
-      rw [List.isEmpty_eq_false_iff, h] at this
-      contradiction
-
-  theorem repr_toInt? {n : Nat} : n.repr.toInt? = .some n := by
-    unfold String.toInt?
-    repeat erw [Nat.repr_toNat?];
-    split using h
-    · absurd h
-      exact Nat.repr_non_neg
+      repeat erw [String.toSlice_foldl]
+      admit
+    · exfalso
+      admit
+    · exfalso
+      admit
     · rfl
 
+  theorem repr_toNat? {n : Nat} : n.repr.toNat? = .some n := by
+    induction n using div.induct' 10 (by simp only [gt_iff_lt, reduceLT]) with
+    | base₁ n n_lt =>
+      rw [repr_of_lt n_lt]
+
+      have : n = 0 ∨ n = 1 ∨ n = 2 ∨ n = 3 ∨ n = 4 ∨ n = 5 ∨ n = 6 ∨ n = 7 ∨ n = 8 ∨ n = 9 := by omega
+
+      rcases this with _|_|_|_|_|_|_|_|_|_
+        <;> subst n
+        -- TODO: get rid of `decide +native`
+        <;> decide +native
+    | base₂ =>
+      -- TODO: get rid of `decide +native`
+      decide +native
+    | ind n n_gt IH =>
+      apply Nat.le_of_lt at n_gt
+
+      admit
+      -- erw [repr_of_ge n_gt, toNat?_append_singleton, IH, Option.some.injEq]
+      -- · change (n / 10) * 10 + _ = n
+
+      --   have : n % 10 < 10 := by omega
+      --   rw [toNat_digitChar_of_lt_ten this, Nat.add_sub_cancel]
+      --   generalize k_eq : n % 10 = k at this ⊢
+
+      --   have : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 ∨ k = 5 ∨ k = 6 ∨ k = 7 ∨ k = 8 ∨ k = 9 := by omega
+
+      --   rcases this with this|this|this|this|this|this|this|this|this|this
+      --     <;> subst this
+      --     <;> omega
+      -- · grind only [String.digitChar_isDigit]
+      -- · grind only [String.isEmpty_iff, repr_not_empty]
+
+  theorem repr_front?_isDigit {n : Nat} {c : Char} (h : n.repr.front? = some c) : c.isDigit := by
+    unfold Nat.repr toDigits at h
+    rw [String.front?_ofList] at h
+
+    have : toDigitsCore 10 (n + 1) n [] ≠ [] :=
+      propext List.isEmpty_eq_false_iff ▸ toDigitsCore_non_empty_of_succ
+    obtain ⟨c', _, h'⟩ := List.exists_cons_of_ne_nil this
+    rw [h', List.head?_cons] at h
+    injection h
+    subst c'
+
+    have : c ∈ toDigitsCore 10 (n + 1) n [] := by simp [*]
+    exact isDigit_of_mem_toDigitsCore (by simp) (by omega) (by omega) this
+
+  theorem repr_toInt? {n : Nat} : n.repr.toInt? = .some n := by
+    unfold String.toInt? String.Slice.toInt?
+    split_ifs with h
+    · absurd h; clear h
+
+      have n_repr_not_empty : ¬ n.repr.isEmpty := by
+        rw [String.isEmpty_iff]
+        apply repr_not_empty
+
+      obtain ⟨c, front_eq⟩ : ∃ c, n.repr.front? = some c := by
+        have : n.repr.toSlice.startPos ≠ n.repr.toSlice.endPos := by
+          rw [← String.isEmpty_toSlice] at n_repr_not_empty
+          apply String.Slice.startPos_ne_endPos_of_non_empty
+          assumption
+        exists n.repr.toSlice.startPos.get this
+        unfold String.front? String.Slice.front? String.Slice.Pos.get?
+        rw [dif_neg this]
+
+      have := repr_front?_isDigit front_eq
+      rw [← String.toSlice_front?] at front_eq
+      unfold String.Slice.front
+      rw [front_eq]
+      rintro rfl
+      contradiction
+    · rw [← String.toNat?, repr_toNat?]
+      rfl
+
   theorem repr_toInt! {n : Nat} : n.repr.toInt! = n := by
-    unfold String.toInt!
-    rw [Nat.repr_toInt?]
+    unfold String.toInt! String.Slice.toInt!
+    rw [← String.toInt?, Nat.repr_toInt?]
 end Nat

@@ -1392,5 +1392,5 @@ namespace CoreTLAPlus
     rfl
 
 
-  instance {M e v} : Decidable (M ⊢ e ⇒ v) := Option.instDecidableEq.decEq (eval M e) (some v)
-  instance {M e} : Decidable (M ⊢ e ↯) := Option.instDecidableEq.decEq (eval M e) none
+  instance {M e v} : Decidable (M ⊢ e ⇒ v) := decEq (eval M e) (some v)
+  instance {M e} : Decidable (M ⊢ e ↯) := decEq (eval M e) none

@@ -111,7 +111,7 @@ namespace NetworkPlusCal
         ⟨either_mutex!, .channel (.record [])⟩ ::
         ⟨"done", .channel (.record [])⟩ ::
         -- TODO: add `self`
-        vars.map λ ⟨v, τ, _⟩ ↦ ⟨s!"{v}_", .channel τ⟩
+        vars.map λ ⟨v, τ, _⟩ ↦ ⟨chan_from_name! v, .channel τ⟩
       returnType := [.record []]
       body :=
         --.make default "commit" (.channel (.record [])) (.inl .none) ::

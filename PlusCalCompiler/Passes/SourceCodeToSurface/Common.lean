@@ -1,5 +1,6 @@
 import Parser
 import Extra.List
+import PlusCalCompiler.Position
 
 def Parser.Stream.OfList.map {α β : Type _} (f : α → β) (s : Parser.Stream.OfList α) : Parser.Stream.OfList β where
   next := s.next.map f
@@ -22,7 +23,49 @@ def Parser.Result.isOk {ε σ α} : Parser.Result ε σ α → Bool
   | .ok .. => true
   | .error .. => false
 
+@[unbox]
+structure PositionedSlice where
+  slice : String.Slice
+  position : Cursor
+
+open Function in
+instance : LT PositionedSlice where
+  lt := (· < ·) on PositionedSlice.position
+
+open Function in
+instance : LE PositionedSlice where
+  le := (· ≤ ·) on PositionedSlice.position
+
+open Function in
+instance : BEq PositionedSlice where
+  beq := (· == ·) on PositionedSlice.position
+
+instance : DecidableLT PositionedSlice := λ p₁ p₂ ↦ clean% by
+  change Decidable (p₁.position < p₂.position)
+  infer_instance
+
+instance : DecidableLE PositionedSlice := λ p₁ p₂ ↦ clean% by
+  change Decidable (p₁.position ≤ p₂.position)
+  infer_instance
+
+instance : Parser.Stream PositionedSlice Char where
+  next? s :=
+    s.1.front? >>= λ c ↦
+      let pos := if c == '\n' then ⟨s.2.line + 1, 0⟩ else {s.2 with col := s.2.col + 1}
+      return (c, ⟨s.1.drop 1, pos⟩)
+  Position := PositionedSlice
+  getPosition s := s
+  setPosition _ s := s
+
+instance : BEq (Parser.Stream.Position PositionedSlice) := inferInstanceAs (BEq PositionedSlice)
+instance : LT (Parser.Stream.Position PositionedSlice) := inferInstanceAs (LT PositionedSlice)
+instance : LE (Parser.Stream.Position PositionedSlice) := inferInstanceAs (LE PositionedSlice)
+instance : DecidableLT (Parser.Stream.Position PositionedSlice) := inferInstanceAs (DecidableLT PositionedSlice)
+instance : DecidableLE (Parser.Stream.Position PositionedSlice) := inferInstanceAs (DecidableLE PositionedSlice)
+
+
 deriving instance Repr for Parser.Stream.OfList
+-- deriving instance DecidableEq for String.Slice
 
 open Parser hiding takeMany1
 
@@ -46,18 +89,18 @@ def debug {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m
   If `p` fails without consuming tokens, returns `none`, otherwise fails.
 -/
 @[specialize]
-def eoption {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [DecidableEq (Stream.Position σ)] (p : ParserT ε σ τ m α) : ParserT ε σ τ m (Option α) := λ s ↦ do
+def eoption {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [BEq (Stream.Position σ)] (p : ParserT ε σ τ m α) : ParserT ε σ τ m (Option α) := λ s ↦ do
   let savePos := Stream.getPosition s
   return match ← p s with
   | .ok s x => .ok s (.some x)
   | .error s e =>
-    if Stream.getPosition s = savePos
+    if Stream.getPosition s == savePos
     then .ok s .none
     else .error s e
 
 set_option linter.unusedVariables false in
 /-- `takeMany1 p` applies `p` at least once, collecting the results. Fails if `p` cannot be applied at least once, or if `p` fails while consuming input. -/
-def takeMany1 {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [DecidableEq (Stream.Position σ)] (p : ParserT ε σ τ m α) : ParserT ε σ τ m (Array α) := λ s ↦ do
+def takeMany1 {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [BEq (Stream.Position σ)] (p : ParserT ε σ τ m α) : ParserT ε σ τ m (Array α) := λ s ↦ do
   let mut tmp ← p.run s
 
   let _ : Inhabited (m (Parser.Result ε σ (Array α))) := ⟨pure (.ok s #[])⟩
@@ -81,17 +124,17 @@ def takeMany1 {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Mon
   -- `tmp` is not ok anymore
   let .error s e := tmp
     | unreachable!
-  if Stream.getPosition s = Stream.getPosition stream then
+  if Stream.getPosition s == Stream.getPosition stream then
     -- don't worry, `p` did not consume anything in the last iteration
     return .ok s res
   else
     return .error s e
 
 /-- `takeMany p` tries to repeatedly apply `p` until it does not parse, collecting its results. Fails if `p` fails while consuming input at some point. -/
-def takeMany {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [DecidableEq (Stream.Position σ)] (p : ParserT ε σ τ m α) : ParserT ε σ τ m (Array α) := λ s ↦ do
+def takeMany {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [BEq (Stream.Position σ)] (p : ParserT ε σ τ m α) : ParserT ε σ τ m (Array α) := λ s ↦ do
   match ← takeMany1 p |>.run s with
   | .error s' e =>
-    if Stream.getPosition s' = Stream.getPosition s then
+    if Stream.getPosition s' == Stream.getPosition s then
       return .ok s' #[]
     return .error s' e
   | .ok s' r => return .ok s' r

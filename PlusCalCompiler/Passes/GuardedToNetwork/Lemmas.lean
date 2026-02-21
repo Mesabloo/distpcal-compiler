@@ -2485,9 +2485,9 @@ namespace GuardedToNetwork
     | nil =>
       unfold GuardedPlusCal.Memory.updateRef.doUpdate CoreTLAPlus.eval.doUpdate
       rw [List.map_eq_map, List.map_nil]
-      split <;> try contradiction
-      split <;> try contradiction
-      rfl
+      -- split <;> try contradiction
+      -- split <;> try contradiction
+      -- rfl
     | cons vs vss IH =>
       unfold GuardedPlusCal.Memory.updateRef.doUpdate CoreTLAPlus.eval.doUpdate
       rw [List.map_eq_map, List.map_cons]
@@ -2552,7 +2552,7 @@ namespace GuardedToNetwork
               subst vss
 
               unfold GuardedPlusCal.Memory.updateRef.doUpdate at upd_Ma_eq_Mc
-              split at upd_Ma_eq_Mc <;> try contradiction
+              -- split at upd_Ma_eq_Mc <;> try contradiction
               injections
               subst v''
               assumption
@@ -2667,7 +2667,7 @@ namespace GuardedToNetwork
               subst vss
 
               unfold GuardedPlusCal.Memory.updateRef.doUpdate at upd_Ma_eq_Mc
-              split at upd_Ma_eq_Mc <;> try contradiction
+              -- split at upd_Ma_eq_Mc <;> try contradiction
               injections
               subst v''
               assumption
@@ -2814,7 +2814,7 @@ namespace GuardedToNetwork
               subst vss
 
               unfold GuardedPlusCal.Memory.updateRef.doUpdate at upd_Ma_eq_Mc
-              split at upd_Ma_eq_Mc <;> try contradiction
+              -- split at upd_Ma_eq_Mc <;> try contradiction
               injections
               subst v''
 
@@ -2966,7 +2966,7 @@ namespace GuardedToNetwork
               subst vss
 
               unfold GuardedPlusCal.Memory.updateRef.doUpdate at upd_Ma_eq_Mc
-              split at upd_Ma_eq_Mc <;> try contradiction
+              -- split at upd_Ma_eq_Mc <;> try contradiction
               injections
               subst v''
 
@@ -3098,7 +3098,7 @@ namespace GuardedToNetwork
             subst vss
 
             unfold GuardedPlusCal.Memory.updateRef.doUpdate at upd_Ma_eq_Mc
-            split at upd_Ma_eq_Mc <;> try contradiction
+            -- split at upd_Ma_eq_Mc <;> try contradiction
             injections
             subst v''
             assumption
@@ -3196,7 +3196,7 @@ namespace GuardedToNetwork
             subst vss
 
             unfold GuardedPlusCal.Memory.updateRef.doUpdate at upd_Ma_eq_Mc
-            split at upd_Ma_eq_Mc <;> try contradiction
+            -- split at upd_Ma_eq_Mc <;> try contradiction
             injections
             subst v''
             assumption
@@ -3329,8 +3329,8 @@ namespace GuardedToNetwork
                List.traverse_nil']
       exists v'', rfl
       exists [([], v)], ⟨([], v), ⟨[], rfl, v, ?_, rfl⟩, ?_⟩ <;> try trivial
-      simp_rw [List.foldlM_cons, List.foldlM_nil, bind_pure, CoreTLAPlus.eval.doUpdate_empty_args]
-      rfl
+      -- simp_rw [List.foldlM_cons, List.foldlM_nil, bind_pure, CoreTLAPlus.eval.doUpdate_empty_args]
+      -- rfl
     | @cons arg vs args vss eval_arg eval_args IH =>
       apply GuardedPlusCal.Memory.updateRef.doUpdate_cons at upd_eq
       obtain ⟨maps, rfl, upd_eq⟩ := upd_eq
@@ -4347,7 +4347,7 @@ namespace GuardedToNetwork
               obtain rfl := List.forall₂_nil_left_iff.mp eval_ref_args'
               rw [AList.lookup_insert, ← upd]
               unfold GuardedPlusCal.Memory.updateRef.doUpdate
-              split <;> trivial
+              trivial
             · assumption
             · exact v₀
             · rw [← eval_es_vs', CoreTLAPlus.eval_ext [ref.name]]
@@ -4450,7 +4450,7 @@ namespace GuardedToNetwork
               obtain rfl := List.forall₂_nil_left_iff.mp eval_ref_args'
               rw [AList.lookup_insert, ← upd]
               unfold GuardedPlusCal.Memory.updateRef.doUpdate
-              split <;> trivial
+              trivial
             · assumption
             · intros c' c'_neq es'
               rw [AList.lookup_replace_ne]
@@ -4561,7 +4561,7 @@ namespace GuardedToNetwork
 
   theorem Nat.odd_div_two {n : Nat} (h : Odd n) : n / 2 + 1 = (n + 1) / 2 := by
     rw [← Nat.add_div_right n Nat.zero_lt_two]
-    replace h : Even (n + 1) := by simp [h]
+    replace h : Even (n + 1) := by grind only [= Nat.odd_iff, = Nat.even_iff]
     rw [Nat.even_div_two h]
 
   lemma foldl_red_eq_foldr_red {α β ε} [Trace ε] (xs : List β) [Reduce β (Set (α × ε × α))] :
@@ -6469,9 +6469,7 @@ namespace GuardedToNetwork
                 congr
                 have : "0".toInt! = 0 := by
                   change (String.singleton '0').toInt! = 0
-                  unfold String.toInt!
-                  rw [String.singleton_toInt?]
-                  decide
+                  grind only [String.singleton_toInt!]
                 simp [this]
 
         -- then prove that `await Len(inbox) > 0; ref := Head(inbox); inbox := Tail(inbox)` refines `receive(mailbox, ref)`
@@ -7326,13 +7324,15 @@ namespace GuardedToNetwork
         erw [List.unzip_snd, List.unzip_fst, List.mem_flatten] at Tₜ_in
         conv at Tₜ_in => enter [1, l, 1]; rw [List.mem_map]
         conv at Tₜ_in => enter [1, l, 1, 1, a, 1]; rw [List.mem_map]
-        conv at Tₜ_in => enter [1, l, 1, 1, a, 1, 1, b, 1]; rw [List.mem_map]
+        conv at Tₜ_in => enter [1, l, 1, 1, a, 1, 1, b, 1]; apply propext List.mem_map
+
         obtain ⟨-, ⟨⟨rxs', _⟩, ⟨⟨_, _, _⟩, ⟨Tₛ, Tₛ_in, compileSuccess⟩, _|_⟩, rfl⟩, blocksₜ_in⟩ := Tₜ_in
 
         have all_in_rxs'_isRx := Std.Do.Id.of_wp_run_eq compileSuccess _ GuardedPlusCal.Thread.toNetwork_spec₁
         specialize all_in_rxs'_isRx _ blocksₜ_in
         assumption
       · simp_rw [List.unzip₃_snd, List.unzip_snd, List.mem_map] at Tₜ_in
+        conv at Tₜ_in => enter [1, a, 1, 1, b, 1]; apply propext List.mem_map
         obtain ⟨⟨rxs', -⟩, ⟨⟨_, _, _⟩, ⟨Tₛ, Tₛ_in, compileSuccess⟩, _|_⟩, rfl⟩ := Tₜ_in
 
         suffices h : ∃ Bₛ ∈ Tₛ, StrongRefinement (· ∼[Option.map (λ x ↦ (x, inbox ++ nameₛ)) mailboxₛ] ·) ⟦Bₛ⟧* ⟦Bₛ⟧⊥ ⟦Bₛ⟧∞ ⟦Bₜ⟧* ⟦Bₜ⟧⊥ ⟦Bₜ⟧∞ by
