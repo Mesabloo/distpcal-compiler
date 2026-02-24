@@ -1,4 +1,4 @@
-import PlusCalCompiler.Passes.Typechecker.TLAPlus
+import PlusCalCompiler.Passes.Typechecker.Expressions
 import Extra.AList
 
 set_option mvcgen.warning false
@@ -26,7 +26,7 @@ notation Γ " ⊢ " e " : " τ => CheckExpr Γ e τ ∨ InferExpr Γ e τ
 
 open scoped Std.Do
 
-lemma lookupDecl_TC_eq {x : String} : lookupDecl (m := TC) x = (Std.HashMap.get? · x) <$> read := rfl
+lemma lookupDecl_TC_eq {x : String} : lookupDecl (m := TC) x = (Std.HashMap.get? · x) <$> get := rfl
 
 theorem lookupDecl_spec {x : String} {ctx} :
     ⦃λ ctx' ↦ ⌜ctx' = ctx⌝⦄

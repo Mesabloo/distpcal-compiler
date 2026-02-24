@@ -4,13 +4,13 @@ import PlusCalCompiler.Passes.Typechecker.Monad
 import PlusCalCompiler.Passes.Typechecker.Convertibility
 
 section Expressions
-  variable {m : Type → Type} [MonadTC m] [Monad m]
+  variable {m : Type → Type} [MonadTCExpr m] [Monad m]
 
   open CoreTLAPlus
 
-  def makeFunctionType (τs : List Typ) (τ : Typ) : Typ := .function (.tuple τs) τ
+  abbrev makeFunctionType (τs : List Typ) (τ : Typ) : Typ := .function (.tuple τs) τ
 
-  def makeOperatorType (τs : List Typ) (τ : Typ) : Typ := .operator τs τ
+  abbrev makeOperatorType (τs : List Typ) (τ : Typ) : Typ := .operator τs τ
 
   /-
     In most cases, introduction rules are inference rules, and elimination rules are checking rules.
@@ -88,8 +88,8 @@ section Expressions
         return .seq es' τ @@ pos
       /-
          ∀ 0 ≤ i ≤ n, Γ ⊢ eᵢ ⇒ τᵢ        Γ ⊢ e ⇒ (τ₀, …, τₙ) ⇒ τ
-        ────────────────────────────────────────────────────────── [Fun-E]
-                            Γ ⊢ e[e₀, …, eₙ] ⇐ τ
+        ────────────────────────────────────────────────────────── [Op-E]
+                            Γ ⊢ e(e₀, …, eₙ) ⇐ τ
       -/
       | .opcall e es, τ, pos => do
         let (τs, es') ← List.unzip <$> es.attach.mapM λ ⟨e, _⟩ ↦ inferExpr e
