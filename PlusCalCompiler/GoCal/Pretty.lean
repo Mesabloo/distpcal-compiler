@@ -72,6 +72,7 @@ namespace GoCal
           | .«∈» => f!"SetIn({go e₁ 0}, {go e₂ 0}, )"
           | .«-» => .«infixl» go 4 "-" e₁ e₂ prec
           | .«+» => .«infixl» go 4 "+" e₁ e₂ prec
+          | .«∧» => .«infixl» go 2 "&&" e₁ e₂ prec
         | .funcall fn args, pos => formatPos pos ++ go fn 30 ++ .join (args.map λ e ↦ .sbracket (go e 0))
         | .opcall fn args, pos => formatPos pos ++ go fn 30 ++ .paren (.joinSuffix (args.map (go · 0)) ", ")
         | .access e x, pos => formatPos pos ++ go e 30 ++ "." ++ sanitize x
@@ -114,13 +115,18 @@ namespace GoCal
           let tos := Std.Format.joinSep «to» ", " ++ if !«to».isEmpty then " = " else ""
           f!"case {tos}<-{«from»}: " ++ formatBlock B
         | .send «to» e B => f!"case {«to»} <- {e}: " ++ formatBlock B
-        | .default B => f!"default: " ++ formatBlock B
+        | .default B => "default: " ++ formatBlock B
       formatPos pos ++ "select " ++ .bracket "{" (.group <| .indent 0 <| .joinSep (clauses.map formatClause) .line) "}"
-    where
-      formatPos (pos : SourceSpan) : Std.Format := if pos = default then .nil else f!"/* {pos} */ "
+    | .switch e clauses, pos =>
+      let formatClause : SwitchClause Expr (Statement Typ Expr GoCal.Typ.initArgs) → Std.Format
+        | .case e B => "case " ++ Std.Format.joinSep e ", " ++ ": " ++ formatBlock B
+        | .default B => "default: " ++ formatBlock B
+      formatPos pos ++ f!"switch {e} " ++ .bracket "{" (.group <| .indent 0 <| .joinSep (clauses.map formatClause) .line) "}"
+  where
+    formatPos (pos : SourceSpan) : Std.Format := if pos = default then .nil else f!"/* {pos} */ "
 
-      formatBlock (B : List (Statement Typ Expr GoCal.Typ.initArgs)) : Std.Format :=
-        .group <| .indent 4 <| .joinSuffix (B.map Statement.pretty) (";" ++ .line)
+    formatBlock (B : List (Statement Typ Expr GoCal.Typ.initArgs)) : Std.Format :=
+      .group <| .indent 4 <| .joinSuffix (B.map Statement.pretty) (";" ++ .line)
 
   instance : Std.ToFormat (Statement Typ Expr GoCal.Typ.initArgs) := ⟨Statement.pretty⟩
 

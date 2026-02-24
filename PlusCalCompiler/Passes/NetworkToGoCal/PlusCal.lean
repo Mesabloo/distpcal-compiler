@@ -57,15 +57,10 @@ namespace NetworkPlusCal
     Compiles a single branch of an atomic `either` into a block of GoCal statements with the same semantics.
   -/
   def AtomicBranch.toGoCal (label : String) (i : Nat) (B : AtomicBranch Typ (Expression Typ)) (vars : List (String × Typ × Expression Typ)) : GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs :=
-    let commit : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := [
-      --.send default (.var default "commit") (.record default []),
-      .assign ⟨"cont", []⟩ (.bool false)
-    ]
-
-    let (condsVars, conds) : List (String × Typ) × _ := match B.precondition with
-      | none => ([], commit)
-      | some B => B.toList.foldr (init := ([], commit)) λ S (vars, B) ↦ match_source S with
-        | NetworkPlusCal.Statement.await e, pos => (vars, [.if (.prefix .«¬» e) [] B @@ pos])
+    let (condsVars, conds) : List (String × Typ) × List _ := match B.precondition with
+      | none => ([], [])
+      | some B => B.toList.foldr (init := ([], [])) λ S (vars, B) ↦ match_source S with
+        | NetworkPlusCal.Statement.await e, pos => (vars, (.assign ⟨"cont", []⟩ (.infix (.var "cont") .«∧» e) @@ pos) :: B)
         | NetworkPlusCal.Statement.let x τ «=|∈» e, pos =>
           /-
             FIXME: how do we solve the following problem?
@@ -97,77 +92,31 @@ namespace NetworkPlusCal
       | _ => failure
 
     let lockAll :=
-      --GoCal.Statement.receive default (.var default either_mutex!) ⟨"_", []⟩ ::
       toLock.map λ v ↦ GoCal.Statement.receive (.var (chan_from_name! v)) ⟨v, []⟩
     let unlockAll :=
-      --GoCal.Statement.send default (.var default either_mutex!) (.record default []) ::
       toLock.map λ v ↦ GoCal.Statement.send (.var (chan_from_name! v)) (.var v)
 
     {
       name := s!"{label}_{i}"
       params :=
         ⟨"self", .address⟩ ::
-        --⟨cancel!, .channel (.record [])⟩ ::
-        ⟨either_mutex!, .channel (.record [])⟩ ::
         ⟨"done", .channel (.record [])⟩ ::
-        -- TODO: add `self`
         vars.map λ ⟨v, τ, _⟩ ↦ ⟨chan_from_name! v, .channel τ⟩
-      returnType := [.record []]
+      returnType := [.bool]
       body :=
-        --.make default "commit" (.channel (.record [])) (.inl .none) ::
-        -- Declare variables first, so that we can use them outside the goroutine
+        .make "cont" .bool (.some <| .bool true) ::
+        -- Declare variables first
         ((allVars ++ condsVars).map λ ⟨v, τ⟩ ↦ match h : τ with
               | .int | .str | .bool => .make v τ (h ▸ .none)
               | .record _ | .tuple _ | .seq _ | .set _ => .make v τ (h ▸ [])
               | .function _ _ => .make v τ (h ▸ .inr [])
               | .var _ | .const _ | .operator _ _ | .channel _ | .address => panic! "Invalid variable type") ++
-        -- (condsVars.map λ (v, τ) ↦ match h : τ with
-        --   | .int | .str | .bool => .make default v τ (h ▸ .none)
-        --   | .record _ | .tuple _ | .seq _ | .set _ => .make default v τ (h ▸ [])
-        --   | .function _ _ => .make default v τ (h ▸ .inr [])
-        --   | .var _ | .const _ | .operator _ _ | .channel _ => panic! "Invalid variable type") ++
-        [
-          -- .go default [
-          --   .make default "cont" .bool (.some <| .bool default true),
-          --   .while default (.var default "cont") <|
-          --     lockAll ++ [
-          --       .select default [
-          --         .receive [] (by simp) (.var default cancel!) <|
-          --           .assign default ⟨"cont", []⟩ (.bool default false) ::
-          --           unlockAll,
-          --         .default <|
-          --           conds ++ [
-          --             .if default (.var default "cont") unlockAll []
-          --           ]
-          --       ]
-          --     ]
-          --   ],
-          -- .select default [
-          --   .receive [] (by simp) (.var default cancel!) [],
-          --   .receive [] (by simp) (.var default "commit") <|
-          --     .close default (.var default cancel!) ::
-          --     todo ++ unlockAll ++ [
-          --       .go default [next]
-          --     ]
-          -- ],
-          .make "cont" .bool (.some <| .bool true),
-          .while (.var "cont") [
-            .select [
-              .receive ["_", "cont"] (by simp) (.var either_mutex!) [
-                .if (.var "cont") (lockAll ++ conds ++ [
-                  .if (.prefix .«¬» <| .var "cont") (
-                    .close (.var either_mutex!) ::
-                    todo ++ [.go [next]]
-                  ) [
-                    .send (.var either_mutex!) (.record [])
-                  ]
-                ] ++ unlockAll) []
-              ],
-              -- .default <| conds ++ [
-              -- ]
-            ]
-          ],
-          .return [.record []]
+        lockAll ++ conds ++ [
+          .if (.var "cont") (todo ++ [
+            .go [next]
+          ]) []
+        ] ++ unlockAll ++ [
+          .return [.var "cont"]
         ]
     }
   where
@@ -190,23 +139,33 @@ namespace NetworkPlusCal
 
   def AtomicBlock.toGoCal (B : NetworkPlusCal.AtomicBlock Typ (Expression Typ)) (vars : List (String × Typ × Expression Typ)) : List (GoCal.Function Typ (Expression Typ) GoCal.Typ.initArgs) :=
     let label := B.label
-    let fn := B.branches.zipIdx.foldl (init := []) λ branches ⟨B, i⟩ ↦ branches.concat <| B.toGoCal label i vars
+    let fn := B.branches.zipIdx.foldl (init := []) λ branches ⟨B, i⟩ ↦ branches.concat (B.toGoCal label i vars, i)
 
-    let calls := fn.map λ ⟨name, _, _, _⟩ ↦
-      GoCal.Statement.go [
-        .assign ⟨"_", []⟩ <|
-          .opcall (.var name) (.var "self" :: /-.var default cancel! ::-/ .var either_mutex! :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var v)
-      ]
+    -- let calls := fn.map λ ⟨name, _, _, _⟩ ↦
+    --   GoCal.Statement.go [
+    --     .assign ⟨"_", []⟩ <|
+    --       .opcall (.var name) (.var "self" :: /-.var default cancel! ::-/ .var either_mutex! :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var v)
+    --   ]
 
-    fn.concat {
+    fn.map Prod.fst |>.concat {
       name := label
       params := ⟨"self", .address⟩ :: ⟨"done", .channel (.record [])⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨v, .channel τ⟩
       returnType := [.record []]
       body := [
-        .make either_mutex! (.channel (.record [])) (.inl (.some ⟨1⟩)),
-        .send (.var either_mutex!) (.record []),
-        --.make default cancel! (.channel (.record [])) (.inl .none)
-      ] ++ calls ++ [
+        .make "cont" .bool (.some <| .bool true),
+        .while (.var "cont") [
+          .switch (.opcall (.var "Rand") [.nat fn.length.repr]) (
+            fn.map λ ⟨⟨name, _, _, _⟩, i⟩ ↦
+              .case [.nat i.repr] [
+                .assign ⟨"cont", []⟩ <| .opcall (.var name) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var v)
+              ]
+          )
+        ],
+
+        -- .make either_mutex! (.channel (.record [])) (.inl (.some ⟨1⟩)),
+        -- .send (.var either_mutex!) (.record []),
+        -- --.make default cancel! (.channel (.record [])) (.inl .none)
+      ] ++ [
         .return [.record []]
       ]
     }

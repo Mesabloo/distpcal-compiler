@@ -36,6 +36,10 @@ namespace GoCal
     | send («to» : Expr) (e : Expr) (B : List α)
     | default (B : List α)
 
+  inductive SwitchClause (α : Type u) : Type u
+    | case (es : List Expr) (B : List α)
+    | default (B : List α)
+
   inductive Statement (init : Typ → Type u) : Type u
     | panic (msg : Expr)
     /-- `var name τ`, `name := make(τ, ...)` or `name := τ(...)` depending on the given `τ` and `args`. -/
@@ -51,6 +55,7 @@ namespace GoCal
     | receive («from» : Expr) («to» : LHS Expr)
     | send («to» : Expr) (e : Expr)
     | select (clauses : List (SelectClause Expr (Statement init)))
+    | switch (e : Expr) (clauses : List (SwitchClause Expr (Statement init)))
     deriving Inhabited
 
   structure Function (init : Typ → Type u) : Type u where
