@@ -78,6 +78,8 @@ namespace CoreTLAPlus
     | «+»
     /-- Subtraction of numbers -/
     | «-»
+    /-- Conjunction of booleans -/
+    | «∧»
   with @[computed_field] prec : InfixOperator → Nat
     | .«=» => 5
     | .«∈» => 5
@@ -85,7 +87,8 @@ namespace CoreTLAPlus
     | .«>» => 5
     | .«+» => 5
     | .«-» => 5
-  deriving DecidableEq
+    | .«∧» => 2
+    deriving DecidableEq
 
   -- instance : DecidableEq InfixOperator := by
   --   rintro (_|_) (_|_) <;> solve
@@ -100,6 +103,7 @@ namespace CoreTLAPlus
       | .«>» => ">"
       | .«+» => "+"
       | .«-» => "-"
+      | .«∧» => "∧"
 
   -- TODO: do we keep a deep embedding of TLA+?
   -- Or maybe we can try a shallow embedding (e.g. PHOAS-style or locally-nameless style)?

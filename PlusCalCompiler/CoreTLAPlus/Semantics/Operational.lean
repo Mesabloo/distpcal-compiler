@@ -182,6 +182,9 @@ namespace CoreTLAPlus
           -- can we compare functions?
           return .bool (decide (e₁ = e₂))
         | _, _ => throw ()
+      | .«∧» => match e₁, e₂ with
+        | .bool b₁, .bool b₂ => return .bool (b₁ && b₂)
+        | _, _ => throw ()
     | .funcall fn args => do
       let args ← args.attach.traverse λ ⟨e, _⟩ ↦ eval M e
       let .fn fn ← eval M fn | throw ()

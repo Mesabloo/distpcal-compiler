@@ -253,8 +253,8 @@ Please make sure that it is located at the start of a multiline comment."
       let maxDepth := 60 -- 120
       if let .some path := p.flag? "output" |>.map (·.as! System.FilePath) then
         spinner.setTitle s!"Outputting Go file (to '{path.withExtension "go"}')…"
-        let dir ← path.parent |>.getDM do
-          throw ↑"Output path must be a file to be created, not a directory."
+        let dir ← (if path.isAbsolute then path.parent else ("." / path).parent)
+                  |>.getDM do throw ↑"Output path must be a file to be created, not a directory."
         guardM (dir.pathExists.toIO) <|> do
           throw ↑s!"Directory '{dir}' does not exist."
         IO.FS.withFile (path.withExtension "go") .write λ handle ↦ do
