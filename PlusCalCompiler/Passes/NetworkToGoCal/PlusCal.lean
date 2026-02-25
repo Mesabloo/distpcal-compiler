@@ -261,7 +261,10 @@ namespace NetworkPlusCal
         -- Initialize local variables
         (vars >>= λ ⟨v, τ, e⟩ ↦ [ .make v (.channel τ) (.inl (.some ⟨1⟩)), .send (.var v) e]) ++
         -- Box parameters
-        (params >>= λ ⟨v, τ, _⟩ ↦ [ .make v (.channel τ) (.inl (.some ⟨1⟩)), .send (.var v) (.var <| chan_from_name! v) ]) ++
+        (params >>= λ ⟨v, τ, e⟩ ↦ [
+            .if (.prefix .«¬» <| .infix (.var <| chan_from_name! v) .«∈» e) [.panic (.str s!"Parameter '{v}' does not satisfy condition '{v} ∈ {e}'.")] [],
+            .make v (.channel τ) (.inl (.some ⟨1⟩)),
+            .send (.var v) (.var <| chan_from_name! v) ]) ++
         -- Initialize channels to receive message from the outside world
         (channels.map λ ⟨v, τ⟩ ↦ .make chan!(v) (.channel τ) (.inl (some ⟨10000⟩))) ++
         -- Call every thread in parallel
