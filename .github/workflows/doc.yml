@@ -25,7 +25,7 @@ jobs:
       - name: Build project documentation
         id: build-docgen
         continue-on-error: true
-        uses: leanprover-community/docgen-action@v1
+        uses: leanprover-community/docgen-action@7836f3de2f10facc0fed09c1309e6402e4cd5fd0
         with:
           api-docs: false
           build-page: false
@@ -48,7 +48,7 @@ jobs:
       - name: Build project documentation (v2)
         id: build-docgen2
         if: steps.build-docgen.outputs.name == ''
-        uses: leanprover-community/docgen-action@v1
+        uses: leanprover-community/docgen-action@7836f3de2f10facc0fed09c1309e6402e4cd5fd0
         with:
           api-docs: false
           build-page: false
