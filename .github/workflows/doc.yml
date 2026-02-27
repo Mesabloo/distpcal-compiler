@@ -1,0 +1,37 @@
+name: Build documentation and deploy
+
+on:
+  workflow_run:
+    workflows: ["Build project"]
+    types: [completed]
+    branches: 
+    - develop
+
+permissions:
+  contents: read # Read access to repository contents
+  id-token: write # Required to upload the site to GitHub Pages
+  pages: write # Write access to GitHub Pages
+
+jobs:
+  doc:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        # with:
+        #   fetch-depth: 0 # Fetch all history for all branches and tags
+
+      - name: Build project documentation
+        id: build-docgen
+        continue-on-error: true
+        uses: leanprover-community/docgen-action@v1
+
+      - name: Run lake translate-config toml
+        if: failure()
+        run: |
+          lake translate-config toml
+
+      - name: Build project documentation (v2)
+        if: success()
+        uses: leanprover-community/docgen-action@v1

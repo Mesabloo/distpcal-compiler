@@ -1,0 +1,36 @@
+name: Build project
+
+on:
+  push:
+    branches: 
+    - develop
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read # Read access to repository contents
+
+# TODO: separate this file into multiple so that we build the 
+# docs once, but allow testing on multiple platforms.
+
+jobs:
+  build:
+    strategy: 
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        # with:
+        #   fetch-depth: 0 # Fetch all history for all branches and tags
+
+      - name: Build and lint the project.
+        id: build-lean
+        uses: leanprover/lean-action@v1.4.0
+        with:
+          auto-config: false
+          build: true
+          test: true 
+          lint: false
+          mk_all-check: false
+          use-mathlib-cache: true

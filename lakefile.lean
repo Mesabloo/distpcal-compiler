@@ -53,6 +53,8 @@ package «PlusCalCompiler» where
   moreServerOptions := moreServerOptions
   buildType := buildType
 
+  testDriver := "tests"
+
 lean_lib «CustomPrelude»
 
 lean_lib «Extra»
@@ -66,3 +68,6 @@ lean_lib «PlusCalCompiler»
 @[default_target]
 lean_exe «pcvc» where
   root := `Main
+
+lean_lib tests where
+  globs := #[.submodules `tests]
