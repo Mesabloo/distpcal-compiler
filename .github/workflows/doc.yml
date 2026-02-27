@@ -28,11 +28,11 @@ jobs:
         uses: leanprover-community/docgen-action@v1
 
       - name: Run lake translate-config toml
-        if: build-docgen.outputs.name == ''
+        if: steps.build-docgen.outputs.name == ''
         run: |
           lake translate-config toml
 
       - name: Build project documentation (v2)
         id: build-docgen2
-        if: build-docgen.outputs.name == ''
+        if: steps.build-docgen.outputs.name == ''
         uses: leanprover-community/docgen-action@v1
