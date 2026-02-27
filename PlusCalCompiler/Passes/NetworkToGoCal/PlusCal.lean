@@ -19,6 +19,7 @@ namespace NetworkPlusCal
   macro "either_mutex!" : term => `(term| "either_mutex")
   macro "cancel!" : term => `(term| "cancel")
   macro "chan!" "(" t:term ")" : term => `(term| s!"chan_{$t}")
+  macro "commit!" : term => `(term| "commit")
 
   def AtomicBranch.freeVars (B : AtomicBranch Typ (Expression Typ)) : List String :=
     let ⟨bound, free⟩ := B.precondition.elim ⟨[], []⟩ getFreeVars
@@ -32,6 +33,7 @@ namespace NetworkPlusCal
         let f : {b : Bool} → Statement Typ (Expression Typ) b false → List String × List String
           | true, .await e => ⟨[], e.freeVars⟩
           | true, .let x _ _ e => ⟨[x], e.freeVars⟩
+            -- FIXME: `x` is bound in the remainder of the block though
           | false, .assign ref e => ⟨[], ref.freeVars Expression.freeVars ∪ e.freeVars⟩
           | false, .multicast chan bs e => ⟨[], []⟩
           | false, .send chan e => ⟨[], chan.freeVars Expression.freeVars \ [chan.name] ∪ e.freeVars⟩
@@ -60,7 +62,7 @@ namespace NetworkPlusCal
     let (condsVars, conds) : List (String × Typ) × List _ := match B.precondition with
       | none => ([], [])
       | some B => B.toList.foldr (init := ([], [])) λ S (vars, B) ↦ match_source S with
-        | NetworkPlusCal.Statement.await e, pos => (vars, (.assign ⟨"cont", []⟩ (.infix (.var "cont") .«∧» e) @@ pos) :: B)
+        | NetworkPlusCal.Statement.await e, pos => (vars, (.assign ⟨commit!, []⟩ (.infix (.var commit!) .«∧» e) @@ pos) :: B)
         | NetworkPlusCal.Statement.let x τ «=|∈» e, pos =>
           /-
             FIXME: how do we solve the following problem?
@@ -104,7 +106,7 @@ namespace NetworkPlusCal
         vars.map λ ⟨v, τ, _⟩ ↦ ⟨chan_from_name! v, .channel τ⟩
       returnType := [.bool]
       body :=
-        .make "cont" .bool (.some <| .bool true) ::
+        .make commit! .bool (.some <| .bool true) ::
         -- Declare variables first
         ((allVars ++ condsVars).map λ ⟨v, τ⟩ ↦ match h : τ with
               | .int | .str | .bool => .make v τ (h ▸ .none)
@@ -112,11 +114,11 @@ namespace NetworkPlusCal
               | .function _ _ => .make v τ (h ▸ .inr [])
               | .var _ | .const _ | .operator _ _ | .channel _ | .address => panic! "Invalid variable type") ++
         lockAll ++ conds ++ [
-          .if (.var "cont") (todo ++ [
+          .if (.var commit!) (todo ++ [
             .go [next]
           ]) []
         ] ++ unlockAll ++ [
-          .return [.var "cont"]
+          .return [.var commit!]
         ]
     }
   where
@@ -152,12 +154,12 @@ namespace NetworkPlusCal
       params := ⟨"self", .address⟩ :: ⟨"done", .channel (.record [])⟩ :: vars.map λ ⟨v, τ, _⟩ ↦ ⟨v, .channel τ⟩
       returnType := [.record []]
       body := [
-        .make "cont" .bool (.some <| .bool true),
-        .while (.var "cont") [
+        .make commit! .bool (.some <| .bool true),
+        .while (.var commit!) [
           .switch (.opcall (.var "Rand") [.nat fn.length.repr]) (
             fn.map λ ⟨⟨name, _, _, _⟩, i⟩ ↦
               .case [.nat i.repr] [
-                .assign ⟨"cont", []⟩ <| .opcall (.var name) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var v)
+                .assign ⟨commit!, []⟩ <| .opcall (.var name) (.var "self" :: .var "done" :: vars.map λ ⟨v, _, _⟩ ↦ .var v)
               ]
           )
         ],
