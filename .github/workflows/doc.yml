@@ -29,6 +29,13 @@ jobs:
 
       - uses: leanprover/lean-action@v1.4.0
         if: steps.build-docgen.outputs.name == ''
+        with:
+          auto-config: false
+          build: false
+          test: false 
+          lint: false
+          mk_all-check: false
+          use-mathlib-cache: false
 
       - name: Run lake translate-config toml
         if: steps.build-docgen.outputs.name == ''
