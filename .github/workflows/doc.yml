@@ -27,6 +27,9 @@ jobs:
         continue-on-error: true
         uses: leanprover-community/docgen-action@v1
 
+      - uses: leanprover/lean-action@v1.4.0
+        if: steps.build-docgen.outputs.name == ''
+
       - name: Run lake translate-config toml
         if: steps.build-docgen.outputs.name == ''
         run: |
