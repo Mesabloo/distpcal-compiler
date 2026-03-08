@@ -9,7 +9,6 @@ require "fgdorais" / "Parser" @ git "d8428e25efb794c9147bb9beac1dfe2e51447c3e"
 require "leanprover" / "Cli" @ git s!"v{Lean.versionString}"
 require "leanprover-community" / "LeanSearchClient" @ git "c5d5b8fe6e5158def25cd28eb94e4141ad97c843"
 require "algebraic-dev" / "Colorized" @ git "e631ffd114535e1ace876e1b7062d672f718454f"
--- require mpl from git "https://github.com/sgraf812/mpl" @ "252f4d18ad8cf53aec243eba0e5989698c3ca509"
 
 ------ Options
 
@@ -47,7 +46,7 @@ run_cmd do
   println! "Building package in {buildType} mode (with missing docs := {warnOnMissingDocs})"
 
 ------- Config
-package «PlusCalCompiler» where
+package Fugue where
   leanOptions := leanOptions
   moreLeanArgs := moreLeanArgs.map λ o ↦ o.asCliArg
   moreServerOptions := moreServerOptions
@@ -55,19 +54,42 @@ package «PlusCalCompiler» where
 
   testDriver := "tests"
 
-lean_lib «CustomPrelude»
+/-- A custom prelude with various tactics and additional imports. -/
+lean_lib CustomPrelude
+/-- Extra definitions and theorems on common data structures. -/
+lean_lib Extra
+/-- Terminal progress bars. -/
+lean_lib ProgressBar
+/-- A library for compiler verification through denotational semantics. -/
+lean_lib VerifiedCompiler
 
-lean_lib «Extra»
-
-lean_lib «ProgressBar»
-
-lean_lib «VerifiedCompiler»
-
-lean_lib «PlusCalCompiler»
+/-- Simple theories for various stuff (positions, diagnostics, etc.). -/
+lean_lib Fugue.Common where
+  roots := #[`Common]
+/-- Definitions of ASTs and semantics for our intermediate languages, along with useful lemmas. -/
+lean_lib Fugue.Core where
+  roots := #[`Core]
+/-- The parser for TLA+ modules and Distributed PlusCal algorithms. -/
+lean_lib Fugue.Parser where
+  roots := #[`Parser_]
+lean_lib Fugue.Desugarer where
+  roots := #[`Desugarer]
+/-- Annotation checkers, e.g. for types. -/
+lean_lib Fugue.Checker where
+  roots := #[`Checker]
+/-- Transform typed PlusCal algorithms into Guarded PlusCal. -/
+lean_lib Fugue.T2G where
+  roots := #[`Typed2Guarded]
+/-- Compiler from Guarded PlusCal to Network PlusCal. -/
+lean_lib Fugue.G2N where
+  roots := #[`Guarded2Network]
+/-- Compiler from Network PlusCal to Go. -/
+lean_lib Fugue.N2Go where
+  roots := #[`Network2Go]
 
 @[default_target]
-lean_exe «pcvc» where
-  root := `Main
+lean_exe fugue where
+  root := `Fugue
 
 lean_lib tests where
   globs := #[.submodules `tests]
