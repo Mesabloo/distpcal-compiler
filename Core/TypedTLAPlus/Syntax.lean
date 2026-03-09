@@ -8,357 +8,10 @@ import Mathlib.Control.Bitraversable.Instances
 import Mathlib.Control.Functor
 import Mathlib.Logic.Function.Defs
 import Extra.Prod
-import Core.SurfaceTLAPlus.Syntax
+import Core.CoreTLAPlus.Syntax
 
 namespace TypedTLAPlus
-  open SurfaceTLAPlus (QuantifierBound IdentifierOrTuple)
-
-  /--
-    The entire set of prefix operators reserved in TLA⁺.
-  -/
-  inductive PrefixOperator : Type
-    /-- `-` -/
-    | «-»
-    /-- `¬`: `\neg` or `\lnot` or `~` -/
-    | «\neg»
-    /-- `□`: `[]` -/
-    | «[]»
-    /-- `◇`: `<>` -/
-    | «<>»
-    /-- `DOMAIN` -/
-    | «DOMAIN»
-    /-- `ENABLED` -/
-    | «ENABLED»
-    /-- `SUBSET` -/
-    | «SUBSET»
-    /-- `UNCHANGED` -/
-    | «UNCHANGED»
-    /-- `UNION` -/
-    | «UNION»
-    deriving BEq, Repr, DecidableEq
-
-  instance : ToString PrefixOperator where
-    toString
-      | .«-» => "-"
-      | .«\neg» => "~"
-      | .«[]» => "[]"
-      | .«<>» => "<>"
-      | .DOMAIN => "DOMAIN"
-      | .ENABLED => "ENABLED"
-      | .SUBSET => "SUBSET"
-      | .UNCHANGED => "UNCHANGED"
-      | .UNION => "UNION"
-
-  /--
-    The entire set of postfix operators reserved in TLA⁺.
-  -/
-  inductive PostfixOperator : Type
-    /-- `^+` -/
-    | «^+»
-    /-- `^*` -/
-    | «^*»
-    /-- `^#` -/
-    | «^#»
-    /-- `'` -/
-    | «'»
-    deriving BEq, Repr, DecidableEq
-
-  instance : ToString PostfixOperator where
-    toString
-      | .«^+» => "^+"
-      | .«^*» => "^*"
-      | .«^#» => "^#"
-      | .«'» => "'"
-
-  /--
-    The entire set of infix operators reserved in TLA⁺.
-  -/
-  inductive InfixOperator : Type
-    /-- `!!` -/
-    | «!!»
-    /-- `##` -/
-    | «##»
-    /-- `$$` -/
-    | «$$»
-    /-- `$` -/
-    | «$»
-    /-- `%%` -/
-    | «%%»
-    /-- `%` -/
-    | «%»
-    /-- `&&` -/
-    | «&&»
-    /-- `&` -/
-    | «&»
-    /-- `⊕`: `(+)` or `\oplus` -/
-    | «(+)»
-    /-- `⊝`: `(-)` or `\ominus` -/
-    | «(-)»
-    /-- `⊙`: `(.)` or `\odot` -/
-    | «(.)»
-    /-- `⊘`: `(/)` or `\oslash` -/
-    | «(/)»
-    /-- `⊗`: `(\X)` or `\otimes` -/
-    | «(\X)»
-    /--
-      `×`: `\X` or `\times`
-
-      ⚠ Not actually a binary operator in the grammar, but treated as such for simplicity.
-    -/
-    | «\X»
-    /-- `**` -/
-    | «**»
-    /-- `*` -/
-    | «*»
-    /-- `++` -/
-    | «++»
-    /-- `+` -/
-    | «+»
-    /-- `-+->` -/
-    | «-+->»
-    /-- `--` -/
-    | «--»
-    /-- `⊣`: `-|` -/
-    | «-|»
-    /-- `-` -/
-    | «-»
-    /-- `...` -/
-    | «...»
-    /-- `..` -/
-    | «..»
-    /-- `.` -/
-    | «.»
-    /-- `//` -/
-    | «//»
-    /-- `≠`: `/=` or `#` -/
-    | «/=»
-    /-- `∧`: `/\` or `\land` -/
-    | «/\»
-    /-- `/` -/
-    | «/»
-    /-- `⩴`: `::=` -/
-    | «::=»
-    /-- `≔`: `:=` -/
-    | «:=»
-    /-- `:>` -/
-    | «:>»
-    /-- `<:` -/
-    | «<:»
-    /-- `≡`: `<=>` or `\equiv` -/
-    | «<=>»
-    /-- `≤`: `=<` or `<=` or `\leq` -/
-    | «=<»
-    /-- `⇒`: `=>` -/
-    | «=>»
-    /-- `⫤`: `=|` -/
-    | «=|»
-    /-- `<` -/
-    | «<»
-    /-- `=` -/
-    | «=»
-    /-- `≥`: `>=` or `\geq` -/
-    | «>=»
-    /-- `>` -/
-    | «>»
-    /-- `??` -/
-    | «??»
-    /-- `?` -/
-    | «?»
-    /-- `@@` -/
-    | «@@»
-    /-- `∨`: `\/` or `\lor` -/
-    | «\/»
-    /-- `^^` -/
-    | «^^»
-    /-- `^` -/
-    | «^»
-    /-- `⊢`: `|-` -/
-    | «|-»
-    /-- `⊨`: `|=` -/
-    | «|=»
-    /-- `‖`: `||` -/
-    | «||»
-    /-- `|` -/
-    | «|»
-    /-- `⤳`: `~>` -/
-    | «~>»
-    -- LaTeX notations
-    /-- `≈`: `\approx` -/
-    | «\approx»
-    /-- `⊒`: `\sqsupseteq` -/
-    | «\sqsupseteq»
-    /-- `≍`: `\asymp` -/
-    | «\asymp»
-    /-- `≫`: `\gg` -/
-    | «\gg»
-    /-- `⋆`: `\star` -/
-    | «\star»
-    /-- `◯` : `\bigcirc` -/
-    | «\bigcirc»
-    /-- `∈`: `\in` -/
-    | «\in»
-    /-- `≼`: `\preceq` -/
-    | «\preceq»
-    /-- `≺`: `\prec` -/
-    | «\prec»
-    /-- `⊆`: `\subseteq` -/
-    | «\subseteq»
-    /-- `⊂`: `\subset` -/
-    | «\subset»
-    /-- `•`: `\bullet` -/
-    | «\bullet»
-    /-- `∩`: `\cap` or `\intersect` -/
-    | «\cap»
-    /-- `∝`: `\propto` -/
-    | «\propto»
-    /-- `≽`: `\succeq` -/
-    | «\succeq»
-    /-- `≻`: `\succ` -/
-    | «\succ»
-    /-- `⬝`: `\cdot` -/
-    | «\cdot»
-    /-- `≃`: `\simeq` -/
-    | «\simeq»
-    /-- `∼`: `\sim` -/
-    | «\sim»
-    /-- `≪`: `\ll` -/
-    | «\ll»
-    /-- `⊇`: `\supseteq` -/
-    | «\supseteq»
-    /-- `⊃`: `\supset` -/
-    | «\supset»
-    /-- `≅`: `\cong` -/
-    | «\cong»
-    /-- `⊓`: `\sqcap` -/
-    | «\sqcap»
-    /-- `∪`: `\cup` or `\union` -/
-    | «\cup»
-    /-- `∘`: `\o` or `\circ` -/
-    | «\o»
-    /-- `⊔`: `\sqcup` -/
-    | «\sqcup»
-    /-- `÷`: `\div` -/
-    | «\div»
-    /-- `⊑`: `\sqsubseteq` -/
-    | «\sqsubseteq»
-    /-- `⊏`: `\sqsubset` -/
-    | «\sqsubset»
-    /-- `⊎`: `\uplus` -/
-    | «\uplus»
-    /-- `≐`: `\doteq` -/
-    | «\doteq»
-    /-- `≀`: `\wr` -/
-    | «\wr»
-    /-- `⊐`: `\sqsupset` -/
-    | «\sqsupset»
-    /-- `∉`: `\notin` -/
-    | «\notin»
-    /-- `\`: `\` -/
-    | «\»
-    deriving BEq, Repr
-
-  set_option maxHeartbeats 400000 in
-  instance : DecidableEq InfixOperator := λ o₁ o₂ ↦ by
-    cases o₁ <;> cases o₂ <;> solve
-      | exact isTrue rfl
-      | exact isFalse λ _ ↦ by contradiction
-      | rename_i x y
-        by_cases h : x = y
-        · subst x; exact isTrue rfl
-        · exact isFalse λ _ ↦ by injections; contradiction
-
-  instance : ToString InfixOperator where
-    toString
-      | .«!!» => "!!"
-      | .«##» => "##"
-      | .«$$» => "$$"
-      | .«$» => "$"
-      | .«%%» => "%%"
-      | .«%» => "%"
-      | .«&&» => "&&"
-      | .«&» => "&"
-      | .«(+)» => "(+)"
-      | .«(-)» => "(-)"
-      | .«(.)» => "(.)"
-      | .«(/)» => "(/)"
-      | .«(\X)» => r"(\X)"
-      | .«\X» => r"\X"
-      | .«**» => "**"
-      | .«*» => "*"
-      | .«++» => "++"
-      | .«+» => "+"
-      | .«-+->» => "-+->"
-      | .«--» => "--"
-      | .«-|» => "-|"
-      | .«-» => "-"
-      | .«...» => "..."
-      | .«..» => ".."
-      | .«.» => "."
-      | .«//» => "//"
-      | .«/=» => "/="
-      | .«/\» => r"/\" -- "
-      | .«/» => "/"
-      | .«::=» => "::="
-      | .«:=» => ":="
-      | .«:>» => ":>"
-      | .«<:» => "<:"
-      | .«<=>» => "<=>"
-      | .«=<» => "=<"
-      -- | .«<=» => "<="
-      -- | .«\leq» => r"\leq"
-      | .«=>» => "=>"
-      | .«=|» => "=|"
-      | .«<» => "<"
-      | .«=» => "="
-      | .«>=» => ">="
-      | .«>» => ">"
-      | .«?» => "?"
-      | .«??» => "??"
-      | .«@@» => "@@"
-      | .«\/» => r"\/"
-      | .«^^» => "^^"
-      | .«^» => "^"
-      | .«|-» => "|-"
-      | .«|=» => "|="
-      | .«||» => "||"
-      | .«|» => "|"
-      | .«~>» => "~>"
-      | .«\approx» => r"\approx"
-      | .«\sqsupseteq» => r"\sqsupseteq"
-      | .«\asymp» => r"\asymp"
-      | .«\gg» => r"\gg"
-      | .«\star» => r"\star"
-      | .«\bigcirc» => r"\bigcirc"
-      | .«\in» => r"\in"
-      | .«\preceq» => r"\preceq"
-      | .«\prec» => r"\prec"
-      | .«\subseteq» => r"\subseteq"
-      | .«\subset» => r"\subset"
-      | .«\bullet» => r"\bullet"
-      | .«\cap» => r"\cap"
-      | .«\propto» => r"\propto"
-      | .«\succeq» => r"\succeq"
-      | .«\succ» => r"\succ"
-      | .«\cdot» => r"\cdot"
-      | .«\simeq» => r"\simeq"
-      | .«\sim» => r"\sim"
-      | .«\ll» => r"\ll"
-      | .«\supseteq» => r"\supseteq"
-      | .«\supset» => r"\supset"
-      | .«\cong» => r"\cong"
-      | .«\sqcap» => r"\sqcap"
-      | .«\cup» => r"\cup"
-      | .«\o» => r"\o"
-      | .«\sqcup» => r"\sqcup"
-      | .«\div» => r"\div"
-      | .«\sqsubseteq» => r"\sqsubseteq"
-      | .«\sqsubset» => r"\sqsubset"
-      | .«\uplus» => r"\uplus"
-      | .«\doteq» => r"\doteq"
-      | .«\wr» => r"\wr"
-      | .«\sqsupset» => r"\sqsupset"
-      | .«\notin» => r"\notin"
-      | .«\» => r"\" -- "
+  export CoreTLAPlus (QuantifierBound IdentifierOrTuple PrefixOperator InfixOperator PostfixOperator)
 
   /- TLA+: https://lamport.azurewebsites.net/tla/TLAPlus2Grammar.tla -/
   /- See also page 268 of the book "Specifying Systems". -/
@@ -428,6 +81,10 @@ namespace TypedTLAPlus
     | nat : String → Expression α
     /-- A literal string. -/
     | str : String → Expression α
+    /-- `TRUE` -/
+    | true : Expression α
+    /-- `FALSE` -/
+    | false : Expression α
     /-- `[A]_e` -/
     | stutter : Expression α → Expression α → Expression α
     -- WF_ / SF_
@@ -440,6 +97,8 @@ namespace TypedTLAPlus
     | .var v τ, pos => .var v (f τ) @@ pos
     | .nat n, pos => .nat n @@ pos
     | .str s, pos => .str s @@ pos
+    | .true, pos => .true @@ pos
+    | .false, pos => .false @@ pos
     | .opCall v es, pos => .opCall (Expression.map f v) (Expression.map f <$> es) @@ pos
     | .prefixCall op e, pos => .prefixCall op (Expression.map f e) @@ pos
     | .infixCall e₁ op e₂, pos => .infixCall (Expression.map f e₁) op (Expression.map f e₂) @@ pos
@@ -476,6 +135,8 @@ namespace TypedTLAPlus
     | .var v τ, pos => (.var v · @@ pos) <$> f τ
     | .nat n, pos => pure <| .nat n @@ pos
     | .str s, pos => pure <| .str s @@ pos
+    | .true, pos => pure <| .true @@ pos
+    | .false, pos => pure <| .false @@ pos
     | .opCall e es, pos =>
       (.opCall · · @@ pos) <$> Expression.traverse f e <*> traverse (Expression.traverse f) es
     | .prefixCall op e, pos => (.prefixCall op · @@ pos) <$> Expression.traverse f e

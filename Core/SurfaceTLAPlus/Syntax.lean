@@ -666,6 +666,10 @@ namespace SurfaceTLAPlus
     | str : String → Expression α
     /-- `@` -/
     | at : Expression α
+    /-- `TRUE` -/
+    | true : Expression α
+    /-- `FALSE` -/
+    | false : Expression α
     /-- `[A]_e` -/
     | stutter : Expression α → Expression α → Expression α
     -- WF_ / SF_
@@ -678,6 +682,8 @@ namespace SurfaceTLAPlus
     | .var v, pos => .var v @@ pos
     | .nat n, pos => .nat n @@ pos
     | .str s, pos => .str s @@ pos
+    | .true, pos => .true @@ pos
+    | .false, pos => .false @@ pos
     | .at, pos => .at @@ pos
     | .opCall v es, pos => .opCall (Expression.map f v) (Expression.map f <$> es) @@ pos
     | .prefixCall op e, pos => .prefixCall op (Expression.map f e) @@ pos
@@ -717,6 +723,8 @@ namespace SurfaceTLAPlus
     | .var v, pos => pure <| .var v @@ pos
     | .nat n, pos => pure <| .nat n @@ pos
     | .str s, pos => pure <| .str s @@ pos
+    | .true, pos => pure <| .true @@ pos
+    | .false, pos => pure <| .false @@ pos
     | .at, pos => pure <| .at @@ pos
     | .opCall e es, pos =>
       (.opCall · · @@ pos) <$> Expression.traverse f e <*> traverse (Expression.traverse f) es

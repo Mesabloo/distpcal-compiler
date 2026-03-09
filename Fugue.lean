@@ -3,6 +3,7 @@ import Extra.Monad
 import Core.Pretty
 import Common.Errors
 import Parser_
+import Desugarer
 import Guarded2Network
 import Network2Go
 -- import PlusCalCompiler.Passes.SurfaceToGuarded
@@ -151,6 +152,7 @@ private partial def runCli (p : Parsed) : IO UInt32 := do
 
   let inputFile := p.positionalArg! "input" |>.as! Input
 
+  -- Parsing file and annotations
   let (mod, lines) ← withSpinner "Parsing TLA⁺ file…" λ spinner ↦ do
     let source ← match inputFile with
       | .path inputFile =>
@@ -170,12 +172,21 @@ private partial def runCli (p : Parsed) : IO UInt32 := do
         spinner.fail "Failed to parse TLA⁺ file."
         printErrorAndExit e lines
       | .inr mod => pure mod
+
     let mod ← match SurfaceTLAPlus.Parser.parseModule tks with
       | .inl e =>
         let _ {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toString x.data⟩
         spinner.fail "Failed to parse TLA⁺ file."
         printErrorAndExit e lines
       | .inr mod =>
+        pure mod
+
+    spinner.setTitle "Parsing annotations…"
+    let mod ← match resolveAnnotations mod with
+      | .error e =>
+        spinner.fail "Failed to parse annotations."
+        printErrorAndExit e lines
+      | .ok mod =>
         spinner.success "Finished parsing TLA⁺ file."
         pure (mod, lines)
 
@@ -184,27 +195,25 @@ private partial def runCli (p : Parsed) : IO UInt32 := do
 Please make sure that it is located at the start of a multiline comment."
     return 1
 
-  -- Resolving annotations
-  let mod ← withSpinner "Parsing annotations…" λ spinner ↦ do
-    let mod ← match resolveAnnotations mod with
+  -- TODO: Import resolving (recursive parsing etc?)
+
+  let mod ← withSpinner "Removing syntax sugar…" λ spinner ↦ do
+    spinner.setTitle "Removing syntax sugar in expressions…"
+    let mod ← match mod.runDesugarer with
       | .error e =>
-        spinner.fail "Failed to parse annotations."
+        spinner.fail "Failed to remove syntax sugar."
         printErrorAndExit e lines
       | .ok mod =>
-        spinner.success "Finished parsing annotations."
-        pure mod
+        let mod ← match mod.pcalAlgorithm with
+          | .some alg =>
+            spinner.setTitle "Removing syntax sugar in algorithm…"
 
-  -- TODO: Desugaring
-  --   -- Translation from surface TLA⁺ to core TLA⁺ expressions
-  -- let alg ← withSpinner "Translating expressions to core TLA⁺…" λ spinner ↦ do
-  --   let alg ← match WriterT.run <| traverse (bitraverse pure SurfaceTLAPlus.Expression.toCore) alg with
-  --     | .error e =>
-  --       spinner.fail "Failed translating expressions to core TLA⁺."
-  --       printErrorAndExit e lines
-  --     | .ok ⟨mod, warns⟩ =>
-  --       spinner.success "Finished translating expressions to core TLA⁺."
-  --       for warn in warns do IO.eprintln <| CompilerDiagnostic.pretty warn lines
-  --       pure mod
+            -- TODO: translate `alg` to CorePlusCal
+            pure mod
+          | .none => pure mod
+
+        spinner.success "Finished removing syntax sugar."
+        pure mod
 
   -- TODO: Annotation checking
 

@@ -11,7 +11,7 @@ import Extra.Prod
 import Core.SurfaceTLAPlus.Syntax
 
 namespace CoreTLAPlus
-  open SurfaceTLAPlus (QuantifierBound IdentifierOrTuple)
+  export SurfaceTLAPlus (QuantifierBound IdentifierOrTuple)
 
   /--
     The entire set of prefix operators reserved in TLA⁺.
@@ -255,17 +255,7 @@ namespace CoreTLAPlus
     | «\notin»
     /-- `\`: `\` -/
     | «\»
-    deriving BEq, Repr
-
-  set_option maxHeartbeats 400000 in
-  instance : DecidableEq InfixOperator := λ o₁ o₂ ↦ by
-    cases o₁ <;> cases o₂ <;> solve
-      | exact isTrue rfl
-      | exact isFalse λ _ ↦ by contradiction
-      | rename_i x y
-        by_cases h : x = y
-        · subst x; exact isTrue rfl
-        · exact isFalse λ _ ↦ by injections; contradiction
+    deriving BEq, Repr, DecidableEq
 
   instance : ToString InfixOperator where
     toString
@@ -428,6 +418,10 @@ namespace CoreTLAPlus
     | nat : String → Expression α
     /-- A literal string. -/
     | str : String → Expression α
+    /-- `TRUE` -/
+    | true : Expression α
+    /-- `FALSE` -/
+    | false : Expression α
     /-- `[A]_e` -/
     | stutter : Expression α → Expression α → Expression α
     -- WF_ / SF_
@@ -440,6 +434,8 @@ namespace CoreTLAPlus
     | .var v, pos => .var v @@ pos
     | .nat n, pos => .nat n @@ pos
     | .str s, pos => .str s @@ pos
+    | .true, pos => .true @@ pos
+    | .false, pos => .false @@ pos
     | .opCall v es, pos => .opCall (Expression.map f v) (Expression.map f <$> es) @@ pos
     | .prefixCall op e, pos => .prefixCall op (Expression.map f e) @@ pos
     | .infixCall e₁ op e₂, pos => .infixCall (Expression.map f e₁) op (Expression.map f e₂) @@ pos
@@ -476,6 +472,8 @@ namespace CoreTLAPlus
     | .var v, pos => pure <| .var v @@ pos
     | .nat n, pos => pure <| .nat n @@ pos
     | .str s, pos => pure <| .str s @@ pos
+    | .true, pos => pure <| .true @@ pos
+    | .false, pos => pure <| .false @@ pos
     | .opCall e es, pos =>
       (.opCall · · @@ pos) <$> Expression.traverse f e <*> traverse (Expression.traverse f) es
     | .prefixCall op e, pos => (.prefixCall op · @@ pos) <$> Expression.traverse f e

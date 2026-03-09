@@ -84,6 +84,8 @@ namespace SurfaceTLAPlus.Lexer
         | "IN" => .in
         | "INSTANCE" => .instance
         | "WITH" => .with
+        | "TRUE" => .true
+        | "FALSE" => .false
         -- LAMBDA
         | "_" => .underscore
         | str => .identifier str

@@ -17,6 +17,7 @@ import Mathlib.Tactic.FindSyntax
 -- import Mathlib.Tactic.ExtractLets
 import Batteries.Tactic.SeqFocus
 import Mathlib.Tactic.DefEqTransformations
+import Mathlib.Tactic.GuardGoalNums
 
 import Mathlib.Util.WhatsNew
 import Mathlib.Util.Delaborators
@@ -24,8 +25,15 @@ import Mathlib.Util.Superscript
 import Mathlib.Util.AssertNoSorry
 
 import Mathlib.Tactic.Linter
+import Mathlib.Tactic.Linter.UnusedTacticExtension
 
 import LeanSearchClient
+
+
+
+#allow_unused_tactic! guardGoalNums Lean.Parser.Tactic.change
+
+
 
 -- Somehow this is not in the notations for functors??
 infixl:100 " <$ " => Functor.mapConst

@@ -28,6 +28,8 @@ namespace SurfaceTLAPlus
     | «instance»
     | other
     | «with»
+    | «true»
+    | «false»
     /-- Left and right parenthesis `(` `)`. -/
     | paren (isLeft : Bool)
     /-- Left and right curly braces `{` `}`. -/
@@ -68,14 +70,14 @@ namespace SurfaceTLAPlus
     | pcal (_ : List α)
     deriving Repr, Inhabited, BEq
 
-  abbrev Token.lparen {α} : Token α := .paren true
-  abbrev Token.rparen {α} : Token α := .paren false
-  abbrev Token.lbrace {α} : Token α := .brace true
-  abbrev Token.rbrace {α} : Token α := .brace false
-  abbrev Token.lbracket {α} : Token α := .bracket true
-  abbrev Token.rbracket {α} : Token α := .bracket false
-  abbrev Token.langle {α} : Token α := .angle true
-  abbrev Token.rangle {α} : Token α := .angle false
+  abbrev Token.lparen {α} : Token α := .paren .true
+  abbrev Token.rparen {α} : Token α := .paren .false
+  abbrev Token.lbrace {α} : Token α := .brace .true
+  abbrev Token.rbrace {α} : Token α := .brace .false
+  abbrev Token.lbracket {α} : Token α := .bracket .true
+  abbrev Token.rbracket {α} : Token α := .bracket .false
+  abbrev Token.langle {α} : Token α := .angle .true
+  abbrev Token.rangle {α} : Token α := .angle .false
 
   instance {α} [ToString α] : ToString (Token α) where
     toString
@@ -97,6 +99,8 @@ namespace SurfaceTLAPlus
       | .choose => "keyword 'CHOOSE'"
       | .in => "keyword 'IN'"
       | .let => "keyword 'LET'"
+      | .true => "keyword 'TRUE'"
+      | .false => "keyword 'FALSE'"
       | .lparen => "symbol '('"
       | .rparen => "symbol ')'"
       | .lbrace => "symbol '{'"
