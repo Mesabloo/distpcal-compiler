@@ -892,7 +892,7 @@ namespace SurfaceTLAPlus.Parser
             | .infix opIn, e₂ :: e₁ :: es => (.infixCall e₁ opIn e₂ @@ posOf e₁ ++ posOf e₂) :: es
             | .prefix opPre, e :: es => (.prefixCall opPre e @@ posOf opPre ++ posOf e) :: es
             | .postfix opPost, e :: es => (.postfixCall e opPost @@ posOf e ++ posOf opPost) :: es
-            | .index ⟨funOrOp, args⟩, e :: es => ((if funOrOp then Expression.fnCall else .opCall) e args @@ posOf funOrOp ++ posOf e) :: es
+            | .index x@⟨funOrOp, args⟩, e :: es => ((if funOrOp then Expression.fnCall else .opCall) e args @@ posOf x ++ posOf e) :: es
             | _, _ => unreachable!
     end ShuntingYardAlgorithm
 
@@ -1012,7 +1012,7 @@ namespace SurfaceTLAPlus.Parser
     end
 
     mutual
-      private partial def parseAtom (ws : TLAPlusParser PUnit) (inUpdate : Bool := false) : TLAPlusParser (Expression (List CommentAnnotation)) := first [
+      private partial def parseAtom (ws : TLAPlusParser PUnit) (inUpdate : Bool := false) : TLAPlusParser (Expression (List CommentAnnotation)) := located <| first [
         (.nat ·) <$> parseNumber,
         (.var ·) <$> parseIdentifier,
         (.str ·) <$> parseString,
