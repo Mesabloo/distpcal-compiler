@@ -1,10 +1,9 @@
-
 import Extra.List
 import Mathlib.Data.Nat.Lattice
 import CustomPrelude
 import Extra.Nat
 import Extra.AList
-import PlusCalCompiler.GoCal.Syntax
+import Core.Go.Syntax
 import Extra.Fin
 import Extra.List
 import Mathlib.Data.Fintype.Prod
@@ -24,37 +23,31 @@ class abbrev CompleteMetricSpace.{u} (α : Type u) := MetricSpace α, CompleteSp
 class abbrev CompleteEMetricSpace.{u} (α : Type u) := EMetricSpace α, CompleteSpace α
 
 noncomputable instance {α β : Type _} [CompleteEMetricSpace β] : CompleteEMetricSpace (α → β) where
-  edist f g := min 1 (⨆ x : α, edist (f x) (g x)) -- uniform distance
-  edist_self f := by
-    rw [min_eq_iff]
-    right
-    have : ⨆ x, edist (f x) (f x) = 0 := by simp
-    constructor <;> simp
+  edist f g := ⨆ x : α, edist (f x) (g x) -- uniform distance
+  edist_self f := by simp
   edist_comm f g := by
     congr
     ext1 x
     rw [edist_comm]
   edist_triangle f g h := by
-    admit
+    rw [iSup_le_iff]
+    intros i
+    trans ⨆ i, edist (f i) (g i) + edist (g i) (h i)
+    · rw [le_iSup_iff]
+      intros b h'
+      specialize h' i
+      trans edist (f i) (g i) + edist (g i) (h i)
+      · apply edist_triangle
+      · assumption
+    · apply iSup_add_le
   eq_of_edist_eq_zero {f g} h := by
-    rw [min_eq_iff] at h
-    obtain ⟨h, _⟩|⟨h, _⟩ := h
-    · simp at h
-    · apply funext
-      change _ = ⊥ at h
-      simp_rw [iSup_eq_bot] at h
-      exact eq_of_edist_eq_zero ∘' h
+    apply funext
+    change _ = ⊥ at h
+    simp_rw [iSup_eq_bot] at h
+    exact eq_of_edist_eq_zero ∘' h
   complete := by
     admit
 
-noncomputable instance {α β : Type _} [inst : CompleteMetricSpace β] : CompleteMetricSpace (α → β) where
-  __ := EMetricSpace.toMetricSpace λ f g ↦ by
-    have : min 1 (⨆ x : α, edist (f x) (g x)) ≤ 1 := by simp
-    have : 1 ≠ (⊤ : ENNReal) := ENNReal.one_ne_top
-
-    change min 1 (⨆ x : α, edist (f x) (g x)) ≠ ⊤
-    simp
-  complete := (inferInstanceAs (CompleteEMetricSpace (α → β))).complete
 
 open scoped Function in
 noncomputable instance {α} [CompleteMetricSpace α] : CompleteMetricSpace {s : Set α // IsClosed s} where
