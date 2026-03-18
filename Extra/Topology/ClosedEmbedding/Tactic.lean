@@ -1,4 +1,5 @@
 import CustomPrelude
+import Mathlib.Topology.Maps.Basic
 
 -- register_label_attr is_closed_embedding
 
@@ -10,6 +11,10 @@ import CustomPrelude
 syntax "is_closed_embedding" : tactic
 
 syntax "is_closed_embedding_step" : tactic
+
+macro_rules
+| `(tactic| is_closed_embedding_step) =>
+  `(tactic| guard_target =ₛ Topology.IsClosedEmbedding (_ ∘ _); apply Topology.IsClosedEmbedding.comp)
 
 elab_rules : tactic
 | `(tactic| is_closed_embedding) => do

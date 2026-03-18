@@ -37,4 +37,5 @@ namespace Topology
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| exact IsClosedEmbedding.id)
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| refine IsClosedEmbedding.piMap λ _ ↦ ?_)
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply IsClosedEmbedding.prodMap)
+  macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply IsClosedEmbedding.sumElim)
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply IsClosedEmbedding.sumMap)

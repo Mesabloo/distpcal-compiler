@@ -48,9 +48,30 @@ def Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] (f : α → β) (hf 
     · exact Closeds.isClosed x
     · exact hf
 
-theorem Topology.IsClosedEmbedding.Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} (hf : Topology.IsClosedEmbedding f) :
-    Topology.IsClosedEmbedding (Closeds.map _ hf) := by
+def Closeds.closed_map {α β} [IMetricSpace α] [IMetricSpace β] (f : α → β) (x : Closeds α) : Closeds β where
+  carrier := closure (f '' ↑x)
+  isClosed' := isClosed_closure
+
+theorem Closeds.closed_map_eq_map_of_closed_embedding {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β}
+  (hf : Topology.IsClosedEmbedding f) :
+    Closeds.map f hf = Closeds.closed_map f := by
+  funext x
+  refine Closeds.ext ?_
+  unfold closed_map map
+  rw! [IsClosed.closure_eq]
+  · rfl
+  · exact Closeds.map f hf x |>.isClosed'
+
+theorem Topology.IsClosedEmbedding.Closeds.closed_map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} :
+    Topology.IsClosedEmbedding (Closeds.closed_map f) := by
 
   admit
 
+theorem Topology.IsClosedEmbedding.Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} (hf : Topology.IsClosedEmbedding f) :
+    Topology.IsClosedEmbedding (Closeds.map _ hf) := by
+  rw [Closeds.closed_map_eq_map_of_closed_embedding hf]
+  exact Topology.IsClosedEmbedding.Closeds.closed_map
+
+
 macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply Topology.IsClosedEmbedding.Closeds.map)
+macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply Topology.IsClosedEmbedding.Closeds.closed_map)

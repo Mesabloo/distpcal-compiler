@@ -32,7 +32,7 @@ import LeanSearchClient
 
 
 
-#allow_unused_tactic! guardGoalNums Lean.Parser.Tactic.change
+#allow_unused_tactic! guardGoalNums Lean.Parser.Tactic.change Lean.Parser.Tactic.«done»
 
 
 
@@ -153,6 +153,18 @@ namespace Lean.Parser.Tactic
       `(conv| tactic' => $sel:tac_selector : conv' => $s)
   end
 end Lean.Parser.Tactic
+
+-- NOTE: This is taken from <https://leanprover-community.github.io/mathlib4_docs/Mathlib/CategoryTheory/Category/Basic.html#CategoryTheory.sorryIfSorry>
+/-- Close the main goal with `sorry` if its type contains `sorry`, and fail otherwise. -/
+syntax (name := sorryIfSorry) "sorry_if_sorry" : tactic
+
+open Lean Meta Elab.Tactic in
+@[tactic sorryIfSorry, inherit_doc sorryIfSorry] meta def evalSorryIfSorry : Tactic := fun _ => do
+  let goalType ← getMainTarget
+  if goalType.hasSorry then
+    closeMainGoal `sorry_if_sorry (← mkSorry goalType true)
+  else
+    throwError "The goal does not contain `sorry`"
 
 /-
 ----------------------------------------
