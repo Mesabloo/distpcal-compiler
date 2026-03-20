@@ -89,18 +89,18 @@ noncomputable section Domain
     | 0 => { carrier := β ⊕ PUnit.{max u v w + 1} }
     | n + 1 => { carrier := β ⊕ PUnit.{u + 1} ⊕ («Σ» → Closeds (Branch «Σ» Γ α (IterativeDomain n).carrier)) }
 
-  section
-    variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
+  -- section
+  --   variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
 
-    theorem LipschitzWith.isClosedEmbedding {α β} [PseudoEMetricSpace α] [PseudoEMetricSpace β] {f : α → β} {K}
-      (hf : LipschitzWith K f) (inj_f : Function.Injective f) (closed_range : IsClosedMap f) :
-        Topology.IsClosedEmbedding f := by
-      rw [Topology.IsClosedEmbedding.isClosedEmbedding_iff_continuous_injective_isClosedMap]
-      and_intros
-      · exact LipschitzWith.continuous hf
-      · exact inj_f
-      · exact closed_range
-  end
+  --   theorem LipschitzWith.isClosedEmbedding {α β} [PseudoEMetricSpace α] [PseudoEMetricSpace β] {f : α → β} {K}
+  --     (hf : LipschitzWith K f) (inj_f : Function.Injective f) (closed_range : IsClosedMap f) :
+  --       Topology.IsClosedEmbedding f := by
+  --     rw [Topology.IsClosedEmbedding.isClosedEmbedding_iff_continuous_injective_isClosedMap]
+  --     and_intros
+  --     · exact LipschitzWith.continuous hf
+  --     · exact inj_f
+  --     · exact closed_range
+  -- end
 
   section
     variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
@@ -259,31 +259,14 @@ noncomputable section Domain
         cases h'
         rfl
 
-      theorem IterativeDomain.lift_isometry' {m n} (h : m ≤ n) {x y : (IterativeDomain «Σ» Γ α β m).carrier} :
-          idist ((lift h).toFun x) ((lift h).toFun y) = idist x y := by
-        match m, n with
-        | 0, 0 =>
-          rcases x, y with ⟨_|_, _|_⟩ <;> rfl
-        | 0, n + 1 =>
-          rcases x, y with ⟨_|_, _|_⟩ <;> rfl
-        | m + 1, n + 1 =>
-          rcases x, y with ⟨_|_|g, _|_|g'⟩
-          1-8: rfl
-          · dsimp [lift]
-
-            apply Isometry.piMap''
-            intros i x y
-            apply Closeds.map_isometry'
-            intros b₁ b₂
-            apply Branch.map_isometry'
-            intros p q
-            apply IterativeDomain.lift_isometry'
-
       theorem IterativeDomain.lift_isometry {m n} (h : m ≤ n) :
           Isometry (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h).toFun := by
-        apply Isometry.of_idist_eq
-        intro x y
-        rw [IterativeDomain.lift_isometry']
+        exact (lift h).isIso
+
+      theorem IterativeDomain.lift_isometry' {m n} (h : m ≤ n) {x y : (IterativeDomain «Σ» Γ α β m).carrier} :
+          idist ((lift h).toFun x) ((lift h).toFun y) = idist x y := by
+        apply Isometry.to_idist_eq
+        exact lift_isometry h
 
       theorem IterativeDomain.lift_lift {m n o} (h₁ : m ≤ n) (h₂ : n ≤ o) :
           (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h₂).toFun ∘ (lift h₁).toFun = (lift (le_trans h₁ h₂)).toFun := by
@@ -342,9 +325,8 @@ noncomputable section Domain
 
   abbrev Domain := UniformSpace.Completion (DomainUnion «Σ» Γ α β)
 
-  instance : MetricSpace (Domain «Σ» Γ α β) := inferInstance
-
-  instance : CompleteSpace (Domain «Σ» Γ α β) := inferInstance
+  example : MetricSpace (Domain «Σ» Γ α β) := inferInstance
+  example : CompleteSpace (Domain «Σ» Γ α β) := inferInstance
 
   variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
 

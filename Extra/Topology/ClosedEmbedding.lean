@@ -9,8 +9,9 @@ infixr:25 " ↪c " => ClosedEmbedding
 
 macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| exact ClosedEmbedding.isClosedEmbedding _)
 
-instance {α β} [TopologicalSpace α] [TopologicalSpace β] : Coe (ClosedEmbedding α β) (α → β) :=
-  ⟨ClosedEmbedding.toFun⟩
+instance {α β} [TopologicalSpace α] [TopologicalSpace β] : FunLike (α ↪c β) α β where
+  coe := ClosedEmbedding.toFun
+  coe_injective' := by rintro ⟨⟩ ⟨⟩ ⟨⟩; rfl
 
 theorem ClosedEmbedding.injective_toFun {α β} [TopologicalSpace α] [TopologicalSpace β] :
     Function.Injective (ClosedEmbedding.toFun (α := α) (β := β)) := by

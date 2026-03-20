@@ -6,8 +6,9 @@ structure IsometricEmbedding (α β : Type _) [IMetricSpace α] [IMetricSpace β
 
 infixr:25 " ↪c₁ " => IsometricEmbedding
 
-instance {α β : Type _} [IMetricSpace α] [IMetricSpace β] : Coe (IsometricEmbedding α β) (α → β) where
+instance {α β : Type _} [IMetricSpace α] [IMetricSpace β] : FunLike (α ↪c₁ β) α β where
   coe := (IsometricEmbedding.toClosedEmbedding · |>.toFun)
+  coe_injective' := by rintro ⟨⟨⟩⟩ ⟨⟨⟩⟩ ⟨⟩; rfl
 
 @[ext]
 theorem IsometricEmbedding.ext {α β} [IMetricSpace α] [IMetricSpace β] {f g : α ↪c₁ β}
