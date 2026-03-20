@@ -20,6 +20,7 @@ import Extra.Topology.Constructions.SumProd
 import Extra.Topology.Constructions.Maps
 import Extra.Topology.IMetricSpace.Constructions
 import Extra.Topology.ClosedEmbedding
+import Extra.Topology.IsometricEmbedding
 
 class abbrev CompleteIMetricSpace (α : Type _) := IMetricSpace α, CompleteSpace α
 
@@ -117,46 +118,78 @@ noncomputable section Domain
     section Lift
       /-! ## Lifting depth of trees -/
 
-      def Branch.map {γ'} [IMetricSpace γ'] (g : γ ↪c γ') :
-          (Branch «Σ» Γ α γ) ↪c (Branch «Σ» Γ α γ') where
-        toFun :=
-          Sum.map (Prod.map id (Pi.map λ _ ↦ Pi.map λ _ ↦ Restriction.map g)) <|
-          Sum.map (Prod.map id (Prod.map id (Restriction.map g))) <|
-          Sum.map (Prod.map id (Restriction.map g)) <|
-          Sum.map (Prod.map id (Restriction.map g)) <|
-                  (Prod.map id (Restriction.map g))
+      def Branch.map {γ'} [IMetricSpace γ'] (g : γ → γ') :
+          (Branch «Σ» Γ α γ) → (Branch «Σ» Γ α γ') :=
+        Sum.map (Prod.map id (Pi.map λ _ ↦ Pi.map λ _ ↦ Restriction.map g)) <|
+        Sum.map (Prod.map id (Prod.map id (Restriction.map g))) <|
+        Sum.map (Prod.map id (Restriction.map g)) <|
+        Sum.map (Prod.map id (Restriction.map g)) <|
+                (Prod.map id (Restriction.map g))
 
-      theorem Branch.map_isometry' {γ'} [IMetricSpace γ'] {g : γ ↪c γ'} (hg : ∀ x y : γ, idist (g.toFun x) (g.toFun y) = idist x y) :
-          ∀ (x y : Branch «Σ» Γ α γ), idist ((Branch.map g).toFun x) ((Branch.map g).toFun y) = idist x y := by
+      omit [Nonempty «Σ»] in
+      theorem Branch.map_closedEmbedding_of_closedEmbedding {γ'} [IMetricSpace γ'] {g : γ → γ'} (hg : Topology.IsClosedEmbedding g) :
+          Topology.IsClosedEmbedding (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
+        is_closed_embedding <;> {
+          apply Restriction.map.isClosedEmbedding
+          assumption
+        }
+
+      theorem Branch.map_isometry' {γ'} [IMetricSpace γ'] {g : γ → γ'} (hg : ∀ x y : γ, idist (g x) (g y) = idist x y) :
+          ∀ (x y : Branch «Σ» Γ α γ), idist (Branch.map g x) (Branch.map g y) = idist x y := by
         admit
 
-      theorem Branch.map_isometry {γ'} [IMetricSpace γ'] {g : γ ↪c γ'} (hg : Isometry g.toFun) :
-          Isometry (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g).toFun := by
+      theorem Branch.map_isometry {γ'} [IMetricSpace γ'] {g : γ → γ'} (hg : Isometry g) :
+          Isometry (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
         apply Isometry.of_idist_eq
         apply Branch.map_isometry'
         apply Isometry.to_idist_eq
         assumption
 
-      omit [Nonempty «Σ»] in
-      theorem Branch.map_comp {γ' γ''} [IMetricSpace γ'] [IMetricSpace γ''] (f : γ ↪c γ') (g : γ' ↪c γ'') :
-          (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g).toFun ∘ (Branch.map f).toFun = (Branch.map (g.comp f)).toFun := by
+      omit [Nonempty «Σ»] [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace γ] in
+      theorem Branch.map_comp {γ' γ''} [IMetricSpace γ'] [IMetricSpace γ''] (f : γ → γ') (g : γ' → γ'') :
+          (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) ∘ (Branch.map f) = (Branch.map (g ∘ f)) := by
         funext b
-        cases b <;> simp [Branch.map, Sum.map, Prod.map, Function.comp] <;> rfl
+        cases b <;> simp [Branch.map, Sum.map, Prod.map, Function.comp]
+        rfl
 
-      omit [Nonempty «Σ»] in
-      theorem Branch.map_id : (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) (γ := γ) { toFun := id }).toFun = id := by
+      omit [Nonempty «Σ»] [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] in
+      theorem Branch.map_id : (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) (γ := γ) id) = id := by
         funext b
         simp [Branch.map]
 
       def IterativeDomain.lift {m n} (h : m ≤ n := by linarith) :
-          (IterativeDomain «Σ» Γ α β m).carrier ↪c (IterativeDomain «Σ» Γ α β n).carrier := match _hm : m, n with
-        | 0, 0 => { toFun := id }
-        | 0, n + 1 => { toFun := Sum.elim (λ v ↦ .inl v) (λ .unit ↦ IterativeDomain.abort) }
+          (IterativeDomain «Σ» Γ α β m).carrier ↪c₁ (IterativeDomain «Σ» Γ α β n).carrier := match _hm : m, n with
+        | 0, 0 => {
+          toFun := id
+          isIso := isometry_id
+        }
+        | 0, n + 1 => {
+          toFun := Sum.elim (λ v ↦ .inl v) (λ .unit ↦ IterativeDomain.abort)
+          isIso := by
+            intros b₁ b₂
+            match b₁, b₂ with
+            | .inl _, .inl _ => rfl
+            | .inl _, .inr _ => rfl
+            | .inr _, .inl _ => rfl
+            | .inr _, .inr _ => rfl
+        }
         | m + 1, n + 1 => {
           toFun :=
             Sum.map id <|
             Sum.map id <|
-            Pi.map λ _ ↦ Closeds.map _ (Branch.map (IterativeDomain.lift (m := m))).isClosedEmbedding
+            Pi.map λ _ ↦ Closeds.map (Branch.map (IterativeDomain.lift (m := m)).toFun) <| by
+              apply Branch.map_closedEmbedding_of_closedEmbedding
+              exact (lift (m := m)).isClosedEmbedding
+          isIso := by
+            apply Isometry.sumMap
+            · exact isometry_id
+            · apply Isometry.sumMap
+              · exact isometry_id
+              · apply Isometry.piMap'
+                intros i
+                apply Closeds.map_isometry
+                apply Branch.map_isometry
+                exact (lift (m := m)).isIso
         }
 
       theorem IterativeDomain.lift_injective {m n} (h : m ≤ n := by linarith) :
@@ -164,7 +197,7 @@ noncomputable section Domain
         (lift h).isClosedEmbedding.injective
 
       theorem IterativeDomain.lift_refl {m} :
-          lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl) = { toFun := id } := by
+          lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl) = { toFun := id, isIso := isometry_id } := by
         cases m with
         | zero => rfl
         | succ m =>
@@ -232,10 +265,8 @@ noncomputable section Domain
             congr 2; funext σ
             rw [Pi.map_apply, Pi.map_apply, Pi.map_apply]
             change (Closeds.map _ _ ∘ Closeds.map _ _) (f σ) = _
-            rw! [Closeds.map_comp, Branch.map_comp]
-            congr 3
-            ext : 1
-            apply lift_lift
+            rw! [Closeds.map_comp, Branch.map_comp, lift_lift]
+            rfl
     end Lift
   end
 

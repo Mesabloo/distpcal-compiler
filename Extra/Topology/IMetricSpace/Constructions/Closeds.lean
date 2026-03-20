@@ -14,7 +14,7 @@ noncomputable def IMetric.hausdorffInfIDist {α} [PseudoIMetricSpace α] (x : α
 noncomputable abbrev IMetric.hausdorffIDist {α} [PseudoIMetricSpace α] (s t : Set α) :=
   max (⨆ x ∈ s, IMetric.hausdorffInfIDist x t) (⨆ y ∈ s, IMetric.hausdorffInfIDist y s)
 
-theorem IMetric.hausdorffDist_image {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : Isometry Φ) :
+theorem IMetric.hausdorffIDist_image {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : Isometry Φ) :
     hausdorffIDist (Φ '' s) (Φ '' t) = hausdorffIDist s t :=
   sorry
 
@@ -67,40 +67,58 @@ theorem Closeds.closed_map_eq_map_of_closed_embedding {α β} [IMetricSpace α] 
   · rfl
   · exact Closeds.map f hf x |>.isClosed'
 
-theorem Closeds.map_isometry' {α β} [IMetricSpace α] [IMetricSpace β] {f : α ↪c β}
-  (hf : ∀ x y, idist (f.toFun x) (f.toFun y) = idist x y) :
-    ∀ x y, idist (Closeds.map _ f.isClosedEmbedding x) (Closeds.map _ f.isClosedEmbedding y) = idist x y := by
-  change ∀ (x y : Closeds α), idist (f.toFun '' ↑x) (f.toFun '' ↑y) = idist x y
-  exact λ _ _ ↦ IMetric.hausdorffDist_image (Isometry.of_idist_eq hf)
+theorem Closeds.map_isometry' {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} (hf : Topology.IsClosedEmbedding f)
+  (hf' : ∀ x y, idist (f x) (f y) = idist x y) :
+    ∀ x y, idist (Closeds.map _ hf x) (Closeds.map _ hf y) = idist x y := by
+  change ∀ (x y : Closeds α), idist (f '' ↑x) (f '' ↑y) = idist x y
+  exact λ _ _ ↦ IMetric.hausdorffIDist_image (Isometry.of_idist_eq hf')
 
-theorem Closeds.map_isometry {α β} [IMetricSpace α] [IMetricSpace β] {f : α ↪c β} (hf : Isometry f.toFun) :
-    Isometry (Closeds.map _ f.isClosedEmbedding) := by
+theorem Closeds.map_isometry {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} (hf : Topology.IsClosedEmbedding f) (hf' : Isometry f) :
+    Isometry (Closeds.map _ hf) := by
   apply Isometry.of_idist_eq
   apply Closeds.map_isometry'
   apply Isometry.to_idist_eq
   assumption
 
-theorem Topology.IsClosedEmbedding.Closeds.closed_map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} :
-    Topology.IsClosedEmbedding (Closeds.closed_map f) where
-  eq_induced := by
-    rw [TopologicalSpace.ext_iff_isClosed]
-    admit
-  injective := by
-    admit
-  isClosed_range := by
-
-    admit
+-- theorem Topology.IsClosedEmbedding.Closeds.closed_map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} :
+--     Topology.IsClosedEmbedding (Closeds.closed_map f) where
+--   eq_induced := by
+--     admit
+--   injective := by
+--     admit
+--   isClosed_range := by
+--     admit
 
 theorem Topology.IsClosedEmbedding.Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} (hf : Topology.IsClosedEmbedding f) :
     Topology.IsClosedEmbedding (Closeds.map _ hf) := by
-  rw [Closeds.closed_map_eq_map_of_closed_embedding hf]
-  exact Topology.IsClosedEmbedding.Closeds.closed_map
+  rw [isClosedEmbedding_iff_continuous_injective_isClosedMap]
+  and_intros
+  ·
+    admit
+  · replace hf : Function.Injective (Set.image f) := by
+      rw [Set.image_injective]
+      exact hf.injective
 
-theorem Closeds.map_comp {α β γ} [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ] (f : α ↪c β) (g : β ↪c γ) :
-    Closeds.map _ g.isClosedEmbedding ∘ Closeds.map _ f.isClosedEmbedding =
-    Closeds.map _ (g.isClosedEmbedding.comp f.isClosedEmbedding) := by
+    intros x y h
+    rw [Closeds.ext_iff] at h ⊢
+    exact hf h
+  ·
+    admit
+
+  -- eq_induced := by
+  --   exact (IMetric.hausdorffIDist_image _).eq_induced
+  --   admit
+  -- injective := by
+  -- isClosed_range := by
+  --   admit
+  -- rw [Closeds.closed_map_eq_map_of_closed_embedding hf]
+  -- exact Topology.IsClosedEmbedding.Closeds.closed_map
+
+theorem Closeds.map_comp {α β γ} [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ] {f : α → β} {g : β → γ}
+  (hf : Topology.IsClosedEmbedding f) (hg : Topology.IsClosedEmbedding g) :
+    Closeds.map _ hg ∘ Closeds.map _ hf = Closeds.map _ (hg.comp hf) := by
   funext _
   simp [Closeds.map, Set.image_image]
 
 macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply Topology.IsClosedEmbedding.Closeds.map)
-macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply Topology.IsClosedEmbedding.Closeds.closed_map)
+-- macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply Topology.IsClosedEmbedding.Closeds.closed_map)

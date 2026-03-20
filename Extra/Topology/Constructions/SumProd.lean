@@ -39,3 +39,4 @@ namespace Topology
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply IsClosedEmbedding.prodMap)
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply IsClosedEmbedding.sumElim)
   macro_rules | `(tactic| is_closed_embedding_step) => `(tactic| apply IsClosedEmbedding.sumMap)
+end Topology

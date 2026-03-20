@@ -60,6 +60,26 @@ instance Sum.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMet
     apply uniformity_dist_of_mem_uniformity _ (λ x y ↦ idist x y : _ → _ → ℝ)
     apply Sum.mem_uniformity
 
+theorem Isometry.sumMap' {W X Y Z} {f : W → X} {g : Y → Z} [IMetricSpace W] [IMetricSpace X] [IMetricSpace Y] [IMetricSpace Z]
+  (hf : ∀ x y, idist (f x) (f y) = idist x y) (hg : ∀ x y, idist (g x) (g y) = idist x y) :
+    ∀ x y, idist (Sum.map f g x) (Sum.map f g y) = idist x y := by
+  intros x y
+  rcases x, y with ⟨x|x, y|y⟩
+  · erw [hf]; rfl
+  · rfl
+  · rfl
+  · erw [hg]; rfl
+
+theorem Isometry.sumMap {W X Y Z} {f : W → X} {g : Y → Z} [IMetricSpace W] [IMetricSpace X] [IMetricSpace Y] [IMetricSpace Z]
+  (hf : Isometry f) (hg : Isometry g) :
+    Isometry (Sum.map f g) := by
+  apply Isometry.of_idist_eq
+  apply Isometry.sumMap'
+  · apply Isometry.to_idist_eq
+    assumption
+  · apply Isometry.to_idist_eq
+    assumption
+
 ---------
 
 nonrec abbrev Sigma.idist {α} {β : α → _} [DecidableEq α] [(x : α) → IDist (β x)] (x y : Sigma β) : unitInterval :=
