@@ -171,6 +171,38 @@ noncomputable section Domain
         apply Isometry.to_idist_eq
         assumption
 
+      omit [Nonempty «Σ»] in
+      theorem Branch.map_uniform_continuous {γ' : Type y} [IMetricSpace γ'] {g : γ → γ'} (hg : UniformContinuous g) :
+          UniformContinuous (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
+        apply Topology.UniformContinuous.sumMap
+        · apply UniformContinuous.prodMap
+          · exact uniformContinuous_id
+          · apply Pi.uniformContinuous_map_const
+            apply Pi.uniformContinuous_map_const
+            apply Restriction.uniformContinuous_map
+            exact hg
+        · apply Topology.UniformContinuous.sumMap
+          · apply UniformContinuous.prodMap
+            · exact uniformContinuous_id
+            · apply UniformContinuous.prodMap
+              · exact uniformContinuous_id
+              · apply Restriction.uniformContinuous_map
+                exact hg
+          · apply Topology.UniformContinuous.sumMap
+            · apply UniformContinuous.prodMap
+              · exact uniformContinuous_id
+              · apply Restriction.uniformContinuous_map
+                exact hg
+            · apply Topology.UniformContinuous.sumMap
+              · apply UniformContinuous.prodMap
+                · exact uniformContinuous_id
+                · apply Restriction.uniformContinuous_map
+                  exact hg
+              · apply UniformContinuous.prodMap
+                · exact uniformContinuous_id
+                · apply Restriction.uniformContinuous_map
+                  exact hg
+
       omit [Nonempty «Σ»] [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace γ] in
       theorem Branch.map_comp {γ' γ''} [IMetricSpace γ'] [IMetricSpace γ''] (f : γ → γ') (g : γ' → γ'') :
           (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) ∘ (Branch.map f) = (Branch.map (g ∘ f)) := by
@@ -214,10 +246,6 @@ noncomputable section Domain
             convert Set.image_id _
             convert Branch.map_id
             rw [lift_refl]
-
-      -- theorem IterativeDomain.lift_refl' {m} :
-      --     (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl)) = id := by
-      --   rw [lift_refl]
 
       theorem IterativeDomain.lifl_refl_of_eq {k k' m n} (h : m = n) (h' : k = k') {h'' : m ≤ k} :
           lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h'' = h ▸ h' ▸ lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (m := n) (n := k') (h ▸ h' ▸ h'') := by

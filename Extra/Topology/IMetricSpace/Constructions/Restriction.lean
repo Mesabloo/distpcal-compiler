@@ -72,3 +72,8 @@ theorem Restriction.map_isometry {α β ε h} [IMetricSpace α] [IMetricSpace β
   (hf : Isometry f) :
     Isometry (@Restriction.map _ _ ε h f) :=
   hf
+
+theorem Restriction.uniformContinuous_map {α β ε h} [IMetricSpace α] [IMetricSpace β] {f : α → β}
+  (hf : UniformContinuous f) :
+    UniformContinuous (@Restriction.map _ _ ε h f) :=
+  hf

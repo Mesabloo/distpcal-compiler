@@ -3,6 +3,7 @@ import Mathlib.Topology.Separation.Basic
 import Extra.Topology.ClosedEmbedding
 import Extra.Topology.IMetricSpace
 import Extra.Topology.IMetricSpace.Constructions.Function
+import Mathlib.Topology.UniformSpace.Pi
 
 lemma Set.range_const' {α β} [Nonempty α] {v : β} : Set.range (Function.const α v) = {v} := by
   unfold Set.range
@@ -39,3 +40,12 @@ protected theorem Isometry.piMap'.{u, v} {ι : Type u} {α β : ι → Type v} [
     Isometry (Pi.map f) := by
   apply Isometry.of_idist_eq
   apply Isometry.piMap'' _ λ i x y ↦ to_idist_eq (hf i) x y
+
+theorem Pi.uniformContinuous_map_const {ι α β} {f : α → β} [UniformSpace α] [UniformSpace β]
+  (hf : UniformContinuous f) :
+    UniformContinuous (Pi.map λ _ : ι ↦ f) := by
+  rw [uniformContinuous_pi]
+  intro _
+  apply UniformContinuous.comp
+  · exact hf
+  · apply uniformContinuous_proj
