@@ -87,7 +87,7 @@ noncomputable section Domain
   -- set_option pp.explicit true in
   private def IterativeDomain : ℕ → Object.{max u v w x}
     | 0 => { carrier := β ⊕ PUnit.{max u v w + 1} }
-    | n + 1 => { carrier := β ⊕ PUnit.{u + 1} ⊕ («Σ» → Closeds (Branch «Σ» Γ α (IterativeDomain n).carrier)) }
+    | n + 1 => { carrier := β ⊕ PUnit.{u + 1} ⊕ («Σ» → Set (Branch «Σ» Γ α (IterativeDomain n).carrier)) }
 
   -- section
   --   variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
@@ -111,7 +111,7 @@ noncomputable section Domain
       | _ + 1 => .inr (.inl .unit)
 
     @[match_pattern]
-    def IterativeDomain.branch {n} (f : «Σ» → Closeds (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)) :
+    def IterativeDomain.branch {n} (f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)) :
         (IterativeDomain «Σ» Γ α β (n + 1)).carrier :=
       .inr <| .inr f
 
@@ -126,13 +126,13 @@ noncomputable section Domain
         Sum.map (Prod.map id (Restriction.map g)) <|
                 (Prod.map id (Restriction.map g))
 
-      omit [Nonempty «Σ»] in
-      theorem Branch.map_closedEmbedding_of_closedEmbedding {γ'} [IMetricSpace γ'] {g : γ → γ'} (hg : Topology.IsClosedEmbedding g) :
-          Topology.IsClosedEmbedding (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
-        is_closed_embedding <;> {
-          apply Restriction.map.isClosedEmbedding
-          assumption
-        }
+      -- omit [Nonempty «Σ»] in
+      -- theorem Branch.map_closedEmbedding_of_closedEmbedding {γ'} [IMetricSpace γ'] {g : γ → γ'} (hg : Topology.IsClosedEmbedding g) :
+      --     Topology.IsClosedEmbedding (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
+      --   is_closed_embedding <;> {
+      --     apply Restriction.map.isClosedEmbedding
+      --     assumption
+      --   }
 
       omit [Nonempty «Σ»] in
       theorem Branch.map_isometry' {γ' : Type y} [IMetricSpace γ'] {g : γ → γ'} (hg : ∀ x y : γ, idist (g x) (g y) = idist x y) :
@@ -192,46 +192,22 @@ noncomputable section Domain
         simp [Branch.map]
 
       def IterativeDomain.lift {m n} (h : m ≤ n := by linarith) :
-          (IterativeDomain «Σ» Γ α β m).carrier ↪c₁ (IterativeDomain «Σ» Γ α β n).carrier := match _hm : m, n with
-        | 0, 0 => {
-          toFun := id
-          isIso := isometry_id
-        }
-        | 0, n + 1 => {
-          toFun := Sum.elim (λ v ↦ .inl v) (λ .unit ↦ IterativeDomain.abort)
-          isIso := by
-            intros b₁ b₂
-            match b₁, b₂ with
-            | .inl _, .inl _ => rfl
-            | .inl _, .inr _ => rfl
-            | .inr _, .inl _ => rfl
-            | .inr _, .inr _ => rfl
-        }
-        | m + 1, n + 1 => {
-          toFun :=
+          (IterativeDomain «Σ» Γ α β m).carrier → (IterativeDomain «Σ» Γ α β n).carrier := match _hm : m, n with
+        | 0, 0 => id
+        | 0, n + 1 => Sum.elim (λ v ↦ .inl v) (λ .unit ↦ IterativeDomain.abort)
+        | m + 1, n + 1 =>
+          Sum.map id <|
             Sum.map id <|
-            Sum.map id <|
-            Pi.map λ _ ↦ Closeds.map (Branch.map (IterativeDomain.lift (m := m)).toFun) <| by
-              apply Branch.map_closedEmbedding_of_closedEmbedding
-              exact (lift (m := m)).isClosedEmbedding
-          isIso := by
-            apply Isometry.sumMap
-            · exact isometry_id
-            · apply Isometry.sumMap
-              · exact isometry_id
-              · apply Isometry.piMap'
-                intros i
-                apply Closeds.map_isometry
-                apply Branch.map_isometry
-                exact (lift (m := m)).isIso
-        }
+            Pi.map λ _ ↦ Set.image (Branch.map (IterativeDomain.lift (m := m)))
 
-      theorem IterativeDomain.lift_injective {m n} (h : m ≤ n := by linarith) :
-          Function.Injective (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h).toFun :=
-        (lift h).isClosedEmbedding.injective
+      -- theorem IterativeDomain.lift.isClosedEmbedding
+
+      -- theorem IterativeDomain.lift_injective {m n} (h : m ≤ n := by linarith) :
+      --     Function.Injective (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h) :=
+      --   (lift h).isClosedEmbedding.injective
 
       theorem IterativeDomain.lift_refl {m} :
-          lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl) = { toFun := id, isIso := isometry_id } := by
+          lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl) = id := by
         cases m with
         | zero => rfl
         | succ m =>
@@ -242,16 +218,14 @@ noncomputable section Domain
             dsimp [lift]
             congr 2
             funext b
-            rw [Pi.map_apply, Closeds.map]
-            ext : 1
-            dsimp
+            rw [Pi.map_apply]
             convert Set.image_id _
             convert Branch.map_id
             rw [lift_refl]
 
-      theorem IterativeDomain.lift_refl' {m} :
-          (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl)).toFun = id := by
-        rw [lift_refl]
+      -- theorem IterativeDomain.lift_refl' {m} :
+      --     (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := m) (Nat.le_of_eq rfl)) = id := by
+      --   rw [lift_refl]
 
       theorem IterativeDomain.lifl_refl_of_eq {k k' m n} (h : m = n) (h' : k = k') {h'' : m ≤ k} :
           lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h'' = h ▸ h' ▸ lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (m := n) (n := k') (h ▸ h' ▸ h'') := by
@@ -260,16 +234,17 @@ noncomputable section Domain
         rfl
 
       theorem IterativeDomain.lift_isometry {m n} (h : m ≤ n) :
-          Isometry (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h).toFun := by
-        exact (lift h).isIso
+          Isometry (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h) := by
+        -- exact (lift h).isIso
+        admit
 
       theorem IterativeDomain.lift_isometry' {m n} (h : m ≤ n) {x y : (IterativeDomain «Σ» Γ α β m).carrier} :
-          idist ((lift h).toFun x) ((lift h).toFun y) = idist x y := by
+          idist (lift h x) (lift h y) = idist x y := by
         apply Isometry.to_idist_eq
         exact lift_isometry h
 
       theorem IterativeDomain.lift_lift {m n o} (h₁ : m ≤ n) (h₂ : n ≤ o) :
-          (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h₂).toFun ∘ (lift h₁).toFun = (lift (le_trans h₁ h₂)).toFun := by
+          (lift («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) h₂) ∘ (lift h₁) = (lift (le_trans h₁ h₂)) := by
         funext x
         match m, n, o with
         | 0, 0, 0 | 0, 0, o + 1 => rfl
@@ -280,9 +255,9 @@ noncomputable section Domain
           | .inr (.inr f) =>
             dsimp [lift]
             congr 2; funext σ
-            rw [Pi.map_apply, Pi.map_apply, Pi.map_apply]
-            change (Closeds.map _ _ ∘ Closeds.map _ _) (f σ) = _
-            rw! [Closeds.map_comp, Branch.map_comp, lift_lift]
+            rw [Pi.map_apply, Pi.map_apply, Pi.map_apply, Set.image_image]
+            change (Branch.map _ ∘ Branch.map _) '' (f σ) = _
+            rw! [Branch.map_comp, lift_lift]
             rfl
     end Lift
   end
@@ -293,7 +268,7 @@ noncomputable section Domain
     variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
 
     nonrec abbrev DomainUnion.idist : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β → unitInterval
-      | ⟨m, p⟩, ⟨n, q⟩ => idist ((IterativeDomain.lift (le_max_left m n)).toFun p) ((IterativeDomain.lift (le_max_right m n)).toFun q)
+      | ⟨m, p⟩, ⟨n, q⟩ => idist (IterativeDomain.lift (le_max_left m n) p) (IterativeDomain.lift (le_max_right m n) q)
 
     theorem DomainUnion.idist_self (x : DomainUnion «Σ» Γ α β) : DomainUnion.idist x x = 0 := by
       let ⟨m, p⟩ := x
@@ -325,10 +300,30 @@ noncomputable section Domain
 
   abbrev Domain := UniformSpace.Completion (DomainUnion «Σ» Γ α β)
 
-  example : MetricSpace (Domain «Σ» Γ α β) := inferInstance
+  -- example : MetricSpace (Domain «Σ» Γ α β) := inferInstance
   example : CompleteSpace (Domain «Σ» Γ α β) := inferInstance
 
+  theorem _root_.UniformSpace.Completion.dist_le_iff {α} [PseudoMetricSpace α] {ε}
+    (h : ∀ x y : α, dist x y ≤ ε) :
+      ∀ x y : UniformSpace.Completion α, dist x y ≤ ε := by
+    intros x y
+    apply UniformSpace.Completion.induction_on₂ (p := (dist · · ≤ ε)) x y
+    · exact isClosed_le continuous_dist continuous_const
+    · intro a b
+      simp only [UniformSpace.Completion.dist_eq, h]
+
+  instance : IMetricSpace (Domain «Σ» Γ α β) :=
+    .of_metric_space_of_dist_le_one <|
+      UniformSpace.Completion.dist_le_iff λ x y ↦ unitInterval.le_one (idist x y)
+
   variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
+
+  def Domain.iso :
+      Domain «Σ» Γ α β ≃ β ⊕ PUnit ⊕ («Σ» → Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β))) where
+    toFun x := sorry
+    invFun x := sorry
+    left_inv := sorry
+    right_inv := sorry
 
 /-
   section Operators

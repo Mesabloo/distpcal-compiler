@@ -27,18 +27,23 @@ noncomputable instance PseudoIMetricSpace.hausdorff {α} [IMetricSpace α] : Pse
   uniformity_idist := by
     admit
 
+noncomputable instance IMetricSpace.hausdorff {α} [IMetricSpace α] : IMetricSpace (Set α) where
+  eq_of_idist_eq_zero := by
+    admit
+
+
 /-- Two closed sets are at zero Hausdorff edistance if and only if they coincide. -/
 theorem _root_.IsClosed.hausdorffIDist_zero_iff {α} {s t : Set α} [PseudoIMetricSpace α] (hs : IsClosed s) (ht : IsClosed t) :
     IMetric.hausdorffIDist s t = 0 ↔ s = t := by
   admit
 
-noncomputable instance {α : Type u} [IMetricSpace α] : IMetricSpace (Closeds α) where
-  __ := PseudoIMetricSpace.hausdorff.induced SetLike.coe
-  eq_of_idist_eq_zero s t h := by
-    apply Closeds.ext
-    erwa [IsClosed.hausdorffIDist_zero_iff] at h
-    · exact s.isClosed
-    · exact t.isClosed
+noncomputable instance {α : Type u} [IMetricSpace α] : IMetricSpace (Closeds α) :=
+  IMetricSpace.hausdorff.induced SetLike.coe SetLike.coe_injective'
+  -- eq_of_idist_eq_zero s t h := by
+  --   apply Closeds.ext
+  --   erwa [IsClosed.hausdorffIDist_zero_iff] at h
+  --   · exact s.isClosed
+  --   · exact t.isClosed
 
 instance (priority := high) Closeds.instCompleteSpace {α : Type u} [IMetricSpace α] [CompleteSpace α] : CompleteSpace (Closeds α) := by
   sorry
@@ -89,30 +94,23 @@ theorem Closeds.map_isometry {α β} [IMetricSpace α] [IMetricSpace β] {f : α
 --   isClosed_range := by
 --     admit
 
-theorem Topology.IsClosedEmbedding.Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β} (hf : Topology.IsClosedEmbedding f) :
-    Topology.IsClosedEmbedding (Closeds.map _ hf) := by
-  rw [isClosedEmbedding_iff_continuous_injective_isClosedMap]
-  and_intros
-  ·
-    admit
-  · replace hf : Function.Injective (Set.image f) := by
-      rw [Set.image_injective]
-      exact hf.injective
+-- theorem Topology.IsClosedEmbedding.Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] {f : α → β}
+--   (hf : Topology.IsClosedEmbedding f) (hf' : Isometry f) :
+--     Topology.IsClosedEmbedding (Closeds.map _ hf) where
+--   eq_induced := by
 
-    intros x y h
-    rw [Closeds.ext_iff] at h ⊢
-    exact hf h
-  ·
-    admit
+--     admit
+--   injective := by
+--     replace hf : Function.Injective (Set.image f) := by
+--       rw [Set.image_injective]
+--       exact hf.injective
 
-  -- eq_induced := by
-  --   exact (IMetric.hausdorffIDist_image _).eq_induced
-  --   admit
-  -- injective := by
-  -- isClosed_range := by
-  --   admit
-  -- rw [Closeds.closed_map_eq_map_of_closed_embedding hf]
-  -- exact Topology.IsClosedEmbedding.Closeds.closed_map
+--     intros x y h
+--     rw [Closeds.ext_iff] at h ⊢
+--     exact hf h
+--   isClosed_range := by
+
+--     admit
 
 theorem Closeds.map_comp {α β γ} [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ] {f : α → β} {g : β → γ}
   (hf : Topology.IsClosedEmbedding f) (hg : Topology.IsClosedEmbedding g) :
