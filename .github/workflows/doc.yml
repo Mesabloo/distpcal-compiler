@@ -40,6 +40,6 @@ jobs:
         id: build-docgen
         uses: leanprover-community/docgen-action@7836f3de2f10facc0fed09c1309e6402e4cd5fd0
         with:
-          api-docs: false
+          api-docs: true
           build-page: false
           blueprint: false
