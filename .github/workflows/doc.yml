@@ -22,8 +22,12 @@ jobs:
           token: ${{ secrets.DOCS_PAT }}
           fetch-depth: 0
 
+      - name: Set identity 
+        run: | 
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
       - name: Rebase onto `docs` to trigger workflow
-        id: rebase
         run: |
           git fetch --all
           git checkout -B main origin/main
@@ -31,8 +35,6 @@ jobs:
 
       - name: Make empty commit 
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
           git commit --allow-empty -m 'deploy docs'
 
       - name: Push
