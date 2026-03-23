@@ -172,7 +172,7 @@ noncomputable section Domain
         assumption
 
       omit [Nonempty «Σ»] in
-      theorem Branch.map_uniform_continuous {γ' : Type y} [IMetricSpace γ'] {g : γ → γ'} (hg : UniformContinuous g) :
+      theorem Branch.map_uniform_continuous {γ'} [IMetricSpace γ'] {g : γ → γ'} (hg : UniformContinuous g) :
           UniformContinuous (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
         apply Topology.UniformContinuous.sumMap
         · apply UniformContinuous.prodMap
@@ -364,35 +364,76 @@ noncomputable section Domain
     section Functor
       /-! ## Functor -/
 
-/-
-      def IterativeDomain.map {β'} [CompleteIMetricSpace β'] (f : β ↪c β') {n} :
-          (IterativeDomain «Σ» Γ α β n).carrier ↪c (IterativeDomain «Σ» Γ α β' n).carrier := match n with
-        | 0 => { toFun := Sum.map f id }
-        | _ + 1 => {
-          toFun :=
-            Sum.map f <|
-            Sum.map id <|
-            Pi.map λ _ ↦ Closeds.map _ (Branch.map (IterativeDomain.map f)).isClosedEmbedding
-        }
+      def IterativeDomain.map {β'} [IMetricSpace β'] (f : β → β') {n} :
+          (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β' n).carrier := match n with
+        | 0 => Sum.map f id
+        | _ + 1 =>
+          Sum.map f <|
+          Sum.map id <|
+          Pi.map λ _ ↦ Set.image (Branch.map (IterativeDomain.map f))
 
-      theorem DomainUnion.map.uniform_continuous {β'} [CompleteIMetricSpace β'] (f : β ↪c β') :
-          UniformContinuous (Sigma.map id λ _ ↦ (IterativeDomain.map f).toFun : _ → (DomainUnion «Σ» Γ α _)) := by
+      theorem IterativeDomain.map_lift {β'} [IMetricSpace β'] (f : β → β')
+        {m n} (h : m ≤ n) (x : (IterativeDomain «Σ» Γ α β m).carrier) :
+          lift h (map f x) = map f (lift h x) := by
+        match m, n with
+        | 0, 0 => rfl
+        | 0, n + 1 =>
+          rcases x with (_|_) <;> rfl
+        | m + 1, n + 1 =>
+          rcases x with (_|_|_)
+          · rfl
+          · rfl
+          · dsimp [lift, map]
+            congr 2
+            funext σ
+            rw [Pi.map_apply, Pi.map_apply, Pi.map_apply, Pi.map_apply,
+                Set.image_image, Set.image_image]
+            congr 1
+            change Branch.map _ ∘ Branch.map _ = Branch.map _ ∘ Branch.map _
+            rw [Branch.map_comp, Branch.map_comp]
+            congr 1 with x
+            change lift _ (map f x) = map f (lift _ x)
+            erw [map_lift]
+
+      def IterativeDomain.map_uniformContinuous {β'} [IMetricSpace β'] {n} (f : β → β') (hf : UniformContinuous f) :
+          UniformContinuous (IterativeDomain.map («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n) f) := by
+        cases n with
+        | zero =>
+          apply Topology.UniformContinuous.sumMap
+          · exact hf
+          · exact uniformContinuous_id
+        | succ n =>
+          apply Topology.UniformContinuous.sumMap
+          · exact hf
+          · apply Topology.UniformContinuous.sumMap
+            · exact uniformContinuous_id
+            · apply Pi.uniformContinuous_map_const
+              apply UniformContinuous.image_hausdorff
+              apply Branch.map_uniform_continuous
+              apply IterativeDomain.map_uniformContinuous
+              exact hf
+
+      def DomainUnion.map {β'} [IMetricSpace β'] (f : β → β') :
+          DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β' :=
+        Sigma.map id λ _ ↦ IterativeDomain.map f
+
+      def DomainUnion.map_uniformContinuous {β'} [IMetricSpace β'] (f : β → β') (hf : UniformContinuous f) :
+          UniformContinuous (DomainUnion.map («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) f) := by
+        -- TODO: Should be true
         admit
 
-      def Domain.map {β'} [CompleteIMetricSpace β'] (f : β ↪c β') :
+      def Domain.map {β'} [IMetricSpace β'] (f : β → β') :
           Domain «Σ» Γ α β → Domain «Σ» Γ α β' :=
-        UniformSpace.Completion.map <|
-          Quotient.map (Sigma.map id λ _ ↦ (IterativeDomain.map f).toFun) λ x y ⟨k, hm, hn, eq⟩ ↦ by
-            exists k, hm, hn
-            admit
--/
+        UniformSpace.Completion.map <| DomainUnion.map f
     end Functor
 
-/-
+    -- Default initialisation depending on the given synchronous channel
+    variable (zero : Γ → α)
+
     section Close
       /-! ## Channel closure -/
 
-      variable (zero : Γ → α)
+/-
 
       mutual
         def Branch.syncClose {n} [DecidableEq Γ] (c : Γ) (σ : «Σ») :
@@ -416,8 +457,10 @@ noncomputable section Domain
 
       def Domain.syncClose [DecidableEq Γ] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
         UniformSpace.Completion.map <| Sigma.map id λ _ ↦ IterativeDomain.syncClose zero c
+-/
     end Close
 
+/-
     section Applicative
       /-! ## Applicative functor -/
 
