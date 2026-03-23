@@ -55,17 +55,20 @@ package «PlusCalCompiler» where
 
   testDriver := "tests"
 
+@[default_target]
 lean_lib «CustomPrelude»
 
 lean_lib «Extra»
 
+@[default_target]
 lean_lib «ProgressBar»
 
+@[default_target]
 lean_lib «VerifiedCompiler»
 
+@[default_target]
 lean_lib «PlusCalCompiler»
 
-@[default_target]
 lean_exe «pcvc» where
   root := `Main
 

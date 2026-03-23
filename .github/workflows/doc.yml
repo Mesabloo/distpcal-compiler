@@ -1,4 +1,4 @@
-name: Build documentation and deploy
+name: Rebase onto `docs`
 
 on:
   workflow_run:
@@ -8,47 +8,35 @@ on:
     - main
 
 permissions:
-  contents: read # Read access to repository contents
-  id-token: write # Required to upload the site to GitHub Pages
-  pages: write # Write access to GitHub Pages
+  contents: write
 
 jobs:
   doc:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Checkout project
+      - name: Checkout docs 
         uses: actions/checkout@v6
-        # with:
-        #   fetch-depth: 0 # Fetch all history for all branches and tags
-
-      - name: Build project documentation
-        id: build-docgen
-        continue-on-error: true
-        uses: leanprover-community/docgen-action@7836f3de2f10facc0fed09c1309e6402e4cd5fd0
         with:
-          api-docs: false
-          build-page: false
+          ref: docs 
+          token: ${{ secrets.DOCS_PAT }}
+          fetch-depth: 0
 
-      - uses: leanprover/lean-action@v1.4.0
-        if: steps.build-docgen.outputs.name == ''
-        with:
-          auto-config: false
-          build: false
-          test: false 
-          lint: false
-          mk_all-check: false
-          use-mathlib-cache: false
+      - name: Set identity 
+        run: | 
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
 
-      - name: Run lake translate-config toml
-        if: steps.build-docgen.outputs.name == ''
+      - name: Rebase onto `docs` to trigger workflow
         run: |
-          lake translate-config toml
+          git fetch --all
+          git checkout -B main origin/main
+          git rebase main docs && exit 0 || exit 1
 
-      - name: Build project documentation (v2)
-        id: build-docgen2
-        if: steps.build-docgen.outputs.name == ''
-        uses: leanprover-community/docgen-action@7836f3de2f10facc0fed09c1309e6402e4cd5fd0
-        with:
-          api-docs: false
-          build-page: false
+      - name: Make empty commit 
+        run: |
+          git commit --allow-empty -m 'deploy docs'
+
+      - name: Push
+        run: |
+          git push --force-with-lease origin docs

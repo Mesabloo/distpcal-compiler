@@ -1,0 +1,43 @@
+name: Build documentation and deploy
+
+on:
+  push:
+    branches: 
+    - docs
+
+permissions:
+  contents: read # Read access to repository contents
+  id-token: write # Required to upload the site to GitHub Pages
+  pages: write # Write access to GitHub Pages
+
+jobs:
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout docs 
+        uses: actions/checkout@v6
+        with:
+          ref: docs 
+  
+      - uses: leanprover/lean-action@v1.4.0
+        with:
+          auto-config: false
+          build: false
+          test: false 
+          lint: false
+          mk_all-check: false
+          use-mathlib-cache: false
+
+      - name: Run lake translate-config toml
+        continue-on-error: true
+        shell: bash
+        run: |
+          lake translate-config toml || exit 0
+
+      - name: Build project documentation
+        id: build-docgen
+        uses: leanprover-community/docgen-action@7836f3de2f10facc0fed09c1309e6402e4cd5fd0
+        with:
+          api-docs: true
+          build-page: false
+          blueprint: false
