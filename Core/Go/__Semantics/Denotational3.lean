@@ -295,8 +295,12 @@ noncomputable section Domain
 
   def DomainUnion := Σ n, (IterativeDomain «Σ» Γ α β n).carrier
 
+
   section
     variable {«Σ» Γ α β γ δ} [IMetricSpace γ]
+
+    abbrev DomainUnion.mk {n : ℕ} (x : (IterativeDomain «Σ» Γ α β n).carrier) : DomainUnion «Σ» Γ α β :=
+      ⟨n, x⟩
 
     nonrec abbrev DomainUnion.idist : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β → unitInterval
       | ⟨m, p⟩, ⟨n, q⟩ => idist (IterativeDomain.lift (le_max_left m n) p) (IterativeDomain.lift (le_max_right m n) q)
@@ -433,8 +437,6 @@ noncomputable section Domain
     section Close
       /-! ## Channel closure -/
 
-/-
-
       mutual
         def Branch.syncClose {n} [DecidableEq Γ] (c : Γ) (σ : «Σ») :
             (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) → (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
@@ -448,19 +450,24 @@ noncomputable section Domain
         def IterativeDomain.syncClose {n} [DecidableEq Γ] (c : Γ) :
             (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier := match n with
           | 0 => id
-          | n + 1 => Sum.map id (Sum.map id (Pi.map λ σ ↦ Closeds.closed_map (Branch.syncClose c σ)))
+          | n + 1 => Sum.map id (Sum.map id (Pi.map λ σ ↦ Set.image (Branch.syncClose c σ)))
       end
 
+      theorem IterativeDomain.syncClose.uniform_continuous [DecidableEq Γ] {c : Γ} {n} :
+          UniformContinuous (IterativeDomain.syncClose («Σ» := «Σ») (β := β) (n := n) zero c) := by
+        admit
+
+      def DomainUnion.syncClose [DecidableEq Γ] (c : Γ) : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β :=
+        Sigma.map id λ _ ↦ IterativeDomain.syncClose zero c
+
       theorem DomainUnion.syncClose.uniform_continuous [DecidableEq Γ] {c : Γ} :
-          UniformContinuous (Sigma.map id λ n ↦ IterativeDomain.syncClose zero c : _ → (DomainUnion «Σ» _ α β)) := by
+          UniformContinuous (DomainUnion.syncClose («Σ» := «Σ») (β := β) zero c) := by
         admit
 
       def Domain.syncClose [DecidableEq Γ] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
-        UniformSpace.Completion.map <| Sigma.map id λ _ ↦ IterativeDomain.syncClose zero c
--/
+        UniformSpace.Completion.map <| DomainUnion.syncClose («Σ» := «Σ») (β := β) zero c
     end Close
 
-/-
     section Applicative
       /-! ## Applicative functor -/
 
@@ -493,36 +500,48 @@ noncomputable section Domain
               (λ f t ↦ IterativeDomain.map f ((IterativeDomain.lift) t))
               (reorder ▸ Sum.elim
                 (λ _ _ ↦ IterativeDomain.abort)
-                (λ g t ↦ IterativeDomain.branch λ σ ↦ Closeds.closed_map (Branch.ap t) (g σ)))
+                (λ g t ↦ IterativeDomain.branch λ σ ↦ Branch.ap t '' g σ))
       end
 
-      theorem DomainUnion.IterativeDomain.ap.uniform_continuous [DecidableEq Γ] [Nonempty β] {m} {p : (IterativeDomain «Σ» Γ α (β → γ) m).carrier} :
-          UniformContinuous (Sigma.map (m + ·) λ _ ↦ IterativeDomain.ap zero p : _ → (DomainUnion «Σ» Γ α γ)) := by
+      theorem IterativeDomain.ap.uniform_continuous₂ [DecidableEq Γ] [Nonempty β] {m n} :
+          UniformContinuous₂ (IterativeDomain.ap zero («Σ» := «Σ») (β := β) (γ := γ) (m := m) (n := n)) := by
         admit
 
-      theorem DomainUnion.IterativeUnion.ap.uniform_continuous₂ [DecidableEq Γ] [Nonempty β] :
-          UniformContinuous (λ ⟨m, p⟩ ↦ UniformSpace.Completion.map (Sigma.map (m + ·) λ _ ↦ IterativeDomain.ap zero p) : (DomainUnion «Σ» Γ α (β → γ)) → _ → Domain «Σ» Γ α γ) := by
+      def DomainUnion.ap [DecidableEq Γ] [Nonempty β] :
+          DomainUnion «Σ» Γ α (β → γ) → DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ :=
+        λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.ap zero p q)
+
+      theorem DomainUnion.ap.uniform_continuous₂ [DecidableEq Γ] [Nonempty β] :
+          UniformContinuous₂ (DomainUnion.ap zero («Σ» := «Σ») (β := β) (γ := γ)) := by
         admit
 
       def Domain.ap [DecidableEq Γ] [Nonempty β] :
           Domain «Σ» Γ α (β → γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
-        UniformSpace.Completion.extension λ ⟨m, p⟩ ↦ UniformSpace.Completion.map (Sigma.map (m + ·) λ _ ↦ IterativeDomain.ap zero p)
+        UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.ap zero («Σ» := «Σ») (β := β) (γ := γ) x y : _ → _ → UniformSpace.Completion _)
     end Applicative
 
     section Monad
       /-! ## Monad -/
 
-      mutual
-        def IterativeDomain.bind {m} {n : β → _} [DecidableEq Γ] (p : (IterativeDomain «Σ» Γ α β m).carrier) (f : (x : β) → (IterativeDomain «Σ» Γ α γ (n x)).carrier) :
-            (IterativeDomain «Σ» Γ α γ (m + ⨆ x, n x)).carrier := match m with
-          | 0 =>
-            p.elim (λ x ↦ IterativeDomain.lift (by admit) (f x)) _
-          | m + 1 =>
-            sorry
-      end
+      /-!
+        Unfortunately, this operator is inexpressible within Lean.
 
-      -- def Domain.bind
+        Here's the problem.
+        Assume that we want to define the operator on `IterativeDomain`, then lift it
+        on `Domain` by extension.
+        Our signature would look like
+        ```lean
+        def IterativeDomain.bind {m n} (x : IterativeDomain «Σ» Γ α β m).carrier)
+          (f : β → IterativeDomain «Σ» Γ α γ n).carrier) :
+            IterativeDomain «Σ» Γ α γ (m + n)).carrier
+        ```
+        Yet, this signature assumes that `f` maps all leaves of `x` to trees that are of
+        depth at most `n`.
+        Unfortunately, if `f` performs infinitely many choices, mapping each leaf to trees
+        that are bigger and bigger, the actual depth becomes unbounded!
+      -/
+
+      axiom Domain.bind : Domain «Σ» Γ α β → (β → Domain «Σ» Γ α γ) → Domain «Σ» Γ α γ
     end Monad
--/
   end Operators
 end Domain
