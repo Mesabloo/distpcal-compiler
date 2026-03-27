@@ -17,8 +17,23 @@ namespace unitInterval
     property := by bound
 
   @[bound]
-  theorem half_pos : unitInterval.half > 0 := by
+  theorem half_pos : half > 0 := by
     simp [half, zero_eq, Subtype.mk_lt_mk]
+
+  theorem half_mul_le_self {ε : I} : half * ε ≤ ε := by
+    grind only [mul_le_right]
+
+  theorem half_mul_lt_self_of_pos {ε : I} (h : ε > 0) : half * ε < ε := by
+    change (1 / 2 * (ε : ℝ)) < (ε : ℝ)
+    grind only [= Set.mem_Icc, coe_zero_eq, coe_ne_zero, unitInterval.pos_iff_ne_zero]
+
+  @[simp]
+  theorem half_mul_half_eq : (half * half : ℝ) = 1 / 4 := by
+    grind [= half.eq_def]
+
+  theorem half_mul_toReal_eq_div_two (x : I) : ↑(half * x) = (↑x / 2 : ℝ) := by
+    change (1 / 2 * x : ℝ) = _
+    grind only
 end unitInterval
 
 open scoped unitInterval
@@ -131,6 +146,30 @@ namespace IMetric
   theorem mem_ball' {α} [PseudoIMetricSpace α] {x y : α} {ε : ℝ} : y ∈ ball x ε ↔ idist x y < ε := by
     rw [idist_comm, mem_ball]
     rfl
+
+  theorem mem_closure_iff {α} [PseudoIMetricSpace α] {s : Set α} {a : α} :
+      a ∈ closure s ↔ ∀ ε > 0, ∃ b ∈ s, idist a b < ε := by
+    trans
+    · apply mem_closure_iff_nhds_basis nhds_basis_ball
+    · simp only [mem_ball']
+      iff_intro h h
+      · intros ε ε_pos
+        specialize h ε ε_pos
+        exact h
+      · intros i i_pos
+        specialize h ⟨min 1 i, _, _⟩ _
+        1,2: grind only [= min_def]
+        · simp [*]
+        · obtain ⟨y, y_in_s, idist_lt_min_one_i⟩ := h
+          exists y, y_in_s
+          grind only [= min_def, Subtype.mk_lt_mk]
+
+  theorem denseRange_iff {α β} [PseudoIMetricSpace α] {f : β → α} :
+      DenseRange f ↔ ∀ x, ∀ r > 0, ∃ y, idist x (f y) < r := by
+    rw [Metric.denseRange_iff]
+    iff_intro h h
+    · admit
+    · admit
 end IMetric
 
 @[instance_reducible]

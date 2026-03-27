@@ -8,20 +8,48 @@ open TopologicalSpace (Closeds)
 
 universe u
 
-noncomputable def IMetric.hausdorffInfIDist {α} [PseudoIMetricSpace α] (x : α) (s : Set α) :=
-  ⨅ y ∈ s, idist x y
+namespace IMetric
+  noncomputable def hausdorffInfIDist {α} [PseudoIMetricSpace α] (x : α) (s : Set α) :=
+    ⨅ y ∈ s, idist x y
 
-noncomputable abbrev IMetric.hausdorffIDist {α} [PseudoIMetricSpace α] (s t : Set α) :=
-  max (⨆ x ∈ s, IMetric.hausdorffInfIDist x t) (⨆ y ∈ s, IMetric.hausdorffInfIDist y s)
+  noncomputable abbrev hausdorffIDist {α} [PseudoIMetricSpace α] (s t : Set α) :=
+    max (⨆ x ∈ s, IMetric.hausdorffInfIDist x t) (⨆ y ∈ t, IMetric.hausdorffInfIDist y s)
 
-theorem IMetric.hausdorffIDist_image {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : Isometry Φ) :
-    hausdorffIDist (Φ '' s) (Φ '' t) = hausdorffIDist s t :=
-  sorry
+  theorem hausdorffIDist_self {α} [PseudoIMetricSpace α] {s : Set α} :
+      hausdorffIDist s s = 0 := by
+    unfold hausdorffIDist hausdorffInfIDist
+
+    change _ = ⊥
+    simp only [← iSup_union, Set.union_self, iSup₂_eq_bot, iInf₂_eq_bot]
+    intros x x_in_s b b_pos
+    exists x, x_in_s
+    rwa [idist_self]
+
+  theorem hausdorffIDist_comm {α} [PseudoIMetricSpace α] {s t : Set α} :
+      hausdorffIDist s t = hausdorffIDist t s := by
+    unfold hausdorffIDist
+    erw [max_comm]
+
+  theorem hausdorffIDist_image {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : Isometry Φ) :
+      hausdorffIDist (Φ '' s) (Φ '' t) = hausdorffIDist s t :=
+    sorry
+
+  theorem hausdorffIDist_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
+      hausdorffIDist (closure s) (closure t) = hausdorffIDist s t := by
+    unfold hausdorffIDist
+    admit
+
+  theorem hausdorffIDist_zero_iff_closure_eq_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
+      hausdorffIDist s t = 0 ↔ closure s = closure t := by
+    rw [← hausdorffIDist_closure]
+    -- finish from `eq_of_idist_eq_zero`
+    admit
+end IMetric
 
 noncomputable instance PseudoIMetricSpace.hausdorff {α} [PseudoIMetricSpace α] : PseudoIMetricSpace (Set α) where
   idist := IMetric.hausdorffIDist
-  idist_self := sorry
-  idist_comm := sorry
+  idist_self _ := IMetric.hausdorffIDist_self
+  idist_comm _ _ := IMetric.hausdorffIDist_comm
   idist_triangle := sorry
   toUniformSpace := .hausdorff α
   uniformity_idist := by
@@ -36,6 +64,11 @@ noncomputable instance IMetricSpace.hausdorff {α} [IMetricSpace α] : IMetricSp
 theorem _root_.IsClosed.hausdorffIDist_zero_iff {α} {s t : Set α} [PseudoIMetricSpace α] (hs : IsClosed s) (ht : IsClosed t) :
     IMetric.hausdorffIDist s t = 0 ↔ s = t := by
   admit
+
+open unitInterval in
+theorem IMetric.hausdorffIDist_le_iff {α} [PseudoIMetricSpace α] {s t : Set α} {r : I} :
+    IMetric.hausdorffIDist s t ≤ r ↔ (∀ x ∈ s, ∃ y ∈ t, idist x y ≤ r) ∧ (∀ y ∈ t, ∃ x ∈ s, idist x y ≤ r) := by
+  sorry
 
 theorem Set.image_isometry {α β} {f : α → β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] (hf : Isometry f) :
     Isometry (Set.image f) := by

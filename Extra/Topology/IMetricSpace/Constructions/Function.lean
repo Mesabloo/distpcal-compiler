@@ -33,6 +33,3 @@ instance {α : Type u} {β : Type v} [UniformSpace β] [CompleteSpace β] : Comp
 
 noncomputable instance {α β} [Nonempty α] [TopologicalSpace α] [IMetricSpace β] : IMetricSpace (α ↪c β) :=
   .induced ClosedEmbedding.toFun ClosedEmbedding.injective_toFun inferInstance
-
--- instance {α β} [Nonempty α] [TopologicalSpace α] [IMetricSpace β] [CompleteSpace β] : CompleteSpace (α ↪c β) :=
---   sorry

@@ -5,7 +5,7 @@ import Extra.Topology.ClosedEmbedding
 @[reducible]
 def Restriction (α : Type _) (ε : unitInterval) (_ : ε > 0 := by bound) := α
 
-noncomputable instance {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restriction α ε h) where
+noncomputable instance (priority := low) {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restriction α ε h) where
   idist x y := ε * idist (x : α) (y : α)
   idist_self x := by
     rw [idist_self, MonoidWithZero.mul_zero]
