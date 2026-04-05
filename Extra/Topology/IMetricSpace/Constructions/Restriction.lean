@@ -66,14 +66,11 @@ noncomputable instance {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restri
       rwa [Set.Icc.coe_mul, mul_comm, mul_lt_mul_iff_left₀ ?_] at h'
       · rwa [gt_iff_lt, ← unitInterval.coe_pos] at h
 
-
-  -- by
-  --   rw [inst.uniformity_idist, le_antisymm_iff, le_iInf_iff, le_iInf_iff]
-
-instance {α ε h} [UniformSpace α] [CompleteSpace α] : CompleteSpace (Restriction α ε h) :=
-  -- FIXME: This is true but painful to prove
-  sorry
-  -- inferInstanceAs (CompleteSpace α)
+instance {α ε h} [UniformSpace α] [CompleteSpace α] : CompleteSpace (Restriction α ε h) := by
+  apply IsUniformInducing.completeSpace (f := Restriction.val)
+  · solve_by_elim
+  · grind only [isComplete_iff_clusterPt, isComplete_iff_ultrafilter, isComplete_iff_ultrafilter',
+      cauchy_iff_exists_le_nhds, = Set.mem_range]
 
 abbrev Restriction.map {α β ε h} (f : α → β) (x : Restriction α ε h) : Restriction β ε h where
   val := f x.val

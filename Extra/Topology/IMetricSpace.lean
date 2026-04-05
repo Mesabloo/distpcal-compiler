@@ -76,6 +76,13 @@ class IMetricSpace (α : Type _) extends PseudoIMetricSpace α where
 
 export IMetricSpace (eq_of_idist_eq_zero)
 
+theorem IMetricSpace.idist_eq_zero_iff {α} {x y : α} [IMetricSpace α] :
+    idist x y = 0 ↔ x = y := by
+  iff_intro h h
+  · exact eq_of_idist_eq_zero _ _ h
+  · subst h
+    rw [idist_self]
+
 @[instance_reducible]
 def IMetricSpace.of_metric_space_of_dist_le_one {α} [inst : MetricSpace α]
   (h : ∀ x y : α, dist x y ≤ 1 := by intros; bound) :

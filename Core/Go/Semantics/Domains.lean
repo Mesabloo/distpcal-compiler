@@ -1284,21 +1284,10 @@ noncomputable section Domain
       inferInstance
 
     /-!
-      How do we define the domain of values, obtained from the following equation:
-      ```
-      𝕍 = ((𝒱 ⇀ ℍ) → 𝕍)                                       -- struct
-        ⊎ (ℕ × (ℕ ⇀ ℍ) → 𝕍)                                   -- array
-        ⊎ (ℕ × ℕ × ℕ × ℍ → 𝕍)                                 -- slice
-        ⊎ ((𝕍 ⇀ ℍ) × 𝔹 → 𝕍)                                   -- map
-        ⊎ (ℕ × Type × ℍ × ℍ → 𝕍)                              -- chan
-        ⊎ (𝔹 → 𝕍)                                             -- bool
-        ⊎ (ℤ → 𝕍)                                             -- int
-        ⊎ (String → 𝕍)                                        -- str
-        ⊎ ((𝒱 ⇀ ℍ) × (𝕍* × 𝔽 × Γ* × (𝒱 ⇀ Γ) → P(𝕍, ⊤)) → 𝕍) -- func
-      ```
-      ?
+      `𝕍` is constructed similarly to `Domain`.
+      This is painful, and we know that it will work.
 
-      For now, let's just axiomatize them. We know they exist (from various results
+      For now, let's just axiomatize `𝕍`. We know it exists (from various results
       of domain theory), we just don't construct them yet.
       `𝕍` is just very cumbersome to define and construct. We'll leave this as
       future work for now.
@@ -1315,5 +1304,8 @@ noncomputable section Domain
       equation `𝕍 = F(𝕍)`.
     -/
     axiom 𝕍_iso : 𝕍.type ≃ᵢ Value.F «Σ» Γ ℍ Typ 𝕍.type
+
+    @[instance]
+    axiom 𝕍_complete : CompleteSpace 𝕍.type
   end Value
 end Domain

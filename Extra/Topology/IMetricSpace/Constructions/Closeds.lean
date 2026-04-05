@@ -31,6 +31,16 @@ namespace IMetric
     unfold hausdorffIDist
     erw [max_comm]
 
+  theorem hausdorffIDist_idist_triangle {α} [PseudoIMetricSpace α] {s t u : Set α} :
+      (hausdorffIDist s u : ℝ) ≤ hausdorffIDist s t + hausdorffIDist t u := by
+    admit
+
+  theorem hausdorffIDist_eq_of_idist_eq_zero {α} [IMetricSpace α] {s t : Set α} (h : hausdorffIDist s t = 0) :
+      s = t := by
+    unfold hausdorffIDist at h
+    erw [sup_eq_bot_iff, iSup₂_eq_bot, iSup₂_eq_bot] at h
+    admit
+
   theorem hausdorffIDist_image_le {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : ∀ x y, idist (Φ x) (Φ y) ≤ idist x y) :
       hausdorffIDist (Φ '' s) (Φ '' t) ≤ hausdorffIDist s t :=
     sorry
@@ -41,34 +51,35 @@ namespace IMetric
 
   theorem hausdorffIDist_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
       hausdorffIDist (closure s) (closure t) = hausdorffIDist s t := by
-    unfold hausdorffIDist
     admit
 
-  theorem hausdorffIDist_zero_iff_closure_eq_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
+  theorem hausdorffIDist_zero_iff_closure_eq_closure {α} [IMetricSpace α] {s t : Set α} :
       hausdorffIDist s t = 0 ↔ closure s = closure t := by
     rw [← hausdorffIDist_closure]
-    -- finish from `eq_of_idist_eq_zero`
-    admit
+    iff_intro h h
+    · apply hausdorffIDist_eq_of_idist_eq_zero
+      assumption
+    · rw [h, hausdorffIDist_self]
 end IMetric
 
 noncomputable instance PseudoIMetricSpace.hausdorff {α} [PseudoIMetricSpace α] : PseudoIMetricSpace (Set α) where
   idist := IMetric.hausdorffIDist
   idist_self _ := IMetric.hausdorffIDist_self
   idist_comm _ _ := IMetric.hausdorffIDist_comm
-  idist_triangle := sorry
+  idist_triangle _ _ _ := IMetric.hausdorffIDist_idist_triangle
   toUniformSpace := .hausdorff α
   uniformity_idist := by
     admit
 
 noncomputable instance IMetricSpace.hausdorff {α} [IMetricSpace α] : IMetricSpace (Set α) where
-  eq_of_idist_eq_zero := by
-    admit
+  eq_of_idist_eq_zero _ _ := IMetric.hausdorffIDist_eq_of_idist_eq_zero
 
 
 /-- Two closed sets are at zero Hausdorff edistance if and only if they coincide. -/
-theorem _root_.IsClosed.hausdorffIDist_zero_iff {α} {s t : Set α} [PseudoIMetricSpace α] (hs : IsClosed s) (ht : IsClosed t) :
+theorem _root_.IsClosed.hausdorffIDist_zero_iff {α} {s t : Set α} [IMetricSpace α] :
     IMetric.hausdorffIDist s t = 0 ↔ s = t := by
-  admit
+  change idist s t = 0 ↔ s = t
+  exact IMetricSpace.idist_eq_zero_iff
 
 open unitInterval in
 theorem IMetric.hausdorffIDist_le_iff {α} [PseudoIMetricSpace α] {s t : Set α} {r : I} :
