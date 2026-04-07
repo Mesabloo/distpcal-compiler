@@ -6,6 +6,9 @@ import Extra.Topology.ClosedEmbedding
 structure Restriction (α : Type _) (ε : unitInterval) (h : ε > 0 := by bound) where
   val : α
 
+instance {α ε h} : Coe α (Restriction α ε h) where
+  coe x := { val := x }
+
 @[ext]
 theorem Restriction.ext_iff {α ε h} {x y : Restriction α ε h} (h : x.val = y.val) : x = y := by
   let ⟨_⟩ := x
@@ -77,6 +80,19 @@ abbrev Restriction.map {α β ε h} (f : α → β) (x : Restriction α ε h) : 
 
 theorem Restriction.map_id {α ε h} {x : Restriction α ε h} : Restriction.map id x = x :=
   rfl
+
+theorem Restriction.map_map {α β γ ε h} {x : Restriction α ε h} {f : α → β} {g : β → γ} :
+    Restriction.map g (Restriction.map f x) = Restriction.map (g ∘ f) x := by
+  rfl
+
+theorem Restriction.mk_comp_val_eq_id {α ε h} : @Restriction.mk α ε h ∘ Restriction.val = id := by
+  rfl
+
+theorem Restriction.val_uniformContinuous {α ε h} [UniformSpace α] : UniformContinuous (@Restriction.val α ε h) := by
+  grind only [uniformContinuous_comap]
+
+theorem Restriction.mk_uniformContinuous {α ε h} [UniformSpace α] : UniformContinuous (@Restriction.mk α ε h) := by
+  exact uniformContinuous_comap' λ ⦃_⦄ h ↦ h
 
 theorem Restriction.map_injective {α β ε h} [TopologicalSpace α] [TopologicalSpace β] {f : α → β}
   (hf : Function.Injective f) :

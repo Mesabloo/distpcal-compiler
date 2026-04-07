@@ -276,3 +276,52 @@ lemma continuous_idist {α} [PseudoIMetricSpace α] :
 nonrec theorem Continuous.idist {α β} [PseudoIMetricSpace α] [TopologicalSpace β] {f g : β → α} (hf : Continuous f) (hg : Continuous g) :
     Continuous λ (b : β) ↦ idist (f b) (g b) :=
   continuous_idist.comp₂ hf hg
+
+section Transport
+  noncomputable def transport (x : ℝ) (h : x ≥ 0) : I where
+    val := x / (1 + x)
+    property := by constructor <;> bound
+
+  @[simp] theorem transport_zero : transport 0 (by rfl) = 0 := by
+    grind only [= transport, = Set.Icc.mk_zero]
+
+  theorem transport_eq {x : ℝ} {hx : x ≥ 0} : transport x hx = 1 - (1 / (1 + x)) := by
+    grind only [= transport]
+
+  theorem transport_add {x y : ℝ} {hx : x ≥ 0} {hy : y ≥ 0} :
+      (transport (x + y) (Left.add_nonneg hx hy) : ℝ) ≤ transport x hx + transport y hy := by
+    unfold transport
+
+    change (x + y) / (1 + (x + y)) ≤ x / (1 + x) + y / (1 + y)
+    rw [add_div]
+    apply add_le_add
+    · rw [div_le_div_iff₀] <;> bound
+    · rw [div_le_div_iff₀] <;> bound
+
+  theorem transport_mono {x y : ℝ} {hx : x ≥ 0} {hy : y ≥ 0} (h : x ≤ y) :
+      transport x hx ≤ transport y hy := by
+    unfold transport
+
+    change x / (1 + x) ≤ y / (1 + y)
+    rw [div_le_div_iff₀]
+    · grind only
+    · positivity
+    · positivity
+
+  open scoped Real in
+  @[instance_reducible]
+  noncomputable def IMetricSpace.transportMetricSpace {α} [MetricSpace α] : IMetricSpace α where
+    idist x y := transport (dist x y) dist_nonneg
+    idist_self x := by rw! [dist_self, transport_zero]; rfl
+    idist_comm x y := by rw! [dist_comm]; rfl
+    idist_triangle x y z := by
+      have : dist x y + dist y z ≥ 0 := by positivity
+
+      trans (transport (dist x y + dist y z) this : ℝ)
+      · exact transport_mono (dist_triangle x y z)
+      · apply transport_add
+    eq_of_idist_eq_zero {x y} h := by
+      generalize_proofs dist_mem_I at h
+      injection h with h
+      grind only [dist_le_zero]
+end Transport
