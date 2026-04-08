@@ -181,8 +181,19 @@ namespace IMetric
       DenseRange f ↔ ∀ x, ∀ r > 0, ∃ y, idist x (f y) < r := by
     rw [Metric.denseRange_iff]
     iff_intro h h
-    · admit
-    · admit
+    · intros x r r_pos
+      exact h x r r_pos
+    · intros x r r_pos
+      obtain ⟨y, idist_lt⟩ := h x ⟨min 1 r, le_min zero_le_one (le_of_lt r_pos), min_le_left _ _⟩ (lt_min zero_lt_one r_pos)
+      exists y
+      by_cases r_le : 1 ≤ r
+      · rw! [min_eq_left r_le] at idist_lt
+        apply LT.lt.trans_le (b := 1)
+        · exact idist_lt
+        · assumption
+      · apply le_of_not_ge at r_le
+        rw! [min_eq_right r_le] at idist_lt
+        exact idist_lt
 end IMetric
 
 @[instance_reducible]
