@@ -46,7 +46,7 @@ namespace GoCal
     | make (name : String) (τ : Typ) (args : init τ)
     /-- Close the given channel, so that no more messages can be sent through it. -/
     | close (chan : Expr)
-    | assign (ref : LHS Typ Expr) (e : Expr)
+    | assign (ref : List (LHS Typ Expr)) (e : Expr)
     | return (e : List Expr)
     | print (e : Expr)
     | go (B : List (Statement init))

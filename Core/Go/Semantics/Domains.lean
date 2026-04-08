@@ -1355,20 +1355,32 @@ noncomputable section Domain
 
       theorem IterativeDomain.seq_uniform_continuous [DecidableEq Γ] {m n} :
           UniformContinuous₂ (IterativeDomain.seq zero («Σ» := «Σ») (m := m) (n := n)) := by
-        admit
+        conv => enter [1, p, q]; rw [IterativeDomain.seq_eq_app]
+        change UniformContinuous₂ (_ ∘ _)
+        apply UniformContinuous₂.bicompl
+        · apply IterativeDomain.ap.uniform_continuous₂
+        · apply IterativeDomain.map_uniformContinuous
+          apply uniformContinuous_const
+        · exact uniformContinuous_id
 
       def DomainUnion.seq [DecidableEq Γ] : DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.seq zero p q)
 
+      open Function in
       theorem DomainUnion.seq_uniform_continuous [DecidableEq Γ] :
           UniformContinuous₂ (DomainUnion.seq zero («Σ» := «Σ»)) := by
+        -- change UniformContinuous₂ (Function.bicompr DomainUnion.mk (Function.bicompl (IterativeDomain.seq zero) Sigma.snd Sigma.snd))
+
         admit
 
       def Domain.seq [DecidableEq Γ] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.seq zero x y)
 
+      /--
+        `Domain.seq`, but the parameter order is reversed.
+      -/
       def Domain.seq' [DecidableEq Γ] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
-        Domain.seq inst.zero
+        flip (Domain.seq inst.zero)
     end Sequence
 
     section Choice
@@ -1505,15 +1517,28 @@ noncomputable section Domain
   end Operators
 
   section
-    set_option quotPrecheck false
-
+    @[inherit_doc]
     scoped[Domain] infixr:100 " <$> " => Domain.map
+
+    @[inherit_doc]
     scoped[Domain] infixl:65 " ⊖ " => Domain.syncClose'
+
+    @[inherit_doc]
     scoped[Domain] infixr:60 " <*> " => Domain.ap'
+
+    @[inherit_doc]
     scoped[Domain] infixl:55 " >>= " => Domain.bind
-    scoped[Domain] infixl:60 " ⬰ " => flip Domain.seq'
+
+    @[inherit_doc]
+    scoped[Domain] infixl:60 " ⬰ " => Domain.seq'
+
+    @[inherit_doc]
     scoped[Domain] infixl:65 " ⊻ " => Domain.choice
+
+    @[inherit_doc]
     scoped[Domain] notation:50 p:51 " ∖[" Ω:0 "] " c:50 => Domain.hide' c Ω p
+
+    @[inherit_doc]
     scoped[Domain] infixl:60 " ‖ " => Domain.parallel'
   end
 

@@ -156,6 +156,7 @@ noncomputable section
           | .if e S₁ S₂ :: ss =>
             Statement.denotation ξ ς ss ⬰ ((Statement.denotation ξ ς S₁ ⬰ guard ξ ς e) ⊻ (Statement.denotation ξ ς S₂ ⬰ guard ξ ς (.prefix .«¬» e)))
           | .while e S :: ss =>
+            -- NOTE: we show in `while_seq_cauchy` that the limit is actually defined
             Statement.denotation ξ ς ss ⬰ lim (Filter.atTop.map (while_seq ξ ς e S))
           -- close
           -- select

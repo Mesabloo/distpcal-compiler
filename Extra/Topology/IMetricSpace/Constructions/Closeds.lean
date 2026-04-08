@@ -46,9 +46,8 @@ namespace IMetric
   lemma hausdorffIDist_ge_hausdorffInfIDist {α : Type*} [PseudoIMetricSpace α]
       {x : α} {s t : Set α} (hx : x ∈ s) :
       IMetric.hausdorffInfIDist x t ≤ IMetric.hausdorffIDist s t := by
-    unfold IMetric.hausdorffIDist IMetric.hausdorffInfIDist
     change ⨅ z ∈ t, idist x z ≤ max (⨆ y ∈ s, ⨅ z ∈ t, idist y z) (⨆ y ∈ t, ⨅ z ∈ s, idist y z)
-    exact le_trans (le_iSup₂ (f := fun y _ => ⨅ z ∈ t, idist y z) x hx) le_sup_left
+    exact le_trans (le_iSup₂ (f := λ y _ ↦ ⨅ z ∈ t, idist y z) x hx) le_sup_left
 
   -- hausdorffIDist s ∅ = 1 when s is nonempty
   lemma hausdorffIDist_empty_right {α : Type*} [PseudoIMetricSpace α] {s : Set α} (hs : s.Nonempty) :
@@ -67,17 +66,25 @@ namespace IMetric
   private lemma exists_lt_hausdorffInfIDist {α : Type*} [PseudoIMetricSpace α]
       {x : α} {s : Set α} (δ : ℝ) (δ_pos : δ > 0) (h_lt : (IMetric.hausdorffInfIDist x s : ℝ) < 1) :
       ∃ y ∈ s, (idist x y : ℝ) < (IMetric.hausdorffInfIDist x s : ℝ) + δ := by
-    have r_mem : min 1 ((IMetric.hausdorffInfIDist x s : ℝ) + δ) ∈ Set.Icc 0 1 :=
-      ⟨le_min zero_le_one (by linarith [(IMetric.hausdorffInfIDist x s).2.1]), min_le_left _ _⟩
+    have r_mem : min 1 ((IMetric.hausdorffInfIDist x s : ℝ) + δ) ∈ unitInterval := by
+      constructor
+      · apply le_min zero_le_one
+        grind only [= Set.mem_Icc]
+      · apply min_le_left
 
     set r : unitInterval := ⟨min 1 ((IMetric.hausdorffInfIDist x s : ℝ) + δ), r_mem⟩
 
     have hr_gt : IMetric.hausdorffInfIDist x s < r := by
-      rw [← Subtype.coe_lt_coe]; simp only [r]; exact lt_min h_lt (by linarith)
+      change (hausdorffInfIDist x s : ℝ) < (min 1 _ : ℝ)
+      apply lt_min h_lt
+      linarith
 
     rw [lt_hausdorffInfIDist_iff] at hr_gt
     obtain ⟨y, hy, hlt_y⟩ := hr_gt
-    exact ⟨y, hy, lt_of_lt_of_le (Subtype.coe_lt_coe.mpr hlt_y) (min_le_right _ _)⟩
+    exists y, hy
+    apply lt_of_lt_of_le
+    · exact hlt_y
+    · apply min_le_right
 
   -- Key triangle helper: infIDist x t ≤ infIDist x s + hausdorffIDist s t
   private lemma hausdorffInfIDist_le_add {α : Type*} [PseudoIMetricSpace α] (x : α) (s t : Set α) :
@@ -124,7 +131,7 @@ namespace IMetric
       (⨆ x ∈ s, f x : unitInterval).val ≤ b + c := by
     rcases le_or_gt 1 (b + c) with h | h
     · exact le_trans (⨆ x ∈ s, f x).2.2 h
-    · have hmem : b + c ∈ Set.Icc 0 1 := ⟨hbc, le_of_lt h⟩
+    · have hmem : b + c ∈ unitInterval := ⟨hbc, le_of_lt h⟩
       set r : unitInterval := ⟨b + c, hmem⟩
       have : (⨆ x ∈ s, f x : unitInterval) ≤ r := by
         apply iSup₂_le
@@ -157,27 +164,169 @@ namespace IMetric
         congr 1; exact hausdorffIDist_comm
       linarith
 
+  -- infIDist (Φ x) (Φ '' t) ≤ infIDist x t when Φ is non-expansive
+  lemma hausdorffInfIDist_image_le {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β]
+      {t : Set α} {Φ : α → β} (hΦ : ∀ x y, idist (Φ x) (Φ y) ≤ idist x y) (x : α) :
+      IMetric.hausdorffInfIDist (Φ x) (Φ '' t) ≤ IMetric.hausdorffInfIDist x t := by
+    unfold IMetric.hausdorffInfIDist; rw [iInf_image]
+    exact iInf₂_mono (fun y _ => hΦ x y)
+
   theorem hausdorffIDist_image_le {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : ∀ x y, idist (Φ x) (Φ y) ≤ idist x y) :
-      hausdorffIDist (Φ '' s) (Φ '' t) ≤ hausdorffIDist s t :=
-    sorry
+      hausdorffIDist (Φ '' s) (Φ '' t) ≤ hausdorffIDist s t := by
+    unfold hausdorffIDist; apply max_le_max
+    · rw [iSup_image]; exact iSup₂_mono (fun x _ => hausdorffInfIDist_image_le h x)
+    · rw [iSup_image]; exact iSup₂_mono (fun y _ => hausdorffInfIDist_image_le h y)
+
+  -- infIDist (Φ x) (Φ '' t) = infIDist x t when Φ is an isometry
+  lemma hausdorffInfIDist_image {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β]
+      {t : Set α} {Φ : α → β} (hΦ : Isometry Φ) (x : α) :
+      IMetric.hausdorffInfIDist (Φ x) (Φ '' t) = IMetric.hausdorffInfIDist x t := by
+    unfold IMetric.hausdorffInfIDist; rw [iInf_image]; simp_rw [hΦ.to_idist_eq]
 
   theorem hausdorffIDist_image {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s t : Set α} {Φ : α → β} (h : Isometry Φ) :
-      hausdorffIDist (Φ '' s) (Φ '' t) = hausdorffIDist s t :=
-    sorry
+      hausdorffIDist (Φ '' s) (Φ '' t) = hausdorffIDist s t := by
+    simp_rw [hausdorffIDist, iSup_image, hausdorffInfIDist_image h]
+
+  -- infIDist x (closure s) = infIDist x s: closure adds limit points approached from s
+  lemma hausdorffInfIDist_closure {α} [PseudoIMetricSpace α] (x : α) (s : Set α) :
+      IMetric.hausdorffInfIDist x (closure s) = IMetric.hausdorffInfIDist x s := by
+    unfold IMetric.hausdorffInfIDist
+    apply le_antisymm (iInf_le_iInf_of_subset subset_closure)
+    apply le_iInf₂; intro y hy; rw [IMetric.mem_closure_iff] at hy
+    apply Subtype.coe_le_coe.mp; apply le_of_forall_pos_le_add; intro δ δ_pos
+    have hε : min 1 (δ/2) > 0 := by positivity
+    obtain ⟨z, hz, hyz⟩ := hy ⟨min 1 (δ/2), Set.mem_Icc.mpr ⟨le_of_lt hε, min_le_left _ _⟩⟩
+        (by exact_mod_cast hε)
+    have h1 : (⨅ w ∈ s, idist x w : unitInterval).val ≤ (idist x z : ℝ) :=
+      Subtype.coe_le_coe.mpr (iInf₂_le _ hz)
+    have h2 : (idist y z : ℝ) < δ :=
+      lt_of_lt_of_le (lt_of_lt_of_le (Subtype.coe_lt_coe.mpr hyz) (min_le_right _ _)) (by linarith)
+    linarith [idist_triangle x y z]
+
+  -- The sup of infIDist · t over closure s equals the sup over s:
+  -- closure adds points approached from s, but the function x ↦ infIDist x t is uniformly
+  -- continuous so the sup over the closure cannot exceed the sup over the set.
+  lemma iSup_hausdorffInfIDist_closure {α} [PseudoIMetricSpace α] (s t : Set α) :
+      ⨆ x ∈ closure s, IMetric.hausdorffInfIDist x t = ⨆ x ∈ s, IMetric.hausdorffInfIDist x t := by
+    apply le_antisymm _ (iSup_le_iSup_of_subset subset_closure)
+    apply iSup₂_le; intro x hx; rw [IMetric.mem_closure_iff] at hx
+    apply Subtype.coe_le_coe.mp; apply le_of_forall_pos_le_add; intro ε ε_pos
+    have hε : min 1 (ε/2) > 0 := by positivity
+    obtain ⟨y, hy, hxy⟩ := hx ⟨min 1 (ε/2), Set.mem_Icc.mpr ⟨le_of_lt hε, min_le_left _ _⟩⟩
+        (by exact_mod_cast hε)
+    have hxy_lt : (idist x y : ℝ) < ε :=
+      lt_of_lt_of_le (lt_of_lt_of_le (Subtype.coe_lt_coe.mpr hxy) (min_le_right _ _)) (by linarith)
+    have hyt : (IMetric.hausdorffInfIDist y t : ℝ) ≤
+        (⨆ z ∈ s, IMetric.hausdorffInfIDist z t : unitInterval).val :=
+      Subtype.coe_le_coe.mpr (le_iSup₂ (f := fun z _ => IMetric.hausdorffInfIDist z t) y hy)
+    -- infIDist x t ≤ idist x y + infIDist y t (reverse triangle inequality)
+    have htri : (IMetric.hausdorffInfIDist x t : ℝ) ≤ idist x y + IMetric.hausdorffInfIDist y t := by
+      apply le_of_forall_pos_le_add; intro δ δ_pos
+      rcases lt_or_ge (IMetric.hausdorffInfIDist y t : ℝ) 1 with h | h
+      · have hr_mem : min 1 (IMetric.hausdorffInfIDist y t + δ/2) ∈ unitInterval :=
+          ⟨le_min zero_le_one (by linarith [(IMetric.hausdorffInfIDist y t).2.1]), min_le_left _ _⟩
+        set r := (⟨min 1 (IMetric.hausdorffInfIDist y t + δ/2), hr_mem⟩ : unitInterval)
+        have hrgt : IMetric.hausdorffInfIDist y t < r := by
+          rw [← Subtype.coe_lt_coe]; exact lt_min h (by linarith)
+        rw [lt_hausdorffInfIDist_iff] at hrgt
+        obtain ⟨z, hz, hyz⟩ := hrgt
+        have hxz : (IMetric.hausdorffInfIDist x t : ℝ) ≤ idist x z := by
+          unfold IMetric.hausdorffInfIDist; exact Subtype.coe_le_coe.mpr (iInf₂_le _ hz)
+        linarith [idist_triangle x y z,
+                  lt_of_lt_of_le (Subtype.coe_lt_coe.mpr hyz) (min_le_right _ _)]
+      · linarith [(IMetric.hausdorffInfIDist x t).2.2, (idist x y).2.1,
+                  le_antisymm (IMetric.hausdorffInfIDist y t).2.2 h]
+    linarith
 
   theorem hausdorffIDist_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
       hausdorffIDist (closure s) (closure t) = hausdorffIDist s t := by
-    admit
+    simp only [hausdorffIDist, hausdorffInfIDist_closure, iSup_hausdorffInfIDist_closure]
+
+  -- infIDist x t = ⊥ iff x is in the closure of t
+  lemma mem_closure_iff_hausdorffInfIDist_eq_bot {α} [PseudoIMetricSpace α] {x : α} {t : Set α} :
+      IMetric.hausdorffInfIDist x t = ⊥ ↔ x ∈ closure t := by
+    constructor
+    · intro h
+      rw [IMetric.mem_closure_iff]; intro r r_pos
+      rw [← lt_hausdorffInfIDist_iff, h]; exact r_pos
+    · intro hx
+      rw [IMetric.mem_closure_iff] at hx
+      apply eq_bot_iff.mpr; by_contra h; push_neg at h
+      obtain ⟨y, hy, hxy⟩ := hx (IMetric.hausdorffInfIDist x t) h
+      exact absurd (lt_of_le_of_lt (iInf₂_le (f := fun y _ => idist x y) y hy) hxy) (lt_irrefl _)
 
   theorem hausdorffIDist_zero_iff_closure_eq_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
       hausdorffIDist s t = 0 ↔ closure s = closure t := by
-    sorry
+    constructor
+    · intro h
+      rw [← hausdorffIDist_closure] at h
+      unfold hausdorffIDist at h; change max _ _ = ⊥ at h; rw [max_eq_bot] at h
+      obtain ⟨h1, h2⟩ := h; rw [iSup₂_eq_bot] at h1 h2
+      apply Set.Subset.antisymm
+      · intro x hx
+        have := (mem_closure_iff_hausdorffInfIDist_eq_bot.mp (h1 x hx))
+        rwa [closure_closure] at this
+      · intro y hy
+        have := (mem_closure_iff_hausdorffInfIDist_eq_bot.mp (h2 y hy))
+        rwa [closure_closure] at this
+    · intro h; rw [← hausdorffIDist_closure, h, hausdorffIDist_self]
 
-  /-- Two closed sets are at zero Hausdorff edistance if and only if they coincide. -/
   theorem hausdorffIDist_eq_of_idist_eq_zero {α} {s t : Set α} [PseudoIMetricSpace α] (hs : IsClosed s) (ht : IsClosed t) :
       IMetric.hausdorffIDist s t = 0 ↔ s = t := by
     rw [hausdorffIDist_zero_iff_closure_eq_closure, IsClosed.closure_eq hs, IsClosed.closure_eq ht]
 end IMetric
+
+-- Helper: for (s,t) in hausdorffEntourage, hausdorffIDist s t < ε (requires ε ≤ 1)
+private lemma mem_hausdorffEntourage_of_hausdorffIDist_lt {α : Type*} [PseudoIMetricSpace α]
+    {s t : Set α} {ε : ℝ} (hε : 0 < ε) (hε1 : ε ≤ 1)
+    (h : (IMetric.hausdorffIDist s t : ℝ) < ε) :
+    (s, t) ∈ hausdorffEntourage {p : α × α | (idist p.1 p.2 : ℝ) < ε} := by
+  simp only [hausdorffEntourage, SetRel.preimage, SetRel.image, Set.subset_def, Set.mem_setOf_eq]
+  set r : unitInterval := ⟨ε, le_of_lt hε, hε1⟩
+  have hr : IMetric.hausdorffIDist s t < r := h
+  rw [show IMetric.hausdorffIDist s t =
+      max (⨆ x ∈ s, IMetric.hausdorffInfIDist x t)
+          (⨆ y ∈ t, IMetric.hausdorffInfIDist y s) from rfl, max_lt_iff] at hr
+  obtain ⟨hr1, hr2⟩ := hr
+
+  constructor
+  · intros x hx
+    have := lt_of_le_of_lt (le_iSup₂ (f := λ x _ ↦ IMetric.hausdorffInfIDist x t) x hx) hr1
+    rw [IMetric.lt_hausdorffInfIDist_iff] at this
+    obtain ⟨y, hy, hxy⟩ := this
+    exists y, hy
+  · intros y hy
+    have := lt_of_le_of_lt (le_iSup₂ (f := λ y _ ↦ IMetric.hausdorffInfIDist y s) y hy) hr2
+    rw [IMetric.lt_hausdorffInfIDist_iff] at this
+    obtain ⟨x, hx, hyx⟩ := this
+    exists x, hx
+    rw [idist_comm];
+    exact hyx
+
+-- Helper: for (s,t) in hausdorffEntourage{idist < ε}, hausdorffIDist s t ≤ ε (requires ε ≤ 1)
+private lemma hausdorffIDist_le_of_mem_hausdorffEntourage {α : Type*} [PseudoIMetricSpace α]
+    {s t : Set α} {ε : ℝ} (hε : 0 < ε) (hε1 : ε ≤ 1)
+    (h : (s, t) ∈ hausdorffEntourage {p : α × α | (idist p.1 p.2 : ℝ) < ε}) :
+    (IMetric.hausdorffIDist s t : ℝ) ≤ ε := by
+  simp only [hausdorffEntourage, SetRel.preimage, SetRel.image, Set.subset_def, Set.mem_setOf_eq] at h
+  obtain ⟨h1, h2⟩ := h
+  change (max (⨆ x ∈ s, IMetric.hausdorffInfIDist x t : unitInterval)
+            (⨆ y ∈ t, IMetric.hausdorffInfIDist y s : unitInterval) : ℝ) ≤ ε
+  push_cast [max_le_iff]
+  constructor
+  · apply le_of_forall_pos_le_add; intro δ δ_pos
+    have : (⨆ x ∈ s, IMetric.hausdorffInfIDist x t : unitInterval) ≤ ⟨ε, le_of_lt hε, hε1⟩ :=
+      iSup₂_le fun x hx => by
+        obtain ⟨y, hy, hxy⟩ := h1 x hx
+        exact le_trans (iInf₂_le (f := fun y _ => idist x y) y hy) (by exact_mod_cast le_of_lt hxy)
+    linarith [Subtype.coe_le_coe.mpr this]
+  · apply le_of_forall_pos_le_add; intro δ δ_pos
+    have : (⨆ y ∈ t, IMetric.hausdorffInfIDist y s : unitInterval) ≤ ⟨ε, le_of_lt hε, hε1⟩ :=
+      iSup₂_le fun y hy => by
+        obtain ⟨x, hx, hxy⟩ := h2 y hy
+        exact le_trans (iInf₂_le (f := fun x _ => idist y x) x hx)
+                       (by rw [idist_comm]; exact_mod_cast le_of_lt hxy)
+    linarith [Subtype.coe_le_coe.mpr this]
 
 noncomputable instance PseudoIMetricSpace.hausdorff {α} [PseudoIMetricSpace α] : PseudoIMetricSpace (Set α) where
   idist := IMetric.hausdorffIDist
@@ -186,29 +335,66 @@ noncomputable instance PseudoIMetricSpace.hausdorff {α} [PseudoIMetricSpace α]
   idist_triangle _ _ _ := IMetric.hausdorffIDist_idist_triangle
   toUniformSpace := .hausdorff α
   uniformity_idist := by
-    admit
+    -- The Hausdorff uniform space uniformity = ⨅ ε > 0, 𝓟{hausdorffIDist < ε}
+    -- via equivalence of filter bases with the entourage-based description.
+    have lhs_basis : ((uniformity α).lift' hausdorffEntourage).HasBasis
+        (fun ε : ℝ => 0 < ε) (fun ε => hausdorffEntourage {p : α × α | (idist p.1 p.2 : ℝ) < ε}) :=
+      IMetric.uniformity_basis_idist.lift' monotone_hausdorffEntourage
+    have rhs_basis : (⨅ ε > 0, Filter.principal {p : Set α × Set α |
+        (IMetric.hausdorffIDist p.1 p.2 : ℝ) < ε}).HasBasis
+        (fun ε : ℝ => 0 < ε) (fun ε => {p : Set α × Set α |
+        (IMetric.hausdorffIDist p.1 p.2 : ℝ) < ε}) :=
+      Filter.hasBasis_biInf_principal
+        (fun a (ha : a ∈ Set.Ioi 0) b (hb : b ∈ Set.Ioi 0) =>
+          ⟨min a b, Set.mem_Ioi.mpr (lt_min ha hb),
+            fun p hp => Set.mem_setOf.mpr (lt_of_lt_of_le (Set.mem_setOf.mp hp) (min_le_left _ _)),
+            fun p hp => Set.mem_setOf.mpr (lt_of_lt_of_le (Set.mem_setOf.mp hp) (min_le_right _ _))⟩)
+        ⟨1, Set.mem_Ioi.mpr one_pos⟩
+    show (uniformity α).lift' hausdorffEntourage = _
+    apply le_antisymm
+    · -- For each ε > 0, show {hausdorffIDist < ε} ∈ LHS filter
+      rw [rhs_basis.ge_iff]
+      intro ε hε
+      apply Filter.mem_of_superset (lhs_basis.mem_of_mem (show 0 < min 1 (ε / 2) by positivity))
+      intro ⟨s, t⟩ hst
+      exact Set.mem_setOf.mpr <| lt_of_le_of_lt
+        (hausdorffIDist_le_of_mem_hausdorffEntourage (by positivity) (min_le_left _ _) hst)
+        (lt_of_le_of_lt (min_le_right _ _) (by linarith))
+    · -- For each ε > 0, show hausdorffEntourage{idist < ε} ∈ RHS filter
+      rw [lhs_basis.ge_iff]
+      intro ε hε
+      apply Filter.mem_of_superset (rhs_basis.mem_of_mem (show min 1 ε ∈ Set.Ioi 0 from
+        Set.mem_Ioi.mpr (by positivity)))
+      intro ⟨s, t⟩ hst
+      apply monotone_hausdorffEntourage (Set.setOf_subset_setOf.mpr
+        fun p (hp : (idist p.1 p.2 : ℝ) < min 1 ε) => lt_of_lt_of_le hp (min_le_right _ _))
+      exact mem_hausdorffEntourage_of_hausdorffIDist_lt (by positivity) (min_le_left _ _)
+        (Set.mem_setOf.mp hst)
 
+-- If for every x ∈ s there exists y ∈ t with idist x y ≤ r, and vice versa,
+-- then hausdorffIDist s t ≤ r.
 open unitInterval in
 theorem IMetric.hausdorffIDist_le_iff {α} [PseudoIMetricSpace α] {s t : Set α} {r : I} :
-    IMetric.hausdorffIDist s t ≤ r ↔ (∀ x ∈ s, ∃ y ∈ t, idist x y ≤ r) ∧ (∀ y ∈ t, ∃ x ∈ s, idist x y ≤ r) := by
-  sorry
+    (∀ x ∈ s, ∃ y ∈ t, idist x y ≤ r) ∧ (∀ y ∈ t, ∃ x ∈ s, idist x y ≤ r) →
+    IMetric.hausdorffIDist s t ≤ r := by
+  intro ⟨h1, h2⟩
+  unfold IMetric.hausdorffIDist IMetric.hausdorffInfIDist
+  apply max_le
+  · apply iSup₂_le; intro x hx
+    obtain ⟨y, hy, hxy⟩ := h1 x hx
+    exact iInf₂_le_of_le y hy hxy
+  · apply iSup₂_le; intro y hy
+    obtain ⟨x, hx, hxy⟩ := h2 y hy
+    exact iInf₂_le_of_le x hx (idist_comm x y ▸ hxy)
 
-open unitInterval in
 theorem IMetric.hausdorffIDist_image_le_of_le_sup {α} [PseudoIMetricSpace α] {s : Set α} {f : α → α} :
     IMetric.hausdorffIDist s (f '' s) ≤ ⨆ x ∈ s, idist x (f x) := by
-  rw [IMetric.hausdorffIDist_le_iff]
-  constructor
-  · intros x x_in
-    rw [Set.exists_mem_image]
-    exists x, x_in
-    apply le_iSup₂ (f := λ x (_ : x ∈ s) ↦ idist x (f x))
-    assumption
-  · intros y y_in
-    rw [Set.mem_image] at y_in
-    obtain ⟨x, x_in, rfl⟩ := y_in
-    exists x, x_in
-    apply le_iSup₂ (f := λ x (_ : x ∈ s) ↦ idist x (f x))
-    assumption
+  apply IMetric.hausdorffIDist_le_iff
+  exact ⟨fun x x_in => ⟨f x, Set.mem_image_of_mem _ x_in,
+          le_iSup₂ (f := fun x _ => idist x (f x)) x x_in⟩,
+         fun y y_in => by
+           obtain ⟨x, x_in, rfl⟩ := y_in
+           exact ⟨x, x_in, le_iSup₂ (f := fun x _ => idist x (f x)) x x_in⟩⟩
 
 theorem Set.image_isometry {α β} {f : α → β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] (hf : Isometry f) :
     Isometry (Set.image f) := by
@@ -225,12 +411,34 @@ noncomputable instance {α : Type u} [IMetricSpace α] : IMetricSpace (Closeds �
     · exact s.isClosed
     · exact t.isClosed
 
+-- Helper for completeness proof: from hausdorffIDist s t < ε, get a nearby point in t
+lemma IMetric.exists_idist_lt_of_hausdorffIDist_lt {α : Type*} [PseudoIMetricSpace α]
+    {s t : Set α} {x : α} (hx : x ∈ s) {ε : ℝ} (hε : 0 < ε) (hε1 : ε ≤ 1)
+    (h : (IMetric.hausdorffIDist s t : ℝ) < ε) :
+    ∃ y ∈ t, (idist x y : ℝ) < ε := by
+  have : IMetric.hausdorffInfIDist x t < ⟨ε, le_of_lt hε, hε1⟩ := by
+    apply lt_of_le_of_lt
+    apply IMetric.hausdorffIDist_ge_hausdorffInfIDist hx
+    exact h
+  rw [IMetric.lt_hausdorffInfIDist_iff] at this
+  obtain ⟨y, hy, hxy⟩ := this
+  exists y, hy
+
 instance (priority := high) Closeds.instCompleteSpace {α : Type u} [IMetricSpace α] [CompleteSpace α] : CompleteSpace (Closeds α) :=
   -- This can't be equal to `TopologicalSpace.Closeds.instCompleteSpace` (from `Mathlib.Topology.MetricSpace.Closeds`)
   -- otherwise there is an instance mismatch further down, when using the completeness of `Closeds α`.
   -- In fact, this module cannot even be imported without clashing with this file's definitions.
   --
-  -- So I'll guess we'll have to do the proof again.
+  -- Proof strategy (adapting Mathlib's EMetric proof to IMetric):
+  -- Use `Metric.complete_of_convergent_controlled_sequences` with B n = (1/2)^(n+1).
+  -- Given a sequence s : ℕ → Closeds α with dist (s n) (s m) < B N for all N ≤ n, m,
+  -- define the limit t0 = ⋂ n, closure (⋃ m ≥ n, ↑(s m)).
+  -- (I1): ∀ x ∈ s n, ∃ y ∈ t0, dist x y ≤ 2 * B n.
+  --   Build inductively a sequence z with z 0 = x, z k ∈ s (n+k),
+  --   dist (z k) (z (k+1)) ≤ B n / 2^k, using exists_idist_lt_of_hausdorffIDist_lt.
+  --   Then use cauchySeq_of_le_geometric_two (dist version) + completeness for convergence.
+  -- (I2): ∀ y ∈ t0, ∃ x ∈ s n, dist y x ≤ 2 * B n (easy direction).
+  -- Conclude using IMetric.hausdorffIDist_le_iff.
   sorry
 
 def Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] (f : α → β) (hf : Topology.IsClosedEmbedding f) (x : Closeds α) : Closeds β where
