@@ -84,18 +84,24 @@ theorem IMetricSpace.idist_eq_zero_iff {α} {x y : α} [IMetricSpace α] :
     rw [idist_self]
 
 @[instance_reducible]
-def IMetricSpace.of_metric_space_of_dist_le_one {α} [inst : MetricSpace α]
+def PseudoIMetricSpace.of_metric_space_of_dist_le_one {α} [inst : PseudoMetricSpace α]
   (h : ∀ x y : α, dist x y ≤ 1 := by intros; bound) :
-    IMetricSpace α where
+    PseudoIMetricSpace α where
   idist x y := ⟨dist x y, dist_nonneg, h x y⟩
   idist_self x := by rw! [dist_self]; rfl
   idist_comm x y := by rw! [dist_comm]; rfl
   idist_triangle x y z := dist_triangle x y z
+  toUniformSpace := inst.toUniformSpace
+  uniformity_idist := by rw [inst.uniformity_dist]
+
+@[instance_reducible]
+def IMetricSpace.of_metric_space_of_dist_le_one {α} [inst : MetricSpace α]
+  (h : ∀ x y : α, dist x y ≤ 1 := by intros; bound) :
+    IMetricSpace α where
+  __ := PseudoIMetricSpace.of_metric_space_of_dist_le_one h
   eq_of_idist_eq_zero {x y} eq := by
     replace eq : dist x y = 0 := by injection eq
     exact eq_of_dist_eq_zero eq
-  toUniformSpace := inst.toUniformSpace
-  uniformity_idist := by rw [inst.uniformity_dist]
 
 instance (priority := low) {α} [inst : PseudoIMetricSpace α] : PseudoMetricSpace α where
   dist x y := idist x y

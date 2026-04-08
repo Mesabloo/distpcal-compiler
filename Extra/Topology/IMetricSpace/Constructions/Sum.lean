@@ -1,13 +1,13 @@
 import Extra.Topology.IMetricSpace
 import Mathlib.Topology.MetricSpace.Gluing
 
-instance {α β} [IMetricSpace α] [IMetricSpace β] : IDist (α ⊕ β) where
+instance {α β} [IDist α] [IDist β] : IDist (α ⊕ β) where
   idist
     | .inl x, .inl y | .inr x, .inr y => idist x y
     | .inl _, .inr _ | .inr _, .inl _ => ⊤
 
 open Uniformity in
-theorem Sum.mem_uniformity {X Y} [IMetricSpace X] [IMetricSpace Y] (s : Set ((X ⊕ Y) × (X ⊕ Y))) :
+theorem Sum.mem_uniformity {X Y} [PseudoIMetricSpace X] [PseudoIMetricSpace Y] (s : Set ((X ⊕ Y) × (X ⊕ Y))) :
     s ∈ 𝓤 (X ⊕ Y) ↔ ∃ ε > 0, ∀ a b, (idist a b : ℝ) < ε → (a, b) ∈ s := by
   constructor
   · rintro ⟨hsX, hsY⟩
@@ -22,7 +22,7 @@ theorem Sum.mem_uniformity {X Y} [IMetricSpace X] [IMetricSpace Y] (s : Set ((X 
   · rintro ⟨ε, ε0, H⟩
     constructor <;> rw [Filter.mem_map, IMetric.mem_uniformity_idist] <;> exact ⟨ε, ε0, fun _ _ h => H _ _ h⟩
 
-instance Sum.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMetricSpace (α ⊕ β) where
+instance Sum.instPseudoIMetricSpace {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] : PseudoIMetricSpace (α ⊕ β) where
   idist_self x := by
     cases x <;> dsimp <;> erw [idist_self] <;> rfl
   idist_comm x y := by
@@ -45,6 +45,12 @@ instance Sum.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMet
     · change ↑(⊤ : unitInterval) ≤ (_ : ℝ) + ↑(⊤ : unitInterval)
       grind only [= Set.mem_Icc]
     · apply idist_triangle
+  toUniformSpace := Sum.instUniformSpace
+  uniformity_idist := by
+    apply uniformity_dist_of_mem_uniformity _ (λ x y ↦ idist x y : _ → _ → ℝ)
+    apply Sum.mem_uniformity
+
+instance Sum.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMetricSpace (α ⊕ β) where
   eq_of_idist_eq_zero x y h := by
     cases x <;> cases y <;> dsimp at h
     · apply eq_of_idist_eq_zero at h
@@ -55,12 +61,8 @@ instance Sum.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMet
       grind only [unitInterval.coe_ne_one, unitInterval.coe_ne_zero]
     · apply eq_of_idist_eq_zero at h
       rw [h]
-  toUniformSpace := Sum.instUniformSpace
-  uniformity_idist := by
-    apply uniformity_dist_of_mem_uniformity _ (λ x y ↦ idist x y : _ → _ → ℝ)
-    apply Sum.mem_uniformity
 
-theorem Isometry.sumMap' {W X Y Z} {f : W → X} {g : Y → Z} [IMetricSpace W] [IMetricSpace X] [IMetricSpace Y] [IMetricSpace Z]
+theorem Isometry.sumMap' {W X Y Z} {f : W → X} {g : Y → Z} [PseudoIMetricSpace W] [PseudoIMetricSpace X] [PseudoIMetricSpace Y] [PseudoIMetricSpace Z]
   (hf : ∀ x y, idist (f x) (f y) = idist x y) (hg : ∀ x y, idist (g x) (g y) = idist x y) :
     ∀ x y, idist (Sum.map f g x) (Sum.map f g y) = idist x y := by
   intros x y
@@ -70,7 +72,7 @@ theorem Isometry.sumMap' {W X Y Z} {f : W → X} {g : Y → Z} [IMetricSpace W] 
   · rfl
   · erw [hg]; rfl
 
-theorem Isometry.sumMap {W X Y Z} {f : W → X} {g : Y → Z} [IMetricSpace W] [IMetricSpace X] [IMetricSpace Y] [IMetricSpace Z]
+theorem Isometry.sumMap {W X Y Z} {f : W → X} {g : Y → Z} [PseudoIMetricSpace W] [PseudoIMetricSpace X] [PseudoIMetricSpace Y] [PseudoIMetricSpace Z]
   (hf : Isometry f) (hg : Isometry g) :
     Isometry (Sum.map f g) := by
   apply Isometry.of_idist_eq

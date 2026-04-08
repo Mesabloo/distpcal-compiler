@@ -27,7 +27,7 @@ instance {α ε h} [inst : TopologicalSpace α] : TopologicalSpace (Restriction 
 instance Restriction.instUniformSpace {α ε h} [inst : UniformSpace α] : UniformSpace (Restriction α ε h) :=
   inst.comap Restriction.val
 
-noncomputable instance {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restriction α ε h) where
+noncomputable instance {α ε h} [inst : PseudoIMetricSpace α] : PseudoIMetricSpace (Restriction α ε h) where
   idist x y := ε * idist x.val y.val
   idist_self x := by
     rw [idist_self, MonoidWithZero.mul_zero]
@@ -39,14 +39,6 @@ noncomputable instance {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restri
     apply mul_le_mul (by rfl) (idist_triangle x.val y.val z.val)
     · grind only [= Set.mem_Icc]
     · grind only [= Set.mem_Icc]
-  eq_of_idist_eq_zero x y h := by
-    ext : 1
-    apply eq_of_idist_eq_zero
-    rw [mul_eq_zero] at h
-    obtain h|h := h
-    · let ⟨_⟩ := x
-      grind only
-    · assumption
   toUniformSpace := Restriction.instUniformSpace
   uniformity_idist := by
     conv_lhs =>
@@ -68,6 +60,17 @@ noncomputable instance {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restri
       intros x h'
       rwa [Set.Icc.coe_mul, mul_comm, mul_lt_mul_iff_left₀ ?_] at h'
       · rwa [gt_iff_lt, ← unitInterval.coe_pos] at h
+
+noncomputable instance {α ε h} [inst : IMetricSpace α] : IMetricSpace (Restriction α ε h) where
+  eq_of_idist_eq_zero x y h := by
+    ext : 1
+    apply eq_of_idist_eq_zero
+    change ε * idist x.val y.val = 0 at h
+    rw [mul_eq_zero] at h
+    obtain h|h := h
+    · let ⟨_⟩ := x
+      grind only
+    · assumption
 
 instance {α ε h} [UniformSpace α] [CompleteSpace α] : CompleteSpace (Restriction α ε h) := by
   apply IsUniformInducing.completeSpace (f := Restriction.val)
@@ -112,13 +115,13 @@ macro_rules
 | `(tactic| is_closed_embedding_step) =>
   `(tactic| apply Restriction.map.isClosedEmbedding)
 
-theorem Restriction.map_isometry' {α β ε h} [IMetricSpace α] [IMetricSpace β] {f : α → β}
+theorem Restriction.map_isometry' {α β ε h} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {f : α → β}
   (hf : ∀ x y, idist (f x) (f y) = idist x y) :
     ∀ x y, idist (@Restriction.map _ _ ε h f x) (Restriction.map f y) = idist x y := by
   change ∀ (x y : Restriction α ε h), ε * idist (f x.val) (f y.val) = ε * idist x.val y.val
   simp [hf]
 
-theorem Restriction.map_isometry {α β ε h} [IMetricSpace α] [IMetricSpace β] {f : α → β}
+theorem Restriction.map_isometry {α β ε h} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {f : α → β}
   (hf : Isometry f) :
     Isometry (@Restriction.map _ _ ε h f) := by
   apply Isometry.of_idist_eq
@@ -126,7 +129,7 @@ theorem Restriction.map_isometry {α β ε h} [IMetricSpace α] [IMetricSpace β
   apply Isometry.to_idist_eq
   exact hf
 
-theorem Restriction.uniformContinuous_map {α β ε h} [IMetricSpace α] [IMetricSpace β] {f : α → β}
+theorem Restriction.uniformContinuous_map {α β ε h} [UniformSpace α] [UniformSpace β] {f : α → β}
   (hf : UniformContinuous f) :
     UniformContinuous (@Restriction.map _ _ ε h f) := by
   -- FIXME: This is true but painful to prove

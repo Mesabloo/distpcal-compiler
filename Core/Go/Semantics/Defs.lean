@@ -1,11 +1,13 @@
 import Core.Go.Semantics.Domains
 import Core.Go.Syntax
-import Mathlib.Topology.Defs.Filter
+import Mathlib.Analysis.SpecificLimits.Basic
 
 /-!
   Now that we have finished defining our domains…we can finally define the semantics of
   Go.
 -/
+
+theorem ENNReal.toReal_two : ENNReal.toReal 2 = 2 := rfl
 
 open TypedSetTheory (Expression Typ)
 
@@ -132,38 +134,54 @@ noncomputable section
           (λ _ ↦ {.next σ { val := .abort }})
           v
 
-      protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
-        | [] => .pure .unit
-        | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ .abort)
-        | .return es :: ss => match ss with
-          | [] => match ξ with
-            | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ .branch λ σ ↦ match Store.popϙ σ with
-              | .none => {.next σ { val := .abort }}
-              | .some σ => {.next σ <| { val := .branch λ _ ↦ {.send ret (Value.𝕍.tuple vs) { val := .pure .unit }}} }
-            | [] => .abort
-          | _ => .abort
-        | .print e :: ss =>
-          Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦ .branch λ _ ↦ {.send out v { val := .pure .unit }})
-        -- make
-        -- var
-        | .if e S₁ S₂ :: ss =>
-          Statement.denotation ξ ς ss ⬰ ((Statement.denotation ξ ς S₁ ⬰ guard ξ ς e) ⊻ (Statement.denotation ξ ς S₂ ⬰ guard ξ ς (.prefix .«¬» e)))
-        | .while e S :: ss =>
-          let rec g : ℕ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
-            | 0 => .branch λ σ ↦ {.next σ { val := .pure .unit }}
-            | i + 1 => (g i ⬰ Statement.denotation ξ ς S ⬰ guard ξ ς e) ⊻ (.pure .unit ⬰ guard ξ ς (.prefix .«¬» e))
+      mutual
+        private def while_seq (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (S : List (Statement.{y} Typ (Expression Typ) Typ.initArgs)) : ℕ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
+          | 0 => .branch λ σ ↦ {.next σ { val := .pure .unit }}
+          | i + 1 => (while_seq ξ ς e S i ⬰ Statement.denotation ξ ς S ⬰ guard ξ ς e) ⊻ (.pure .unit ⬰ guard ξ ς (.prefix .«¬» e))
 
-          have g_cauchy : CauchySeq g := by
-            admit
+        protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
+          | [] => .pure .unit
+          | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ .abort)
+          | .return es :: ss => match ss with
+            | [] => match ξ with
+              | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ .branch λ σ ↦ match Store.popϙ σ with
+                | .none => {.next σ { val := .abort }}
+                | .some σ => {.next σ <| { val := .branch λ _ ↦ {.send ret (Value.𝕍.tuple vs) { val := .pure .unit }}} }
+              | [] => .abort
+            | _ => .abort
+          | .print e :: ss =>
+            Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦ .branch λ _ ↦ {.send out v { val := .pure .unit }})
+          -- make
+          -- var
+          | .if e S₁ S₂ :: ss =>
+            Statement.denotation ξ ς ss ⬰ ((Statement.denotation ξ ς S₁ ⬰ guard ξ ς e) ⊻ (Statement.denotation ξ ς S₂ ⬰ guard ξ ς (.prefix .«¬» e)))
+          | .while e S :: ss =>
+            Statement.denotation ξ ς ss ⬰ lim (Filter.atTop.map (while_seq ξ ς e S))
+          -- close
+          -- select
+          -- switch
+          | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ‖ Statement.denotation ξ ς ss)
+          -- send
+          -- recv
+          | _ => sorry
+        end
 
-          Statement.denotation ξ ς ss ⬰ lim (Filter.atTop.map g)
-        -- close
-        -- select
-        -- switch
-        | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ‖ Statement.denotation ξ ς ss)
-        -- send
-        -- recv
-        | _ => sorry
+        theorem while_seq_nonexpansive {ξ ς e S} {n} : edist (while_seq out ξ ς e S n) (while_seq out ξ ς e S (n + 1)) ≤ (1/2)^n := by
+          rw [Domain.edist_eq, Domain.dist_eq]
+          apply ENNReal.ofReal_le_of_le_toReal
+          rw [ENNReal.toReal_pow, ENNReal.toReal_div, ENNReal.toReal_one, ENNReal.toReal_two]
+          change idist _ _ ≤ unitInterval.half^n
+          conv_lhs => enter [2]; unfold while_seq
+
+          admit
+
+        theorem while_seq_cauchy {ξ ς e S} : CauchySeq (while_seq out ξ ς e S) := by
+          apply cauchySeq_of_edist_le_geometric (1/2) 1
+          · simp only [one_div, ENNReal.inv_lt_one, Nat.one_lt_ofNat]
+          · exact ENNReal.one_ne_top
+          · intros _
+            grw [while_seq_nonexpansive]
+            simp only [one_div, one_mul, Std.le_refl]
     end Statement
   end GoCal
 end
