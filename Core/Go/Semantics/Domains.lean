@@ -16,6 +16,9 @@ import Extra.Topology.UniformContinuousMap
 import Extra.Sigma
 -- import Mathlib.Data.Part
 
+open scoped UniformConvergence
+attribute [-instance] UniformFun.instPseudoEMetricSpace UniformFun.instEMetricSpace
+
 lemma max_succ {m n} : (m + 1) ⊔ (n + 1) = (m ⊔ n) + 1 := by
   grind only [= max_def]
 
@@ -32,7 +35,7 @@ noncomputable section Domain
   variable («Σ» : Type u) (Γ : Type v) (α : Type w) (β : Type x) (γ : Type y) (δ : Type z)
 
   def Branch :=
-      (Γ × (α → Bool → Restriction γ unitInterval.half))
+      (Γ × (α →ᵤ Bool →ᵤ Restriction γ unitInterval.half))
     ⊕ (Γ × α × Restriction γ unitInterval.half)
     ⊕ (Γ × Restriction γ unitInterval.half)
     ⊕ (Γ × Restriction γ unitInterval.half)
@@ -42,7 +45,7 @@ noncomputable section Domain
     variable {«Σ» Γ α β γ δ}
 
     @[match_pattern]
-    protected abbrev Branch.recv (c : Γ) (π : α → Bool → Restriction γ unitInterval.half) : Branch «Σ» Γ α γ := .inl (c, π)
+    protected abbrev Branch.recv (c : Γ) (π : α →ᵤ Bool →ᵤ Restriction γ unitInterval.half) : Branch «Σ» Γ α γ := .inl (c, π)
     @[match_pattern]
     protected abbrev Branch.send (c : Γ) (v : α) (p : Restriction γ unitInterval.half) : Branch «Σ» Γ α γ := .inr (.inl (c, v, p))
     @[match_pattern]
@@ -66,30 +69,29 @@ noncomputable section Domain
       | .sync c p => sync c p
       | .next σ p => next σ p
 
-    instance Branch.instPseudoIMetricSpace [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] :
+    instance Branch.instPseudoIMetricSpace [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] :
         PseudoIMetricSpace (Branch «Σ» Γ α γ) :=
       inferInstanceAs (PseudoIMetricSpace (_ ⊕ _ ⊕ _ ⊕ _ ⊕ _))
 
-    instance Branch.instIMetricSpace [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace γ] :
+    instance Branch.instIMetricSpace [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace γ] :
         IMetricSpace (Branch «Σ» Γ α γ) :=
       inferInstanceAs (IMetricSpace (_ ⊕ _ ⊕ _ ⊕ _ ⊕ _))
 
-    instance Branch.instCompleteSpace [Nonempty α] [IMetricSpace «Σ»] [CompleteSpace «Σ»] [IMetricSpace Γ] [CompleteSpace Γ] [IMetricSpace α] [CompleteSpace α] [IMetricSpace γ] [CompleteSpace γ] :
+    instance Branch.instCompleteSpace [IMetricSpace «Σ»] [CompleteSpace «Σ»] [IMetricSpace Γ] [CompleteSpace Γ] [IMetricSpace α] [CompleteSpace α] [IMetricSpace γ] [CompleteSpace γ] :
         CompleteSpace (Branch «Σ» Γ α γ) :=
       inferInstanceAs (CompleteSpace (_ ⊕ _ ⊕ _ ⊕ _ ⊕ _))
   end Branch
 
-  variable [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace β] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α]
+  variable [PseudoIMetricSpace β] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α]
 
   open TopologicalSpace (Closeds)
 
   instance : IMetricSpace PUnit := .of_metric_space_of_dist_le_one
   instance (priority := high) : CompleteSpace PUnit := inferInstance
 
-  set_option trace.Meta.synthInstance true in
   private def IterativeDomain : ℕ → Object.{max u v w x}
     | 0 => { carrier := β ⊕ PUnit.{max u v w + 1} }
-    | n + 1 => { carrier := β ⊕ PUnit.{u + 1} ⊕ («Σ» → Set (Branch «Σ» Γ α (IterativeDomain n).carrier)) }
+    | n + 1 => { carrier := β ⊕ PUnit.{u + 1} ⊕ («Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain n).carrier)) }
 
   section
     variable {«Σ» Γ α β γ δ} [PseudoIMetricSpace γ]
@@ -141,33 +143,34 @@ noncomputable section Domain
       cases n <;> rfl
 
     @[match_pattern]
-    def IterativeDomain.branch {n} (f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)) :
+    def IterativeDomain.branch {n} (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)) :
         (IterativeDomain «Σ» Γ α β (n + 1)).carrier :=
       .inr <| .inr f
 
     @[simp]
-    def IterativeDomain.idist_leaf_branch {n} {v : β} {f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+    def IterativeDomain.idist_leaf_branch {n} {v : β} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
         idist (IterativeDomain.leaf v) (IterativeDomain.branch f) = ⊤ := by
       rfl
 
     @[simp]
-    def IterativeDomain.idist_branch_leaf {n} {v : β} {f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+    def IterativeDomain.idist_branch_leaf {n} {v : β} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
         idist (IterativeDomain.branch f) (IterativeDomain.leaf v) = ⊤ := by
       rfl
 
     @[simp]
-    def IterativeDomain.idist_abort_branch {n} {f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+    def IterativeDomain.idist_abort_branch {n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
         idist IterativeDomain.abort (IterativeDomain.branch f) = ⊤ := by
       rfl
 
     @[simp]
-    def IterativeDomain.idist_branch_abort {n} {f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+    def IterativeDomain.idist_branch_abort {n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
         idist (IterativeDomain.branch f) IterativeDomain.abort = ⊤ := by
       rfl
 
     @[simp]
-    def IterativeDomain.idist_branch_branch {n} {f g : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+    def IterativeDomain.idist_branch_branch {n} {f g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
         idist (IterativeDomain.branch f) (IterativeDomain.branch g) = ⨆ σ, IMetric.hausdorffIDist (f σ) (g σ) := by
+      erw [UniformFun.idist_eq_iSup]
       rfl
 
     section Lift
@@ -175,7 +178,7 @@ noncomputable section Domain
 
       def Branch.map {γ'} [PseudoIMetricSpace γ'] (g : γ → γ') :
           (Branch «Σ» Γ α γ) → (Branch «Σ» Γ α γ') :=
-        Sum.map (Prod.map id (Pi.map λ _ ↦ Pi.map λ _ ↦ Restriction.map g)) <|
+        Sum.map (Prod.map id (UniformFun.map (UniformFun.map (Restriction.map g)))) <|
         Sum.map (Prod.map id (Prod.map id (Restriction.map g))) <|
         Sum.map (Prod.map id (Restriction.map g)) <|
         Sum.map (Prod.map id (Restriction.map g)) <|
@@ -189,42 +192,41 @@ noncomputable section Domain
       --     assumption
       --   }
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
-      theorem Branch.map_recv {γ'} [PseudoIMetricSpace γ'] {f : γ → γ'} {c : Γ} {π : α → Bool → Restriction γ unitInterval.half} :
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
+      theorem Branch.map_recv {γ'} [PseudoIMetricSpace γ'] {f : γ → γ'} {c : Γ} {π : α →ᵤ Bool →ᵤ Restriction γ unitInterval.half} :
           Branch.map f (Branch.recv («Σ» := «Σ») c π) = Branch.recv c λ v ok ↦ Restriction.map f (π v ok) := by
         rfl
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
       theorem Branch.map_send {γ'} [PseudoIMetricSpace γ'] {f : γ → γ'} {c : Γ} {v : α} {x : Restriction γ unitInterval.half} :
           Branch.map f (Branch.send («Σ» := «Σ») c v x) = Branch.send c v (Restriction.map f x) := by
         rfl
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
       theorem Branch.map_close {γ'} [PseudoIMetricSpace γ'] {f : γ → γ'} {c : Γ} {x : Restriction γ unitInterval.half} :
           Branch.map f (Branch.close («Σ» := «Σ») (α := α) c x) = Branch.close c (Restriction.map f x) := by
         rfl
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
       theorem Branch.map_sync {γ'} [PseudoIMetricSpace γ'] {f : γ → γ'} {c : Γ} {x : Restriction γ unitInterval.half} :
           Branch.map f (Branch.sync («Σ» := «Σ») (α := α) c x) = Branch.sync c (Restriction.map f x) := by
         rfl
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] [PseudoIMetricSpace Γ] in
       theorem Branch.map_next {γ'} [PseudoIMetricSpace γ'] {f : γ → γ'} {σ : «Σ»} {x : Restriction γ unitInterval.half} :
           Branch.map f (Branch.next (Γ := Γ) (α := α) σ x) = Branch.next σ (Restriction.map f x) := by
         rfl
 
-      omit [Nonempty «Σ»] in
       theorem Branch.map_isometry' {γ' : Type y} [PseudoIMetricSpace γ'] {g : γ → γ'} (hg : ∀ x y : γ, idist (g x) (g y) = idist x y) :
           ∀ (x y : Branch «Σ» Γ α γ), idist (Branch.map g x) (Branch.map g y) = idist x y := by
         rintro (_|_|_|_|_) (_|_|_|_|_) <;> first | rfl | dsimp [map]
         · apply Isometry.prodMap'
           · exact λ _ _ ↦ rfl
           · intros _ _
-            apply Isometry.piMap''
-            intros _ _ _
-            apply Isometry.piMap''
-            intros _ _ _
+            apply UniformFun.map_isometry'
+            intros _ _
+            apply UniformFun.map_isometry'
+            intros _ _
             apply Restriction.map_isometry'
             exact hg
         · apply Isometry.prodMap'
@@ -251,7 +253,6 @@ noncomputable section Domain
             apply Restriction.map_isometry'
             exact hg
 
-      omit [Nonempty «Σ»] in
       theorem Branch.map_isometry {γ' : Type y} [PseudoIMetricSpace γ'] {g : γ → γ'} (hg : Isometry g) :
           Isometry (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
         apply Isometry.of_idist_eq
@@ -259,14 +260,13 @@ noncomputable section Domain
         apply Isometry.to_idist_eq
         assumption
 
-      omit [Nonempty «Σ»] in
       theorem Branch.map_uniform_continuous {γ'} [PseudoIMetricSpace γ'] {g : γ → γ'} (hg : UniformContinuous g) :
           UniformContinuous (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) := by
         apply Topology.UniformContinuous.sumMap
         · apply UniformContinuous.prodMap
           · exact uniformContinuous_id
-          · apply Pi.uniformContinuous_map_const
-            apply Pi.uniformContinuous_map_const
+          · apply UniformFun.uniformContinuous_map
+            apply UniformFun.uniformContinuous_map
             apply Restriction.uniformContinuous_map
             exact hg
         · apply Topology.UniformContinuous.sumMap
@@ -291,19 +291,18 @@ noncomputable section Domain
                 · apply Restriction.uniformContinuous_map
                   exact hg
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] in
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] in
       theorem Branch.map_comp {γ' γ''} [PseudoIMetricSpace γ'] [PseudoIMetricSpace γ''] (f : γ → γ') (g : γ' → γ'') :
           (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) g) ∘ (Branch.map f) = (Branch.map (g ∘ f)) := by
         funext b
         cases b <;> simp [Branch.map, Sum.map, Prod.map, Restriction.map, Function.comp]
         rfl
 
-      omit [Nonempty «Σ»] [Nonempty α] [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] in
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] in
       theorem Branch.map_id : (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) (γ := γ) id) = id := by
         funext b
         apply b.casesOn <;> solve_by_elim
 
-      omit [Nonempty «Σ»] in
       private lemma Branch.map_idist_le
         {γ γ' : Type _} [PseudoIMetricSpace γ] [PseudoIMetricSpace γ']
         {g g' : γ → γ'} {r : unitInterval}
@@ -313,6 +312,8 @@ noncomputable section Domain
         cases b with
         | recv c f =>
           dsimp [Branch.recv, Branch.map]
+          change max (idist c c) (idist (UniformFun.map (UniformFun.map (Restriction.map g)) f) (UniformFun.map (UniformFun.map (Restriction.map g')) f)) ≤ _
+          simp_rw [UniformFun.idist_eq_iSup]
           change max (idist c c) (⨆ v, ⨆ ok, unitInterval.half * idist (g (f v ok).val) (g' (f v ok).val)) ≤ _
           rw [idist_self, ← unitInterval.bot_eq, bot_sup_eq]
           apply iSup₂_le
@@ -346,7 +347,7 @@ noncomputable section Domain
         | m + 1, n + 1 =>
           Sum.map id <|
             Sum.map id <|
-            Pi.map λ _ ↦ Set.image (Branch.map (IterativeDomain.lift (m := m)))
+              UniformFun.map <| Set.image (Branch.map (IterativeDomain.lift (m := m)))
 
       @[simp]
       def IterativeDomain.lift_leaf {m n} (h : m ≤ n) {v : β} :
@@ -363,7 +364,7 @@ noncomputable section Domain
           | grind
 
       @[simp]
-      def IterativeDomain.lift_branch {m n} (h : m + 1 ≤ n + 1) {f : «Σ» → Set (Branch «Σ» Γ α _)} :
+      def IterativeDomain.lift_branch {m n} (h : m + 1 ≤ n + 1) {f : «Σ» →ᵤ Set (Branch «Σ» Γ α _)} :
           IterativeDomain.lift h (IterativeDomain.branch (β := β) f) = IterativeDomain.branch λ σ ↦ Branch.map (IterativeDomain.lift (m := m)) '' f σ :=
         rfl
 
@@ -391,7 +392,7 @@ noncomputable section Domain
             dsimp [lift]
             congr 2
             funext b
-            rw [Pi.map_apply]
+            rw [UniformFun.map_apply]
             convert Set.image_id _
             convert Branch.map_id
             rw [lift_refl]
@@ -418,8 +419,7 @@ noncomputable section Domain
           · exact isometry_id
           · apply Isometry.sumMap
             · exact isometry_id
-            · apply Isometry.piMap'
-              intros _
+            · apply UniformFun.map_isometry
               apply Set.image_isometry
               apply Branch.map_isometry
               apply lift_isometry
@@ -441,7 +441,7 @@ noncomputable section Domain
           | .inr (.inr f) =>
             dsimp [lift]
             congr 2; funext σ
-            rw [Pi.map_apply, Pi.map_apply, Pi.map_apply, Set.image_image]
+            rw [UniformFun.map_apply, UniformFun.map_apply, UniformFun.map_apply, Set.image_image]
             change (Branch.map _ ∘ Branch.map _) '' (f σ) = _
             rw! [Branch.map_comp, lift_lift]
             rfl
@@ -631,7 +631,7 @@ noncomputable section Domain
       erw [UniformSpace.Completion.idist_eq]
       rfl
 
-    def φ : DomainUnion «Σ» Γ α β → β ⊕ PUnit.{x + 1} ⊕ («Σ» → Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β)))
+    def φ : DomainUnion «Σ» Γ α β → β ⊕ PUnit.{x + 1} ⊕ («Σ» →ᵤ Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β)))
       | ⟨0, IterativeDomain.leaf v⟩ | ⟨_ + 1, IterativeDomain.leaf v⟩ => .inl v
       | ⟨0, IterativeDomain.abort⟩ | ⟨_ + 1, IterativeDomain.abort⟩ => .inr (.inl .unit)
       | ⟨_ + 1, IterativeDomain.branch f⟩ =>
@@ -665,6 +665,8 @@ noncomputable section Domain
       rcases b with ⟨γ₀, π⟩ | ⟨γ₀, a, d⟩ | ⟨γ₀, d⟩ | ⟨γ₀, d⟩ | ⟨s₀, d⟩
       · exists .recv γ₀ λ v ok => { val := Classical.choose (Domain.approx_uniform (π v ok).val n) }
 
+        change max (idist γ₀ γ₀) (idist π _) ≤ unitInterval.half^n
+        simp_rw [UniformFun.idist_eq_iSup]
         change max (idist γ₀ γ₀) (⨆ v, ⨆ ok, idist (π v ok) _) ≤ unitInterval.half^n
         rw [idist_self, ← unitInterval.bot_eq, bot_sup_eq]
         apply iSup₂_le λ v ok ↦ ?_
@@ -755,7 +757,7 @@ noncomputable section Domain
           rw [IMetric.mem_ball']
 
           apply LE.le.trans_lt (b := ε / 2)
-          · rw [idist_comm]
+          · erw [idist_comm, UniformFun.idist_eq_iSup]
             change (⨆ σ : «Σ», IMetric.hausdorffIDist (closure (Branch.map (embedAt n) '' T σ)) (h σ)).val ≤ ε / 2
 
             by_cases h : ε / 2 ≤ 1
@@ -830,6 +832,10 @@ noncomputable section Domain
           repeat rw [IterativeDomain.lift_branch]
 
           change
+            idist (α := «Σ» →ᵤ _) (λ σ ↦ (closure (Branch.map (embedAt m) '' f σ))) (_) =
+            idist (α := «Σ» →ᵤ _) (λ σ ↦ Branch.map (IterativeDomain.lift _) '' f σ) (λ σ ↦ Branch.map (IterativeDomain.lift _) '' g σ)
+          repeat erw [UniformFun.idist_eq_iSup]
+          change
             ⨆ σ, IMetric.hausdorffIDist (closure (Branch.map (embedAt m) '' f σ)) (closure (Branch.map (embedAt n) '' g σ)) =
             ⨆ σ, IMetric.hausdorffIDist _ _
 
@@ -858,7 +864,7 @@ noncomputable section Domain
     section
       variable
         {«Σ» : Type u} {Γ : Type v} {α : Type w} {β : Type x} {γ : Type y} {δ : Type z}
-        [Nonempty «Σ»] [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace β]
+        [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace β]
         [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β]
 
       /--
@@ -866,7 +872,7 @@ noncomputable section Domain
         to the original equation.
       -/
       private def Domain.isSolution :
-          Domain «Σ» Γ α β ≃ᵢ β ⊕ PUnit.{x + 1} ⊕ («Σ» → Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β))) :=
+          Domain «Σ» Γ α β ≃ᵢ β ⊕ PUnit.{x + 1} ⊕ («Σ» →ᵤ Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β))) :=
         let h := UniformSpace.Completion.extension φ
 
         have h_iso : Isometry h := Isometry.completion_extension φ_isometry
@@ -901,7 +907,7 @@ noncomputable section Domain
       def Domain.leaf (v : β) : Domain «Σ» Γ α β :=
         ⇑Domain.isSolution.symm (.inl v)
 
-      def Domain.branch (f : «Σ» → Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))) : Domain «Σ» Γ α β :=
+      def Domain.branch (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))) : Domain «Σ» Γ α β :=
         ⇑Domain.isSolution.symm (.inr (.inr λ σ ↦ ⟨closure (f σ), isClosed_closure⟩))
 
       instance : Nonempty (Domain «Σ» Γ α β) := .intro .abort
@@ -913,19 +919,19 @@ noncomputable section Domain
   section Operators
     variable
       {«Σ» : Type u} {Γ : Type v} {α : Type w} {β : Type x} {γ : Type y} {δ : Type z}
-      [Nonempty «Σ»] [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ]
+      [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ]
       -- [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β]
 
     section Functor
       /-! ## Functor -/
 
-      def IterativeDomain.map {β'} [IMetricSpace β'] (f : β → β') {n} :
+      def IterativeDomain.map {β'} [IMetricSpace β'] (f : β →ᵤ β') {n} :
           (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β' n).carrier := match n with
         | 0 => Sum.map f id
         | _ + 1 =>
           Sum.map f <|
           Sum.map id <|
-          Pi.map λ _ ↦ Set.image (Branch.map (IterativeDomain.map f))
+          UniformFun.map <| Set.image (Branch.map (IterativeDomain.map f))
 
       theorem IterativeDomain.map_leaf {β'} [IMetricSpace β'] {f : β → β'} {v : β} {n} :
           map f (leaf («Σ» := «Σ») (Γ := Γ) (α := α) (n := n) v) = leaf (f v) := by
@@ -935,7 +941,7 @@ noncomputable section Domain
           map f (abort («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n)) = abort := by
         cases n with rfl
 
-      theorem IterativeDomain.map_branch {β'} [IMetricSpace β'] {f : β → β'} {n} {g : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+      theorem IterativeDomain.map_branch {β'} [IMetricSpace β'] {f : β → β'} {n} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
           map f (branch g) = branch λ σ ↦ Branch.map (IterativeDomain.map f) '' g σ := by
         rfl
 
@@ -953,7 +959,7 @@ noncomputable section Domain
           · dsimp [lift, map]
             congr 2
             funext σ
-            rw [Pi.map_apply, Pi.map_apply, Pi.map_apply, Pi.map_apply,
+            rw [UniformFun.map_apply, UniformFun.map_apply, UniformFun.map_apply, UniformFun.map_apply,
                 Set.image_image, Set.image_image]
             congr 1
             change Branch.map _ ∘ Branch.map _ = Branch.map _ ∘ Branch.map _
@@ -1012,7 +1018,7 @@ noncomputable section Domain
           · exact hf
           · apply Topology.UniformContinuous.sumMap
             · exact uniformContinuous_id
-            · apply Pi.uniformContinuous_map_const
+            · apply UniformFun.uniformContinuous_map
               apply UniformContinuous.image_hausdorff
               apply Branch.map_uniform_continuous
               apply IterativeDomain.map_uniformContinuous
@@ -1080,12 +1086,12 @@ noncomputable section Domain
       mutual
         def Branch.syncClose {n} [DecidableEq Γ] (c : Γ) (σ : «Σ») :
             (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) → (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
-            Sum.elim (λ (c', π) ↦ if c = c' then .next σ ⟨IterativeDomain.syncClose c (π (zero c) false).val⟩
-                                  else .recv c' (λ v ok ↦ ⟨IterativeDomain.syncClose c (π v ok).val⟩)) <|
-            Sum.elim (λ (c', v, p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .send c' v ⟨IterativeDomain.syncClose c p.val⟩) <|
-            Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .close c' ⟨IterativeDomain.syncClose c p.val⟩) <|
-            Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .sync c' ⟨IterativeDomain.syncClose c p.val⟩) <|
-                     (λ (σ, p) ↦ .next σ ⟨IterativeDomain.syncClose c p.val⟩)
+          Sum.elim (λ (c', π) ↦ if c = c' then .next σ ⟨IterativeDomain.syncClose c (π (zero c) false).val⟩
+                                else .recv c' (λ v ok ↦ ⟨IterativeDomain.syncClose c (π v ok).val⟩)) <|
+          Sum.elim (λ (c', v, p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .send c' v ⟨IterativeDomain.syncClose c p.val⟩) <|
+          Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .close c' ⟨IterativeDomain.syncClose c p.val⟩) <|
+          Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .sync c' ⟨IterativeDomain.syncClose c p.val⟩) <|
+                    (λ (σ, p) ↦ .next σ ⟨IterativeDomain.syncClose c p.val⟩)
 
         def IterativeDomain.syncClose {n} [DecidableEq Γ] (c : Γ) :
             (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier := match n with
@@ -1126,16 +1132,16 @@ noncomputable section Domain
         (DomainUnion.mk (n := 0) (IterativeDomain.pure («Σ» := «Σ») (Γ := Γ) (α := α) v) : UniformSpace.Completion _)
 
       mutual
-        def Branch.ap {m n} [DecidableEq Γ] [Nonempty β] (p' : (IterativeDomain «Σ» Γ α β n).carrier) :
-            Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β → γ) m).carrier → Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ (m + n)).carrier :=
+        def Branch.ap {m n} [DecidableEq Γ] (p' : (IterativeDomain «Σ» Γ α β n).carrier) :
+            Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier → Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ (m + n)).carrier :=
           Sum.map (Prod.map id (Pi.map λ _ ↦ Pi.map λ _ ↦ Restriction.map (IterativeDomain.ap · p'))) <|
           Sum.map (Prod.map id <| Prod.map id <| Restriction.map (IterativeDomain.ap · p')) <|
           Sum.map (λ (c, p) ↦ (c, Restriction.map (IterativeDomain.syncClose zero c <| IterativeDomain.ap · p') p)) <|
           Sum.map (Prod.map id <| Restriction.map (IterativeDomain.ap · p')) <|
                   (Prod.map id <| Restriction.map (IterativeDomain.ap · p'))
 
-        def IterativeDomain.ap {m n} [DecidableEq Γ] [Nonempty β] :
-            (IterativeDomain «Σ» Γ α (β → γ) m).carrier → (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α γ (m + n)).carrier := match m with
+        def IterativeDomain.ap {m n} [DecidableEq Γ] :
+            (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier → (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α γ (m + n)).carrier := match m with
           | 0 => Sum.elim
               (λ f t ↦ IterativeDomain.map f ((Nat.zero_add n).symm ▸ t))
               (λ _ _ ↦ IterativeDomain.abort)
@@ -1146,7 +1152,7 @@ noncomputable section Domain
                 (λ g t ↦ IterativeDomain.branch λ σ ↦ Branch.ap t '' g σ))
       end
 
-      theorem IterativeDomain.ap_leaf {v : β → γ} [DecidableEq Γ] [Nonempty β] {m n} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem IterativeDomain.ap_leaf {v : β → γ} [DecidableEq Γ] {m n} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           ap zero (leaf (n := m) v) q = map v (lift (Nat.le_add_left _ _) q) := by
         cases m with unfold ap
         | zero =>
@@ -1156,8 +1162,8 @@ noncomputable section Domain
         | succ n =>
           rfl
 
-      theorem IterativeDomain.ap_abort [DecidableEq Γ] [Nonempty β] {m n} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
-          ap zero (abort (β := β → γ) (n := m)) q = abort := by
+      theorem IterativeDomain.ap_abort [DecidableEq Γ] {m n} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+          ap zero (abort (β := β →ᵤ γ) (n := m)) q = abort := by
         cases m with (unfold ap)
         | zero =>
           rfl
@@ -1165,53 +1171,53 @@ noncomputable section Domain
           rw! [reorder]
           rfl
 
-      theorem IterativeDomain.ap_branch [DecidableEq Γ] [Nonempty β] {m n} {g : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β → γ) m).carrier)} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem IterativeDomain.ap_branch [DecidableEq Γ] {m n} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier)} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           ap zero (branch g) q = reorder ▸ branch λ σ ↦ Branch.ap zero q '' g σ := by
         unfold ap
         rw! [reorder]
         rfl
 
-      theorem Branch.ap_recv [DecidableEq Γ] [Nonempty β] {c : Γ} {m n} {π : α → Bool → Restriction (IterativeDomain «Σ» Γ α (β → γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem Branch.ap_recv [DecidableEq Γ] {c : Γ} {m n} {π : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           Branch.ap zero q (Branch.recv c π) = Branch.recv c λ v ok ↦ Restriction.map (IterativeDomain.ap zero · q) (π v ok) := by
         unfold ap
         rfl
 
-      theorem Branch.ap_send [DecidableEq Γ] [Nonempty β] {c : Γ} {v : α} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β → γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem Branch.ap_send [DecidableEq Γ] {c : Γ} {v : α} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           Branch.ap zero q (Branch.send c v p) = Branch.send c v (Restriction.map (IterativeDomain.ap zero · q) p) := by
         unfold ap
         rfl
 
-      theorem Branch.ap_close [DecidableEq Γ] [Nonempty β] {c : Γ} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β → γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem Branch.ap_close [DecidableEq Γ] {c : Γ} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           Branch.ap zero q (Branch.close c p) = Branch.close c (Restriction.map (IterativeDomain.syncClose zero c <| IterativeDomain.ap zero · q) p) := by
         unfold ap
         rfl
 
-      theorem Branch.ap_sync [DecidableEq Γ] [Nonempty β] {c : Γ} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β → γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem Branch.ap_sync [DecidableEq Γ] {c : Γ} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           Branch.ap zero q (Branch.sync c p) = Branch.sync c (Restriction.map (IterativeDomain.ap zero · q) p) := by
         unfold ap
         rfl
 
-      theorem Branch.ap_next [DecidableEq Γ] [Nonempty β] {σ : «Σ»} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β → γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem Branch.ap_next [DecidableEq Γ] {σ : «Σ»} {m n} {p : Restriction (IterativeDomain «Σ» Γ α (β →ᵤ γ) m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
           Branch.ap zero q (Branch.next σ p) = Branch.next σ (Restriction.map (IterativeDomain.ap zero · q) p) := by
         unfold ap
         rfl
 
-      theorem IterativeDomain.ap.uniform_continuous₂ [DecidableEq Γ] [Nonempty β] {m n} :
+      theorem IterativeDomain.ap.uniform_continuous₂ [DecidableEq Γ] {m n} :
           UniformContinuous₂ (IterativeDomain.ap zero («Σ» := «Σ») (β := β) (γ := γ) (m := m) (n := n)) := by
         admit
 
-      def DomainUnion.ap [DecidableEq Γ] [Nonempty β] :
-          DomainUnion «Σ» Γ α (β → γ) → DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ :=
+      def DomainUnion.ap [DecidableEq Γ] :
+          DomainUnion «Σ» Γ α (β →ᵤ γ) → DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.ap zero p q)
 
-      theorem DomainUnion.ap.uniform_continuous₂ [DecidableEq Γ] [Nonempty β] :
+      theorem DomainUnion.ap.uniform_continuous₂ [DecidableEq Γ] :
           UniformContinuous₂ (DomainUnion.ap zero («Σ» := «Σ») (β := β) (γ := γ)) := by
         admit
 
-      def Domain.ap [DecidableEq Γ] [Nonempty β] : Domain «Σ» Γ α (β → γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
+      def Domain.ap [DecidableEq Γ] : Domain «Σ» Γ α (β →ᵤ γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.ap zero x y)
 
-      def Domain.ap' [DecidableEq Γ] [Nonempty β] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α (β → γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
+      def Domain.ap' [DecidableEq Γ] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α (β →ᵤ γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
         Domain.ap inst.zero
     end Applicative
 
@@ -1275,12 +1281,12 @@ noncomputable section Domain
         | succ n =>
           rfl
 
-      theorem IterativeDomain.seq_branch [DecidableEq Γ] {m n} {g : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α PUnit m).carrier)} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+      theorem IterativeDomain.seq_branch [DecidableEq Γ] {m n} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α PUnit m).carrier)} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
           seq zero (branch g) q = reorder ▸ branch λ σ ↦ Branch.seq zero q '' g σ := by
         unfold seq
         rfl
 
-      theorem Branch.seq_recv [DecidableEq Γ] {m n} {c : Γ} {π : α → Bool → Restriction (IterativeDomain «Σ» Γ α PUnit m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+      theorem Branch.seq_recv [DecidableEq Γ] {m n} {c : Γ} {π : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α PUnit m).carrier unitInterval.half} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
           Branch.seq zero q (Branch.recv c π) = Branch.recv c λ v ok ↦ (Restriction.map (IterativeDomain.seq zero · q) (π v ok)) := by
         unfold seq
         rfl
@@ -1307,7 +1313,7 @@ noncomputable section Domain
 
       mutual
         theorem Branch.seq_eq_app [DecidableEq Γ] {m n} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α PUnit m).carrier} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
-            Branch.seq zero q b = (Branch.ap zero q ∘ Branch.map (IterativeDomain.map λ _ _ ↦ PUnit.unit)) b := by
+            Branch.seq zero q b = (Branch.ap zero q ∘ Branch.map (IterativeDomain.map (β' := PUnit.{x + 1} →ᵤ PUnit.{x + 1}) (λ _ _ ↦ PUnit.unit))) b := by
           cases b using Branch.casesOn with
             unfold Function.comp
           | recv c π =>
@@ -1339,7 +1345,7 @@ noncomputable section Domain
             apply IterativeDomain.seq_eq_app
 
         theorem IterativeDomain.seq_eq_app [DecidableEq Γ] {m n} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
-            IterativeDomain.seq zero p q = IterativeDomain.ap zero (IterativeDomain.map (λ _ _ ↦ PUnit.unit) p) q := by
+            IterativeDomain.seq zero p q = IterativeDomain.ap zero (IterativeDomain.map (β' := PUnit.{x + 1} →ᵤ PUnit.{x + 1}) (λ _ _ ↦ PUnit.unit) p) q := by
           match m, p with
           | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
             rw [IterativeDomain.map_leaf, IterativeDomain.ap_leaf, IterativeDomain.seq_leaf, IterativeDomain.map_id]
@@ -1539,7 +1545,7 @@ noncomputable section Domain
     scoped[Domain] notation:50 p:51 " ∖[" Ω:0 "] " c:50 => Domain.hide' c Ω p
 
     @[inherit_doc]
-    scoped[Domain] infixl:60 " ‖ " => Domain.parallel'
+    scoped[Domain] infixl:60 " ∥ " => Domain.parallel'
   end
 
 
@@ -1547,11 +1553,11 @@ noncomputable section Domain
   namespace Value
     variable
       {«Σ» : Type u} {Γ : Type v} {α : Type w} {β : Type x} {γ : Type y} {δ : Type z}
-      [Nonempty «Σ»] [Nonempty α] [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ]
+      [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ]
     variable (Γ «Σ»)
     variable (ℍ : Type y) (Typ : Type w) [IMetricSpace ℍ] [IMetricSpace Typ]
 
-    protected abbrev F (𝕍 : Type x) [Nonempty 𝕍] [IMetricSpace 𝕍] : Type (max u v w x y) :=
+    protected abbrev F (𝕍 : Type x) [IMetricSpace 𝕍] : Type (max u v w x y) :=
       -- bool
         Bool
       -- int
@@ -1563,19 +1569,19 @@ noncomputable section Domain
       -- chan
       ⊕ ℕ × Typ × ℍ × ℍ
       -- struct
-      ⊕ (String → Option ℍ)
+      ⊕ (String →ᵤ Option ℍ)
       -- array
-      ⊕ ℕ × (ℕ → Option ℍ)
+      ⊕ ℕ × (ℕ →ᵤ Option ℍ)
       -- map
-      ⊕ (Restriction 𝕍 unitInterval.half → Option ℍ) × Bool
+      ⊕ (Restriction 𝕍 unitInterval.half →ᵤ Option ℍ) × Bool
       -- func
-      ⊕ (String → Option ℍ) × (List (Restriction 𝕍 unitInterval.half) × List Γ × (String → Option Γ) → Domain «Σ» Γ 𝕍 (Restriction 𝕍 unitInterval.half))
+      ⊕ (String →ᵤ Option ℍ) × (List (Restriction 𝕍 unitInterval.half) × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ 𝕍 (Restriction 𝕍 unitInterval.half))
       -- tuples
       ⊕ List (Restriction 𝕍 unitInterval.half)
 
     variable {«Σ» Γ ℍ Typ}
 
-    instance {𝕍 : Type u} [Nonempty 𝕍] [IMetricSpace 𝕍] : IMetricSpace (Value.F «Σ» Γ ℍ Typ 𝕍) :=
+    instance {𝕍 : Type u} [IMetricSpace 𝕍] : IMetricSpace (Value.F «Σ» Γ ℍ Typ 𝕍) :=
       inferInstance
 
     /-!
@@ -1620,16 +1626,16 @@ noncomputable section Domain
     def 𝕍.chan (length : ℕ) (τ : Typ) (array closed : ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inl ⟨length, τ, array, closed⟩)
 
-    def 𝕍.struct (fields : String → Option ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.struct (fields : String →ᵤ Option ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inl fields)
 
-    def 𝕍.array (len : ℕ) (indices : ℕ → Option ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.array (len : ℕ) (indices : ℕ →ᵤ Option ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨len, indices⟩)
 
-    def 𝕍.map (maps : (𝕍 «Σ» Γ ℍ Typ).type → Option ℍ) (isNil : Bool) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.map (maps : (𝕍 «Σ» Γ ℍ Typ).type →ᵤ Option ℍ) (isNil : Bool) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨maps ∘ Restriction.val, isNil⟩)
 
-    def 𝕍.func (closure : String → Option ℍ) (call : List (𝕍 «Σ» Γ ℍ Typ).type × List Γ × (String → Option Γ) → Domain «Σ» Γ (𝕍 «Σ» Γ ℍ Typ).type (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.func (closure : String →ᵤ Option ℍ) (call : List (𝕍 «Σ» Γ ℍ Typ).type × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ (𝕍 «Σ» Γ ℍ Typ).type (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨closure, λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.val, ξ, ς⟩ |>.map Restriction.mk⟩)
 
     def 𝕍.tuple (vs : List (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=

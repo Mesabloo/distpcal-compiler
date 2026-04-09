@@ -103,6 +103,88 @@ def IMetricSpace.of_metric_space_of_dist_le_one {α} [inst : MetricSpace α]
     replace eq : dist x y = 0 := by injection eq
     exact eq_of_dist_eq_zero eq
 
+theorem edist_nonneg {α} [PseudoEMetricSpace α] {x y : α} : 0 ≤ edist x y := by
+  exact zero_le (edist x y)
+
+@[instance_reducible]
+def PseudoIMetricSpace.of_emetric_space_of_dist_le_one {α} [inst : PseudoEMetricSpace α]
+  (h : ∀ x y : α, edist x y ≤ 1 := by intros; bound) :
+    PseudoIMetricSpace α where
+  idist x y := ⟨(edist x y).toReal,
+                ENNReal.toReal_mono (ne_top_of_le_ne_top ENNReal.one_ne_top (h _ _)) edist_nonneg,
+                ENNReal.toReal_mono ENNReal.one_ne_top (h x y)⟩
+  idist_self x := by rw! [edist_self]; rfl
+  idist_comm x y := by rw! [edist_comm]; rfl
+  idist_triangle x y z := by
+    change (edist _ _).toReal ≤ (edist _ _).toReal + (edist _ _).toReal
+
+    have : edist x y ≠ ⊤ := by
+      apply ne_top_of_le_ne_top (b := 1)
+      · exact ENNReal.one_ne_top
+      · apply h
+    have : edist y z ≠ ⊤ := by
+      apply ne_top_of_le_ne_top (b := 1)
+      · exact ENNReal.one_ne_top
+      · apply h
+
+    rw [← ENNReal.toReal_add]
+    · apply ENNReal.toReal_mono
+      · apply ENNReal.Finiteness.add_ne_top
+        · assumption
+        · assumption
+      · apply edist_triangle x y z
+    · assumption
+    · assumption
+  toUniformSpace := inst.toUniformSpace
+  uniformity_idist := by
+    rw [inst.uniformity_edist]
+    apply le_antisymm
+    · apply le_iInf₂; intro ε hε
+      apply iInf₂_le_of_le (ENNReal.ofReal ε) (ENNReal.ofReal_pos.mpr hε)
+      apply Filter.principal_mono.mpr
+      intro ⟨f, g⟩ hfg
+      simp only [Set.mem_setOf_eq] at *
+      rw [show ε = (ENNReal.ofReal ε).toReal from (ENNReal.toReal_ofReal hε.le).symm, ENNReal.toReal_lt_toReal]
+      · exact hfg
+      · apply ne_top_of_le_ne_top (b := 1)
+        · exact ENNReal.one_ne_top
+        · apply h
+      · apply ENNReal.ofReal_ne_top
+    · apply le_iInf₂; intro ε hε
+      by_cases hε_top : ε = ⊤
+      · apply iInf₂_le_of_le 1 one_pos
+        apply Filter.principal_mono.mpr
+        intro ⟨f, g⟩ _hfg
+        simp only [Set.mem_setOf_eq]
+        subst hε_top
+        apply LE.le.trans_lt (b := 1)
+        · apply h
+        · exact ENNReal.one_lt_top
+      · have hε_real_pos : 0 < ε.toReal := ENNReal.toReal_pos hε.ne' hε_top
+        apply iInf₂_le_of_le ε.toReal hε_real_pos
+        apply Filter.principal_mono.mpr
+        intro ⟨f, g⟩ hfg
+        simp only [Set.mem_setOf_eq] at *
+        rwa [← ENNReal.toReal_lt_toReal _ hε_top]
+        apply ne_top_of_le_ne_top (b := 1)
+        · exact ENNReal.one_ne_top
+        · apply h
+
+@[instance_reducible]
+def IMetricSpace.of_emetric_space_of_dist_le_one {α} [inst : EMetricSpace α]
+  (h : ∀ x y : α, edist x y ≤ 1 := by intros; bound) :
+    IMetricSpace α where
+  __ := PseudoIMetricSpace.of_emetric_space_of_dist_le_one h
+  eq_of_idist_eq_zero {x y} eq := by
+    have h' : (edist x y).toReal = 0 := congr_arg Subtype.val eq
+    have hedge : edist x y = 0 := by
+      rw [ENNReal.toReal_eq_zero_iff] at h'
+      apply Or.resolve_right h'
+      apply ne_top_of_le_ne_top (b := 1)
+      · exact ENNReal.one_ne_top
+      · apply h
+    exact edist_eq_zero.mp hedge
+
 instance (priority := low) {α} [inst : PseudoIMetricSpace α] : PseudoMetricSpace α where
   dist x y := idist x y
   dist_self x := by rw [idist_self]; rfl

@@ -1,6 +1,8 @@
 import Extra.Topology.IMetricSpace
 import Mathlib.Topology.Sets.Closeds
 import Mathlib.Topology.UniformSpace.Closeds
+import Mathlib.Analysis.SpecificLimits.Basic
+import Mathlib.Order.Filter.AtTopBot.Basic
 -- import Mathlib.Topology.MetricSpace.Closeds
 -- import Extra.Topology.ClosedEmbedding.Tactic
 import Extra.Topology.ClosedEmbedding
@@ -445,22 +447,114 @@ lemma IMetric.exists_idist_lt_of_hausdorffIDist_lt {α : Type*} [PseudoIMetricSp
   obtain ⟨y, hy, hxy⟩ := this
   exists y, hy
 
-instance (priority := high) Closeds.instCompleteSpace {α : Type u} [IMetricSpace α] [CompleteSpace α] : CompleteSpace (Closeds α) :=
-  -- This can't be equal to `TopologicalSpace.Closeds.instCompleteSpace` (from `Mathlib.Topology.MetricSpace.Closeds`)
-  -- otherwise there is an instance mismatch further down, when using the completeness of `Closeds α`.
-  -- In fact, this module cannot even be imported without clashing with this file's definitions.
-  --
-  -- Proof strategy (adapting Mathlib's EMetric proof to IMetric):
-  -- Use `Metric.complete_of_convergent_controlled_sequences` with B n = (1/2)^(n+1).
-  -- Given a sequence s : ℕ → Closeds α with dist (s n) (s m) < B N for all N ≤ n, m,
-  -- define the limit t0 = ⋂ n, closure (⋃ m ≥ n, ↑(s m)).
-  -- (I1): ∀ x ∈ s n, ∃ y ∈ t0, dist x y ≤ 2 * B n.
-  --   Build inductively a sequence z with z 0 = x, z k ∈ s (n+k),
-  --   dist (z k) (z (k+1)) ≤ B n / 2^k, using exists_idist_lt_of_hausdorffIDist_lt.
-  --   Then use cauchySeq_of_le_geometric_two (dist version) + completeness for convergence.
-  -- (I2): ∀ y ∈ t0, ∃ x ∈ s n, dist y x ≤ 2 * B n (easy direction).
-  -- Conclude using IMetric.hausdorffIDist_le_iff.
-  sorry
+-- This can't be equal to `TopologicalSpace.Closeds.instCompleteSpace` (from `Mathlib.Topology.MetricSpace.Closeds`)
+-- otherwise there is an instance mismatch further down, when using the completeness of `Closeds α`.
+-- In fact, this module cannot even be imported without clashing with this file's definitions.
+instance (priority := high) Closeds.instCompleteSpace {α : Type u} [IMetricSpace α] [CompleteSpace α] : CompleteSpace (Closeds α) := by
+  let B : ℕ → ℝ := λ n ↦ (2 : ℝ)⁻¹ ^ n
+  have B_pos : ∀ n, 0 < B n := λ n ↦ by positivity
+  have B_le_one : ∀ n, B n ≤ 1 := λ n ↦ by
+    simp only [B]
+    exact pow_le_one₀ (by positivity) (by norm_num)
+  have B_add : ∀ n k : ℕ, B (n + k) = B n / 2 ^ k := λ n k ↦ by
+    simp [B, pow_add, inv_pow]; ring
+  apply Metric.complete_of_convergent_controlled_sequences B B_pos
+  intro s hs
+  let t0 : Set α := ⋂ n, closure (⋃ m ≥ n, (s m : Set α))
+  let t : Closeds α := ⟨t0, isClosed_iInter λ _ ↦ isClosed_closure⟩
+  -- Inductive stepping: from z ∈ s (n+k), find z' ∈ s (n+k+1) with dist z z' ≤ B(n+k).
+  -- Using hs with N = n+k: dist (s(n+k)) (s(n+k+1)) < B(n+k).
+  have step : ∀ n k (z : (s (n + k) : Set α)),
+      ∃ z' : (s (n + k + 1) : Set α), dist (z : α) z' ≤ B (n + k) := by
+    intro n k z
+    have hdist : (IMetric.hausdorffIDist (s (n + k) : Set α) (s (n + k + 1)) : ℝ) < B (n + k) :=
+      hs (n + k) (n + k) (n + k + 1) (le_refl _) (Nat.le_succ _)
+    obtain ⟨z', hz', hdz⟩ := IMetric.exists_idist_lt_of_hausdorffIDist_lt
+        z.2 (B_pos (n + k)) (B_le_one (n + k)) hdist
+    exists ⟨z', hz'⟩
+    exact le_of_lt hdz
+  -- I1: from x ∈ s n, find y ∈ t0 with dist x y ≤ 2 * B n.
+  -- Build chain z with z 0 = x, z k ∈ s(n+k), dist(z k)(z(k+1)) ≤ B(n+k) = (2*B n)/2/2^k.
+  have I1 : ∀ n, ∀ x ∈ (s n : Set α), ∃ y ∈ t0, dist x y ≤ 2 * B n := by
+    intro n x hx
+    -- Build chain inductively: z k ∈ s(n+k), dist(z k)(z(k+1)) ≤ (2*Bn)/2/2^k = B(n+k)
+    obtain ⟨z, hz₀, hz⟩ : ∃ z : ∀ k, (s (n + k) : Set α),
+        (z 0 : α) = x ∧ ∀ k, dist (z k : α) (z (k + 1) : α) ≤ (2 * B n) / 2 / 2 ^ k := by
+      have chain_step : ∀ l (zl : (s (n + l) : Set α)),
+          ∃ zl' : (s (n + l + 1) : Set α), dist (zl : α) zl' ≤ (2 * B n) / 2 / 2 ^ l := by
+        intro l zl
+        exists (step n l zl).choose
+        have hspec := (step n l zl).choose_spec
+        rw [show (2 * B n) / 2 / 2 ^ l = B (n + l) from by rw [B_add]; ring]
+        exact hspec
+      exact ⟨λ k ↦ Nat.recOn k ⟨x, hx⟩ (λ l zl ↦ (chain_step l zl).choose),
+             by simp, λ k ↦ (chain_step k _).choose_spec⟩
+    -- Chain is Cauchy
+    obtain ⟨y, hy_lim⟩ := cauchySeq_tendsto_of_complete (cauchySeq_of_le_geometric_two hz)
+    exists y
+    constructor
+    · -- y ∈ t0 = ⋂ n, closure(⋃ m≥n, s m)
+      apply Set.mem_iInter.mpr
+      intro k
+      apply mem_closure_of_tendsto hy_lim
+      rw [Filter.eventually_atTop]
+      exact ⟨k, λ m hm ↦ Set.mem_iUnion₂.mpr ⟨n + m, by linarith, (z m).2⟩⟩
+    · -- dist x y ≤ 2 * B n via dist_le_of_le_geometric_two_of_tendsto₀
+      rw [← hz₀]
+      exact dist_le_of_le_geometric_two_of_tendsto₀ hz hy_lim
+  -- I2: from y ∈ t0, find x ∈ s n with dist y x ≤ 2 * B n
+  have I2 : ∀ n, ∀ y ∈ t0, ∃ x ∈ (s n : Set α), dist y x ≤ 2 * B n := by
+    intro n y hy
+    obtain ⟨z, hz, dyz⟩ := Metric.mem_closure_iff.mp (Set.mem_iInter.mp hy n) (B n) (B_pos n)
+    obtain ⟨m, hm, hzm⟩ := Set.mem_iUnion₂.mp hz
+    -- hausdorffIDist (s m) (s n) < B n (from hs with N = n)
+    have hdist : (IMetric.hausdorffIDist (s m : Set α) (s n) : ℝ) < B n := by
+      have h : dist (s m) (s n) < B n := by
+        rw [dist_comm]; exact hs n n m (le_refl n) hm
+      exact h
+    obtain ⟨w, hw, dzw⟩ := IMetric.exists_idist_lt_of_hausdorffIDist_lt hzm (B_pos n) (B_le_one n) hdist
+    exists w, hw
+    apply le_of_lt
+    calc dist y w
+        ≤ dist y z + dist z w := dist_triangle y z w
+      _ < B n + B n           := by linarith [show dist z w = (idist z w : ℝ) from rfl]
+      _ = 2 * B n             := by ring
+  -- Bound dist (s n) t ≤ 2 * B n via hausdorffIDist_le_iff
+  -- Note: 2 * B n may exceed 1 for small n (e.g. n = 0), but dist ≤ 1 handles that trivially.
+  have main : ∀ n, dist (s n) t ≤ 2 * B n := by
+    intro n
+    show (IMetric.hausdorffIDist (s n : Set α) (t : Set α) : ℝ) ≤ 2 * B n
+    by_cases h1 : 1 ≤ 2 * B n
+    · -- 2 * B n ≥ 1, trivial since hausdorffIDist ≤ 1
+      exact le_trans (IMetric.hausdorffIDist (s n : Set α) (t : Set α)).2.2 h1
+    · -- 2 * B n < 1, use hausdorffIDist_le_iff with r = ⟨2 * B n, ...⟩
+      push_neg at h1
+      have hge0 : (0 : ℝ) ≤ 2 * B n := by positivity
+      set r : unitInterval := ⟨2 * B n, hge0, le_of_lt h1⟩
+      have hle : IMetric.hausdorffIDist (s n : Set α) (t : Set α) ≤ r := by
+        apply IMetric.hausdorffIDist_le_iff
+        · intro x hx
+          obtain ⟨y, hy, hd⟩ := I1 n x hx
+          exists y, hy
+        · intro y hy
+          obtain ⟨x, hx, hd⟩ := I2 n y hy
+          exists x, hx
+          rw [idist_comm]; exact_mod_cast hd
+      exact_mod_cast hle
+  -- Conclude: s n → t in Closeds α
+  exists t
+  apply Metric.tendsto_atTop.mpr
+  intro ε hε
+  have hlim : Filter.Tendsto (λ n ↦ 2 * B n) Filter.atTop (nhds 0) := by
+    simp only [B]
+    have h := (tendsto_pow_atTop_nhds_zero_of_lt_one (r := (2:ℝ)⁻¹) (by positivity) (by norm_num)).const_mul 2
+    simpa using h
+  have hev := (tendsto_order.mp hlim).2 ε hε
+  rw [Filter.eventually_atTop] at hev
+  obtain ⟨N, hN⟩ := hev
+  exists N
+  intro n hn
+  exact lt_of_le_of_lt (main n) (hN n hn)
 
 def Closeds.map {α β} [IMetricSpace α] [IMetricSpace β] (f : α → β) (hf : Topology.IsClosedEmbedding f) (x : Closeds α) : Closeds β where
   carrier := f '' ↑x

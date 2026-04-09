@@ -7,6 +7,8 @@ import Mathlib.Analysis.SpecificLimits.Basic
   Go.
 -/
 
+open scoped UniformConvergence
+
 theorem ENNReal.toReal_two : ENNReal.toReal 2 = 2 := rfl
 
 open TypedSetTheory (Expression Typ)
@@ -45,7 +47,7 @@ axiom Store_metricspace : IMetricSpace Store.type
 axiom Store_completespace : CompleteSpace Store.type
 
 axiom Store_iso.{u, v, w, x} :
-  Store.{u, v, w, x}.type ≃ᵢ (Address.{u, v} → Option (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type) × List (String → Option Address.{u, v})
+  Store.{u, v, w, x}.type ≃ᵢ (Address.{u, v} →ᵤ Option (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type) × List (String →ᵤ Option Address.{u, v})
 
 -- structure Store where
 --   /-- The main memory -/
@@ -161,7 +163,7 @@ noncomputable section
           -- close
           -- select
           -- switch
-          | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ‖ Statement.denotation ξ ς ss)
+          | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ∥ Statement.denotation ξ ς ss)
           -- send
           -- recv
           | _ => sorry
