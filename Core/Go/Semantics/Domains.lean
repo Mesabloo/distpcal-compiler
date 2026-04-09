@@ -933,19 +933,19 @@ noncomputable section Domain
           Sum.map id <|
           UniformFun.map <| Set.image (Branch.map (IterativeDomain.map f))
 
-      theorem IterativeDomain.map_leaf {β'} [IMetricSpace β'] {f : β → β'} {v : β} {n} :
+      theorem IterativeDomain.map_leaf {β'} [IMetricSpace β'] {f : β →ᵤ β'} {v : β} {n} :
           map f (leaf («Σ» := «Σ») (Γ := Γ) (α := α) (n := n) v) = leaf (f v) := by
         cases n with rfl
 
-      theorem IterativeDomain.map_abort {β'} [IMetricSpace β'] {f : β → β'} {n} :
+      theorem IterativeDomain.map_abort {β'} [IMetricSpace β'] {f : β →ᵤ β'} {n} :
           map f (abort («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n)) = abort := by
         cases n with rfl
 
-      theorem IterativeDomain.map_branch {β'} [IMetricSpace β'] {f : β → β'} {n} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+      theorem IterativeDomain.map_branch {β'} [IMetricSpace β'] {f : β →ᵤ β'} {n} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
           map f (branch g) = branch λ σ ↦ Branch.map (IterativeDomain.map f) '' g σ := by
         rfl
 
-      theorem IterativeDomain.map_lift {β'} [IMetricSpace β'] (f : β → β')
+      theorem IterativeDomain.map_lift {β'} [IMetricSpace β'] (f : β →ᵤ β')
         {m n} (h : m ≤ n) (x : (IterativeDomain «Σ» Γ α β m).carrier) :
           lift h (map f x) = map f (lift h x) := by
         match m, n with
@@ -985,7 +985,7 @@ noncomputable section Domain
         funext p
         apply IterativeDomain.map_id
 
-      theorem IterativeDomain.map_map {γ'} [IMetricSpace γ'] {n} {f : β → γ} {g : γ → γ'} {p : (IterativeDomain «Σ» Γ α β n).carrier} :
+      theorem IterativeDomain.map_map {γ'} [IMetricSpace γ'] {n} {f : β →ᵤ γ} {g : γ →ᵤ γ'} {p : (IterativeDomain «Σ» Γ α β n).carrier} :
           map g (map f p) = map (g ∘ f) p := by
         match n, p with
         | 0, IterativeDomain.leaf v => rfl
@@ -1001,12 +1001,12 @@ noncomputable section Domain
           erw [← Branch.map_comp (map f) (map g)]
           rfl
 
-      theorem IterativeDomain.map_map' {γ'} [IMetricSpace γ'] {n} {f : β → γ} {g : γ → γ'} :
+      theorem IterativeDomain.map_map' {γ'} [IMetricSpace γ'] {n} {f : β →ᵤ γ} {g : γ →ᵤ γ'} :
           map («Σ» := «Σ») (Γ := Γ) (α := α) (β := γ) (n := n) g ∘ map f = map (g ∘ f) := by
         funext p
         apply IterativeDomain.map_map
 
-      def IterativeDomain.map_uniformContinuous {β'} [IMetricSpace β'] {n} (f : β → β') (hf : UniformContinuous f) :
+      def IterativeDomain.map_uniformContinuous {β'} [IMetricSpace β'] {n} (f : β →ᵤ β') (hf : UniformContinuous f) :
           UniformContinuous (IterativeDomain.map («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n) f) := by
         cases n with
         | zero =>
@@ -1024,7 +1024,7 @@ noncomputable section Domain
               apply IterativeDomain.map_uniformContinuous
               exact hf
 
-      def DomainUnion.map {β'} [IMetricSpace β'] (f : β → β') :
+      def DomainUnion.map {β'} [IMetricSpace β'] (f : β →ᵤ β') :
           DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β' :=
         Sigma.map id λ _ ↦ IterativeDomain.map f
 
@@ -1038,22 +1038,23 @@ noncomputable section Domain
         funext p
         apply DomainUnion.map_id
 
-      theorem DomainUnion.map_map {γ'} [IMetricSpace γ'] {f : β → γ} {g : γ → γ'} {p : DomainUnion «Σ» Γ α β} :
+      theorem DomainUnion.map_map {γ'} [IMetricSpace γ'] {f : β →ᵤ γ} {g : γ →ᵤ γ'} {p : DomainUnion «Σ» Γ α β} :
           map g (map f p) = map (g ∘ f) p := by
         unfold map
         simp [Sigma.map_map, Function.comp_id, IterativeDomain.map_map']
 
-      theorem DomainUnion.map_map' {γ'} [IMetricSpace γ'] {f : β → γ} {g : γ → γ'} :
+      theorem DomainUnion.map_map' {γ'} [IMetricSpace γ'] {f : β →ᵤ γ} {g : γ →ᵤ γ'} :
           map («Σ» := «Σ») (Γ := Γ) (α := α) g ∘ map f = map (g ∘ f) := by
         funext p
         apply DomainUnion.map_map
 
-      def DomainUnion.map_uniformContinuous {β'} [IMetricSpace β'] (f : β → β') (hf : UniformContinuous f) :
+      def DomainUnion.map_uniformContinuous {β'} [IMetricSpace β'] (f : β →ᵤ β') (hf : UniformContinuous f) :
           UniformContinuous (DomainUnion.map («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) f) := by
         -- TODO: Should be true
         admit
 
-      def Domain.map {β'} [IMetricSpace β'] (f : β → β') :
+      /-- Map leaves of the tree using a given function. -/
+      def Domain.map {β'} [IMetricSpace β'] (f : β →ᵤ β') :
           Domain «Σ» Γ α β → Domain «Σ» Γ α β' :=
         UniformSpace.Completion.map <| DomainUnion.map f
 
@@ -1062,7 +1063,7 @@ noncomputable section Domain
         rw [DomainUnion.map_id', UniformSpace.Completion.map_id]
         rfl
 
-      theorem Domain.map_map {γ'} [IMetricSpace γ'] {f : β → γ} {g : γ → γ'} {p : Domain «Σ» Γ α β}
+      theorem Domain.map_map {γ'} [IMetricSpace γ'] {f : β →ᵤ γ} {g : γ →ᵤ γ'} {p : Domain «Σ» Γ α β}
         (hf : UniformContinuous f) (hg : UniformContinuous g) :
           map g (map f p) = map (g ∘ f) p := by
         unfold map
@@ -1110,9 +1111,13 @@ noncomputable section Domain
           UniformContinuous (DomainUnion.syncClose («Σ» := «Σ») (β := β) zero c) := by
         admit
 
+      /--
+        Close a synchronous channel `c` in the tree, pruning subtrees accordingly.
+      -/
       def Domain.syncClose [DecidableEq Γ] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
         UniformSpace.Completion.map <| DomainUnion.syncClose zero c
 
+      @[inherit_doc Domain.syncClose]
       abbrev Domain.syncClose' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
         Domain.syncClose inst.zero c
     end Close
@@ -1217,6 +1222,7 @@ noncomputable section Domain
       def Domain.ap [DecidableEq Γ] : Domain «Σ» Γ α (β →ᵤ γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.ap zero x y)
 
+      /-- General form of sequential composition. -/
       def Domain.ap' [DecidableEq Γ] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α (β →ᵤ γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
         Domain.ap inst.zero
     end Applicative
@@ -1242,6 +1248,7 @@ noncomputable section Domain
         that are bigger and bigger, the actual depth becomes unbounded!
       -/
 
+      /-- Replace leaves of the tree with subtrees depending on the value of the leaves. -/
       axiom Domain.bind : Domain «Σ» Γ α β → (β → Domain «Σ» Γ α γ) → Domain «Σ» Γ α γ
     end Monad
 
@@ -1379,12 +1386,11 @@ noncomputable section Domain
 
         admit
 
+      /-- Restricted form of sequential composition where all leaves are replaced with the same subtree. -/
       def Domain.seq [DecidableEq Γ] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.seq zero x y)
 
-      /--
-        `Domain.seq`, but the parameter order is reversed.
-      -/
+      @[inherit_doc Domain.seq]
       def Domain.seq' [DecidableEq Γ] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         flip (Domain.seq inst.zero)
     end Sequence
@@ -1413,6 +1419,7 @@ noncomputable section Domain
           UniformContinuous₂ (DomainUnion.choice («Σ» := «Σ») (Γ := Γ) (α := α)) := by
         admit
 
+      /-- Non-deterministic choice, aka tree union. -/
       def Domain.choice : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.choice x y)
     end Choice
@@ -1454,6 +1461,7 @@ noncomputable section Domain
       def Domain.hide [DecidableEq Γ] (c : Γ) (Ω : Set Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
         UniformSpace.Completion.map (DomainUnion.hide zero c Ω)
 
+      /-- Remove branches that mention the synchronous channel `c`, or channels in `Ω`. -/
       def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) (Ω : Set Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
         Domain.hide inst.zero c Ω
     end EventHiding
@@ -1517,6 +1525,7 @@ noncomputable section Domain
       def Domain.parallel : Domain «Σ» Γ α β → Domain «Σ» Γ α γ → Domain «Σ» Γ α (β × γ) :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.parallel zero x y)
 
+      /-- Parallel composition. Generates all the possible interleavings as well as synchronizations. -/
       def Domain.parallel' [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α β → Domain «Σ» Γ α γ → Domain «Σ» Γ α (β × γ) :=
         Domain.parallel inst.zero
     end Parallel
