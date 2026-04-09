@@ -21,7 +21,20 @@ namespace Bool
 
   protected theorem isOpen_iff (s : Set Bool) :
       IsOpen s ↔ ∀ x ∈ s, ∃ ε > (0 : ℝ), ∀ (y : Bool), ↑(Bool.idist x y) < ε → y ∈ s := by
-    admit
+    constructor
+    · intro _hs x hx
+      exists 1, one_pos
+      intros y hy
+      by_contra hyx
+      have heq : Bool.idist x y = ⊤ := by
+        simp [Bool.idist]
+        intro h
+        exact absurd h (by grind)
+      rw [heq, unitInterval.top_eq] at hy
+      absurd hy
+      apply lt_irrefl
+    · intro _
+      trivial
 
   protected theorem eq_of_idist_eq_zero (x y : Bool) (h : Bool.idist x y = 0) : x = y := by
     unfold Bool.idist at h

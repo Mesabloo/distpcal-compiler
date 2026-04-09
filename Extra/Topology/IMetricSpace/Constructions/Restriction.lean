@@ -105,11 +105,11 @@ theorem Restriction.map_injective {α β ε h} [TopologicalSpace α] [Topologica
   ext : 1
   exact hf h
 
-theorem Restriction.map.isClosedEmbedding {α β ε h} [TopologicalSpace α] [TopologicalSpace β] {f : α → β}
-  (hf : Topology.IsClosedEmbedding f) :
-    Topology.IsClosedEmbedding (Restriction.map (ε := ε) (h := h) f) := by
-  -- FIXME: This is true but painful to prove
-  admit
+-- theorem Restriction.map.isClosedEmbedding {α β ε h} [TopologicalSpace α] [TopologicalSpace β] {f : α → β}
+--   (hf : Topology.IsClosedEmbedding f) :
+--     Topology.IsClosedEmbedding (Restriction.map (ε := ε) (h := h) f) := by
+--   -- FIXME: This is true but painful to prove
+--   admit
 
 macro_rules
 | `(tactic| is_closed_embedding_step) =>
@@ -131,6 +131,5 @@ theorem Restriction.map_isometry {α β ε h} [PseudoIMetricSpace α] [PseudoIMe
 
 theorem Restriction.uniformContinuous_map {α β ε h} [UniformSpace α] [UniformSpace β] {f : α → β}
   (hf : UniformContinuous f) :
-    UniformContinuous (@Restriction.map _ _ ε h f) := by
-  -- FIXME: This is true but painful to prove
-  admit
+    UniformContinuous (@Restriction.map _ _ ε h f) :=
+  uniformContinuous_comap' (hf.comp Restriction.val_uniformContinuous)

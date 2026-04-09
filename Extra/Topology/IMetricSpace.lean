@@ -50,7 +50,8 @@ instance instDistOfIDist {α} [IDist α] : Dist α where
   dist x y := idist x y
 
 /-- Creating a uniform space from an extended distance. -/
-@[reducible] def uniformSpaceOfIDist {α} (idist : α → α → I) (idist_self : ∀ x : α, idist x x = 0)
+@[instance_reducible]
+def uniformSpaceOfIDist {α} (idist : α → α → I) (idist_self : ∀ x : α, idist x x = 0)
     (idist_comm : ∀ x y : α, idist x y = idist y x)
     (idist_triangle : ∀ x y z : α, (idist x z : ℝ) ≤ idist x y + idist y z) : UniformSpace α :=
   .ofFun (λ x y ↦ idist x y : α → α → ℝ)
@@ -407,9 +408,45 @@ section Transport
     · positivity
     · positivity
 
+  theorem transport_strictMono {x y : ℝ} {hx : x ≥ 0} {hy : y ≥ 0} (h : x < y) :
+      transport x hx < transport y hy := by
+    show x / (1 + x) < y / (1 + y)
+    rw [div_lt_div_iff₀ (by linarith) (by linarith)]
+    nlinarith
+
+  theorem transport_lt_one {x : ℝ} {hx : x ≥ 0} : (transport x hx : ℝ) < 1 := by
+    show x / (1 + x) < 1
+    rw [div_lt_one (by linarith)]
+    linarith
+
+  theorem transport_pos {x : ℝ} (hx : x > 0) : (transport x hx.le : ℝ) > 0 := by
+    show 0 < x / (1 + x)
+    exact div_pos hx (by linarith)
+
+  theorem lt_of_transport_lt {x y : ℝ} {hx : x ≥ 0} {hy : y ≥ 0}
+      (h : (transport x hx : ℝ) < transport y hy) : x < y := by
+    rcases lt_trichotomy x y with hlt | rfl | hgt
+    · exact hlt
+    · exact absurd h (lt_irrefl _)
+    · exact absurd h (not_lt.mpr (transport_strictMono hgt).le)
+
+  theorem transport_lt_iff {x : ℝ} {hx : x ≥ 0} {ε : ℝ} (hε₀ : 0 < ε) (hε₁ : ε < 1) :
+      (transport x hx : ℝ) < ε ↔ x < ε / (1 - ε) := by
+    show x / (1 + x) < ε ↔ x < ε / (1 - ε)
+    have h1ε : (1 : ℝ) - ε > 0 := by linarith
+    constructor
+    · intro h
+      rw [div_lt_iff₀ (by linarith)] at h
+      rw [lt_div_iff₀ h1ε]
+      nlinarith
+    · intro h
+      rw [div_lt_iff₀ (by linarith)]
+      rw [lt_div_iff₀ h1ε] at h
+      nlinarith
+
   open scoped Real in
   @[instance_reducible]
-  noncomputable def IMetricSpace.transportMetricSpace {α} [MetricSpace α] : IMetricSpace α where
+  noncomputable def IMetricSpace.transportMetricSpace {α} [inst : MetricSpace α] : IMetricSpace α where
     idist x y := transport (dist x y) dist_nonneg
     idist_self x := by rw! [dist_self, transport_zero]; rfl
     idist_comm x y := by rw! [dist_comm]; rfl
@@ -423,4 +460,26 @@ section Transport
       generalize_proofs dist_mem_I at h
       injection h with h
       grind only [dist_le_zero]
+    toUniformSpace := inst.toUniformSpace
+    uniformity_idist := by
+      rw [PseudoMetricSpace.uniformity_dist]
+      apply le_antisymm
+      · apply le_iInf₂ λ δ δ_pos ↦ ?_
+        by_cases hδ : δ < 1
+        · apply iInf₂_le_of_le (δ / (1 - δ)) (div_pos δ_pos (by linarith))
+          apply Filter.principal_mono.mpr
+          intro p (hxy : dist p.1 p.2 < δ / (1 - δ))
+          change (transport (dist p.1 p.2) dist_nonneg : ℝ) < δ
+          exact (transport_lt_iff δ_pos hδ).mpr hxy
+        · apply iInf₂_le_of_le 1 one_pos
+          apply Filter.principal_mono.mpr
+          intro p (_ : dist p.1 p.2 < 1)
+          change (transport (dist p.1 p.2) dist_nonneg : ℝ) < δ
+          exact lt_of_lt_of_le transport_lt_one (not_lt.mp hδ)
+      · apply le_iInf₂ λ δ δ_pos ↦ ?_
+        apply iInf₂_le_of_le (transport δ δ_pos.le : ℝ) (transport_pos δ_pos)
+        apply Filter.principal_mono.mpr
+        intro p (hxy : (transport (dist p.1 p.2) dist_nonneg : ℝ) < (transport δ δ_pos.le : ℝ))
+        change dist p.1 p.2 < δ
+        exact lt_of_transport_lt hxy
 end Transport

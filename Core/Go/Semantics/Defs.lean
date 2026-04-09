@@ -19,21 +19,25 @@ abbrev nil : Address := .inl .unit
 abbrev dummy : Address := .inr (.inl .unit)
 instance : Coe ℕ Address := ⟨λ x ↦ .inr (.inr x)⟩
 
-def Channel := (ℕ × TypedSetTheory.Typ)
-  deriving DecidableEq
-
 instance : IMetricSpace TypedSetTheory.Typ where
   idist := sorry
   idist_self := sorry
   idist_comm := sorry
   idist_triangle := sorry
   eq_of_idist_eq_zero := sorry
+instance : CompleteSpace TypedSetTheory.Typ where
+  complete := by
+    admit
 
+def Channel := (ℕ × TypedSetTheory.Typ)
+  deriving DecidableEq
+
+-- noncomputable instance : PseudoIMetricSpace Channel :=
+--   inferInstanceAs (PseudoIMetricSpace (ℕ × TypedSetTheory.Typ))
 noncomputable instance : IMetricSpace Channel :=
   inferInstanceAs (IMetricSpace (ℕ × TypedSetTheory.Typ))
 instance : CompleteSpace Channel :=
-  -- Maybe?
-  sorry
+  inferInstanceAs (CompleteSpace (ℕ × TypedSetTheory.Typ))
 
 -- TODO: this will need to be defined mutually with 𝕍
 axiom Store.{u, v, w, x} : NonemptyType.{max u v w x}
