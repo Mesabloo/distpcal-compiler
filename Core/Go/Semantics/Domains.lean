@@ -1576,17 +1576,19 @@ noncomputable section Domain
       -- slice
       ⊕ ℕ × ℕ × ℕ × ℍ
       -- chan
-      ⊕ ℕ × Typ × ℍ × ℍ
+      ⊕ ℍ × Typ × ℍ × ℍ
       -- struct
       ⊕ (String →ᵤ Option ℍ)
       -- array
-      ⊕ ℕ × (ℕ →ᵤ Option ℍ)
+      ⊕ (Σ n : ℕ, Fin n →ᵤ ℍ)
       -- map
       ⊕ (Restriction 𝕍 unitInterval.half →ᵤ Option ℍ) × Bool
       -- func
       ⊕ (String →ᵤ Option ℍ) × (List (Restriction 𝕍 unitInterval.half) × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ 𝕍 (Restriction 𝕍 unitInterval.half))
       -- tuples
       ⊕ List (Restriction 𝕍 unitInterval.half)
+      -- synchronous channels
+      ⊕ Γ
 
     variable {«Σ» Γ ℍ Typ}
 
@@ -1632,13 +1634,13 @@ noncomputable section Domain
     def 𝕍.slice (cap low high : ℕ) (array : ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inl ⟨cap, low, high, array⟩)
 
-    def 𝕍.chan (length : ℕ) (τ : Typ) (array closed : ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.chan (length : ℍ) (τ : Typ) (array closed : ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inl ⟨length, τ, array, closed⟩)
 
     def 𝕍.struct (fields : String →ᵤ Option ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inl fields)
 
-    def 𝕍.array (len : ℕ) (indices : ℕ →ᵤ Option ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.array (len : ℕ) (indices : Fin len →ᵤ ℍ) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨len, indices⟩)
 
     def 𝕍.map (maps : (𝕍 «Σ» Γ ℍ Typ).type →ᵤ Option ℍ) (isNil : Bool) : (𝕍 «Σ» Γ ℍ Typ).type :=
@@ -1648,7 +1650,10 @@ noncomputable section Domain
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨closure, λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.val, ξ, ς⟩ |>.map Restriction.mk⟩)
 
     def 𝕍.tuple (vs : List (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
-      𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr vs)
+      𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl vs)
+
+    def 𝕍.sync (c : Γ) : (𝕍 «Σ» Γ ℍ Typ).type :=
+      𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr c)
 
 
     @[cases_eliminator]
@@ -1663,6 +1668,7 @@ noncomputable section Domain
       (map : ∀ maps isNil, motive (𝕍.map maps isNil))
       (func : ∀ closure call, motive (𝕍.func closure call))
       (tuple : ∀ vs : List (𝕍 «Σ» Γ ℍ Typ).type, motive (𝕍.tuple vs))
+      (sync : ∀ c, motive (𝕍.sync c))
       (v : (𝕍 «Σ» Γ ℍ Typ).type) :
         motive v :=
       match h : 𝕍_iso v with
@@ -1717,12 +1723,17 @@ noncomputable section Domain
           · apply Restriction.val_uniformContinuous
           · apply Restriction.mk_uniformContinuous
         h' ▸ func closure (λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.mk, ξ, ς⟩ |>.map Restriction.val)
-      | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr vs)))))))) =>
+      | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inl vs))))))))) =>
         have h' : v = 𝕍.tuple (List.map Restriction.val vs) := by
           apply_fun 𝕍_iso.symm at h
           rw [IsometryEquiv.symm_apply_apply] at h
           rw [h, 𝕍.tuple, ← List.map_eq_map, bind_map_left]
           simp only [List.pure_def, List.bind_eq_flatMap, List.flatMap_singleton']
         h' ▸ tuple (List.map Restriction.val vs)
+      | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr c))))))))) =>
+        have h' : v = 𝕍.sync c := by
+          apply_fun 𝕍_iso.symm at h
+          rwa [IsometryEquiv.symm_apply_apply] at h
+        h' ▸ sync c
   end Value
 end Domain
