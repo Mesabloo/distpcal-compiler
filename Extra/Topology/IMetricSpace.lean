@@ -1,6 +1,7 @@
 import CustomPrelude
 import Mathlib.Topology.UnitInterval
 import Mathlib.Topology.MetricSpace.Isometry
+import Mathlib.Order.Hom.CompleteLattice
 
 namespace unitInterval
   @[simp] theorem top_eq : (⊤ : I) = 1 := rfl
@@ -11,6 +12,22 @@ namespace unitInterval
   theorem coe_zero_eq : ↑(0 : I) = (0 : ℝ) := rfl
 
   theorem le_iff_le_val (x y : I) : x ≤ y ↔ x.val ≤ y.val := by rfl
+
+  @[simp]
+  theorem mul_bot {x : I} : x * ⊥ = ⊥ := by
+    grind only [←= bot_unique, mul_le_right]
+
+  @[simp]
+  theorem bot_mul {x : I} : ⊥ * x = ⊥ := by
+    rw [mul_comm, mul_bot]
+
+  @[simp]
+  theorem mul_top {x : I} : x * ⊤ = x := by
+    rw [top_eq, mul_one]
+
+  @[simp]
+  theorem top_mul {x : I} : ⊤ * x = x := by
+    rw [mul_comm, mul_top]
 
   noncomputable def half : I where
     val := 1 / 2
@@ -34,6 +51,83 @@ namespace unitInterval
   theorem half_mul_toReal_eq_div_two (x : I) : ↑(half * x) = (↑x / 2 : ℝ) := by
     change (1 / 2 * x : ℝ) = _
     grind only
+
+  theorem toNNReal_cast_eq_toNNReal {ε : I} : (ε : ℝ).toNNReal = toNNReal ε := by
+    rw [Real.toNNReal_of_nonneg]
+    rfl
+
+  theorem coe_iSup_le {ι} {f : ι → I} {a : ℝ} (ha : 0 ≤ a) (h : ∀ (i : ι), (f i).val ≤ a) :
+      (iSup f).val ≤ a := by
+    cases isEmpty_or_nonempty ι with
+    | inl _ =>
+      simpa only [iSup_of_empty] using ha
+    | inr _ =>
+      rw [iSup, Set.Icc.coe_sSup (by norm_num) (Set.range_nonempty f), ← Set.range_comp]
+      exact ciSup_le h
+
+  theorem coe_iSup₂_le {ι} {ι' : ι → _} {f : (x : ι) → ι' x → I} {a : ℝ} (ha : 0 ≤ a) (h : ∀ (i : ι) (j : ι' i), (f i j).val ≤ a) :
+      (⨆ x, ⨆ y, f x y).val ≤ a := by
+    apply coe_iSup_le ha λ i ↦ ?_
+    apply coe_iSup_le ha λ j ↦ ?_
+    exact h i j
+
+  theorem coe_le_iSup {ι} {f : ι → I} {i : ι} :
+      (f i).val ≤ (iSup f).val := by
+    rw [Subtype.coe_le_coe]
+    apply le_iSup
+
+  theorem coe_le_iSup₂ {ι} {ι' : ι → _} {f : (x : ι) → ι' x → I} {i : ι} {j : ι' i} :
+      (f i j).val ≤ (⨆ x, ⨆ y, f x y).val := by
+    rw [Subtype.coe_le_coe]
+    apply le_iSup₂
+
+  -- theorem iSup_eq_zero {ι} {f : ι → I} :
+  --     ⨆ i, f i = ⊥ ↔ ∀ (i : ι), f i = ⊥ := by
+  --   admit
+
+  private lemma coe_iSup_eq {ι} [Nonempty ι] (f : ι → I) :
+      (⨆ i, f i).val = ⨆ i, (f i).val := by
+    rw [iSup, Set.Icc.coe_sSup (by norm_num) (Set.range_nonempty f), ← Set.range_comp]
+    rfl
+
+  private lemma real_mul_iSup {ι} [Nonempty ι] (f : ι → I) (a : I) :
+      a.val * ⨆ x, (f x).val = ⨆ x, a.val * (f x).val := by
+    have hbdd : BddAbove (Set.range λ x ↦ (f x).val) :=
+      ⟨1, λ _ ⟨i, hi⟩ ↦ hi ▸ (f i).2.2⟩
+    rw [← Monotone.map_ciSup_of_continuousAt
+          (f := λ y ↦ a.val * y)
+          (continuousAt_const.mul continuousAt_id)
+          (λ x y h ↦ mul_le_mul_of_nonneg_left h a.2.1)
+          hbdd]
+
+  theorem mul_iSup {ι} {f : ι → I} {a : I} :
+      a * ⨆ x, f x = ⨆ x, a * f x := by
+    apply le_antisymm
+    · rw [Subtype.mk_le_mk]
+      cases isEmpty_or_nonempty ι with
+      | inl h =>
+        haveI := h
+        simp
+      | inr _ =>
+        change a.val * (⨆ x, f x).val ≤ (⨆ x, a * f x).val
+        rw [coe_iSup_eq f, real_mul_iSup f a, coe_iSup_eq (a * f ·)]
+        exact le_refl _
+    · apply iSup_le
+      intro x
+      exact mul_le_mul_of_nonneg_left (le_iSup f x) a.2.1
+
+  theorem iSup_mul {ι} {f : ι → I} {a : I} :
+      (⨆ x, f x) * a = ⨆ x, f x * a := by
+    simp [mul_comm, mul_iSup]
+
+  theorem div_coe_eq_of_one_le {a : I} {b : ℝ} (hb : 1 ≤ b) :
+      (a : ℝ) / b = Subtype.val {
+        val := a.val / b
+        property := ⟨div_nonneg (nonneg a) (le_trans zero_le_one hb),
+                     div_le_one_of_le₀ (by grind only [=Set.mem_Icc]) (le_trans zero_le_one hb)⟩
+        : I
+      } :=
+    rfl
 end unitInterval
 
 open scoped unitInterval
@@ -483,3 +577,11 @@ section Transport
         change dist p.1 p.2 < δ
         exact lt_of_transport_lt hxy
 end Transport
+
+theorem PseudoIMetricSpace.dist_eq {α} [PseudoIMetricSpace α] {x y : α} :
+    dist x y = (idist x y : ℝ) := by
+  rfl
+
+theorem PseudoIMetricSpace.edist_eq {α} [PseudoIMetricSpace α] {x y : α} :
+    edist x y = ENNReal.ofReal (idist x y : ℝ) := by
+  rw [← PseudoIMetricSpace.dist_eq, edist_dist]

@@ -58,4 +58,8 @@ theorem UniformFun.idist_eq_iSup {α : Type u} {β : Type v} [PseudoIMetricSpace
     rw [← Subtype.coe_le_coe, idist_cast_eq_iSup_real]
     exact le_ciSup idist_bddAbove_real x
 
+theorem UniformFun.idist_eq_iSup₂.{w} {α : Type u} {β : Type v} {δ : Type w} [PseudoIMetricSpace β] [PseudoIMetricSpace δ] {f g : α →ᵤ β →ᵤ δ} :
+    idist f g = ⨆ x, ⨆ y, idist (f x y) (g x y) := by
+  simp_rw [UniformFun.idist_eq_iSup]
+
 attribute [-instance] UniformFun.instPseudoEMetricSpace UniformFun.instEMetricSpace

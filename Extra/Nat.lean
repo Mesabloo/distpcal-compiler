@@ -17,6 +17,9 @@ namespace Nat
         obtain ⟨n', rfl⟩ := IH m_succ_le_n
         exists n'.succ
 
+  theorem le_pred_of_succ_le {m n : ℕ} (h : m + 1 ≤ n) : m ≤ n - 1 := by
+    grind only
+
   theorem succ_lt_exists_succ {m n : Nat} : m < n → ∃ n', n = n' + 1 := succ_le_exists_succ
 
   theorem min_le {m n o p : Nat} : m ≤ n → o ≤ p → min m o ≤ min n p := by omega

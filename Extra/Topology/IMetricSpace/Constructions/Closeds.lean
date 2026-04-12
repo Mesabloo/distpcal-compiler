@@ -195,6 +195,45 @@ namespace IMetric
       hausdorffIDist (Φ '' s) (Φ '' t) = hausdorffIDist s t := by
     simp_rw [hausdorffIDist, iSup_image, hausdorffInfIDist_image h]
 
+  /-- Hausdorff distance is non-expansive when a fixed set `t` is appended on the right of the
+  union: `hausdorffIDist (s ∪ t) (s' ∪ t) ≤ hausdorffIDist s s'`. -/
+  theorem hausdorffIDist_union_right_le {α} [PseudoIMetricSpace α] {s s' t : Set α} :
+      hausdorffIDist (s ∪ t) (s' ∪ t) ≤ hausdorffIDist s s' := by
+    -- Helper: infIDist x (A ∪ B) ≤ infIDist x A  (more targets ⇒ smaller inf)
+    have infIDist_union_le : ∀ (x : α) (A B : Set α),
+        IMetric.hausdorffInfIDist x (A ∪ B) ≤ IMetric.hausdorffInfIDist x A :=
+      λ x A B ↦ iInf_le_iInf_of_subset Set.subset_union_left
+    -- Helper: if x ∈ t, infIDist x (A ∪ t) = 0 ≤ anything
+    have mem_right_zero : ∀ (x : α) (A : Set α), x ∈ t →
+        IMetric.hausdorffInfIDist x (A ∪ t) ≤ ⊥ := by
+      intro x A hx
+      apply le_trans
+      · exact iInf₂_le x (Set.mem_union_right A hx)
+      · simp [idist_self]
+    apply max_le_max
+    · -- ⨆ x ∈ s ∪ t, infIDist x (s' ∪ t) ≤ ⨆ x ∈ s, infIDist x s'
+      apply iSup_le
+      intro x
+      apply iSup_le
+      intro hx
+      rcases hx with hx | hx
+      · -- x ∈ s: infIDist x (s' ∪ t) ≤ infIDist x s' ≤ sup over s
+        apply le_trans (infIDist_union_le x s' t)
+        exact le_iSup₂ (f := λ y _ ↦ IMetric.hausdorffInfIDist y s') x hx
+      · -- x ∈ t: x ∈ s' ∪ t so infIDist is 0
+        exact le_trans (mem_right_zero x s' hx) bot_le
+    · -- ⨆ y ∈ s' ∪ t, infIDist y (s ∪ t) ≤ ⨆ y ∈ s', infIDist y s
+      apply iSup_le
+      intro y
+      apply iSup_le
+      intro hy
+      rcases hy with hy | hy
+      · -- y ∈ s': infIDist y (s ∪ t) ≤ infIDist y s ≤ sup over s'
+        apply le_trans (infIDist_union_le y s t)
+        exact le_iSup₂ (f := λ z _ ↦ IMetric.hausdorffInfIDist z s) y hy
+      · -- y ∈ t: y ∈ s ∪ t so infIDist is 0
+        exact le_trans (mem_right_zero y s hy) bot_le
+
   -- infIDist x (closure s) = infIDist x s: closure adds limit points approached from s
   lemma hausdorffInfIDist_closure {α} [PseudoIMetricSpace α] (x : α) (s : Set α) :
       IMetric.hausdorffInfIDist x (closure s) = IMetric.hausdorffInfIDist x s := by
@@ -296,6 +335,91 @@ namespace IMetric
   theorem hausdorffIDist_eq_of_idist_eq_zero {α} {s t : Set α} [PseudoIMetricSpace α] (hs : IsClosed s) (ht : IsClosed t) :
       IMetric.hausdorffIDist s t = 0 ↔ s = t := by
     rw [hausdorffIDist_zero_iff_closure_eq_closure, IsClosed.closure_eq hs, IsClosed.closure_eq ht]
+
+  private theorem div_iSup_I_of_one_le {α} [PseudoIMetricSpace α] {s : Set α} {f : α → unitInterval} {k : ℝ} (hk : 1 ≤ k) :
+      (⨆ b ∈ s, f b).val / k =
+        (⨆ b ∈ s, { val := f b / k
+                    property := ⟨div_nonneg (unitInterval.nonneg _) (le_trans zero_le_one hk),
+                                  div_le_one_of_le₀ (by grind only [=Set.mem_Icc]) (le_trans zero_le_one hk)⟩
+                    : unitInterval }).val := by
+    by_cases hs : s.Nonempty
+    · haveI : Nonempty s := hs.to_subtype
+      -- Reindex both biSups as iSups over the subtype, then coerce via Set.Icc.coe_iSup.
+      rw [← iSup_subtype'', ← iSup_subtype'',
+          Set.Icc.coe_iSup (by norm_num : (0:ℝ) ≤ 1),
+          Set.Icc.coe_iSup (by norm_num : (0:ℝ) ≤ 1)]
+      -- Both sides are now ciSups in ℝ; division by k > 0 is monotone and continuous.
+      have hk_pos : (0 : ℝ) < k := lt_of_lt_of_le zero_lt_one hk
+      have mono : Monotone (· / k) := λ a b hab ↦ div_le_div_of_nonneg_right hab (le_of_lt hk_pos)
+      have hbdd : BddAbove (Set.range (λ i : s ↦ (f i.val).val)) :=
+        ⟨1, λ _ ⟨i, hi⟩ ↦ hi ▸ (f i.val).2.2⟩
+      exact mono.map_ciSup_of_continuousAt (continuousAt_id.div_const k) hbdd
+    · -- Empty case: both sides evaluate to ⊥ = 0, and 0 / k = 0.
+      rw [Set.not_nonempty_iff_eq_empty.mp hs]
+      have bot_eq : ∀ g : α → unitInterval, (⨆ b ∈ (∅ : Set α), g b) = ⊥ := by
+        intro g
+        apply iSup_eq_bot.mpr; intro b
+        apply iSup_eq_bot.mpr; intro hb
+        exact absurd hb (Set.notMem_empty b)
+      rw [bot_eq f, bot_eq]
+      change (0 : ℝ) / k = 0
+      exact zero_div k
+
+  -- -- NB: only `≤` holds in general; equality fails when s = ∅ (LHS = 1/k < 1 = RHS for k > 1).
+  -- theorem div_iInf_I_of_one_le {α} [PseudoIMetricSpace α] {s : Set α} {f : α → unitInterval} {k : ℝ} (hk : 1 ≤ k) :
+  --     (⨅ b ∈ s, f b).val / k ≤
+  --       (⨅ b ∈ s, { val := f b / k
+  --                   property := ⟨div_nonneg (unitInterval.nonneg _) (le_trans zero_le_one hk),
+  --                                 div_le_one_of_le₀ (by grind only [=Set.mem_Icc]) (le_trans zero_le_one hk)⟩
+  --                   : unitInterval }).val := by
+  --   by_cases hs : s.Nonempty
+  --   · haveI : Nonempty s := hs.to_subtype
+  --     -- Nonempty case: equality holds, proved as for div_iSup_I_of_one_le.
+  --     rw [← iInf_subtype'', ← iInf_subtype'',
+  --         Set.Icc.coe_iInf (by norm_num : (0:ℝ) ≤ 1),
+  --         Set.Icc.coe_iInf (by norm_num : (0:ℝ) ≤ 1)]
+  --     have hk_pos : (0 : ℝ) < k := lt_of_lt_of_le zero_lt_one hk
+  --     have mono : Monotone (· / k) := λ a b hab ↦ div_le_div_of_nonneg_right hab (le_of_lt hk_pos)
+  --     have hbdd : BddBelow (Set.range (λ i : s ↦ (f i.val).val)) :=
+  --       ⟨0, λ _ ⟨i, hi⟩ ↦ hi ▸ (f i.val).2.1⟩
+  --     exact le_of_eq (mono.map_ciInf_of_continuousAt (continuousAt_id.div_const k) hbdd)
+  --   · -- Empty case: LHS = 1/k ≤ 1 = RHS.
+  --     rw [Set.not_nonempty_iff_eq_empty.mp hs]
+  --     have top_eq : ∀ g : α → unitInterval, (⨅ b ∈ (∅ : Set α), g b) = ⊤ := by
+  --       intro g
+  --       apply iInf_eq_top.mpr; intro b
+  --       apply iInf_eq_top.mpr; intro hb
+  --       exact absurd hb (Set.notMem_empty b)
+  --     rw [top_eq f, top_eq]
+  --     change (1 : ℝ) / k ≤ 1
+  --     exact div_le_one_of_le₀ hk (by linarith)
+
+  theorem hausdorffIDist_image_lipschitz' {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β]
+    {s t : Set α} {Φ : α → β} {k : ℝ} (hk : 1 ≤ k)
+    (hΦ : ∀ x y, (idist (Φ x) (Φ y) : ℝ) ≤ k * idist x y) :
+      (hausdorffIDist (Φ '' s) (Φ '' t) : ℝ) ≤ k * hausdorffIDist s t := by
+    have inf_bound : ∀ (x : α) (u : Set α),
+        (⟨(hausdorffInfIDist (Φ x) (Φ '' u) : ℝ) / k,
+          div_nonneg (hausdorffInfIDist (Φ x) (Φ '' u)).2.1 (by linarith),
+          div_le_one_of_le₀ (le_trans (hausdorffInfIDist (Φ x) (Φ '' u)).2.2 hk) (by linarith)⟩
+          : unitInterval) ≤ hausdorffInfIDist x u := by
+      intro x u
+      unfold hausdorffInfIDist
+      apply le_iInf₂
+      intro y hy
+      rw [unitInterval.le_iff_le_val, div_le_iff₀ (by linarith)]
+      apply le_trans (Subtype.coe_le_coe.mpr (iInf₂_le _ (Set.mem_image_of_mem Φ hy)))
+      linarith [hΦ x y]
+
+    rw [Set.Icc.coe_sup, Set.Icc.coe_sup]
+    conv_rhs => apply mul_max_of_nonneg (a := k) _ _ (by grind only)
+    apply sup_le_sup <;> {
+      rw [iSup_image, ← div_le_iff₀']
+      · rw [div_iSup_I_of_one_le hk, Subtype.coe_le_coe]
+        apply iSup₂_mono λ b b_in ↦ ?_
+        exact inf_bound b _
+      · grind only
+    }
 end IMetric
 
 -- Helper: for (s,t) in hausdorffEntourage, hausdorffIDist s t < ε (requires ε ≤ 1)

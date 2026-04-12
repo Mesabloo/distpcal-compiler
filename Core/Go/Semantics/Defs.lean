@@ -1,6 +1,7 @@
 import Core.Go.Semantics.Domains
 import Core.Go.Syntax
 import Mathlib.Analysis.SpecificLimits.Basic
+import Mathlib.Topology.MetricSpace.Contracting
 
 /-!
   Now that we have finished defining our domains…we can finally define the semantics of
@@ -209,88 +210,137 @@ noncomputable section
           boolean v (default := {.next σ { val := .abort }})
             λ b ↦ if b then {.next σ { val := .pure .unit }} else ∅
 
+      theorem guard.is_branch {ξ ς e} : ∃ f, guard ξ ς e = Domain.branch f := by
+        -- by_contra! h
+        -- unfold guard at h
+        admit
+
       def deref (σ : Store.{u, v, w, x}.type) (addr : Address.{u, v}) : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type :=
         match Store.deref σ addr with
         | .some v => .pure v
         | .none => .abort
 
-      mutual
-        -- TODO: there is some way to remove that `mutual` dependency, by abstracting over
-        -- some `Domain` rather than the list of statements `S`.
-        -- But is it worth it? Can be establish that `while_seq` is a Cauchy sequence irrespective
-        -- of how `S` is reduced?
-        private def while_seq (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (S : List (Statement.{y} Typ (Expression Typ) Typ.initArgs)) : ℕ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
-          | 0 => .branch λ σ ↦ {.next σ { val := .pure .unit }}
-          | i + 1 => (while_seq ξ ς e S i ⬰ Statement.denotation ξ ς S ⬰ guard ξ ς e) ⊻ (.pure .unit ⬰ guard ξ ς (.prefix .«¬» e))
+      -- TODO: there is some way to remove that `mutual` dependency, by abstracting over
+      -- some `Domain` rather than the list of statements `S`.
+      -- But is it worth it? Can be establish that `while_seq` is a Cauchy sequence irrespective
+      -- of how `S` is reduced?
+      private def while_seq_F (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (P' P : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}) :
+          Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1} :=
+        (P ⬰ P' ⬰ guard ξ ς e) ⊻ (.pure .unit ⬰ guard ξ ς (.prefix .«¬» e))
 
-        protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
-          | [] => .pure .unit
-          | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ .abort)
-          | .return es :: ss => match ss with
-            | [] => match ξ with
-              | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ .branch λ σ ↦ match Store.popϙ σ with
+      private def while_seq (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (P : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}) :
+          ℕ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
+        | 0 => .branch λ σ ↦ {.next σ { val := .pure .unit }}
+        | i + 1 => while_seq_F ξ ς e P (while_seq ξ ς e P i)
+
+      protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
+        | [] => .branch λ σ ↦ {.next σ { val := .pure .unit }}
+        | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ .abort)
+        | .return es :: ss => match ss with
+          | [] => match ξ with
+            | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ .branch λ σ ↦ match Store.popϙ σ with
+              | .none => {.next σ { val := .abort }}
+              | .some σ => {.next σ <| { val := .branch λ _ ↦ {.send ret (Value.𝕍.tuple vs) { val := .pure .unit }}} }
+            | [] => .branch λ σ ↦ {.next σ { val := .abort }}
+          | _ => .branch λ σ ↦ {.next σ { val := .abort }}
+        | .print e :: ss =>
+          Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦ .branch λ _ ↦ {.send out v { val := .pure .unit }})
+        -- make
+        -- var
+        | .if e S₁ S₂ :: ss =>
+          Statement.denotation ξ ς ss ⬰ ((Statement.denotation ξ ς S₁ ⬰ guard ξ ς e) ⊻ (Statement.denotation ξ ς S₂ ⬰ guard ξ ς (.prefix .«¬» e)))
+        | .while e S :: ss =>
+          -- NOTE: we show in `while_seq_cauchy` that the limit is actually defined
+          Statement.denotation ξ ς ss ⬰ lim (Filter.atTop.map (while_seq ξ ς e (Statement.denotation ξ ς S)))
+        -- close
+        -- select
+        -- switch
+        | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ∥ Statement.denotation ξ ς ss)
+        | .send c e :: ss =>
+          Expression.denotation ξ ς e >>= λ v ↦
+          Expression.denotation ξ ς c >>= λ c ↦
+          Statement.denotation ξ ς ss ⬰ Domain.branch λ σ ↦
+            channel c (default := {.next σ { val := .abort }})
+              (λ c ↦ {.send c v { val := .pure .unit }})
+              (λ len' τ buf closed? ↦
+                match (Store.deref σ closed?).bind λ closed? ↦ (Store.deref σ len').bind λ len ↦ (Store.deref σ buf).bind λ buf ↦ pure (closed?, len, buf) with
                 | .none => {.next σ { val := .abort }}
-                | .some σ => {.next σ <| { val := .branch λ _ ↦ {.send ret (Value.𝕍.tuple vs) { val := .pure .unit }}} }
-              | [] => .abort
-            | _ => .abort
-          | .print e :: ss =>
-            Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦ .branch λ _ ↦ {.send out v { val := .pure .unit }})
-          -- make
-          -- var
-          | .if e S₁ S₂ :: ss =>
-            Statement.denotation ξ ς ss ⬰ ((Statement.denotation ξ ς S₁ ⬰ guard ξ ς e) ⊻ (Statement.denotation ξ ς S₂ ⬰ guard ξ ς (.prefix .«¬» e)))
-          | .while e S :: ss =>
-            -- NOTE: we show in `while_seq_cauchy` that the limit is actually defined
-            Statement.denotation ξ ς ss ⬰ lim (Filter.atTop.map (while_seq ξ ς e S))
-          -- close
-          -- select
-          -- switch
-          | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ∥ Statement.denotation ξ ς ss)
-          | .send c e :: ss =>
-            Expression.denotation ξ ς e >>= λ v ↦
-            Expression.denotation ξ ς c >>= λ c ↦
-            Statement.denotation ξ ς ss ⬰ Domain.branch λ σ ↦
-              channel c (default := {.next σ { val := .abort }})
-                (λ c ↦ {.send c v { val := .pure .unit }})
-                (λ len' τ buf closed? ↦
-                  match (Store.deref σ closed?).bind λ closed? ↦ (Store.deref σ len').bind λ len ↦ (Store.deref σ buf).bind λ buf ↦ pure (closed?, len, buf) with
-                  | .none => {.next σ { val := .abort }}
-                  | .some (closed?, len, buf) =>
-                    boolean closed? (default := {.next σ { val := .abort }})
-                      λ closed? ↦ integer len (default := {.next σ { val := .abort }})
-                      λ len ↦ array buf (default := {.next σ { val := .abort }})
-                      λ cap indices ↦
-                        if h : closed? ∧ len ≥ 0 ∧ len < cap then
-                          let i : Fin cap := ⟨len.toNat, propext (Int.toNat_lt h.2.1) ▸ h.2.2⟩
-                          let σ' := Store.update σ (indices i) v |>.bind λ σ ↦ Store.update σ len' (Value.𝕍.int <| len + 1)
-                          match σ' with
-                          | .some σ' => {.next σ' { val := .pure .unit }}
-                          | .none => {.next σ { val := .abort }}
-                        else if closed? ∧ len ≥ cap then
-                          ∅
-                        else
-                          {.next σ { val := .abort }}
-                )
-          -- recv
-          | _ => sorry
-        end
+                | .some (closed?, len, buf) =>
+                  boolean closed? (default := {.next σ { val := .abort }})
+                    λ closed? ↦ integer len (default := {.next σ { val := .abort }})
+                    λ len ↦ array buf (default := {.next σ { val := .abort }})
+                    λ cap indices ↦
+                      if h : closed? ∧ len ≥ 0 ∧ len < cap then
+                        let i : Fin cap := ⟨len.toNat, propext (Int.toNat_lt h.2.1) ▸ h.2.2⟩
+                        let σ' := Store.update σ (indices i) v |>.bind λ σ ↦ Store.update σ len' (Value.𝕍.int <| len + 1)
+                        match σ' with
+                        | .some σ' => {.next σ' { val := .pure .unit }}
+                        | .none => {.next σ { val := .abort }}
+                      else if closed? ∧ len ≥ cap then
+                        ∅
+                      else
+                        {.next σ { val := .abort }}
+              )
+        -- recv
+        | _ => sorry
 
-        theorem while_seq_nonexpansive {ξ ς e S} {n} : edist (while_seq out ξ ς e S n) (while_seq out ξ ς e S (n + 1)) ≤ (1/2)^n := by
-          rw [Domain.edist_eq, Domain.dist_eq]
-          apply ENNReal.ofReal_le_of_le_toReal
-          rw [ENNReal.toReal_pow, ENNReal.toReal_div, ENNReal.toReal_one, ENNReal.toReal_two]
-          change idist _ _ ≤ unitInterval.half^n
-          conv_lhs => enter [2]; unfold while_seq
+        theorem while_seq_F_nonexpansive {ξ ς e q} :
+            ∀ p p', edist (while_seq_F ξ ς e q p) (while_seq_F ξ ς e q p') ≤ (1/2) * edist p p' := by
+          intros p p'
+          repeat rw [Domain.edist_eq]
 
-          admit
+          have : 1 / 2 = ENNReal.ofReal (1 / 2) := by simp only [one_div, zero_lt_two, ENNReal.ofReal_inv_of_pos, ENNReal.ofReal_ofNat]
+          rw [this, ← ENNReal.ofReal_mul (by norm_num)]
+          apply ENNReal.ofReal_le_ofReal
 
-        theorem while_seq_cauchy {ξ ς e S} : CauchySeq (while_seq out ξ ς e S) := by
-          apply cauchySeq_of_edist_le_geometric (1/2) 1
-          · simp only [one_div, ENNReal.inv_lt_one, Nat.one_lt_ofNat]
-          · exact ENNReal.one_ne_top
-          · intros _
-            grw [while_seq_nonexpansive]
-            simp only [one_div, one_mul, Std.le_refl]
+          repeat rw [Domain.dist_eq]
+          change idist _ _ ≤ unitInterval.half * idist _ _
+
+          unfold while_seq_F
+          apply le_trans Domain.choice_idist_le
+          rw [idist_self, ← unitInterval.bot_eq, sup_bot_eq, Domain.seq'_assoc, Domain.seq'_assoc]
+
+          obtain ⟨f, hf⟩ : ∃ f, (q ⬰ guard ξ ς e) = Domain.branch f := by
+            obtain ⟨f', hf'⟩ := guard.is_branch (ξ := ξ) (ς := ς) (e := e)
+            apply Domain.seq'_is_branch_of_branch
+            exact hf'
+
+          rw [hf]
+          apply Domain.seq'_branch_contracting_left
+
+        theorem while_seq_F_contracting {ξ ς e q} : ContractingWith (1/2) (while_seq_F ξ ς e q) := by
+          constructor
+          · exact one_half_lt_one
+          · intros p p'
+
+            have : ENNReal.ofNNReal (1 / 2) = 1 / 2 := by norm_num
+            rw [this]
+
+            exact while_seq_F_nonexpansive p p'
+
+        theorem while_seq_eq {ξ ς e S n} :
+            while_seq.{u, v, w, x, y} ξ ς e (Statement.denotation out ξ ς S) n =
+            (while_seq_F.{u, v, w, x, y} ξ ς e (Statement.denotation out ξ ς S))^[n] (Domain.branch λ σ ↦ {.next σ { val := .pure .unit }}) := by
+          induction n with
+          | zero => rfl
+          | succ n IH =>
+            unfold while_seq
+            rw [IH, Nat.add_comm, Function.iterate_add, Function.iterate_one]
+            rfl
+
+        theorem while_seq_cauchy (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) (S : List (Statement.{y} Typ (Expression Typ) Typ.initArgs)) :
+            CauchySeq (while_seq.{u, v, w, x, y} ξ ς e (Statement.denotation out ξ ς S)) := by
+          set p₀ : Domain.{max u v w x, w, max u v w x, y} Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1} :=
+            Domain.branch λ σ ↦ {.next σ { val := .pure .unit }}
+
+          have edist_ne_top : edist p₀ (while_seq_F.{u, v, w, x, y} ξ ς e (Statement.denotation out ξ ς S) p₀) ≠ ⊤ := by
+            rw [Domain.edist_eq]
+            exact ENNReal.ofReal_ne_top
+
+          obtain ⟨q, q_fixed_point, tendsto_nhds, dist_le⟩ := while_seq_F_contracting.exists_fixedPoint p₀ edist_ne_top
+          conv at tendsto_nhds =>
+            enter [1, n]; rw [← while_seq_eq]
+          exact Filter.Tendsto.cauchySeq tendsto_nhds
     end Statement
   end GoCal
 end

@@ -78,6 +78,10 @@ instance {α ε h} [UniformSpace α] [CompleteSpace α] : CompleteSpace (Restric
   · grind only [isComplete_iff_clusterPt, isComplete_iff_ultrafilter, isComplete_iff_ultrafilter',
       cauchy_iff_exists_le_nhds, = Set.mem_range]
 
+theorem Restriction.idist_eq {α ε h} [PseudoIMetricSpace α] {x y : Restriction α ε h} :
+    idist x y = ε * idist x.val y.val :=
+  rfl
+
 abbrev Restriction.map {α β ε h} (f : α → β) (x : Restriction α ε h) : Restriction β ε h where
   val := f x.val
 
@@ -88,11 +92,43 @@ theorem Restriction.map_map {α β γ ε h} {x : Restriction α ε h} {f : α �
     Restriction.map g (Restriction.map f x) = Restriction.map (g ∘ f) x := by
   rfl
 
+theorem Restriction.map_idist_le' {α β ε h} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {x y : Restriction α ε h} {f f' : α → β} {r : ℝ}
+  (h : ε * idist (f x.val) (f' y.val) ≤ r) :
+    idist (Restriction.map f x) (Restriction.map f' y) ≤ r :=
+  h
+
+theorem Restriction.map_idist_le {α β ε h} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {x y : Restriction α ε h} {f f' : α → β} {r}
+  (h : ε * idist (f x.val) (f' y.val) ≤ r) :
+    idist (Restriction.map f x) (Restriction.map f' y) ≤ r :=
+  h
+
 theorem Restriction.mk_comp_val_eq_id {α ε h} : @Restriction.mk α ε h ∘ Restriction.val = id := by
   rfl
 
+theorem Restriction.val_lipschitz {α ε h} [PseudoIMetricSpace α] : LipschitzWith (1 / unitInterval.toNNReal ε) (@Restriction.val α ε h) := by
+  intros x y
+  repeat rw [PseudoIMetricSpace.edist_eq]
+
+  have : ENNReal.ofNNReal (1 / unitInterval.toNNReal ε) = ENNReal.ofReal (1 / ε) := by
+    have : (1 / unitInterval.toNNReal ε) = (1 / (ε : ℝ)).toNNReal := by
+      norm_num [← unitInterval.toNNReal_one, Real.toNNReal_div, Real.toNNReal_inv,
+                unitInterval.toNNReal_cast_eq_toNNReal]
+
+    norm_num [this, ENNReal.coe_nnreal_eq, Real.coe_toNNReal]
+
+  rw [this, ← ENNReal.ofReal_mul']
+  · apply ENNReal.ofReal_le_ofReal
+    change _ ≤ _ * ((ε : ℝ) * idist x.val y.val)
+    rw [← mul_assoc, one_div_mul_cancel (a := (ε : ℝ)), one_mul]
+    grind only [= Set.Icc.mk_zero]
+  · exact unitInterval.nonneg (idist x y)
+
 theorem Restriction.val_uniformContinuous {α ε h} [UniformSpace α] : UniformContinuous (@Restriction.val α ε h) := by
   grind only [uniformContinuous_comap]
+
+theorem Restriction.mk_lipschitz {α ε h} [PseudoIMetricSpace α] : LipschitzWith (unitInterval.toNNReal ε) (@Restriction.mk α ε h) := by
+  intros x y
+  apply le_refl
 
 theorem Restriction.mk_uniformContinuous {α ε h} [UniformSpace α] : UniformContinuous (@Restriction.mk α ε h) := by
   exact uniformContinuous_comap' λ ⦃_⦄ h ↦ h
