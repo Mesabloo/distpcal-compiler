@@ -2312,8 +2312,8 @@ noncomputable section Domain
         Remove branches that mention the synchronous channel `c`, but replace the pruning of all
         subtrees by abortion.
       -/
-      def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
-        Domain.hide inst.zero c
+      def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α β → Γ → Domain «Σ» Γ α β :=
+        flip (Domain.hide inst.zero)
     end EventHiding
 
     section Parallel
@@ -2401,7 +2401,7 @@ noncomputable section Domain
     scoped[Domain] infixl:65 " ⊻ " => Domain.choice
 
     @[inherit_doc]
-    scoped[Domain] notation:50 p:51 " ∖[" Ω:0 "] " c:50 => Domain.hide' c Ω p
+    scoped[Domain] infixl:50 " ∖ " => Domain.hide'
 
     @[inherit_doc]
     scoped[Domain] infixl:60 " ∥ " => Domain.parallel'
