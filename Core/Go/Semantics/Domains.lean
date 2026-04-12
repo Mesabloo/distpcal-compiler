@@ -2072,171 +2072,171 @@ noncomputable section Domain
       --   (Domain.seq_isometry_right inst.zero q).to_idist_eq p p'
     end Sequence
 
-    section Close
-      /-! ## Channel closure -/
+    -- section Close
+    --   /-! ## Channel closure -/
 
-      mutual
-        def Branch.syncClose {n} [DecidableEq Γ] (c : Γ) (σ : «Σ») :
-            (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) → (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
-          Sum.elim (λ (c', π) ↦ if c = c' then .next σ ⟨IterativeDomain.syncClose c (π (zero c) false).val⟩
-                                else .recv c' (λ v ok ↦ ⟨IterativeDomain.syncClose c (π v ok).val⟩)) <|
-          Sum.elim (λ (c', v, p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .send c' v ⟨IterativeDomain.syncClose c p.val⟩) <|
-          Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .close c' ⟨IterativeDomain.syncClose c p.val⟩) <|
-          Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .sync c' ⟨IterativeDomain.syncClose c p.val⟩) <|
-                    (λ (σ, p) ↦ .next σ ⟨IterativeDomain.syncClose c p.val⟩)
+    --   mutual
+    --     def Branch.syncClose {n} [DecidableEq Γ] (c : Γ) (σ : «Σ») :
+    --         (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) → (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
+    --       Sum.elim (λ (c', π) ↦ if c = c' then .next σ ⟨IterativeDomain.syncClose c (π (zero c) false).val⟩
+    --                             else .recv c' (λ v ok ↦ ⟨IterativeDomain.syncClose c (π v ok).val⟩)) <|
+    --       Sum.elim (λ (c', v, p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .send c' v ⟨IterativeDomain.syncClose c p.val⟩) <|
+    --       Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .close c' ⟨IterativeDomain.syncClose c p.val⟩) <|
+    --       Sum.elim (λ (c', p) ↦ if c = c' then .next σ ⟨IterativeDomain.abort⟩ else .sync c' ⟨IterativeDomain.syncClose c p.val⟩) <|
+    --                 (λ (σ, p) ↦ .next σ ⟨IterativeDomain.syncClose c p.val⟩)
 
-        def IterativeDomain.syncClose {n} [DecidableEq Γ] (c : Γ) :
-            (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier := match n with
-          | 0 => id
-          | n + 1 => Sum.map id (Sum.map id (Pi.map λ σ ↦ Set.image (Branch.syncClose c σ)))
-      end
+    --     def IterativeDomain.syncClose {n} [DecidableEq Γ] (c : Γ) :
+    --         (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier := match n with
+    --       | 0 => id
+    --       | n + 1 => Sum.map id (Sum.map id (Pi.map λ σ ↦ Set.image (Branch.syncClose c σ)))
+    --   end
 
-      theorem IterativeDomain.syncClose_leaf [DecidableEq Γ] {c : Γ} {v : β} {n} :
-          IterativeDomain.syncClose zero c (IterativeDomain.leaf («Σ» := «Σ») (Γ := Γ) (α := α) (n := n) v) = IterativeDomain.leaf v := by
-        cases n with (unfold syncClose; rfl)
+    --   theorem IterativeDomain.syncClose_leaf [DecidableEq Γ] {c : Γ} {v : β} {n} :
+    --       IterativeDomain.syncClose zero c (IterativeDomain.leaf («Σ» := «Σ») (Γ := Γ) (α := α) (n := n) v) = IterativeDomain.leaf v := by
+    --     cases n with (unfold syncClose; rfl)
 
-      theorem IterativeDomain.syncClose_abort [DecidableEq Γ] {c : Γ} {n} :
-          IterativeDomain.syncClose zero c (IterativeDomain.abort («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n)) = IterativeDomain.abort := by
-        cases n with (unfold syncClose; rfl)
+    --   theorem IterativeDomain.syncClose_abort [DecidableEq Γ] {c : Γ} {n} :
+    --       IterativeDomain.syncClose zero c (IterativeDomain.abort («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n)) = IterativeDomain.abort := by
+    --     cases n with (unfold syncClose; rfl)
 
-      theorem IterativeDomain.syncClose_branch [DecidableEq Γ] {c : Γ} {n} {f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
-          IterativeDomain.syncClose zero c (IterativeDomain.branch f) = IterativeDomain.branch λ σ ↦ Branch.syncClose zero c σ '' f σ := by
-        unfold syncClose
-        rfl
+    --   theorem IterativeDomain.syncClose_branch [DecidableEq Γ] {c : Γ} {n} {f : «Σ» → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+    --       IterativeDomain.syncClose zero c (IterativeDomain.branch f) = IterativeDomain.branch λ σ ↦ Branch.syncClose zero c σ '' f σ := by
+    --     unfold syncClose
+    --     rfl
 
-      @[push_cast]
-      theorem IterativeDomain.syncClose_cast [DecidableEq Γ] {c : Γ} {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} (h : m = n) :
-          h ▸ IterativeDomain.syncClose zero c p = IterativeDomain.syncClose zero c (h ▸ p) := by
-        cases h
-        rfl
+    --   @[push_cast]
+    --   theorem IterativeDomain.syncClose_cast [DecidableEq Γ] {c : Γ} {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} (h : m = n) :
+    --       h ▸ IterativeDomain.syncClose zero c p = IterativeDomain.syncClose zero c (h ▸ p) := by
+    --     cases h
+    --     rfl
 
-      theorem Branch.syncClose_recv {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {π : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
-          Branch.syncClose zero c σ (Branch.recv c' π) =
-            if c = c'
-            then Branch.next σ { val := IterativeDomain.syncClose zero c (π (zero c) false).val }
-            else Branch.recv c' (λ v ok ↦ { val := IterativeDomain.syncClose zero c (π v ok).val }) := by
-        unfold Branch.syncClose
-        rfl
+    --   theorem Branch.syncClose_recv {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {π : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
+    --       Branch.syncClose zero c σ (Branch.recv c' π) =
+    --         if c = c'
+    --         then Branch.next σ { val := IterativeDomain.syncClose zero c (π (zero c) false).val }
+    --         else Branch.recv c' (λ v ok ↦ { val := IterativeDomain.syncClose zero c (π v ok).val }) := by
+    --     unfold Branch.syncClose
+    --     rfl
 
-      theorem Branch.syncClose_send {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {v : α} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
-          Branch.syncClose zero c σ (Branch.send c' v p) =
-            if c = c'
-            then Branch.next σ { val := IterativeDomain.abort }
-            else Branch.send c' v { val := IterativeDomain.syncClose zero c p.val } := by
-        unfold Branch.syncClose
-        rfl
+    --   theorem Branch.syncClose_send {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {v : α} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
+    --       Branch.syncClose zero c σ (Branch.send c' v p) =
+    --         if c = c'
+    --         then Branch.next σ { val := IterativeDomain.abort }
+    --         else Branch.send c' v { val := IterativeDomain.syncClose zero c p.val } := by
+    --     unfold Branch.syncClose
+    --     rfl
 
-      theorem Branch.syncClose_sync {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
-          Branch.syncClose zero c σ (Branch.sync c' p) =
-            if c = c'
-            then Branch.next σ { val := IterativeDomain.abort }
-            else Branch.sync c' { val := IterativeDomain.syncClose zero c p.val } := by
-        unfold Branch.syncClose
-        rfl
+    --   theorem Branch.syncClose_sync {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
+    --       Branch.syncClose zero c σ (Branch.sync c' p) =
+    --         if c = c'
+    --         then Branch.next σ { val := IterativeDomain.abort }
+    --         else Branch.sync c' { val := IterativeDomain.syncClose zero c p.val } := by
+    --     unfold Branch.syncClose
+    --     rfl
 
-      theorem Branch.syncClose_close {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
-          Branch.syncClose zero c σ (Branch.close c' p) =
-            if c = c'
-            then Branch.next σ { val := IterativeDomain.abort }
-            else Branch.close c' { val := IterativeDomain.syncClose zero c p.val } := by
-        unfold Branch.syncClose
-        rfl
+    --   theorem Branch.syncClose_close {m} [DecidableEq Γ] {c c' : Γ} {σ : «Σ»} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
+    --       Branch.syncClose zero c σ (Branch.close c' p) =
+    --         if c = c'
+    --         then Branch.next σ { val := IterativeDomain.abort }
+    --         else Branch.close c' { val := IterativeDomain.syncClose zero c p.val } := by
+    --     unfold Branch.syncClose
+    --     rfl
 
-      theorem Branch.syncClose_next {m} [DecidableEq Γ] {c : Γ} {σ σ' : «Σ»} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
-          Branch.syncClose zero c σ (Branch.next σ' p) = Branch.next σ' { val := IterativeDomain.syncClose zero c p.val } := by
-        unfold Branch.syncClose
-        rfl
+    --   theorem Branch.syncClose_next {m} [DecidableEq Γ] {c : Γ} {σ σ' : «Σ»} {p : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half} :
+    --       Branch.syncClose zero c σ (Branch.next σ' p) = Branch.next σ' { val := IterativeDomain.syncClose zero c p.val } := by
+    --     unfold Branch.syncClose
+    --     rfl
 
-      mutual
-        theorem Branch.syncClose_lift {m n} [DecidableEq Γ] {c : Γ} {σ : «Σ»} (h : m ≤ n) {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} :
-            Branch.map (IterativeDomain.lift h) (Branch.syncClose zero c σ b) =
-              Branch.syncClose zero c σ (Branch.map (IterativeDomain.lift h) b) := by
-          cases b with
-          | recv c' π =>
-            by_cases c_eq : c = c'
-            · rw [Branch.syncClose_recv, if_pos c_eq, Branch.map_next, Branch.map_recv, Branch.syncClose_recv,
-                  if_pos c_eq, ← IterativeDomain.syncClose_lift]
-            · rw [Branch.syncClose_recv, if_neg c_eq, Branch.map_recv, Branch.map_recv, Branch.syncClose_recv,
-                  if_neg c_eq]
-              conv_rhs => enter [2, v, ok]; rw [← IterativeDomain.syncClose_lift]
-          | send c' v p =>
-            by_cases c_eq : c = c'
-            · rw [Branch.syncClose_send, if_pos c_eq, Branch.map_next, Branch.map_send, Branch.syncClose_send,
-                  if_pos c_eq, Restriction.map, IterativeDomain.lift_abort]
-            · rw [Branch.syncClose_send, if_neg c_eq, Branch.map_send, Branch.map_send, Branch.syncClose_send,
-                  if_neg c_eq, ← IterativeDomain.syncClose_lift]
-          | close c' p =>
-            by_cases c_eq : c = c'
-            · rw [Branch.syncClose_close, if_pos c_eq, Branch.map_next, Branch.map_close, Branch.syncClose_close,
-                  if_pos c_eq, Restriction.map, IterativeDomain.lift_abort]
-            · rw [Branch.syncClose_close, if_neg c_eq, Branch.map_close, Branch.map_close, Branch.syncClose_close,
-                  if_neg c_eq, ← IterativeDomain.syncClose_lift]
-          | sync c' p =>
-            by_cases c_eq : c = c'
-            · rw [Branch.syncClose_sync, if_pos c_eq, Branch.map_sync, Branch.syncClose_sync, if_pos c_eq,
-                  Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
-            · rw [Branch.syncClose_sync, if_neg c_eq, Branch.map_sync, Branch.map_sync, Branch.syncClose_sync,
-                  if_neg c_eq, ← IterativeDomain.syncClose_lift]
-          | next σ p =>
-            rw [Branch.syncClose_next, Branch.map_next, Branch.map_next, Branch.syncClose_next,
-                ← IterativeDomain.syncClose_lift]
+    --   mutual
+    --     theorem Branch.syncClose_lift {m n} [DecidableEq Γ] {c : Γ} {σ : «Σ»} (h : m ≤ n) {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} :
+    --         Branch.map (IterativeDomain.lift h) (Branch.syncClose zero c σ b) =
+    --           Branch.syncClose zero c σ (Branch.map (IterativeDomain.lift h) b) := by
+    --       cases b with
+    --       | recv c' π =>
+    --         by_cases c_eq : c = c'
+    --         · rw [Branch.syncClose_recv, if_pos c_eq, Branch.map_next, Branch.map_recv, Branch.syncClose_recv,
+    --               if_pos c_eq, ← IterativeDomain.syncClose_lift]
+    --         · rw [Branch.syncClose_recv, if_neg c_eq, Branch.map_recv, Branch.map_recv, Branch.syncClose_recv,
+    --               if_neg c_eq]
+    --           conv_rhs => enter [2, v, ok]; rw [← IterativeDomain.syncClose_lift]
+    --       | send c' v p =>
+    --         by_cases c_eq : c = c'
+    --         · rw [Branch.syncClose_send, if_pos c_eq, Branch.map_next, Branch.map_send, Branch.syncClose_send,
+    --               if_pos c_eq, Restriction.map, IterativeDomain.lift_abort]
+    --         · rw [Branch.syncClose_send, if_neg c_eq, Branch.map_send, Branch.map_send, Branch.syncClose_send,
+    --               if_neg c_eq, ← IterativeDomain.syncClose_lift]
+    --       | close c' p =>
+    --         by_cases c_eq : c = c'
+    --         · rw [Branch.syncClose_close, if_pos c_eq, Branch.map_next, Branch.map_close, Branch.syncClose_close,
+    --               if_pos c_eq, Restriction.map, IterativeDomain.lift_abort]
+    --         · rw [Branch.syncClose_close, if_neg c_eq, Branch.map_close, Branch.map_close, Branch.syncClose_close,
+    --               if_neg c_eq, ← IterativeDomain.syncClose_lift]
+    --       | sync c' p =>
+    --         by_cases c_eq : c = c'
+    --         · rw [Branch.syncClose_sync, if_pos c_eq, Branch.map_sync, Branch.syncClose_sync, if_pos c_eq,
+    --               Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
+    --         · rw [Branch.syncClose_sync, if_neg c_eq, Branch.map_sync, Branch.map_sync, Branch.syncClose_sync,
+    --               if_neg c_eq, ← IterativeDomain.syncClose_lift]
+    --       | next σ p =>
+    --         rw [Branch.syncClose_next, Branch.map_next, Branch.map_next, Branch.syncClose_next,
+    --             ← IterativeDomain.syncClose_lift]
 
-        theorem IterativeDomain.syncClose_lift {m n} [DecidableEq Γ] {c : Γ} (h : m ≤ n) {p : (IterativeDomain «Σ» Γ α β m).carrier} :
-            IterativeDomain.lift h (IterativeDomain.syncClose zero c p) =
-              IterativeDomain.syncClose zero c (IterativeDomain.lift h p) := by
-          match m, p with
-          | 0, IterativeDomain.leaf v
-          | m + 1, IterativeDomain.leaf v =>
-            rw [IterativeDomain.lift_leaf, IterativeDomain.syncClose_leaf, IterativeDomain.syncClose_leaf,
-                IterativeDomain.lift_leaf]
-          | 0, IterativeDomain.abort
-          | m + 1, IterativeDomain.abort =>
-            rw [IterativeDomain.lift_abort, IterativeDomain.syncClose_abort, IterativeDomain.syncClose_abort,
-                IterativeDomain.lift_abort]
-          | m + 1, IterativeDomain.branch f =>
-            rw [IterativeDomain.lift_branch', IterativeDomain.syncClose_branch, IterativeDomain.lift_branch',
-                ← IterativeDomain.syncClose_cast, IterativeDomain.syncClose_branch]
-            congr with σ : 1
-            rw [Set.image_image, Set.image_image]
-            congr with b
-            apply Branch.syncClose_lift
-      end
+    --     theorem IterativeDomain.syncClose_lift {m n} [DecidableEq Γ] {c : Γ} (h : m ≤ n) {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+    --         IterativeDomain.lift h (IterativeDomain.syncClose zero c p) =
+    --           IterativeDomain.syncClose zero c (IterativeDomain.lift h p) := by
+    --       match m, p with
+    --       | 0, IterativeDomain.leaf v
+    --       | m + 1, IterativeDomain.leaf v =>
+    --         rw [IterativeDomain.lift_leaf, IterativeDomain.syncClose_leaf, IterativeDomain.syncClose_leaf,
+    --             IterativeDomain.lift_leaf]
+    --       | 0, IterativeDomain.abort
+    --       | m + 1, IterativeDomain.abort =>
+    --         rw [IterativeDomain.lift_abort, IterativeDomain.syncClose_abort, IterativeDomain.syncClose_abort,
+    --             IterativeDomain.lift_abort]
+    --       | m + 1, IterativeDomain.branch f =>
+    --         rw [IterativeDomain.lift_branch', IterativeDomain.syncClose_branch, IterativeDomain.lift_branch',
+    --             ← IterativeDomain.syncClose_cast, IterativeDomain.syncClose_branch]
+    --         congr with σ : 1
+    --         rw [Set.image_image, Set.image_image]
+    --         congr with b
+    --         apply Branch.syncClose_lift
+    --   end
 
-      mutual
-        theorem IterativeDomain.syncClose_idist_le [DecidableEq Γ] {c : Γ} {n} {p q : (IterativeDomain «Σ» Γ α β n).carrier} :
-            idist (IterativeDomain.syncClose zero c p) (IterativeDomain.syncClose zero c q) ≤ idist p q := by
-          admit
-      end
+    --   mutual
+    --     theorem IterativeDomain.syncClose_idist_le [DecidableEq Γ] {c : Γ} {n} {p q : (IterativeDomain «Σ» Γ α β n).carrier} :
+    --         idist (IterativeDomain.syncClose zero c p) (IterativeDomain.syncClose zero c q) ≤ idist p q := by
+    --       admit
+    --   end
 
-      theorem IterativeDomain.syncClose_lipschitz [DecidableEq Γ] {c : Γ} {n} :
-          LipschitzWith 1 (IterativeDomain.syncClose («Σ» := «Σ») (α := α) (β := β) (n := n) zero c) := by
-        intros p q
-        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
-        apply ENNReal.ofReal_le_ofReal
-        apply Subtype.coe_le_coe.mpr
-        apply IterativeDomain.syncClose_idist_le
+    --   theorem IterativeDomain.syncClose_lipschitz [DecidableEq Γ] {c : Γ} {n} :
+    --       LipschitzWith 1 (IterativeDomain.syncClose («Σ» := «Σ») (α := α) (β := β) (n := n) zero c) := by
+    --     intros p q
+    --     erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+    --     apply ENNReal.ofReal_le_ofReal
+    --     apply Subtype.coe_le_coe.mpr
+    --     apply IterativeDomain.syncClose_idist_le
 
-      theorem IterativeDomain.syncClose.uniform_continuous [DecidableEq Γ] {c : Γ} {n} :
-          UniformContinuous (IterativeDomain.syncClose («Σ» := «Σ») (β := β) (n := n) zero c) := by
-        admit
+    --   theorem IterativeDomain.syncClose.uniform_continuous [DecidableEq Γ] {c : Γ} {n} :
+    --       UniformContinuous (IterativeDomain.syncClose («Σ» := «Σ») (β := β) (n := n) zero c) := by
+    --     admit
 
-      def DomainUnion.syncClose [DecidableEq Γ] (c : Γ) : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β :=
-        Sigma.map id λ _ ↦ IterativeDomain.syncClose zero c
+    --   def DomainUnion.syncClose [DecidableEq Γ] (c : Γ) : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β :=
+    --     Sigma.map id λ _ ↦ IterativeDomain.syncClose zero c
 
-      theorem DomainUnion.syncClose.uniform_continuous [DecidableEq Γ] {c : Γ} :
-          UniformContinuous (DomainUnion.syncClose («Σ» := «Σ») (β := β) zero c) := by
-        admit
+    --   theorem DomainUnion.syncClose.uniform_continuous [DecidableEq Γ] {c : Γ} :
+    --       UniformContinuous (DomainUnion.syncClose («Σ» := «Σ») (β := β) zero c) := by
+    --     admit
 
-      /--
-        Close a synchronous channel `c` in the tree, pruning subtrees accordingly.
-      -/
-      def Domain.syncClose [DecidableEq Γ] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
-        UniformSpace.Completion.map <| DomainUnion.syncClose zero c
+    --   /--
+    --     Close a synchronous channel `c` in the tree, pruning subtrees accordingly.
+    --   -/
+    --   def Domain.syncClose [DecidableEq Γ] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
+    --     UniformSpace.Completion.map <| DomainUnion.syncClose zero c
 
-      @[inherit_doc Domain.syncClose]
-      abbrev Domain.syncClose' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
-        Domain.syncClose inst.zero c
-    end Close
+    --   @[inherit_doc Domain.syncClose]
+    --   abbrev Domain.syncClose' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
+    --     Domain.syncClose inst.zero c
+    -- end Close
 
     section Choice
       def IterativeDomain.choice {m n} (p : (IterativeDomain «Σ» Γ α PUnit m).carrier) (q : (IterativeDomain «Σ» Γ α PUnit n).carrier) :
@@ -2276,41 +2276,44 @@ noncomputable section Domain
 
       open Classical in
       mutual
-        def Branch.hide [DecidableEq Γ] (σ : «Σ») (c : Γ) (Ω : Set Γ) {n} : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
-          Sum.elim (λ (c', π) ↦ if c = c' then ∅ else if c' ∈ Ω then {Branch.next σ (π (zero c') false)} else {Branch.recv c' λ v ok ↦ Restriction.map (IterativeDomain.hide c Ω) (π v ok)}) <|
-          Sum.elim (λ (c', v, p) ↦ if c = c' then ∅ else {Branch.send c' v (Restriction.map (IterativeDomain.hide c Ω) p)}) <|
-          Sum.elim (λ (c', p) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide c Ω) p)} else {Branch.close c' (Restriction.map (IterativeDomain.hide c (Ω ∪ {c'})) p)}) <|
-          Sum.elim (λ (c', p) ↦ if c = c' then ∅ else {Branch.sync c' (Restriction.map (IterativeDomain.hide c Ω) p)}) <|
-          λ (σ, p) ↦ {Branch.next σ ⟨IterativeDomain.hide c Ω p.val⟩}
+        def Branch.hide [DecidableEq Γ] (σ : «Σ») (c : Γ) {n} : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
+          Sum.elim (λ (c', π) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide c) (π (zero c) false))} else {Branch.recv c' λ v ok ↦ Restriction.map (IterativeDomain.hide c) (π v ok)}) <|
+          Sum.elim (λ (c', v, p) ↦ if c = c' then ∅ else {Branch.send c' v (Restriction.map (IterativeDomain.hide c) p)}) <|
+          Sum.elim (λ (c', p) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide c) p)} else {Branch.close c' (Restriction.map (IterativeDomain.hide c) p)}) <|
+          Sum.elim (λ (c', p) ↦ if c = c' then ∅ else {Branch.sync c' (Restriction.map (IterativeDomain.hide c) p)}) <|
+          λ (σ, p) ↦ {Branch.next σ ⟨IterativeDomain.hide c p.val⟩}
 
-        def IterativeDomain.hide [DecidableEq Γ] (c : Γ) (Ω : Set Γ) {n} : (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier :=
+        def IterativeDomain.hide [DecidableEq Γ] (c : Γ) {n} : (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier :=
           match n with
           | 0 => id
           | n + 1 =>
             Sum.map id <|
             Sum.map id <|
             Pi.map λ σ X ↦
-              let Y := ⋃ b ∈ X, Branch.hide σ c Ω b
+              let Y := ⋃ b ∈ X, Branch.hide σ c b
               Y ∪ if Y = ∅ ∧ X ≠ ∅ then {Branch.next σ ⟨IterativeDomain.abort⟩} else ∅
       end
 
-      theorem IterativeDomain.hide_uniform_continuous [DecidableEq Γ] {c : Γ} {Ω : Set Γ} {n} :
-          UniformContinuous (IterativeDomain.hide («Σ» := «Σ») (α := α) (β := β) (n := n) zero c Ω) := by
+      theorem IterativeDomain.hide_uniform_continuous [DecidableEq Γ] {c : Γ} {n} :
+          UniformContinuous (IterativeDomain.hide («Σ» := «Σ») (α := α) (β := β) (n := n) zero c) := by
         admit
 
-      def DomainUnion.hide [DecidableEq Γ] (c : Γ) (Ω : Set Γ) : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β :=
-        Sigma.map id λ _ ↦ IterativeDomain.hide zero c Ω
+      def DomainUnion.hide [DecidableEq Γ] (c : Γ) : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β :=
+        Sigma.map id λ _ ↦ IterativeDomain.hide zero c
 
-      theorem DomainUnion.hide_uniform_continuous [DecidableEq Γ] {c : Γ} {Ω : Set Γ} :
-          UniformContinuous (DomainUnion.hide («Σ» := «Σ») (α := α) (β := β) zero c Ω) := by
+      theorem DomainUnion.hide_uniform_continuous [DecidableEq Γ] {c : Γ} :
+          UniformContinuous (DomainUnion.hide («Σ» := «Σ») (α := α) (β := β) zero c) := by
         admit
 
-      def Domain.hide [DecidableEq Γ] (c : Γ) (Ω : Set Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
-        UniformSpace.Completion.map (DomainUnion.hide zero c Ω)
+      def Domain.hide [DecidableEq Γ] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
+        UniformSpace.Completion.map (DomainUnion.hide zero c)
 
-      /-- Remove branches that mention the synchronous channel `c`, or channels in `Ω`. -/
-      def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) (Ω : Set Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
-        Domain.hide inst.zero c Ω
+      /--
+        Remove branches that mention the synchronous channel `c`, but replace the pruning of all
+        subtrees by abortion.
+      -/
+      def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit Γ α] (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
+        Domain.hide inst.zero c
     end EventHiding
 
     section Parallel
@@ -2434,8 +2437,6 @@ noncomputable section Domain
       ⊕ (String →ᵤ Option ℍ) × (List (Restriction 𝕍 unitInterval.half) × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ 𝕍 (Restriction 𝕍 unitInterval.half))
       -- tuples
       ⊕ List (Restriction 𝕍 unitInterval.half)
-      -- synchronous channels
-      ⊕ Γ
 
     variable {«Σ» Γ ℍ Typ}
 
@@ -2497,10 +2498,7 @@ noncomputable section Domain
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨closure, λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.val, ξ, ς⟩ |>.map Restriction.mk⟩)
 
     def 𝕍.tuple (vs : List (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
-      𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl vs)
-
-    def 𝕍.sync (c : Γ) : (𝕍 «Σ» Γ ℍ Typ).type :=
-      𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr c)
+      𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr vs)
 
 
     @[cases_eliminator]
@@ -2515,7 +2513,6 @@ noncomputable section Domain
       (map : ∀ maps isNil, motive (𝕍.map maps isNil))
       (func : ∀ closure call, motive (𝕍.func closure call))
       (tuple : ∀ vs : List (𝕍 «Σ» Γ ℍ Typ).type, motive (𝕍.tuple vs))
-      (sync : ∀ c, motive (𝕍.sync c))
       (v : (𝕍 «Σ» Γ ℍ Typ).type) :
         motive v :=
       match h : 𝕍_iso v with
@@ -2570,17 +2567,12 @@ noncomputable section Domain
           · apply Restriction.val_lipschitz
           · apply Restriction.mk_lipschitz
         h' ▸ func closure (λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.mk, ξ, ς⟩ |>.map Restriction.val)
-      | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inl vs))))))))) =>
+      | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr vs)))))))) =>
         have h' : v = 𝕍.tuple (List.map Restriction.val vs) := by
           apply_fun 𝕍_iso.symm at h
           rw [IsometryEquiv.symm_apply_apply] at h
           rw [h, 𝕍.tuple, ← List.map_eq_map, bind_map_left]
           simp only [List.pure_def, List.bind_eq_flatMap, List.flatMap_singleton']
         h' ▸ tuple (List.map Restriction.val vs)
-      | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr c))))))))) =>
-        have h' : v = 𝕍.sync c := by
-          apply_fun 𝕍_iso.symm at h
-          rwa [IsometryEquiv.symm_apply_apply] at h
-        h' ▸ sync c
   end Value
 end Domain

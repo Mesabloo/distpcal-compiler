@@ -120,7 +120,6 @@ noncomputable section
       (λ _ _ ↦ default)
       (λ _ _ ↦ default)
       (λ _ ↦ default)
-      (λ _ ↦ default)
       v
 
   def integer {α} (v : (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type) (default : α) (f : ℤ → α) : α :=
@@ -134,7 +133,6 @@ noncomputable section
       (λ _ _ ↦ default)
       (λ _ _ ↦ default)
       (λ _ _ ↦ default)
-      (λ _ ↦ default)
       (λ _ ↦ default)
       v
 
@@ -152,11 +150,10 @@ noncomputable section
       (λ _ _ ↦ default)
       (λ _ _ ↦ default)
       (λ _ ↦ default)
-      (λ _ ↦ default)
       v
 
   def channel {α} (v : (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type) (default : α)
-    (sync : Channel.{w} → α) (async : Address.{u, v} → Typ → Address.{u, v} → Address.{u, v} → α) :
+    (async : Address.{u, v} → Typ → Address.{u, v} → Address.{u, v} → α) :
       α :=
     Value.𝕍.casesOn (motive := λ _ ↦ α)
       (λ _ ↦ default)
@@ -169,7 +166,6 @@ noncomputable section
       (λ _ _ ↦ default)
       (λ _ _ ↦ default)
       (λ _ ↦ default)
-      sync
       v
 
   /-! # The main semantics -/
@@ -257,11 +253,12 @@ noncomputable section
         -- switch
         | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ∥ Statement.denotation ξ ς ss)
         | .send c e :: ss =>
+          -- FIXME: need to explicitly check if `c` is a synchronous channel or not
+          -- i.e. if it synctatically is some names bound in `ς`.
           Expression.denotation ξ ς e >>= λ v ↦
           Expression.denotation ξ ς c >>= λ c ↦
           Statement.denotation ξ ς ss ⬰ Domain.branch λ σ ↦
             channel c (default := {.next σ { val := .abort }})
-              (λ c ↦ {.send c v { val := .pure .unit }})
               (λ len' τ buf closed? ↦
                 match (Store.deref σ closed?).bind λ closed? ↦ (Store.deref σ len').bind λ len ↦ (Store.deref σ buf).bind λ buf ↦ pure (closed?, len, buf) with
                 | .none => {.next σ { val := .abort }}
