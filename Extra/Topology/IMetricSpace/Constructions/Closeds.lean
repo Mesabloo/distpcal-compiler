@@ -234,6 +234,11 @@ namespace IMetric
       · -- y ∈ t: y ∈ s ∪ t so infIDist is 0
         exact le_trans (mem_right_zero y s hy) bot_le
 
+  theorem hausdorffIDist_union_left_le {α} [PseudoIMetricSpace α] {s s' t : Set α} :
+      hausdorffIDist (t ∪ s) (t ∪ s') ≤ hausdorffIDist s s' := by
+    rw [Set.union_comm (b := s), Set.union_comm (b := s')]
+    apply hausdorffIDist_union_right_le
+
   -- infIDist x (closure s) = infIDist x s: closure adds limit points approached from s
   lemma hausdorffInfIDist_closure {α} [PseudoIMetricSpace α] (x : α) (s : Set α) :
       IMetric.hausdorffInfIDist x (closure s) = IMetric.hausdorffInfIDist x s := by
@@ -552,6 +557,32 @@ open unitInterval in
       apply le_iSup₂ (f := λ x _ ↦ idist (f x) (g x))
       assumption
     }
+
+  theorem hausdorffIDist_congr₂ {α} [PseudoIMetricSpace α] {s t s' t' : Set α}
+    (hs : s = s') (ht : t = t') :
+      hausdorffIDist s t = hausdorffIDist s' t' := by
+    subst hs ht
+    rfl
+
+  theorem hausdorffIDist_congr₂' {α β γ δ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] [PseudoIMetricSpace δ]
+    {s : Set α} {t : Set β} {f : α → γ} {g : β → γ} {f' : α → δ} {g' : β → δ}
+    (h : ∀ x y, idist (f x) (g y) = idist (f' x) (g' y)) :
+      hausdorffIDist (f '' s) (g '' t) = hausdorffIDist (f' '' s) (g' '' t) := by
+    unfold hausdorffIDist
+    congr 1
+    · rw [iSup_image, iSup_image]
+      apply biSup_congr λ x _ ↦ ?_
+      unfold hausdorffInfIDist
+      rw [iInf_image, iInf_image]
+      apply biInf_congr λ y _ ↦ ?_
+      apply h
+    · rw [iSup_image, iSup_image]
+      apply biSup_congr λ x _ ↦ ?_
+      unfold hausdorffInfIDist
+      rw [iInf_image, iInf_image]
+      apply biInf_congr λ y _ ↦ ?_
+      rw [idist_comm (x := g x), idist_comm (x := g' x)]
+      apply h
 end IMetric
 
 theorem Set.image_isometry {α β} {f : α → β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] (hf : Isometry f) :

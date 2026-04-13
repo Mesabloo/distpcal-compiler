@@ -371,6 +371,12 @@ noncomputable section Domain
         cases b <;> simp [Branch.map, Sum.map, Prod.map, Restriction.map, Function.comp]
         rfl
 
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] in
+      theorem Branch.map_comp' {γ' γ''} [PseudoIMetricSpace γ'] [PseudoIMetricSpace γ''] (f : γ → γ') (g : γ' → γ'') {b : Branch «Σ» Γ α γ} :
+          Branch.map g (Branch.map f b) = Branch.map (g ∘ f) b := by
+        change (Branch.map g ∘ Branch.map f) b = _
+        rw [Branch.map_comp]
+
       omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] in
       theorem Branch.map_id : (Branch.map («Σ» := «Σ») (Γ := Γ) (α := α) (γ := γ) id) = id := by
         funext b
@@ -681,6 +687,108 @@ noncomputable section Domain
           lift h₂ (lift h₁ p) = lift (le_trans h₁ h₂) p := by
         change (lift h₂ ∘ lift h₁) p = _
         rw [lift_lift]
+
+      theorem IterativeDomain.idist_lift_lift {m n o o'} (h₁ : m ≤ o) (h₂ : n ≤ o) (h₃ : m ≤ o') (h₄ : n ≤ o')
+        {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+          idist (IterativeDomain.lift h₁ p) (IterativeDomain.lift h₂ q) = idist (IterativeDomain.lift h₃ p) (IterativeDomain.lift h₄ q) := by
+        match m, n, p, q with
+        | 0, 0, IterativeDomain.leaf v, IterativeDomain.leaf v'
+        | 0, n + 1, IterativeDomain.leaf v, IterativeDomain.leaf v'
+        | m + 1, 0, IterativeDomain.leaf v, IterativeDomain.leaf v'
+        | m + 1, n + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
+          repeat rw [IterativeDomain.lift_leaf]
+          repeat rw [IterativeDomain.idist_leaf_leaf]
+        | 0, 0, IterativeDomain.abort, IterativeDomain.abort
+        | 0, n + 1, IterativeDomain.abort, IterativeDomain.abort
+        | m + 1, 0, IterativeDomain.abort, IterativeDomain.abort
+        | m + 1, n + 1, IterativeDomain.abort, IterativeDomain.abort =>
+          repeat rw [IterativeDomain.lift_abort]
+          repeat rw [IterativeDomain.idist_abort_abort]
+        | 0, 0, IterativeDomain.leaf v, IterativeDomain.abort
+        | 0, n + 1, IterativeDomain.leaf v, IterativeDomain.abort
+        | m + 1, 0, IterativeDomain.leaf v, IterativeDomain.abort
+        | m + 1, n + 1, IterativeDomain.leaf v, IterativeDomain.abort
+        | 0, 0, IterativeDomain.abort, IterativeDomain.leaf v'
+        | 0, n + 1, IterativeDomain.abort, IterativeDomain.leaf v'
+        | m + 1, 0, IterativeDomain.abort, IterativeDomain.leaf v'
+        | m + 1, n + 1, IterativeDomain.abort, IterativeDomain.leaf v' =>
+          repeat rw [IterativeDomain.lift_leaf, IterativeDomain.lift_abort]
+          repeat
+            first | rw [IterativeDomain.idist_leaf_abort]
+                  | rw [IterativeDomain.idist_abort_leaf]
+        | 0, n + 1, IterativeDomain.leaf v, IterativeDomain.branch f'
+        | m + 1, n + 1, IterativeDomain.leaf v, IterativeDomain.branch f' =>
+          repeat rw [IterativeDomain.lift_leaf, IterativeDomain.lift_branch']
+          rw [← IterativeDomain.leaf_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₂)),
+              ← IterativeDomain.leaf_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₄)),
+              ← IterativeDomain.idist_cast, ← IterativeDomain.idist_cast,
+              IterativeDomain.idist_leaf_branch, IterativeDomain.idist_leaf_branch]
+        | m + 1, 0, IterativeDomain.branch f, IterativeDomain.leaf v'
+        | m + 1, n + 1, IterativeDomain.branch f, IterativeDomain.leaf v' =>
+          repeat rw [IterativeDomain.lift_leaf, IterativeDomain.lift_branch']
+          rw [← IterativeDomain.leaf_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₁)),
+              ← IterativeDomain.leaf_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₃)),
+              ← IterativeDomain.idist_cast, ← IterativeDomain.idist_cast,
+              IterativeDomain.idist_branch_leaf, IterativeDomain.idist_branch_leaf]
+        | 0, n + 1, IterativeDomain.abort, IterativeDomain.branch f'
+        | m + 1, n + 1, IterativeDomain.abort, IterativeDomain.branch f' =>
+          repeat rw [IterativeDomain.lift_abort, IterativeDomain.lift_branch']
+          rw [← IterativeDomain.abort_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₂)),
+              ← IterativeDomain.abort_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₄)),
+              ← IterativeDomain.idist_cast, ← IterativeDomain.idist_cast,
+              IterativeDomain.idist_abort_branch, IterativeDomain.idist_abort_branch]
+        | m + 1, 0, IterativeDomain.branch f, IterativeDomain.abort
+        | m + 1, n + 1, IterativeDomain.branch f, IterativeDomain.abort =>
+          repeat rw [IterativeDomain.lift_abort, IterativeDomain.lift_branch']
+          rw [← IterativeDomain.abort_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₁)),
+              ← IterativeDomain.abort_cast (h := Nat.sub_one_add_one (Nat.ne_zero_of_lt h₃)),
+              ← IterativeDomain.idist_cast, ← IterativeDomain.idist_cast,
+              IterativeDomain.idist_branch_abort, IterativeDomain.idist_branch_abort]
+        | m + 1, n + 1, IterativeDomain.branch f, IterativeDomain.branch f' =>
+          repeat rw [IterativeDomain.lift_branch']
+          repeat rw [← IterativeDomain.idist_cast, IterativeDomain.idist_branch_branch]
+          apply iSup_congr λ σ ↦ ?_
+          apply IMetric.hausdorffIDist_congr₂' λ b b' ↦ ?_
+
+          cases b <;> cases b'
+
+          case recv.recv =>
+            erw [Branch.idist_recv_recv, Branch.idist_recv_recv]
+            simp_rw [UniformFun.idist_eq_iSup₂, UniformFun.map_apply, Restriction.map,
+                     Restriction.idist_eq]
+            dsimp
+            congr 1
+            apply iSup_congr λ v ↦ ?_
+            apply iSup_congr λ ok ↦ ?_
+            congr 1
+            apply IterativeDomain.idist_lift_lift
+          case send.send =>
+            erw [Branch.idist_send_send, Branch.idist_send_send,
+                 Restriction.map, Restriction.map, Restriction.idist_eq, Restriction.idist_eq]
+            dsimp
+            congr 2
+            apply IterativeDomain.idist_lift_lift
+          case close.close =>
+            erw [Branch.idist_close_close, Branch.idist_close_close,
+                 Restriction.map, Restriction.map, Restriction.idist_eq, Restriction.idist_eq]
+            dsimp
+            congr 2
+            apply IterativeDomain.idist_lift_lift
+          case sync.sync =>
+            erw [Branch.idist_sync_sync, Branch.idist_sync_sync,
+                 Restriction.map, Restriction.map, Restriction.idist_eq, Restriction.idist_eq]
+            dsimp
+            congr 2
+            apply IterativeDomain.idist_lift_lift
+          case next.next =>
+            erw [Branch.idist_next_next, Branch.idist_next_next,
+                 Restriction.map, Restriction.map, Restriction.idist_eq, Restriction.idist_eq]
+            dsimp
+            congr 2
+            apply IterativeDomain.idist_lift_lift
+
+          all:
+            rfl
     end Lift
 
     section Truncation
@@ -2142,6 +2250,7 @@ noncomputable section Domain
       @[inherit_doc Domain.seq]
       def Domain.seq' [DecidableEq Γ] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         flip Domain.seq
+      extend_docs Domain.seq' after "It is a flipped version of `Domain.seq`: the left tree replaces the leaves of the right tree."
 
       theorem Domain.seq'_branch_contracting_left [DecidableEq Γ] [CompleteSpace Γ] [CompleteSpace «Σ»] [CompleteSpace α]
         (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α PUnit))) (p p' : Domain «Σ» Γ α PUnit) :
@@ -2352,19 +2461,351 @@ noncomputable section Domain
         | _, 0, p, IterativeDomain.abort | _, _ + 1, p, IterativeDomain.abort => IterativeDomain.abort
         | m + 1, n + 1, IterativeDomain.branch g, IterativeDomain.branch g' =>
           max_succ ▸ IterativeDomain.branch λ σ ↦
-            (Branch.map (IterativeDomain.lift (m := m) (n := max m n) (le_max_left m n)) '' g σ) ∪
-            (Branch.map (IterativeDomain.lift (m := n) (n := max m n) (le_max_right m n)) '' g' σ)
+            (Branch.map (IterativeDomain.lift (le_max_left m n)) '' g σ) ∪
+            (Branch.map (IterativeDomain.lift (le_max_right m n)) '' g' σ)
+
+      theorem IterativeDomain.choice_leaf {m n} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} {v : PUnit} :
+          IterativeDomain.choice p (IterativeDomain.leaf (n := n) v) = IterativeDomain.lift (le_max_left m n) p := by
+        cases m <;> cases n <;> unfold choice
+        1,2:
+          match p with
+          | IterativeDomain.leaf _ => rfl
+          | IterativeDomain.abort => rfl
+        1,2:
+        · match p with
+          | IterativeDomain.leaf _ => simp
+          | IterativeDomain.abort => rfl
+          | IterativeDomain.branch _ => rfl
+
+      theorem IterativeDomain.leaf_choice {m n} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} {v : PUnit} :
+          IterativeDomain.choice (IterativeDomain.leaf (n := m) v) q = IterativeDomain.lift (le_max_right m n) q := by
+        cases m <;> cases n <;> unfold choice
+        1,3:
+          match q with
+          | IterativeDomain.leaf _ => rfl
+          | IterativeDomain.abort => rfl
+        1,2:
+        · match q with
+          | IterativeDomain.leaf _ => simp
+          | IterativeDomain.abort => rfl
+          | IterativeDomain.branch _ => rfl
+
+      theorem IterativeDomain.choice_abort {m n} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} :
+          IterativeDomain.choice p (IterativeDomain.abort (n := n)) = IterativeDomain.abort := by
+        cases m <;> cases n <;> unfold choice
+        1,2:
+          match p with
+          | IterativeDomain.leaf _ => rfl
+          | IterativeDomain.abort => rfl
+        1,2:
+        · match p with
+          | IterativeDomain.leaf _ => simp
+          | IterativeDomain.abort => rfl
+          | IterativeDomain.branch _ => rfl
+
+      theorem IterativeDomain.abort_choice {m n} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+          IterativeDomain.choice (IterativeDomain.abort (n := m)) q = IterativeDomain.abort := by
+        cases m <;> cases n <;> unfold choice
+        1,3:
+          match q with
+          | IterativeDomain.leaf _ => rfl
+          | IterativeDomain.abort => rfl
+        1,2:
+        · match q with
+          | IterativeDomain.leaf _ => dsimp only; erw [IterativeDomain.lift_abort]
+          | IterativeDomain.abort => rfl
+          | IterativeDomain.branch _ => rfl
+
+      theorem IterativeDomain.choice_branch_branch {m n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α PUnit m).carrier)} {f' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α PUnit n).carrier)} :
+          IterativeDomain.choice (IterativeDomain.branch f) (IterativeDomain.branch f') = max_succ ▸ IterativeDomain.branch λ σ ↦
+            (Branch.map (IterativeDomain.lift (le_max_left m n)) '' f σ) ∪ (Branch.map (IterativeDomain.lift (le_max_right m n)) '' f' σ) := by
+          rfl
+
+      theorem IterativeDomain.choice_cast_left {m n o} {h : m = o} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} :
+          h ▸ IterativeDomain.choice p q = IterativeDomain.choice (h ▸ p) q := by
+        cases h
+        rfl
+
+      theorem IterativeDomain.choice_cast_right {m n o} {h : n = o} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} :
+          h ▸ IterativeDomain.choice p q = IterativeDomain.choice p (h ▸ q) := by
+        cases h
+        rfl
+
+      theorem IterativeDomain.choice_lipschitz_left' {m n} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} {p p' : (IterativeDomain «Σ» Γ α PUnit m).carrier} :
+          idist (choice p q) (choice p' q) ≤ idist p p' := by
+        match n, q with
+        | 0, IterativeDomain.leaf v
+        | n + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.choice_leaf, IterativeDomain.choice_leaf, IterativeDomain.lift_isometry']
+        | 0, IterativeDomain.abort
+        | n + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.choice_abort, IterativeDomain.choice_abort, IterativeDomain.idist_abort_abort]
+          apply OrderBot.bot_le
+        | n + 1, IterativeDomain.branch f =>
+          match m, p, p' with
+          | 0, IterativeDomain.leaf v, IterativeDomain.leaf v'
+          | m + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.leaf_choice, idist_self]
+            apply OrderBot.bot_le
+          | 0, IterativeDomain.abort, IterativeDomain.abort
+          | m + 1, IterativeDomain.abort, IterativeDomain.abort =>
+            rw [IterativeDomain.abort_choice, IterativeDomain.idist_abort_abort, IterativeDomain.idist_abort_abort]
+          | 0, IterativeDomain.leaf v, IterativeDomain.abort
+          | m + 1, IterativeDomain.leaf v, IterativeDomain.abort
+          | 0, IterativeDomain.abort, IterativeDomain.leaf v'
+          | m + 1, IterativeDomain.abort, IterativeDomain.leaf v' =>
+            first | rw [IterativeDomain.idist_abort_leaf]
+                  | rw [IterativeDomain.idist_leaf_abort]
+            apply OrderTop.le_top
+          | m + 1, IterativeDomain.leaf v, IterativeDomain.branch f'
+          | m + 1, IterativeDomain.branch f, IterativeDomain.leaf v' =>
+            first | rw [IterativeDomain.idist_branch_leaf]
+                  | rw [IterativeDomain.idist_leaf_branch]
+            apply OrderTop.le_top
+          | m + 1, IterativeDomain.abort, IterativeDomain.branch f'
+          | m + 1, IterativeDomain.branch f, IterativeDomain.abort =>
+            first | rw [IterativeDomain.idist_branch_abort]
+                  | rw [IterativeDomain.idist_abort_branch]
+            apply OrderTop.le_top
+          | m + 1, IterativeDomain.branch g, IterativeDomain.branch g' =>
+            rw [IterativeDomain.choice_branch_branch, IterativeDomain.choice_branch_branch, IterativeDomain.idist_branch_branch,
+                ← IterativeDomain.idist_cast, IterativeDomain.idist_branch_branch]
+            apply iSup_mono λ σ ↦ ?_
+            apply le_trans
+            · apply IMetric.hausdorffIDist_union_right_le
+            · apply IMetric.hausdorffIDist_image_le λ b b' ↦ ?_
+              rw [Branch.map_isometry' λ p p' ↦ ?_]
+              rw [IterativeDomain.lift_isometry']
+
+      theorem IterativeDomain.choice_lipschitz_left {m n} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+          LipschitzWith 1 λ p : (IterativeDomain «Σ» Γ α PUnit m).carrier ↦ IterativeDomain.choice p q := by
+        intros p p'
+
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply IterativeDomain.choice_lipschitz_left'
+
+      theorem IterativeDomain.choice_lipschitz_right' {m n} {q q' : (IterativeDomain «Σ» Γ α PUnit n).carrier} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} :
+          idist (choice p q) (choice p q') ≤ idist q q' := by
+        match m, p with
+        | 0, IterativeDomain.leaf v
+        | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.leaf_choice, IterativeDomain.leaf_choice, IterativeDomain.lift_isometry']
+        | 0, IterativeDomain.abort
+        | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.abort_choice, IterativeDomain.abort_choice, IterativeDomain.idist_abort_abort]
+          apply OrderBot.bot_le
+        | m + 1, IterativeDomain.branch f =>
+          match n, q, q' with
+          | 0, IterativeDomain.leaf v, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.choice_leaf, idist_self]
+            apply OrderBot.bot_le
+          | 0, IterativeDomain.abort, IterativeDomain.abort
+          | n + 1, IterativeDomain.abort, IterativeDomain.abort =>
+            rw [IterativeDomain.choice_abort, IterativeDomain.idist_abort_abort, IterativeDomain.idist_abort_abort]
+          | 0, IterativeDomain.leaf v, IterativeDomain.abort
+          | n + 1, IterativeDomain.leaf v, IterativeDomain.abort
+          | 0, IterativeDomain.abort, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.abort, IterativeDomain.leaf v' =>
+            first | rw [IterativeDomain.idist_abort_leaf]
+                  | rw [IterativeDomain.idist_leaf_abort]
+            apply OrderTop.le_top
+          | n + 1, IterativeDomain.leaf v, IterativeDomain.branch f'
+          | n + 1, IterativeDomain.branch f, IterativeDomain.leaf v' =>
+            first | rw [IterativeDomain.idist_branch_leaf]
+                  | rw [IterativeDomain.idist_leaf_branch]
+            apply OrderTop.le_top
+          | n + 1, IterativeDomain.abort, IterativeDomain.branch f'
+          | n + 1, IterativeDomain.branch f, IterativeDomain.abort =>
+            first | rw [IterativeDomain.idist_branch_abort]
+                  | rw [IterativeDomain.idist_abort_branch]
+            apply OrderTop.le_top
+          | n + 1, IterativeDomain.branch g, IterativeDomain.branch g' =>
+            rw [IterativeDomain.choice_branch_branch, IterativeDomain.choice_branch_branch, IterativeDomain.idist_branch_branch,
+                ← IterativeDomain.idist_cast, IterativeDomain.idist_branch_branch]
+            apply iSup_mono λ σ ↦ ?_
+            apply le_trans
+            · apply IMetric.hausdorffIDist_union_left_le
+            · apply IMetric.hausdorffIDist_image_le λ b b' ↦ ?_
+              rw [Branch.map_isometry' λ p p' ↦ ?_]
+              rw [IterativeDomain.lift_isometry']
+
+      theorem IterativeDomain.choice_lipschitz_right {m n} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} :
+          LipschitzWith 1 (IterativeDomain.choice (n := n) p) := by
+        intros q q'
+
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply IterativeDomain.choice_lipschitz_right'
+
+      theorem IterativeDomain.choice_lipschitz {m n} :
+          LipschitzWith 2 (Function.uncurry (IterativeDomain.choice («Σ» := «Σ») (Γ := Γ) (α := α) (m := m) (n := n))) := by
+        have : (2 : NNReal) = 1 + 1 := by norm_num1
+        rw [this]; clear this
+
+        apply LipschitzWith.uncurry
+        · apply IterativeDomain.choice_lipschitz_left
+        · exact λ _ ↦ IterativeDomain.choice_lipschitz_right
 
       theorem IterativeDomain.choice_uniform_continuous {m n} :
-          UniformContinuous₂ (IterativeDomain.choice («Σ» := «Σ») (Γ := Γ) (α := α) (m := m) (n := n)) := by
-        admit
+          UniformContinuous₂ (IterativeDomain.choice («Σ» := «Σ») (Γ := Γ) (α := α) (m := m) (n := n)) :=
+        IterativeDomain.choice_lipschitz.uniformContinuous
+
+      theorem IterativeDomain.lift_choice_left {m n o} (h : m ⊔ n ≤ o) {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+          IterativeDomain.lift h (IterativeDomain.choice p q) =
+            max_eq_left (le_of_max_le_right h) ▸
+              IterativeDomain.choice (IterativeDomain.lift (le_of_max_le_left h) p) q := by
+        match m, p with
+        | 0, IterativeDomain.leaf v
+        | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.leaf_choice, IterativeDomain.lift_leaf, IterativeDomain.leaf_choice, IterativeDomain.lift_lift']
+          grind only
+        | 0, IterativeDomain.abort
+        | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.abort_choice, IterativeDomain.lift_abort, IterativeDomain.lift_abort, IterativeDomain.abort_choice]
+          grind only
+        | m + 1, IterativeDomain.branch f =>
+          match n, q with
+          | 0, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.choice_leaf, IterativeDomain.choice_leaf, IterativeDomain.lift_lift', IterativeDomain.lift_lift']
+            grind only
+          | 0, IterativeDomain.abort
+          | n + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.choice_abort, IterativeDomain.choice_abort, IterativeDomain.lift_abort]
+            grind only
+          | n + 1, IterativeDomain.branch f' =>
+            rw [IterativeDomain.choice_branch_branch, IterativeDomain.lift_branch', ← IterativeDomain.choice_cast_left,
+                IterativeDomain.choice_branch_branch]
+            conv_rhs =>
+              enter [1, 1, 1, 1, σ]; rw [Set.image_image]
+              enter [1, 1, b]; rw [Branch.map_comp', IterativeDomain.lift_lift]
+            rw [IterativeDomain.lift_cast_right, IterativeDomain.lift_branch']
+            · conv_lhs =>
+                enter [1, 1, σ]; rw [Set.image_union, Set.image_image, Set.image_image]
+                conv => enter [1, 1, b]; rw [Branch.map_comp', IterativeDomain.lift_lift]
+                conv => enter [2, 1, b]; rw [Branch.map_comp', IterativeDomain.lift_lift]
+
+              rw [eqRec_eq_cast, eqRec_eq_cast, eqRec_eq_cast, eqRec_eq_cast, cast_cast, cast_cast]
+              generalize_proofs pf₁ pf₂ pf₃ pf₄ pf₅ pf₆
+
+              have : max (o - 1) n = o - 1 := by simp only [sup_of_le_left, pf₃]
+              rw! [this, cast_inj]
+              rfl
+            · grind only [= max_def]
+
+      theorem IterativeDomain.lift_choice_right {m n o} (h : m ⊔ n ≤ o) {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+          IterativeDomain.lift h (IterativeDomain.choice p q) =
+            max_eq_right (le_of_max_le_left h) ▸
+              IterativeDomain.choice p (IterativeDomain.lift (le_of_max_le_right h) q) := by
+        match m, p with
+        | 0, IterativeDomain.leaf v
+        | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.leaf_choice, IterativeDomain.leaf_choice, IterativeDomain.lift_lift', IterativeDomain.lift_lift']
+          grind only
+        | 0, IterativeDomain.abort
+        | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.abort_choice, IterativeDomain.abort_choice, IterativeDomain.lift_abort]
+          grind only
+        | m + 1, IterativeDomain.branch f =>
+          match n, q with
+          | 0, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.choice_leaf, IterativeDomain.lift_leaf, IterativeDomain.choice_leaf, IterativeDomain.lift_lift']
+            grind only
+          | 0, IterativeDomain.abort
+          | n + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.choice_abort, IterativeDomain.lift_abort, IterativeDomain.lift_abort, IterativeDomain.choice_abort]
+            grind only
+          | n + 1, IterativeDomain.branch f' =>
+            rw [IterativeDomain.lift_branch', ← IterativeDomain.choice_cast_right, IterativeDomain.choice_branch_branch,
+                IterativeDomain.choice_branch_branch, IterativeDomain.lift_cast_right, IterativeDomain.lift_branch']
+            · conv_rhs =>
+                enter [1, 1, 1, 1, σ, 2]; rw [Set.image_image]
+                enter [1, b]; rw [Branch.map_comp', IterativeDomain.lift_lift]
+              conv_lhs =>
+                enter [1, 1, σ]; rw [Set.image_union, Set.image_image, Set.image_image]
+                conv => enter [1, 1, b]; rw [Branch.map_comp', IterativeDomain.lift_lift]
+                conv => enter [2, 1, b]; rw [Branch.map_comp', IterativeDomain.lift_lift]
+
+              rw [eqRec_eq_cast, eqRec_eq_cast, eqRec_eq_cast, eqRec_eq_cast, cast_cast, cast_cast]
+              generalize_proofs pf₁ pf₂ pf₃ pf₄ pf₅ pf₆
+
+              have : max m (o - 1) = o - 1 := by simp only [sup_of_le_right, pf₂]
+              rw! [this, cast_inj]
+              rfl
+            · grind only [= max_def]
 
       def DomainUnion.choice : DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.choice p q)
 
+      theorem DomainUnion.choice_lipschitz_left' {p p' q : DomainUnion «Σ» Γ α PUnit} :
+          IDist.idist (DomainUnion.choice p q) (DomainUnion.choice p' q) ≤ IDist.idist p p' := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q; let ⟨o, p'⟩ := p'
+
+        change IDist.idist (mk (IterativeDomain.choice p q)) (mk (IterativeDomain.choice p' q)) ≤ IDist.idist (mk p) (mk p')
+        change IDist.idist (IterativeDomain.lift _ _) (IterativeDomain.lift _ _) ≤ IDist.idist (IterativeDomain.lift _ _) (IterativeDomain.lift _ _)
+
+        rw [IterativeDomain.lift_choice_left, IterativeDomain.lift_choice_left, ← IterativeDomain.idist_cast]
+        apply le_trans
+        · apply IterativeDomain.choice_lipschitz_left'
+        · have : max (max m n) (max o n) = max m (max n o) := by
+            grind only
+
+          rw [IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this, ← IterativeDomain.idist_cast,
+              IterativeDomain.idist_lift_lift]
+          · apply le_max_left
+          · apply le_max_right
+
+      theorem DomainUnion.choice_lipschitz_left {q : DomainUnion «Σ» Γ α PUnit} :
+          LipschitzWith 1 λ p ↦ DomainUnion.choice p q := by
+        intros p p'
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply DomainUnion.choice_lipschitz_left'
+
+      theorem DomainUnion.choice_lipschitz_right' {p q q' : DomainUnion «Σ» Γ α PUnit} :
+          IDist.idist (p.choice q) (p.choice q') ≤ IDist.idist q q' := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q; let ⟨o, q'⟩ := q'
+
+        change IDist.idist (mk (IterativeDomain.choice p q)) (mk (IterativeDomain.choice p q')) ≤ IDist.idist (mk q) (mk q')
+        change IDist.idist (IterativeDomain.lift _ _) (IterativeDomain.lift _ _) ≤ IDist.idist (IterativeDomain.lift _ _) (IterativeDomain.lift _ _)
+
+        rw [IterativeDomain.lift_choice_right, IterativeDomain.lift_choice_right, ← IterativeDomain.idist_cast]
+        apply le_trans
+        · apply IterativeDomain.choice_lipschitz_right'
+        · have : max (max m n) (max m o) = max m (max n o) := by
+            grind only
+
+          rw [IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this, ← IterativeDomain.idist_cast,
+              IterativeDomain.idist_lift_lift]
+          · apply le_max_left
+          · apply le_max_right
+
+      theorem DomainUnion.choice_lipschitz_right {p : DomainUnion «Σ» Γ α PUnit} :
+          LipschitzWith 1 (DomainUnion.choice p) := by
+        intros q q'
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply DomainUnion.choice_lipschitz_right'
+
+      theorem DomainUnion.choice_lipschitz :
+          LipschitzWith 2 (Function.uncurry (DomainUnion.choice («Σ» := «Σ») (Γ := Γ) (α := α))) := by
+        have : (2 : NNReal) = 1 + 1 := by norm_num1
+        rw [this]; clear this
+
+        apply LipschitzWith.uncurry
+        · apply DomainUnion.choice_lipschitz_left
+        · exact λ _ ↦ DomainUnion.choice_lipschitz_right
+
       theorem DomainUnion.choice_uniform_continuous :
-          UniformContinuous₂ (DomainUnion.choice («Σ» := «Σ») (Γ := Γ) (α := α)) := by
-        admit
+          UniformContinuous₂ (DomainUnion.choice («Σ» := «Σ») (Γ := Γ) (α := α)) :=
+        DomainUnion.choice_lipschitz.uniformContinuous
 
       /-- Non-deterministic choice, aka tree union. -/
       def Domain.choice : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
