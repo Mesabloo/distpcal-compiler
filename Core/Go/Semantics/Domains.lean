@@ -1399,11 +1399,11 @@ noncomputable section Domain
           assumption
     end Functor
 
-    class HasDefaultInit (Γ : Type _) (α : outParam (Type _)) where
-      zero : Γ → α
+    class HasDefaultInit («Σ» Γ : Type _) (α : outParam (Type _)) where
+      zero : Γ → «Σ» → «Σ» × α
 
     -- Default initialisation depending on the given synchronous channel
-    variable (zero : Γ → α)
+    variable (zero : Γ → «Σ» → «Σ» × α)
 
     section Applicative
       /-! ## Applicative functor -/
@@ -1584,8 +1584,53 @@ noncomputable section Domain
         apply IterativeDomain.ap_idist_le_left
 
       mutual
+        theorem Branch.ap_idist_le_right [DecidableEq Γ] {m n K} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} {q q' : (IterativeDomain «Σ» Γ α β n).carrier} (hk : 1 ≤ K) :
+            (idist (Branch.ap q b) (Branch.ap q' b) : ℝ) ≤ K * idist q q' := by
+          cases b with
+          | recv c π =>
+            simp_rw [Branch.ap_recv, Branch.idist_recv_recv, idist_self, ← unitInterval.bot_eq, bot_sup_eq,
+                     UniformFun.idist_eq_iSup, Restriction.map, Restriction.idist_eq]
+
+            apply unitInterval.coe_iSup₂_le
+            · apply mul_nonneg
+              · exact NNReal.zero_le_coe
+              · apply unitInterval.nonneg
+            · intros v ok
+              apply le_trans
+              · apply Subtype.coe_le_coe.mpr
+                exact unitInterval.half_mul_le_self
+              · apply IterativeDomain.ap_idist_le_right hk
+          | send c v p =>
+            rw [Branch.ap_send, Branch.ap_send, Branch.idist_send_send, idist_self, idist_self, ← unitInterval.bot_eq, bot_sup_eq, bot_sup_eq,
+                Restriction.map, Restriction.map, Restriction.idist_eq]
+            apply le_trans
+            · apply Subtype.coe_le_coe.mpr
+              exact unitInterval.half_mul_le_self
+            · apply IterativeDomain.ap_idist_le_right hk
+          | close c p =>
+            rw [Branch.ap_close, Branch.ap_close, Branch.idist_close_close, idist_self, ← unitInterval.bot_eq, bot_sup_eq,
+                Restriction.map, Restriction.map, Restriction.idist_eq]
+            apply le_trans
+            · apply Subtype.coe_le_coe.mpr
+              exact unitInterval.half_mul_le_self
+            · apply IterativeDomain.ap_idist_le_right hk
+          | sync c p =>
+            rw [Branch.ap_sync, Branch.ap_sync, Branch.idist_sync_sync, idist_self, ← unitInterval.bot_eq, bot_sup_eq,
+                Restriction.map, Restriction.map, Restriction.idist_eq]
+            apply le_trans
+            · apply Subtype.coe_le_coe.mpr
+              exact unitInterval.half_mul_le_self
+            · apply IterativeDomain.ap_idist_le_right hk
+          | next σ p =>
+            rw [Branch.ap_next, Branch.ap_next, Branch.idist_next_next, idist_self, ← unitInterval.bot_eq, bot_sup_eq,
+                Restriction.map, Restriction.map, Restriction.idist_eq]
+            apply le_trans
+            · apply Subtype.coe_le_coe.mpr
+              exact unitInterval.half_mul_le_self
+            · apply IterativeDomain.ap_idist_le_right hk
+
         theorem IterativeDomain.ap_idist_le_right [DecidableEq Γ] {m n K} {q q' : (IterativeDomain «Σ» Γ α β n).carrier} {p : (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} (hk : 1 ≤ K) :
-            (idist (ap p q) (ap p q') : ℝ) ≤ K * idist q q' := by
+            (idist (IterativeDomain.ap p q) (IterativeDomain.ap p q') : ℝ) ≤ K * idist q q' := by
           match m, p with
           | 0, IterativeDomain.leaf v
           | m + 1, IterativeDomain.leaf v =>
@@ -1605,8 +1650,14 @@ noncomputable section Domain
             · apply mul_nonneg
               · exact NNReal.zero_le_coe
               · apply unitInterval.nonneg
-            ·
-              admit
+            · grw [IMetric.hausdorffIDist_image_le_of_le_sup']
+
+              apply unitInterval.coe_iSup₂_le
+              · apply mul_nonneg
+                · exact NNReal.zero_le_coe
+                · apply unitInterval.nonneg
+              · intros b _
+                apply Branch.ap_idist_le_right hk
       end
 
       theorem IterativeDomain.ap_lipschitz_right [DecidableEq Γ] {m n K} (hk : 1 ≤ K) {p : (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} :
@@ -2039,20 +2090,20 @@ noncomputable section Domain
       def Domain.seq' [DecidableEq Γ] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         flip Domain.seq
 
-      theorem Domain.seq'_branch_contracting_left [DecidableEq Γ] [CompleteSpace Γ] [CompleteSpace «Σ»] [CompleteSpace α] [inst : HasDefaultInit Γ α]
+      theorem Domain.seq'_branch_contracting_left [DecidableEq Γ] [CompleteSpace Γ] [CompleteSpace «Σ»] [CompleteSpace α]
         (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α PUnit))) (p p' : Domain «Σ» Γ α PUnit) :
           idist (Domain.seq' p (Domain.branch f)) (Domain.seq' p' (Domain.branch f)) ≤ unitInterval.half * idist p p' := by
         admit
 
-      theorem Domain.seq'_assoc [DecidableEq Γ] [inst : HasDefaultInit Γ α] {p q r : Domain «Σ» Γ α PUnit} :
+      theorem Domain.seq'_assoc [DecidableEq Γ] {p q r : Domain «Σ» Γ α PUnit} :
           Domain.seq' (Domain.seq' r q) p = Domain.seq' r (Domain.seq' q p) := by
         admit
 
-      theorem Domain.seq'_left_nonexpansive [DecidableEq Γ] [inst : HasDefaultInit Γ α] {p p' q : Domain «Σ» Γ α PUnit} :
+      theorem Domain.seq'_left_nonexpansive [DecidableEq Γ] {p p' q : Domain «Σ» Γ α PUnit} :
           idist (Domain.seq' q p) (Domain.seq' q p') ≤ idist p p' := by
         admit
 
-      theorem Domain.seq'_is_branch_of_branch [DecidableEq Γ] [inst : HasDefaultInit Γ α] {p q : Domain «Σ» Γ α PUnit}
+      theorem Domain.seq'_is_branch_of_branch [DecidableEq Γ] {p q : Domain «Σ» Γ α PUnit}
         [CompleteSpace Γ] [CompleteSpace «Σ»] [CompleteSpace α] {f} (hf : p = Domain.branch f) :
           ∃ g, (Domain.seq' q p) = Domain.branch g := by
         subst hf
@@ -2277,7 +2328,7 @@ noncomputable section Domain
       open Classical in
       mutual
         def Branch.hide [DecidableEq Γ] (σ : «Σ») (c : Γ) {n} : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier → Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :=
-          Sum.elim (λ (c', π) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide c) (π (zero c) false))} else {Branch.recv c' λ v ok ↦ Restriction.map (IterativeDomain.hide c) (π v ok)}) <|
+          Sum.elim (λ (c', π) ↦ if c = c' then {Branch.next (zero c σ).1 (Restriction.map (IterativeDomain.hide c) (π (zero c σ).2 false))} else {Branch.recv c' λ v ok ↦ Restriction.map (IterativeDomain.hide c) (π v ok)}) <|
           Sum.elim (λ (c', v, p) ↦ if c = c' then ∅ else {Branch.send c' v (Restriction.map (IterativeDomain.hide c) p)}) <|
           Sum.elim (λ (c', p) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide c) p)} else {Branch.close c' (Restriction.map (IterativeDomain.hide c) p)}) <|
           Sum.elim (λ (c', p) ↦ if c = c' then ∅ else {Branch.sync c' (Restriction.map (IterativeDomain.hide c) p)}) <|
@@ -2312,7 +2363,7 @@ noncomputable section Domain
         Remove branches that mention the synchronous channel `c`, but replace the pruning of all
         subtrees by abortion.
       -/
-      def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α β → Γ → Domain «Σ» Γ α β :=
+      def Domain.hide' [DecidableEq Γ] [inst : HasDefaultInit «Σ» Γ α] : Domain «Σ» Γ α β → Γ → Domain «Σ» Γ α β :=
         flip (Domain.hide inst.zero)
     end EventHiding
 
@@ -2357,8 +2408,8 @@ noncomputable section Domain
             -- Channel closure
             ∪ {p | ∃ v γ p' p'', .send γ v ⟨p'⟩ ∈ g σ ∧ .close γ ⟨p''⟩ ∈ g' σ ∧ p = .next σ ⟨IterativeDomain.abort⟩}
             ∪ {p | ∃ v γ p' p'', .send γ v ⟨p'⟩ ∈ g' σ ∧ .close γ ⟨p''⟩ ∈ g σ ∧ p = .next σ ⟨IterativeDomain.abort⟩}
-            ∪ {p | ∃ γ π' p', .recv γ π' ∈ g σ ∧ .close γ ⟨p'⟩ ∈ g' σ ∧ p = .close γ ⟨IterativeDomain.lift (by grind only) (IterativeDomain.parallel (π' (zero γ) false).val p')⟩}
-            ∪ {p | ∃ γ π' p', .recv γ π' ∈ g' σ ∧ .close γ ⟨p'⟩ ∈ g σ ∧ p = .close γ ⟨IterativeDomain.lift (by grind only) (IterativeDomain.parallel p' (π' (zero γ) false).val)⟩}
+            ∪ {p | ∃ γ π' p', .recv γ π' ∈ g σ ∧ .close γ ⟨p'⟩ ∈ g' σ ∧ p = .next (zero γ σ).1 ⟨jsp.symm ▸ IterativeDomain.branch λ _ ↦ {.close γ ⟨IterativeDomain.parallel (π' (zero γ σ).2 false).val p'⟩}⟩}
+            ∪ {p | ∃ γ π' p', .recv γ π' ∈ g' σ ∧ .close γ ⟨p'⟩ ∈ g σ ∧ p = .next (zero γ σ).1 ⟨jsp.symm ▸ IterativeDomain.branch λ _ ↦ {.close γ ⟨IterativeDomain.parallel p' (π' (zero γ σ).2 false).val⟩}⟩}
       end
 
       theorem IterativeDomain.parallel_uniform_continuous {m n} :
@@ -2376,7 +2427,7 @@ noncomputable section Domain
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.parallel zero x y)
 
       /-- Parallel composition. Generates all the possible interleavings as well as synchronizations. -/
-      def Domain.parallel' [inst : HasDefaultInit Γ α] : Domain «Σ» Γ α β → Domain «Σ» Γ α γ → Domain «Σ» Γ α (β × γ) :=
+      def Domain.parallel' [inst : HasDefaultInit «Σ» Γ α] : Domain «Σ» Γ α β → Domain «Σ» Γ α γ → Domain «Σ» Γ α (β × γ) :=
         Domain.parallel inst.zero
     end Parallel
   end Operators

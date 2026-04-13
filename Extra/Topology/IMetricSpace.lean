@@ -38,7 +38,7 @@ namespace unitInterval
     simp [half, zero_eq, Subtype.mk_lt_mk]
 
   theorem half_mul_le_self {ε : I} : half * ε ≤ ε := by
-    grind only [mul_le_right]
+    apply mul_le_right
 
   theorem half_mul_lt_self_of_pos {ε : I} (h : ε > 0) : half * ε < ε := by
     change (1 / 2 * (ε : ℝ)) < (ε : ℝ)

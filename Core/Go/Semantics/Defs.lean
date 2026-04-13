@@ -183,11 +183,13 @@ noncomputable section
     namespace Statement
       variable (out : Channel)
 
-      private def zero : Typ.{y} → (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type
-        | .bool => sorry
-        | .int => sorry
-        | .str => sorry
-        | .function _ _ => sorry
+      -- TODO: introduce another type of types?
+      -- Because there are TLA+ types which don't mean anything in here, e.g. set vs seq
+      private def zero (σ : Store.{u, v, w, x}.type) : Typ.{y} → Store.{u, v, w, x}.type × (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type
+        | .bool => (σ, Value.𝕍.bool false)
+        | .int => (σ, Value.𝕍.int 0)
+        | .str => (σ, Value.𝕍.str "")
+        | .function _ _ => (σ, Value.𝕍.map (λ _ ↦ .none) true)
         | .set _ => sorry
         | .seq _ => sorry
         | .tuple _ => sorry
@@ -198,8 +200,8 @@ noncomputable section
         | .channel _ => sorry
         | .address => sorry
 
-      instance : HasDefaultInit Channel (Value.𝕍 Store.type Channel Address Typ).type where
-        zero := zero ∘ Prod.snd
+      instance : HasDefaultInit Store.type Channel (Value.𝕍 Store.type Channel Address Typ).type where
+        zero c σ := zero σ (Prod.snd c)
 
       def guard (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1} :=
         Expression.denotation ξ ς e >>= λ v ↦ Domain.branch λ σ ↦
