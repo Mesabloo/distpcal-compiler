@@ -1372,10 +1372,23 @@ noncomputable section Domain
         funext p
         apply DomainUnion.map_map
 
-      theorem DomainUnion.map_lipschitz {β' K} [IMetricSpace β'] (f : β →ᵤ β') (hf : LipschitzWith K f) :
+      theorem DomainUnion.map_lipschitz {β' K} [IMetricSpace β'] (f : β →ᵤ β') (hf : LipschitzWith K f) (hk : 1 ≤ K) :
           LipschitzWith K (DomainUnion.map («Σ» := «Σ») (Γ := Γ) (α := α) f) := by
-        -- TODO: is this true?
-        admit
+        rintro ⟨m, p⟩ ⟨n, q⟩
+
+        have : ENNReal.ofNNReal K = ENNReal.ofReal K.toReal := by norm_num
+
+        rw [PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq, this, ← ENNReal.ofReal_mul]
+        · apply ENNReal.ofReal_le_ofReal
+
+          change
+            (IDist.idist (DomainUnion.mk <| IterativeDomain.map { toFun := f, lipschitz := hf : LipschitzMap _ _ K }.toFun p)
+                         ⟨n, IterativeDomain.map { toFun := f, lipschitz := hf : LipschitzMap _ _ K }.toFun q⟩ : ℝ) ≤ _
+          change (IDist.idist (IterativeDomain.lift _ _) (IterativeDomain.lift _ _) : ℝ) ≤ K * IDist.idist (IterativeDomain.lift _ _) (IterativeDomain.lift _ _)
+
+          repeat rw [IterativeDomain.map_lift]
+          apply IterativeDomain.map_idist_le' hk
+        · exact NNReal.zero_le_coe
 
       /-- Map leaves of the tree using a given function. -/
       def Domain.map {β'} [IMetricSpace β'] (f : β →ᵤ β') :
@@ -1387,16 +1400,14 @@ noncomputable section Domain
         rw [DomainUnion.map_id', UniformSpace.Completion.map_id]
         rfl
 
-      theorem Domain.map_map {γ' Kf Kg} [IMetricSpace γ'] {f : β →ᵤ γ} {g : γ →ᵤ γ'} {p : Domain «Σ» Γ α β}
+      theorem Domain.map_map {γ' Kf Kg} [IMetricSpace γ'] {f : β →ᵤ γ} {g : γ →ᵤ γ'} {p : Domain «Σ» Γ α β} (hkf : 1 ≤ Kf) (hkg : 1 ≤ Kg)
         (hf : LipschitzWith Kf f) (hg : LipschitzWith Kg g) :
           map g (map f p) = map (g ∘ f) p := by
         unfold map
         change (UniformSpace.Completion.map _ ∘ _) p = _
         rw [UniformSpace.Completion.map_comp, DomainUnion.map_map']
-        · apply (DomainUnion.map_lipschitz (K := Kg) _ ?_).uniformContinuous
-          assumption
-        · apply (DomainUnion.map_lipschitz (K := Kf) _ ?_).uniformContinuous
-          assumption
+        · apply (DomainUnion.map_lipschitz (K := Kg) _ ?_ ?_).uniformContinuous <;> assumption
+        · apply (DomainUnion.map_lipschitz (K := Kf) _ ?_ ?_).uniformContinuous <;> assumption
     end Functor
 
     class HasDefaultInit («Σ» Γ : Type _) (α : outParam (Type _)) where
@@ -2615,8 +2626,16 @@ noncomputable section Domain
           dsimp
           congr 11 with ⟨vs, ξ, ς⟩ : 1
           rw [List.map_map, Domain.map_map, Restriction.mk_comp_val_eq_id, List.map_id, Domain.map_id]
-          · apply Restriction.val_lipschitz
-          · apply Restriction.mk_lipschitz
+          · apply one_le_two
+          · apply le_refl
+          · apply LipschitzWith.weaken
+            · apply Restriction.val_lipschitz
+            · change 1 / (1 / 2 : ℝ) ≤ 2
+              norm_num
+          · apply LipschitzWith.weaken
+            · apply Restriction.mk_lipschitz
+            · change (1 / 2 : ℝ) ≤ 1
+              norm_num
         h' ▸ func closure (λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.mk, ξ, ς⟩ |>.map Restriction.val)
       | .inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr (.inr vs)))))))) =>
         have h' : v = 𝕍.tuple (List.map Restriction.val vs) := by
