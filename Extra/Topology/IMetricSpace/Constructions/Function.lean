@@ -62,4 +62,22 @@ theorem UniformFun.idist_eq_iSup₂.{w} {α : Type u} {β : Type v} {δ : Type w
     idist f g = ⨆ x, ⨆ y, idist (f x y) (g x y) := by
   simp_rw [UniformFun.idist_eq_iSup]
 
+theorem UniformFun.continuous_apply {α : Type u} {β : Type v} [PseudoIMetricSpace β] (x : α) :
+    Continuous (λ f : α →ᵤ β ↦ UniformFun.toFun f x) :=
+  (UniformFun.lipschitzWith_eval x).continuous
+
+theorem UniformFun.isClosed_setOf_lipschitzWith {α : Type u} {β : Type v}
+    [PseudoIMetricSpace α] [PseudoIMetricSpace β] (K : NNReal) :
+    IsClosed {f : α →ᵤ β | LipschitzWith K f} := by
+  simp only [LipschitzWith, Set.setOf_forall]
+  apply isClosed_iInter
+  intro x
+  apply isClosed_iInter
+  intro y
+  apply isClosed_le
+  · apply Continuous.edist
+    · exact UniformFun.continuous_apply x
+    · exact UniformFun.continuous_apply y
+  · exact continuous_const
+
 attribute [-instance] UniformFun.instPseudoEMetricSpace UniformFun.instEMetricSpace

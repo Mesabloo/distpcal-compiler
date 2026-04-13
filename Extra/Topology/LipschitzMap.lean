@@ -28,5 +28,13 @@ noncomputable instance {α β K} [PseudoIMetricSpace α] [PseudoIMetricSpace β]
 noncomputable instance {α β K} [PseudoIMetricSpace α] [IMetricSpace β] : IMetricSpace (α →ₗ[K] β) :=
   .induced LipschitzMap.toFun LipschitzMap.toFun_injective inferInstance
 
-instance {α β K} [PseudoIMetricSpace α] [IMetricSpace β] [CompleteSpace β] : CompleteSpace (α →ₗ[K] β) :=
-  sorry
+instance {α β K} [PseudoIMetricSpace α] [IMetricSpace β] [CompleteSpace β] : CompleteSpace (α →ₗ[K] β) := by
+  apply IsUniformInducing.completeSpace (f := LipschitzMap.toFun)
+  · exact ⟨rfl⟩
+  · have : Set.range (LipschitzMap.toFun (α := α) (β := β) (K := K)) = {f | LipschitzWith K f} := by
+      ext f
+      constructor
+      · rintro ⟨⟨g, hg⟩, rfl⟩; exact hg
+      · intro hf; exact ⟨⟨f, hf⟩, rfl⟩
+    rw [this]
+    exact (UniformFun.isClosed_setOf_lipschitzWith K).isComplete
