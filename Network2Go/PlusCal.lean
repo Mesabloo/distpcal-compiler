@@ -62,7 +62,7 @@ namespace NetworkPlusCal
     let (condsVars, conds) : List (String × Typ) × List _ := match B.precondition with
       | none => ([], [])
       | some B => B.toList.foldr (init := ([], [])) λ S (vars, B) ↦ match_source S with
-        | NetworkPlusCal.Statement.await e, pos => (vars, (.assign ⟨commit!, .bool, []⟩ (.infix (.var commit! .bool) .«∧» e) @@ pos) :: B)
+        | NetworkPlusCal.Statement.await e, pos => (vars, (.assign [⟨commit!, .bool, []⟩] (.infix (.var commit! .bool) .«∧» e) @@ pos) :: B)
         | NetworkPlusCal.Statement.let x τ «=|∈» e, pos =>
           /-
             FIXME: how do we solve the following problem?
@@ -78,13 +78,13 @@ namespace NetworkPlusCal
             How do we handle such case where the value chosen by `with` actually depends on the `await`s that are after?
             Randomly select a value until one satisfies the remainder of the precondition?
           -/
-          (vars.concat (x, τ), if «=|∈» then sorry else (.assign ⟨x, τ, []⟩ e @@ pos) :: B)
+          (vars.concat (x, τ), if «=|∈» then sorry else (.assign [⟨x, τ, []⟩] e @@ pos) :: B)
 
     let todo : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := compileBlock B.action.begin
 
     let next : GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs := match_source B.action.last with
       | .goto "Done", pos => .send (.var "done" (.channel (.record []))) (.record []) @@ pos
-      | .goto l, pos => .assign ⟨"_", .record [], []⟩
+      | .goto l, pos => .assign [⟨"_", .record [], []⟩]
         (.opcall (.var l (.operator (.address :: .channel (.record []) :: vars.map λ ⟨_, τ, _⟩ ↦ .channel τ) (.record [])))
           (.var "self" .address :: .var "done" (.channel (.record [])) :: vars.map λ ⟨v, τ, _⟩ ↦ .var (chan_from_name! v) (.channel τ))) @@ pos
 
@@ -133,7 +133,7 @@ namespace NetworkPlusCal
       | .assign ref e, pos =>
         -- TODO: handle indices (transform into tuples)
         let ref' := { name := ref.name, τ := ref.τ, args := [] : GoCal.LHS _ _ }
-        [.assign ref' e @@ pos]
+        [.assign [ref'] e @@ pos]
       | .send chan e, pos =>
         let _ : Inhabited (List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs)) := ⟨[.panic (.str "send not implemented") @@ pos]⟩
         todo! "compile send to go"
@@ -162,7 +162,7 @@ namespace NetworkPlusCal
           .switch (.opcall (.var "Rand" (.operator [] .int)) [.nat fn.length.repr]) (
             fn.map λ ⟨⟨name, _, _, _⟩, i⟩ ↦
               .case [.nat i.repr] [
-                .assign ⟨commit!, .bool, []⟩ <|
+                .assign [⟨commit!, .bool, []⟩] <|
                   .opcall (.var name (.operator (.address :: .channel (.record []) :: vars.map λ ⟨_, τ, _⟩ ↦ .channel τ) .bool))
                     (.var "self" .address :: .var "done" (.channel (.record [])) :: vars.map λ ⟨v, τ, _⟩ ↦ .var v (.channel τ))
               ]
@@ -198,7 +198,7 @@ namespace NetworkPlusCal
         returnType := [.channel (.record [])]
         body := [
           .make "done" (.channel (.record [])) (.inl (.some ⟨1⟩)),
-          .assign ⟨"_", .record [], []⟩ <|
+          .assign [⟨"_", .record [], []⟩] <|
             .opcall (.var (blocks.head (List.ne_nil_iff_exists_cons.mpr ⟨_, _, h⟩) |>.label) (.operator (.address :: .channel (.record []) :: vars.map λ ⟨_, τ, _⟩ ↦ .channel τ) (.record [])))
               (.var "self" .address :: .var "done" (.channel (.record [])) :: vars.map λ ⟨v, τ, _⟩ ↦ .var (chan_from_name! v) (.channel τ)),
           .return [.var "done" (.channel (.record []))]
@@ -258,7 +258,7 @@ namespace NetworkPlusCal
     let calls : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := threads.map λ v ↦ .make s!"done_{v}" (.channel (.record [])) <| .inr <|
       .opcall (.var v (.operator (.address :: (vars ++ params).map λ ⟨_, τ, _⟩ ↦ (.channel τ)) (.record [])))
         <| .var "self" .address :: (vars ++ params).map λ ⟨v, τ, _⟩ ↦ .var v (.channel τ)
-    let calls' : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := channels.map λ ⟨v, τ⟩ ↦ .assign ⟨"_", .record [], []⟩ <|
+    let calls' : List (GoCal.Statement Typ (Expression Typ) GoCal.Typ.initArgs) := channels.map λ ⟨v, τ⟩ ↦ .assign [⟨"_", .record [], []⟩] <|
       .opcall (.var v (.operator (.address :: τ :: (vars ++ params).map λ ⟨_, τ, _⟩ ↦ (.channel τ)) (.record [])))
         <| .var "self" .address :: .var chan!(v) τ :: (vars ++ params).map λ ⟨v, τ, _⟩ ↦ .var v (.channel τ)
 
