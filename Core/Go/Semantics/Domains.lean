@@ -1862,56 +1862,64 @@ noncomputable section Domain
           DomainUnion «Σ» Γ α (β →ₗ[K] γ) → DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.ap p q)
 
+    theorem DomainUnion.ap_lipschitz_left {K} [DecidableEq Γ] {q : DomainUnion «Σ» Γ α β} :
+        LipschitzWith 1 λ p : DomainUnion «Σ» Γ α (β →ₗ[K] γ) ↦ DomainUnion.ap p q := by
+      intros x y
+      erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+      apply ENNReal.ofReal_le_ofReal
+      apply Subtype.coe_le_coe.mpr
+
+      change IDist.idist (IterativeDomain.lift _ _) _ ≤ IDist.idist (IterativeDomain.lift _ _) _
+
+      have : max (x.fst + q.fst) (y.fst + q.fst) - q.fst = max x.fst y.fst := by
+        grind only [= max_def]
+
+      rw [IterativeDomain.ap_lift_left, IterativeDomain.ap_lift_left, ← IterativeDomain.idist_cast,
+          IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
+          IterativeDomain.ap_cast_left, IterativeDomain.ap_cast_left,
+          ← IterativeDomain.idist_cast' (f := λ m ↦ m + q.fst)]
+
+      rw [unitInterval.le_iff_le_val, ← ENNReal.ofReal_le_ofReal_iff, ← PseudoIMetricSpace.edist_eq,
+          ← PseudoIMetricSpace.edist_eq]
+      · conv_rhs => apply one_mul _ |>.symm
+        apply IterativeDomain.ap_lipschitz_left
+      · grind only [= Set.mem_Icc]
+
+    theorem DomainUnion.ap_lipschitz_right [DecidableEq Γ] {K} (hk : 1 ≤ K) {p : DomainUnion «Σ» Γ α (β →ₗ[K] γ)} :
+        LipschitzWith K (DomainUnion.ap p) := by
+      intros x y
+      erw [PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+
+      convert_to _ ≤ ENNReal.ofReal (K.toReal * (IDist.idist x y : ℝ))
+      · norm_num
+      · apply ENNReal.ofReal_le_ofReal
+
+        change IDist.idist (IterativeDomain.lift _ _) _ ≤ K.toReal * IDist.idist (IterativeDomain.lift _ _) _
+
+        have : max (p.fst + x.fst) (p.fst + y.fst) - p.fst = max x.fst y.fst := by
+          grind only [= max_def]
+
+        rw [IterativeDomain.ap_lift_right, IterativeDomain.ap_lift_right, ← IterativeDomain.idist_cast,
+            IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
+            IterativeDomain.ap_cast_right, IterativeDomain.ap_cast_right,
+            ← IterativeDomain.idist_cast' (f := λ n ↦ p.fst + n),
+            ← ENNReal.ofReal_le_ofReal_iff, ENNReal.ofReal_mul, ← PseudoIMetricSpace.edist_eq,
+            ← PseudoIMetricSpace.edist_eq]
+        · have : ENNReal.ofReal ↑K = ENNReal.ofNNReal K := by norm_num
+
+          rw [this]
+          apply IterativeDomain.ap_lipschitz_right
+          assumption
+        · exact NNReal.zero_le_coe
+        · apply mul_nonneg
+          · exact NNReal.zero_le_coe
+          · exact unitInterval.nonneg _
+
     theorem DomainUnion.ap_lipschitz [DecidableEq Γ] {K} (hk : 1 ≤ K) :
           LipschitzWith (1 + K) (Function.uncurry (DomainUnion.ap (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ))) := by
         apply LipschitzWith.uncurry
-        · intros q x y
-          erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
-          apply ENNReal.ofReal_le_ofReal
-          apply Subtype.coe_le_coe.mpr
-
-          change IDist.idist (IterativeDomain.lift _ _) _ ≤ IDist.idist (IterativeDomain.lift _ _) _
-
-          have : max (x.fst + q.fst) (y.fst + q.fst) - q.fst = max x.fst y.fst := by
-            grind only [= max_def]
-
-          rw [IterativeDomain.ap_lift_left, IterativeDomain.ap_lift_left, ← IterativeDomain.idist_cast,
-              IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
-              IterativeDomain.ap_cast_left, IterativeDomain.ap_cast_left,
-              ← IterativeDomain.idist_cast' (f := λ m ↦ m + q.fst)]
-
-          rw [unitInterval.le_iff_le_val, ← ENNReal.ofReal_le_ofReal_iff, ← PseudoIMetricSpace.edist_eq,
-              ← PseudoIMetricSpace.edist_eq]
-          · conv_rhs => apply one_mul _ |>.symm
-            apply IterativeDomain.ap_lipschitz_left
-          · grind only [= Set.mem_Icc]
-        · intros p x y
-          erw [PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
-
-          convert_to _ ≤ ENNReal.ofReal (K.toReal * (IDist.idist x y : ℝ))
-          · norm_num
-          · apply ENNReal.ofReal_le_ofReal
-
-            change IDist.idist (IterativeDomain.lift _ _) _ ≤ K.toReal * IDist.idist (IterativeDomain.lift _ _) _
-
-            have : max (p.fst + x.fst) (p.fst + y.fst) - p.fst = max x.fst y.fst := by
-              grind only [= max_def]
-
-            rw [IterativeDomain.ap_lift_right, IterativeDomain.ap_lift_right, ← IterativeDomain.idist_cast,
-                IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
-                IterativeDomain.ap_cast_right, IterativeDomain.ap_cast_right,
-                ← IterativeDomain.idist_cast' (f := λ n ↦ p.fst + n),
-                ← ENNReal.ofReal_le_ofReal_iff, ENNReal.ofReal_mul, ← PseudoIMetricSpace.edist_eq,
-                ← PseudoIMetricSpace.edist_eq]
-            · have : ENNReal.ofReal ↑K = ENNReal.ofNNReal K := by norm_num
-
-              rw [this]
-              apply IterativeDomain.ap_lipschitz_right
-              assumption
-            · exact NNReal.zero_le_coe
-            · apply mul_nonneg
-              · exact NNReal.zero_le_coe
-              · exact unitInterval.nonneg _
+        · apply DomainUnion.ap_lipschitz_left
+        · exact λ _ ↦ DomainUnion.ap_lipschitz_right hk
 
       theorem DomainUnion.ap.uniform_continuous₂ [DecidableEq Γ] {K} (hk : 1 ≤ K) :
           UniformContinuous₂ (DomainUnion.ap (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ)) :=
@@ -2081,12 +2089,46 @@ noncomputable section Domain
       def DomainUnion.seq [DecidableEq Γ] : DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.seq p q)
 
-      open Function in
-      theorem DomainUnion.seq_uniform_continuous [DecidableEq Γ] :
-          UniformContinuous₂ (DomainUnion.seq («Σ» := «Σ») (Γ := Γ) (α := α)) := by
-        -- change UniformContinuous₂ (Function.bicompr DomainUnion.mk (Function.bicompl (IterativeDomain.seq zero) Sigma.snd Sigma.snd))
+      theorem DomainUnion.seq_eq_app [DecidableEq Γ] {p q : DomainUnion «Σ» Γ α PUnit} :
+          DomainUnion.seq p q = DomainUnion.ap (DomainUnion.map (β' := PUnit.{x + 1} →ₗ[1] PUnit.{x + 1}) (λ _ ↦ { toFun := λ _ ↦ PUnit.unit, lipschitz := λ x y ↦ by erw [one_mul] }) p) q := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q
 
-        admit
+        dsimp [DomainUnion.seq, DomainUnion.map, Sigma.map, DomainUnion.ap]
+        congr 1
+        exact IterativeDomain.seq_eq_app
+
+      theorem DomainUnion.seq_lipschitz_left [DecidableEq Γ] {q : DomainUnion «Σ» Γ α PUnit} :
+          LipschitzWith 1 λ p ↦ DomainUnion.seq p q := by
+        conv => enter [2, p]; rw [DomainUnion.seq_eq_app]
+        change LipschitzWith 1 ((DomainUnion.ap · q) ∘ DomainUnion.map _)
+
+        have : (1 : NNReal) = 1 * 1 := by norm_num1
+        rw! [this]
+
+        apply LipschitzWith.comp
+        · apply DomainUnion.ap_lipschitz_left
+        · apply DomainUnion.map_lipschitz
+          · apply LipschitzWith.const'
+          · apply le_refl
+
+      theorem DomainUnion.seq_lipschitz_right [DecidableEq Γ] {p : DomainUnion «Σ» Γ α PUnit} :
+          LipschitzWith 1 (DomainUnion.seq p) := by
+        conv => enter [2, q]; rw [DomainUnion.seq_eq_app]
+        apply DomainUnion.ap_lipschitz_right
+        apply le_refl
+
+      theorem DomainUnion.seq_lipschitz [DecidableEq Γ] :
+          LipschitzWith 2 (Function.uncurry (DomainUnion.seq («Σ» := «Σ») (Γ := Γ) (α := α))) := by
+        have : (2 : NNReal) = 1 + 1 := by norm_num1
+        rw [this]; clear this
+
+        apply LipschitzWith.uncurry
+        · apply DomainUnion.seq_lipschitz_left
+        · exact λ _ ↦ DomainUnion.seq_lipschitz_right
+
+      theorem DomainUnion.seq_uniform_continuous [DecidableEq Γ] :
+          UniformContinuous₂ (DomainUnion.seq («Σ» := «Σ») (Γ := Γ) (α := α)) :=
+        DomainUnion.seq_lipschitz.uniformContinuous
 
       /-- Restricted form of sequential composition where all leaves are replaced with the same subtree. -/
       def Domain.seq [DecidableEq Γ] : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
