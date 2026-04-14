@@ -33,12 +33,11 @@ instance : CompleteSpace TypedSetTheory.Typ where
 def Channel := (ℕ × TypedSetTheory.Typ)
   deriving DecidableEq
 
--- noncomputable instance : PseudoIMetricSpace Channel :=
---   inferInstanceAs (PseudoIMetricSpace (ℕ × TypedSetTheory.Typ))
-noncomputable instance : IMetricSpace Channel :=
-  inferInstanceAs (IMetricSpace (ℕ × TypedSetTheory.Typ))
+noncomputable instance : DiscreteIMetricSpace Channel where
+  __ := IMetricSpace.discrete
 instance : CompleteSpace Channel :=
-  inferInstanceAs (CompleteSpace (ℕ × TypedSetTheory.Typ))
+  sorry
+  -- inferInstanceAs (CompleteSpace (ℕ × TypedSetTheory.Typ))
 
 -- TODO: this will need to be defined mutually with 𝕍
 axiom Store.{u, v, w, x} : NonemptyType.{max u v w x}

@@ -52,6 +52,14 @@ namespace unitInterval
     change (1 / 2 * x : ℝ) = _
     grind only
 
+  @[simp]
+  theorem half_mul_bot : half * ⊥ = ⊥ := by
+    grind only [←= bot_unique, mul_bot]
+
+  @[simp]
+  theorem half_mul_top : half * ⊤ = half := by
+    simp only [top_eq, mul_one]
+
   theorem toNNReal_cast_eq_toNNReal {ε : I} : (ε : ℝ).toNNReal = toNNReal ε := by
     rw [Real.toNNReal_of_nonneg]
     rfl
@@ -585,3 +593,28 @@ theorem PseudoIMetricSpace.dist_eq {α} [PseudoIMetricSpace α] {x y : α} :
 theorem PseudoIMetricSpace.edist_eq {α} [PseudoIMetricSpace α] {x y : α} :
     edist x y = ENNReal.ofReal (idist x y : ℝ) := by
   rw [← PseudoIMetricSpace.dist_eq, edist_dist]
+
+@[instance_reducible]
+noncomputable def PseudoIMetricSpace.discrete {α} [DecidableEq α] : PseudoIMetricSpace α where
+  idist x y := if x = y then ⊥ else ⊤
+  idist_self x := by rw [if_pos rfl]; rfl
+  idist_comm x y := by conv_lhs => enter [1]; rw [eq_comm]
+  idist_triangle x y z := by
+    split_ifs <;> grind only [= Set.mem_Icc, usr Subtype.property, unitInterval.half_mul_bot,
+      unitInterval.half_mul_toReal_eq_div_two]
+
+@[instance_reducible]
+noncomputable def IMetricSpace.discrete {α} [DecidableEq α] : IMetricSpace α where
+  __ := PseudoIMetricSpace.discrete
+  eq_of_idist_eq_zero {x y} h := by
+    change (if x = y then ⊥ else ⊤) = ⊥ at h
+    grind only [usr Subtype.property, unitInterval.half_mul_bot, unitInterval.half,
+      unitInterval.half_mul_toReal_eq_div_two, unitInterval.mul_top]
+
+theorem PseudoIMetricSpace.discrete.idist_eq {α} [DecidableEq α] {x y : α} :
+    PseudoIMetricSpace.discrete.idist x y = if x = y then ⊥ else ⊤ := by
+  rfl
+
+class DiscreteIMetricSpace (α : Type _) [DecidableEq α] extends IMetricSpace α where
+  idist_discrete : ∀ x y, idist x y = if x = y then ⊥ else ⊤ := by intros x y; rfl
+export DiscreteIMetricSpace (idist_discrete)

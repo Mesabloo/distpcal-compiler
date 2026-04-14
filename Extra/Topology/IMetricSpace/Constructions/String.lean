@@ -15,33 +15,14 @@ open scoped unitInterval
   - The label-type occurrences of `String` (domains of `String →ᵤ Option ℍ` in `.struct`
     and `.func`) do not depend on `IMetricSpace String`: the uniform topology on the domain
     of a `→ᵤ` does not enter the sup-metric on the function space.
-  Levenshtein distance is unavailable: `Mathlib.Data.List.EditDistance` is absent from the
-  pinned Mathlib version (v4.29.0-rc1).
 -/
 
 /-- The discrete `IMetricSpace` on `String`. -/
-noncomputable instance instIMetricSpaceString : IMetricSpace String where
-  idist s t := if s = t then (0 : I) else (1 : I)
-  idist_self s := by simp
-  idist_comm s t := by
-    congr 1
-    exact propext ⟨Eq.symm, Eq.symm⟩
-  idist_triangle s t u := by
-    by_cases h1 : s = t <;> by_cases h2 : t = u
-    · subst h1 h2; simp
-    · subst h1; simp [h2]
-    · subst h2; simp [h1]
-    · -- s ≠ t and t ≠ u: both summands on the RHS are 1
-      simp [h1, h2]
-      split_ifs
-      · change (0 : ℝ) ≤ 1 + 1; norm_num
-      · change (1 : ℝ) ≤ 1 + 1; norm_num
-  eq_of_idist_eq_zero s t h := by
-    split_ifs at h with heq
-    · exact heq
-    · exact absurd h one_ne_zero
+noncomputable instance instIMetricSpaceString : DiscreteIMetricSpace String where
+  __ := IMetricSpace.discrete
 
-lemma String.idist_eq (s t : String) : idist s t = if s = t then (0 : I) else (1 : I) := rfl
+lemma String.idist_eq (s t : String) : idist s t = if s = t then ⊥ else ⊤ :=
+  PseudoIMetricSpace.discrete.idist_eq
 
 /-- The discrete metric on `String` induces the discrete topology. -/
 lemma String.discreteTopology : DiscreteTopology String := by
