@@ -2976,30 +2976,384 @@ noncomputable section Domain
               Y ∪ if Y = ∅ ∧ X ≠ ∅ then {Branch.next σ ⟨IterativeDomain.abort⟩} else ∅
       end
 
-      -- TODO: 1-Lipschitz
+      theorem IterativeDomain.hide_leaf {c : Γ} {n} {v : β} :
+          IterativeDomain.hide zero c (IterativeDomain.leaf («Σ» := «Σ») (α := α) (n := n) v) = IterativeDomain.leaf v := by
+        cases n with (unfold hide; rfl)
+
+      theorem IterativeDomain.hide_abort {c : Γ} {n} :
+          IterativeDomain.hide zero c (IterativeDomain.abort («Σ» := «Σ») (α := α) (β := β) (n := n)) = IterativeDomain.abort := by
+        cases n with (unfold hide; rfl)
+
+      open Classical in
+      theorem IterativeDomain.hide_branch {c : Γ} {n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+          IterativeDomain.hide zero c (IterativeDomain.branch f) = IterativeDomain.branch λ σ ↦
+            (⋃ b ∈ f σ, Branch.hide zero σ c b) ∪ if (⋃ b ∈ f σ, Branch.hide zero σ c b) = ∅ ∧ f σ ≠ ∅ then {Branch.next σ ⟨IterativeDomain.abort⟩} else ∅ := by
+          unfold hide
+          rfl
+
+      theorem Branch.hide_recv {σ : «Σ»} {c c' : Γ} {n} {π : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α β n).carrier unitInterval.half} :
+          Branch.hide zero σ c (Branch.recv c' π) = if c = c' then ∅ else {Branch.recv c' λ v ok ↦ Restriction.map (IterativeDomain.hide zero c) (π v ok)} := by
+        unfold Branch.hide
+        rfl
+
+      theorem Branch.hide_send {σ : «Σ»} {c c' : Γ} {v : α} {n} {p : Restriction (IterativeDomain «Σ» Γ α β n).carrier unitInterval.half} :
+          Branch.hide zero σ c (Branch.send c' v p) = if c = c' then ∅ else {Branch.send c' v (Restriction.map (IterativeDomain.hide zero c) p)} := by
+        unfold Branch.hide
+        rfl
+
+      theorem Branch.hide_close {σ : «Σ»} {c c' : Γ} {n} {p : Restriction (IterativeDomain «Σ» Γ α β n).carrier unitInterval.half} :
+          Branch.hide zero σ c (Branch.close c' p) = if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.syncClose zero c) p)} else {Branch.close c' (Restriction.map (IterativeDomain.hide zero c) p)} := by
+        unfold Branch.hide
+        rfl
+
+      theorem Branch.hide_sync {σ : «Σ»} {c c' : Γ} {n} {p : Restriction (IterativeDomain «Σ» Γ α β n).carrier unitInterval.half} :
+          Branch.hide zero σ c (Branch.sync c' p) = if c = c' then ∅ else {Branch.sync c' (Restriction.map (IterativeDomain.hide zero c) p)} := by
+        unfold Branch.hide
+        rfl
+
+      theorem Branch.hide_next {σ σ' : «Σ»} {c : Γ} {n} {p : Restriction (IterativeDomain «Σ» Γ α β n).carrier unitInterval.half} :
+          Branch.hide zero σ' c (Branch.next σ p) = {Branch.next σ (Restriction.map (IterativeDomain.hide zero c) p)} := by
+        unfold Branch.hide
+        rfl
+
+      private lemma Branch.hide_empty_nonempty_idist_top {σ : «Σ»} {c : Γ} {n} {b b' : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier}
+        (hb : Branch.hide zero σ c b = ∅) (hb' : Branch.hide zero σ c b' ≠ ∅) :
+          idist b b' = ⊤ := by
+        cases b <;> cases b'
+
+        case recv.recv =>
+          rw [Branch.hide_recv] at hb hb'
+          split_ifs at hb hb' with h₁ h₂ h₃ <;> try contradiction
+          · subst c
+            rw [Branch.idist_recv_recv, idist_discrete, if_neg h₂, top_sup_eq]
+          · simp_all only [Set.singleton_ne_empty]
+        case send.send =>
+          rw [Branch.hide_send] at hb hb'
+          split_ifs at hb hb' with h₁ h₂ h₃ <;> try contradiction
+          · subst c
+            rw [Branch.idist_send_send, idist_discrete, if_neg h₂, top_sup_eq, top_sup_eq]
+          · simp_all only [Set.singleton_ne_empty]
+        case close.close =>
+          rw [Branch.hide_close] at hb hb'
+          split_ifs at hb hb' with h₁ h₂ h₃
+            <;> simp_all only [Set.singleton_ne_empty]
+        case sync.sync =>
+          rw [Branch.hide_sync] at hb hb'
+          split_ifs at hb hb' with h₁ h₂ h₃ <;> try contradiction
+          · subst c
+            rw [Branch.idist_sync_sync, idist_discrete, if_neg h₂, top_sup_eq]
+          · simp_all only [Set.singleton_ne_empty]
+        case next.next =>
+          rw [Branch.hide_next] at hb hb'
+          simp_all only [Set.singleton_ne_empty]
+
+        all: rfl
+
+      mutual
+        theorem Branch.hide_idist_le {σ : «Σ»} {c : Γ} {n} {b b' : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier} :
+            IMetric.hausdorffIDist (Branch.hide zero σ c b) (Branch.hide zero σ c b') ≤ idist b b' := by
+          cases b <;> cases b'
+
+          case recv.recv c₁ π₁ c₂ π₂ =>
+            rw [Branch.hide_recv, Branch.hide_recv, Branch.idist_recv_recv]
+            split_ifs with h₁ h₂ h₃
+            · subst h₁ h₂
+              rw [IMetric.hausdorffIDist_self]
+              apply OrderBot.bot_le
+            · subst h₁
+              rw [IMetric.hausdorffIDist_empty_left, idist_discrete, if_neg h₂, top_sup_eq]
+              apply Set.singleton_nonempty
+            · subst h₃
+              rw [IMetric.hausdorffIDist_empty_right, idist_discrete, if_neg (Ne.symm h₁), top_sup_eq]
+              apply Set.singleton_nonempty
+            · simp_rw [IMetric.hausdorffIDist_singleton, Branch.idist_recv_recv, UniformFun.idist_eq_iSup₂, Restriction.idist_eq]
+              apply max_le_max_left
+              apply iSup₂_mono λ v ok ↦ ?_
+              apply mul_le_mul_right
+              apply IterativeDomain.hide_idist_le
+          case send.send c₁ v₁ p₁ c₂ v₂ p₂ =>
+            rw [Branch.hide_send, Branch.hide_send, Branch.idist_send_send]
+            split_ifs with h₁ h₂ h₃
+            · rw [IMetric.hausdorffIDist_self]
+              apply OrderBot.bot_le
+            · subst h₁
+              rw [IMetric.hausdorffIDist_empty_left, idist_discrete c c₂, if_neg h₂, top_sup_eq, top_sup_eq]
+              apply Set.singleton_nonempty
+            · subst h₃
+              rw [IMetric.hausdorffIDist_empty_right, idist_discrete c₁ c, if_neg (Ne.symm h₁), top_sup_eq, top_sup_eq]
+              apply Set.singleton_nonempty
+            · rw [IMetric.hausdorffIDist_singleton, Branch.idist_send_send, Restriction.idist_eq, Restriction.idist_eq]
+              apply max_le_max_left
+              apply mul_le_mul_right
+              apply IterativeDomain.hide_idist_le
+          case close.close c₁ p₁ c₂ p₂ =>
+            rw [Branch.hide_close, Branch.hide_close, Branch.idist_close_close]
+            split_ifs with h₁ h₂ h₃
+            · subst h₁ h₂
+              erw [IMetric.hausdorffIDist_singleton, Branch.idist_next_next, idist_self, idist_self,
+                   bot_sup_eq, bot_sup_eq, Restriction.idist_eq, Restriction.idist_eq]
+              apply mul_le_mul_right
+              apply IterativeDomain.syncClose_idist_le
+            · subst h₁
+              rw [IMetric.hausdorffIDist_singleton, idist_discrete c c₂, if_neg h₂, top_sup_eq]
+              apply OrderTop.le_top
+            · subst h₃
+              rw [IMetric.hausdorffIDist_singleton, idist_discrete c₁ c, if_neg (Ne.symm h₁), top_sup_eq]
+              apply OrderTop.le_top
+            · rw [IMetric.hausdorffIDist_singleton, Branch.idist_close_close, Restriction.idist_eq, Restriction.idist_eq]
+              apply max_le_max_left
+              apply mul_le_mul_right
+              apply IterativeDomain.hide_idist_le
+          case sync.sync c₁ p₁ c₂ p₂ =>
+            rw [Branch.hide_sync, Branch.hide_sync, Branch.idist_sync_sync]
+            split_ifs with h₁ h₂ h₃
+            · subst h₁ h₂
+              rw [IMetric.hausdorffIDist_self]
+              apply OrderBot.bot_le
+            · subst h₁
+              rw [IMetric.hausdorffIDist_empty_left, idist_discrete c c₂, if_neg h₂, top_sup_eq]
+              apply Set.singleton_nonempty
+            · subst h₃
+              rw [IMetric.hausdorffIDist_empty_right, idist_discrete c₁ c, if_neg (Ne.symm h₁), top_sup_eq]
+              apply Set.singleton_nonempty
+            · rw [IMetric.hausdorffIDist_singleton, Branch.idist_sync_sync, Restriction.idist_eq, Restriction.idist_eq]
+              apply max_le_max_left
+              apply mul_le_mul_right
+              apply IterativeDomain.hide_idist_le
+          case next.next =>
+            rw [Branch.hide_next, Branch.hide_next, IMetric.hausdorffIDist_singleton, Branch.idist_next_next, Branch.idist_next_next]
+            apply max_le_max_left
+            rw [Restriction.idist_eq, Restriction.idist_eq]
+            apply mul_le_mul_right
+            apply IterativeDomain.hide_idist_le
+
+          all:
+            change _ ≤ ⊤
+            apply OrderTop.le_top
+
+        theorem IterativeDomain.hide_idist_le {c : Γ} {n} {p p' : (IterativeDomain «Σ» Γ α β n).carrier} :
+            idist (IterativeDomain.hide zero c p) (IterativeDomain.hide zero c p') ≤ idist p p' := by
+          match n, p, p' with
+          | 0, IterativeDomain.leaf v, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.hide_leaf, IterativeDomain.hide_leaf]
+          | 0, IterativeDomain.abort, IterativeDomain.abort
+          | n + 1, IterativeDomain.abort, IterativeDomain.abort =>
+            rw [IterativeDomain.hide_abort]
+          | 0, IterativeDomain.leaf v, IterativeDomain.abort
+          | n + 1, IterativeDomain.leaf v, IterativeDomain.abort
+          | 0, IterativeDomain.abort, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.abort, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.hide_leaf, IterativeDomain.hide_abort]
+          | n + 1, IterativeDomain.branch f, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.leaf v, IterativeDomain.branch f' =>
+            first | rw [IterativeDomain.idist_branch_leaf]
+                  | rw [IterativeDomain.idist_leaf_branch]
+            apply OrderTop.le_top
+          | n + 1, IterativeDomain.branch f, IterativeDomain.abort
+          | n + 1, IterativeDomain.abort, IterativeDomain.branch f' =>
+            first | rw [IterativeDomain.idist_branch_abort]
+                  | rw [IterativeDomain.idist_abort_branch]
+            apply OrderTop.le_top
+          | n + 1, IterativeDomain.branch f, IterativeDomain.branch f' =>
+            rw [IterativeDomain.hide_branch, IterativeDomain.hide_branch, IterativeDomain.idist_branch_branch,
+                IterativeDomain.idist_branch_branch]
+            apply iSup_mono λ σ ↦ ?_
+
+            split_ifs with h₁ h₂ h₃
+            · rw [h₁.1, h₂.1, Set.empty_union, IMetric.hausdorffIDist_singleton, Branch.idist_next_next, idist_self, idist_self,
+                  ← unitInterval.bot_eq, bot_sup_eq]
+              apply OrderBot.bot_le
+            · rw [Set.union_empty, h₁.1, Set.empty_union]
+              rw [not_and_or] at h₂
+              cases h₂ with
+              | inl h₂ =>
+                simp_rw [← ne_eq, ← Set.nonempty_iff_ne_empty, Set.nonempty_iUnion] at h₂
+                obtain ⟨b'₀, b'₀_in, h₂⟩ := h₂
+
+                obtain ⟨h₁, h₁'⟩ := h₁
+                rw [Set.nonempty_iff_ne_empty] at h₂
+
+                replace h₁ : ∀ b ∈ f σ, Branch.hide zero σ c b = ∅ := by
+                  simp_rw [Set.iUnion_eq_empty] at h₁
+                  assumption
+
+                apply le_trans
+                · change _ ≤ IMetric.hausdorffInfIDist b'₀ (f σ)
+                  apply le_iInf₂ λ b b_in ↦ ?_
+                  rw [idist_comm, Branch.hide_empty_nonempty_idist_top zero]
+                  · apply OrderTop.le_top
+                  · apply h₁ _ b_in
+                  · apply h₂
+                · rw [IMetric.hausdorffIDist_comm]
+                  apply IMetric.hausdorffIDist_ge_hausdorffInfIDist
+                  assumption
+              | inr h₂ =>
+                push_neg at h₂
+                rw [h₂, IMetric.hausdorffIDist_empty_right]
+                · apply OrderTop.le_top
+                · rw [Set.nonempty_iff_ne_empty]
+                  exact h₁.2
+            · rw [Set.union_empty, h₃.1, Set.empty_union]
+              rw [not_and_or] at h₁
+              cases h₁ with
+              | inl h₁ =>
+                simp_rw [← ne_eq, ← Set.nonempty_iff_ne_empty, Set.nonempty_iUnion] at h₁
+                obtain ⟨b₀, b₀_in, h₁⟩ := h₁
+
+                obtain ⟨h₃, h₃'⟩ := h₃
+                rw [Set.nonempty_iff_ne_empty] at h₁
+
+                replace h₃ : ∀ b ∈ f' σ, Branch.hide zero σ c b = ∅ := by
+                  simp_rw [Set.iUnion_eq_empty] at h₃
+                  assumption
+
+                apply le_trans
+                · change _ ≤ IMetric.hausdorffInfIDist b₀ (f' σ)
+                  apply le_iInf₂ λ b b_in ↦ ?_
+                  rw [idist_comm, Branch.hide_empty_nonempty_idist_top zero]
+                  · apply OrderTop.le_top
+                  · apply h₃ _ b_in
+                  · apply h₁
+                · apply IMetric.hausdorffIDist_ge_hausdorffInfIDist
+                  assumption
+              | inr h₁ =>
+                push_neg at h₁
+                rw [h₁, IMetric.hausdorffIDist_empty_left]
+                · apply OrderTop.le_top
+                · rw [Set.nonempty_iff_ne_empty]
+                  exact h₃.2
+            · rw [Set.union_empty, Set.union_empty]
+              apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+              apply Branch.hide_idist_le
+      end
 
       theorem IterativeDomain.hide_lipschitz {c : Γ} {n} :
           LipschitzWith 1 (IterativeDomain.hide («Σ» := «Σ») (α := α) (β := β) (n := n) zero c) := by
-        admit
+        intros p p'
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply IterativeDomain.hide_idist_le
 
       theorem IterativeDomain.hide_uniform_continuous {c : Γ} {n} :
           UniformContinuous (IterativeDomain.hide («Σ» := «Σ») (α := α) (β := β) (n := n) zero c) :=
         (IterativeDomain.hide_lipschitz zero).uniformContinuous
 
+      theorem IterativeDomain.hide_cast {c : Γ} {m n} {h : m = n} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+          h ▸ IterativeDomain.hide zero c p = IterativeDomain.hide zero c (h ▸ p) := by
+        cases h
+        rfl
+
+      mutual
+        theorem Branch.hide_lift {σ : «Σ»} {c : Γ} {m n} (h : m ≤ n) {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} :
+            Branch.map (IterativeDomain.lift h) '' Branch.hide zero σ c b = Branch.hide zero σ c (Branch.map (IterativeDomain.lift h) b) := by
+          cases b with
+          | recv c' π =>
+            rw [Branch.hide_recv, Branch.map_recv, Branch.hide_recv]
+            split_ifs with h₁
+            · rw [Set.image_empty]
+            · rw [Set.image_singleton, Branch.map_recv]
+              congr 2 with v ok : 2
+              rw [Restriction.map, Restriction.map, Restriction.map, Restriction.map,
+                  IterativeDomain.hide_lift]
+          | send c' v p =>
+            rw [Branch.hide_send, Branch.map_send, Branch.hide_send]
+            split_ifs with h₁
+            · rw [Set.image_empty]
+            · rw [Set.image_singleton, Branch.map_send, Restriction.map, Restriction.map, Restriction.map, Restriction.map,
+                  IterativeDomain.hide_lift]
+          | close c' p =>
+            rw [Branch.hide_close, Branch.map_close, Branch.hide_close]
+            split_ifs with h₁
+            · rw [Set.image_singleton, Branch.map_next, Restriction.map, Restriction.map, Restriction.map, Restriction.map,
+                  IterativeDomain.syncClose_lift]
+            · rw [Set.image_singleton, Branch.map_close, Restriction.map, Restriction.map, Restriction.map, Restriction.map,
+                  IterativeDomain.hide_lift]
+          | sync c' p =>
+            rw [Branch.hide_sync, Branch.map_sync, Branch.hide_sync]
+            split_ifs with h₁
+            · rw [Set.image_empty]
+            · rw [Set.image_singleton, Branch.map_sync, Restriction.map, Restriction.map, Restriction.map, Restriction.map,
+                  IterativeDomain.hide_lift]
+          | next σ' p =>
+            rw [Branch.hide_next, Set.image_singleton, Branch.map_next, Branch.map_next, Branch.hide_next, Restriction.map,
+                Restriction.map, Restriction.map, Restriction.map, IterativeDomain.hide_lift]
+
+        theorem IterativeDomain.hide_lift {c : Γ} {m n} (h : m ≤ n) {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+            IterativeDomain.lift h (IterativeDomain.hide zero c p) = IterativeDomain.hide zero c (IterativeDomain.lift h p) := by
+          match m, p with
+          | 0, IterativeDomain.leaf v
+          | m + 1, IterativeDomain.leaf v =>
+            rw [IterativeDomain.hide_leaf, IterativeDomain.lift_leaf, IterativeDomain.hide_leaf]
+          | 0, IterativeDomain.abort
+          | m + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.hide_abort, IterativeDomain.lift_abort, IterativeDomain.hide_abort]
+          | m + 1, IterativeDomain.branch f =>
+            rw [IterativeDomain.hide_branch, IterativeDomain.lift_branch', IterativeDomain.lift_branch',
+                ← IterativeDomain.hide_cast, IterativeDomain.hide_branch]
+            congr with σ : 1
+            rw [Set.image_union, Set.image_iUnion₂, Set.biUnion_image]
+            congr 1
+            · congr 1 with b : 1
+              congr 1 with b_in : 1
+              apply Branch.hide_lift
+            · split_ifs with h₁ h₂ h₃
+              · rw [Set.image_singleton, Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
+              · push_neg at h₂
+                obtain ⟨h₁, h₁'⟩ := h₁
+
+                replace h₁ : ⋃ y ∈ f σ, Branch.hide zero σ c (Branch.map (IterativeDomain.lift (Nat.le_pred_of_succ_le h)) y) = ∅ := by
+                  simp_rw [Set.iUnion_eq_empty] at h₁ ⊢
+                  intros b b_in
+                  rw [← Branch.hide_lift, h₁ _ b_in, Set.image_empty]
+
+                specialize h₂ h₁
+                rw [Set.image_eq_empty] at h₂
+                contradiction
+              · push_neg at h₁
+                obtain ⟨h₃, h₃'⟩ := h₃
+
+                replace h₃ : ⋃ y ∈ f σ, Branch.hide zero σ c y = ∅ := by
+                  simp_rw [Set.iUnion_eq_empty] at h₃ ⊢
+                  intros b b_in
+                  specialize h₃ _ b_in
+                  rwa [← Branch.hide_lift, Set.image_eq_empty] at h₃
+
+                specialize h₁ h₃
+                replace h₃' : f σ ≠ ∅ := by
+                  grind only [= Set.mem_empty_iff_false, = Set.mem_image]
+                contradiction
+              · rw [Set.image_empty]
+      end
+
       def DomainUnion.hide (c : Γ) : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α β :=
         Sigma.map id λ _ ↦ IterativeDomain.hide zero c
 
+      theorem DomainUnion.hide_lipschitz {c : Γ} :
+          LipschitzWith 1 (DomainUnion.hide («Σ» := «Σ») (α := α) (β := β) zero c) := by
+        rintro ⟨m, p⟩ ⟨n, p'⟩
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+
+        change
+          IDist.idist (IterativeDomain.lift _ (IterativeDomain.hide zero c p)) (IterativeDomain.lift _ (IterativeDomain.hide zero c p')) ≤
+          IDist.idist (IterativeDomain.lift _ p) (IterativeDomain.lift _ p')
+
+        rw [IterativeDomain.hide_lift, IterativeDomain.hide_lift]
+        apply IterativeDomain.hide_idist_le
+
       theorem DomainUnion.hide_uniform_continuous {c : Γ} :
-          UniformContinuous (DomainUnion.hide («Σ» := «Σ») (α := α) (β := β) zero c) := by
-        -- TODO: show that `hide` and `lift` commute
-        admit
+          UniformContinuous (DomainUnion.hide («Σ» := «Σ») (α := α) (β := β) zero c) :=
+        (DomainUnion.hide_lipschitz zero).uniformContinuous
 
       def Domain.hide (c : Γ) : Domain «Σ» Γ α β → Domain «Σ» Γ α β :=
         UniformSpace.Completion.map (DomainUnion.hide zero c)
 
       /--
         Remove branches that mention the synchronous channel `c`, but replace the pruning of all
-        subtrees by abortion.
+        branches at a particular point by abortion.
       -/
       def Domain.hide' [inst : HasDefaultInit «Σ» Γ α] : Domain «Σ» Γ α β → Γ → Domain «Σ» Γ α β :=
         flip (Domain.hide inst.zero)

@@ -618,3 +618,6 @@ theorem PseudoIMetricSpace.discrete.idist_eq {α} [DecidableEq α] {x y : α} :
 class DiscreteIMetricSpace (α : Type _) [DecidableEq α] extends IMetricSpace α where
   idist_discrete : ∀ x y, idist x y = if x = y then ⊥ else ⊤ := by intros x y; rfl
 export DiscreteIMetricSpace (idist_discrete)
+
+theorem DiscreteIMetricSpace.completeSpace {α} [DecidableEq α] [DiscreteIMetricSpace α] : CompleteSpace α :=
+  sorry

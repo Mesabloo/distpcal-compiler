@@ -35,9 +35,7 @@ def Channel := (ℕ × TypedSetTheory.Typ)
 
 noncomputable instance : DiscreteIMetricSpace Channel where
   __ := IMetricSpace.discrete
-instance : CompleteSpace Channel :=
-  sorry
-  -- inferInstanceAs (CompleteSpace (ℕ × TypedSetTheory.Typ))
+instance : CompleteSpace Channel := DiscreteIMetricSpace.completeSpace
 
 -- TODO: this will need to be defined mutually with 𝕍
 axiom Store.{u, v, w, x} : NonemptyType.{max u v w x}

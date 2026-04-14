@@ -60,6 +60,14 @@ namespace IMetric
     · rw [← hausdorffInfIDist_empty x]
       apply hausdorffIDist_ge_hausdorffInfIDist hx (t := ∅)
 
+  lemma hausdorffIDist_singleton {α} [PseudoIMetricSpace α] {x y : α} :
+      hausdorffIDist {x} {y} = idist x y := by
+    unfold hausdorffIDist
+    rw [iSup_singleton, iSup_singleton]
+    unfold hausdorffInfIDist
+    rw [iInf_singleton, iInf_singleton]
+    conv_lhs => rw [idist_comm, max_self, idist_comm]
+
   lemma hausdorffIDist_empty_left {α : Type*} [PseudoIMetricSpace α] {t : Set α} (ht : t.Nonempty) :
       IMetric.hausdorffIDist ∅ t = ⊤ := by
     rwa [hausdorffIDist_comm, hausdorffIDist_empty_right]
@@ -425,6 +433,55 @@ namespace IMetric
         exact inf_bound b _
       · grind only
     }
+
+  theorem hausdorffIDist_biUnion_biUnion {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β]
+    {A B : Set α} {f : α → Set β} (hf : ∀ x y, hausdorffIDist (f x) (f y) ≤ idist x y) :
+      hausdorffIDist (⋃ x ∈ A, f x) (⋃ x ∈ B, f x) ≤ hausdorffIDist A B := by
+    have key : ∀ (C : Set α) (x₀ : α) (a : β), a ∈ f x₀ →
+        (hausdorffInfIDist a (⋃ y ∈ C, f y) : ℝ) ≤ hausdorffInfIDist x₀ C := by
+      intro C x₀ a ha
+      unfold hausdorffInfIDist
+      apply Subtype.coe_le_coe.mpr
+      apply le_iInf₂
+      intro y₀ hy₀
+      apply le_trans
+      · exact iInf_le_iInf_of_subset (Set.subset_iUnion₂ y₀ hy₀)
+      · apply Subtype.coe_le_coe.mp
+        apply le_trans (hausdorffIDist_ge_hausdorffInfIDist ha)
+        exact hf x₀ y₀
+
+    apply max_le_max <;> {
+      apply iSup_le
+      intro a
+      apply iSup_le
+      intro ha
+      rw [Set.mem_iUnion₂] at ha
+      obtain ⟨x₀, hx₀, ha⟩ := ha
+      apply le_trans (key _ x₀ a ha)
+      exact le_iSup₂ (f := λ x _ ↦ hausdorffInfIDist x _) x₀ hx₀
+    }
+
+  theorem hausdorffIDist_eq_top_of_idist_eq_top_right {α} [PseudoIMetricSpace α] {s t : Set α} {x : α}
+    (hx : x ∈ s) (h : ∀ y ∈ t, idist x y = ⊤) :
+      hausdorffIDist s t = ⊤ := by
+    unfold hausdorffIDist
+    rw [max_eq_top]
+    left
+    rw [iSup₂_eq_top]
+    intros b b_lt_top
+    exists _, hx
+    unfold hausdorffInfIDist
+    simp_rw [lt_iInf_iff, le_iInf_iff]
+    exists ⊤, b_lt_top
+    intros y y_in
+    rw [h y y_in]
+
+  theorem hausdorffIDist_eq_top_of_idist_eq_top_left {α} [PseudoIMetricSpace α] {s t : Set α} {x : α}
+    (hx : x ∈ t) (h : ∀ y ∈ s, idist y x = ⊤) :
+      hausdorffIDist s t = ⊤ := by
+    rw [hausdorffIDist_comm, hausdorffIDist_eq_top_of_idist_eq_top_right]
+    · exact hx
+    · exact λ y y_in ↦ idist_comm x y ▸ h y y_in
 end IMetric
 
 -- Helper: for (s,t) in hausdorffEntourage, hausdorffIDist s t < ε (requires ε ≤ 1)
