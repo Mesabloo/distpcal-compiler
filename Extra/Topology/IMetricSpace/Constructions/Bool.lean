@@ -3,6 +3,8 @@ import Extra.Topology.IMetricSpace
 namespace Bool
   open unitInterval
 
+  -- TODO: use `IMetricSpace.discrete` instead
+
   protected def idist (x y : Bool) : I := if x = y then ⊥ else ⊤
 
   protected theorem idist_self (x : Bool) : Bool.idist x x = 0 := by

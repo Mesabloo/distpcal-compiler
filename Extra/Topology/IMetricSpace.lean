@@ -619,5 +619,37 @@ class DiscreteIMetricSpace (α : Type _) [DecidableEq α] extends IMetricSpace �
   idist_discrete : ∀ x y, idist x y = if x = y then ⊥ else ⊤ := by intros x y; rfl
 export DiscreteIMetricSpace (idist_discrete)
 
-theorem DiscreteIMetricSpace.completeSpace {α} [DecidableEq α] [DiscreteIMetricSpace α] : CompleteSpace α :=
-  sorry
+instance {α} [DecidableEq α] [DiscreteIMetricSpace α] : DiscreteTopology α := by
+  rw [discreteTopology_iff_nhds]
+  intro x
+  apply le_antisymm _ (pure_le_nhds x)
+  rw [Filter.le_def]
+  intro s hs
+  rw [Filter.mem_pure] at hs
+  rw [IMetric.mem_nhds_iff]
+  exists 1/2, one_half_pos
+  intros y hy
+  simp only [IMetric.ball, Set.mem_setOf_eq] at hy
+  have heq : y = x := by
+    by_contra h
+    rw [idist_discrete, if_neg h] at hy
+    change (1 : ℝ) < 1/2 at hy
+    norm_num at hy
+  rwa [heq]
+
+theorem DiscreteIMetricSpace.completeSpace {α} [DecidableEq α] [DiscreteIMetricSpace α] : CompleteSpace α := by
+  apply UniformSpace.complete_of_cauchySeq_tendsto
+  intro u hu
+  rw [Metric.cauchySeq_iff] at hu
+  obtain ⟨N, hN⟩ := hu (1/2) (by norm_num)
+  have hev : ∀ m ≥ N, u m = u N := by
+    intro m hm
+    have h := hN m hm N (le_refl N)
+    simp only [dist] at h
+    rw [idist_discrete] at h
+    split_ifs at h with heq
+    · exact heq
+    · change (1 : ℝ) < 1/2 at h; norm_num at h
+  exists u N
+  apply tendsto_const_nhds.congr'
+  exact Filter.eventually_atTop.mpr ⟨N, λ n hn ↦ (hev n hn).symm⟩

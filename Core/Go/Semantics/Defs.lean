@@ -48,6 +48,7 @@ axiom Store_metricspace : IMetricSpace Store.type
 @[instance]
 axiom Store_completespace : CompleteSpace Store.type
 
+open Classical in
 axiom Store_iso.{u, v, w, x} :
   Store.{u, v, w, x}.type ≃ᵢ (Address.{u, v} →ᵤ Option (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type) × List (String →ᵤ Option Address.{u, v})
 
@@ -64,6 +65,7 @@ noncomputable def Store.type.h : Store.type → Address → Option (Value.𝕍 S
 noncomputable def Store.type.ϙ : Store.type → List (String → Option Address) :=
   Prod.snd ∘ ⇑Store_iso
 
+open Classical in
 noncomputable def Store.popϙ (σ : Store.type) : Option Store.type := match Store.type.ϙ σ with
   | [] => .none
   | _ :: ϙ => .some (⇑Store_iso.symm ⟨Store.type.h σ, ϙ⟩)
@@ -71,6 +73,7 @@ noncomputable def Store.popϙ (σ : Store.type) : Option Store.type := match Sto
 noncomputable def Store.deref (σ : Store.type) (addr : Address) : Option (Value.𝕍 Store.type Channel Address Typ).type :=
   Store.type.h σ addr
 
+open Classical in
 noncomputable def Store.update.{u, v, w, x} (σ : Store.{u, v, w, x}.type) (addr : Address.{u, v}) (v : (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type) : Option Store.{u, v, w, x}.type :=
   -- Check that the address is allocated
   Store.deref σ addr |>.bind λ _ ↦
@@ -166,6 +169,8 @@ noncomputable section
       v
 
   /-! # The main semantics -/
+
+  open Classical
 
   namespace TypedSetTheory.Expression
     protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : Expression.{y} Typ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type

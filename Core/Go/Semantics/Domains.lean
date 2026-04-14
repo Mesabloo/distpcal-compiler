@@ -3487,6 +3487,7 @@ noncomputable section Domain
       ⊕ List (Restriction 𝕍 unitInterval.half)
 
     variable {«Σ» Γ ℍ Typ}
+    open Classical
 
     instance {𝕍 : Type u} [IMetricSpace 𝕍] : IMetricSpace (Value.F «Σ» Γ ℍ Typ 𝕍) :=
       inferInstance
