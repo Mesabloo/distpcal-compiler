@@ -20,4 +20,10 @@ namespace Set
   theorem exists_mem_of_mem_image_snd {α β} {y : β} {S : Set (α × β)} (h : y ∈ Prod.snd '' S) :
       ∃ x, (x, y) ∈ S := by
     grind only [= mem_image, cases eager Prod]
+
+  @[push_cast]
+  theorem singleton_cast {α} {f : α → Sort _} {x y : α} (h : x = y) {a : f x} :
+      h ▸ ({a} : Set _) = {h ▸ a} := by
+    cases h
+    rfl
 end Set

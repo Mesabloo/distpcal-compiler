@@ -130,6 +130,12 @@ theorem Restriction.mk_lipschitz {α ε h} [PseudoIMetricSpace α] : LipschitzWi
   intros x y
   apply le_refl
 
+@[push_cast]
+theorem Restriction.mk_cast {α ε h} {f : α → Sort _} {x y : α} (h' : x = y) {a : f x} :
+    h' ▸ @Restriction.mk (α := f x) ε h a = @Restriction.mk (α := f y) ε h (h' ▸ a) := by
+  cases h'
+  rfl
+
 theorem Restriction.mk_uniformContinuous {α ε h} [UniformSpace α] : UniformContinuous (@Restriction.mk α ε h) := by
   exact uniformContinuous_comap' λ ⦃_⦄ h ↦ h
 
