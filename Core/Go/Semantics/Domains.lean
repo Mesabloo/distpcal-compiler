@@ -137,6 +137,11 @@ noncomputable section Domain
       cases h
       rfl
 
+    theorem IterativeDomain.Branch.idist_cast {m n} (h : m = n) (p q : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier) :
+        idist p q = idist (h ▸ p) (h ▸ q) := by
+      cases h
+      rfl
+
     @[match_pattern]
     def IterativeDomain.leaf {n} (v : β) : (IterativeDomain «Σ» Γ α β n).carrier := match n with
       | 0 | _ + 1 => .inl v
@@ -1424,7 +1429,7 @@ noncomputable section Domain
         | n + 1, IterativeDomain.branch g =>
           rw [IterativeDomain.map_branch, IterativeDomain.map_branch, IterativeDomain.idist_branch_branch]
           apply iSup_le λ σ ↦ ?_
-          apply IMetric.hausdorffIDist_le_iff <;> {
+          apply IMetric.hausdorffIDist_le <;> {
             rintro b ⟨b, b_in, rfl⟩
             exists _, Set.mem_image_of_mem _ b_in
             apply Branch.map_idist_le_left
@@ -3625,17 +3630,363 @@ noncomputable section Domain
         | next σ p =>
           rw [Branch.map_next, Branch.parallel_right_next]
 
-      mutual
-        theorem IterativeDomain.parallel_idist_le_left {m n} {p p' : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
-            idist (IterativeDomain.parallel zero p q) (IterativeDomain.parallel zero p' q) ≤ idist p p' := by
-          admit
-      end
+      private theorem cast_union {m n} {s t : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} (h : m = n) :
+          h ▸ (s ∪ t) = (h ▸ s) ∪ (h ▸ t) := by
+        cases h
+        rfl
 
-      mutual
-        theorem IterativeDomain.parallel_idist_le_right {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {q q' : (IterativeDomain «Σ» Γ α γ n).carrier} :
-            idist (IterativeDomain.parallel zero p q) (IterativeDomain.parallel zero p q') ≤ idist q q' := by
-          admit
-      end
+      theorem IterativeDomain.parallel_comm {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          IterativeDomain.parallel zero p q = Nat.add_comm _ _ ▸ IterativeDomain.map Prod.swap (IterativeDomain.parallel zero q p) := by
+        match m, p with
+        | 0, IterativeDomain.leaf v
+        | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.leaf_parallel, IterativeDomain.parallel_leaf,
+              ← IterativeDomain.map_lift, IterativeDomain.map_map, IterativeDomain.map_lift,
+              IterativeDomain.map_lift]
+          conv_rhs => enter [1, 1]; change λ x ↦ (v, x)
+          grind only
+        | 0, IterativeDomain.abort
+        | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.abort_parallel, IterativeDomain.parallel_abort, IterativeDomain.map_abort]
+          grind only
+        | m + 1, IterativeDomain.branch f =>
+          match n, q with
+          | 0, IterativeDomain.leaf v'
+          | n + 1, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.parallel_leaf, IterativeDomain.leaf_parallel,
+                ← IterativeDomain.map_lift, IterativeDomain.map_map, IterativeDomain.map_lift,
+                IterativeDomain.map_lift]
+            conv_rhs => enter [1, 1]; change λ x ↦ (x, v')
+            grind only
+          | 0, IterativeDomain.abort
+          | n + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.parallel_abort, IterativeDomain.abort_parallel, IterativeDomain.map_abort]
+            grind only
+          | n + 1, IterativeDomain.branch f' =>
+            erw [IterativeDomain.parallel_branch_branch, IterativeDomain.parallel_branch_branch,
+                 IterativeDomain.map_branch, IterativeDomain.branch_cast]
+            congr 1 with σ : 1
+            repeat erw [Set.image_union, cast_union]
+            repeat rw [cast_image]
+
+            conv_lhs =>
+              conv => enter [1, 1, 1, 1, 1, 1]; apply Set.union_comm
+              conv =>
+                enter [1, 1, 1, 1]; rw [Set.union_assoc]
+                conv => enter [2]; apply Set.union_comm
+                rw [← Set.union_assoc]
+              conv =>
+                enter [1, 1]; rw [Set.union_assoc]
+                conv => enter [2]; apply Set.union_comm
+                rw [← Set.union_assoc]
+              conv =>
+                rw [Set.union_assoc]
+                conv => enter [2]; apply Set.union_comm
+                rw [← Set.union_assoc]
+
+            congr 7
+            · conv_lhs =>
+                enter [1, x, 1, b', 2]; rw [Branch.parallel_right_eq_map]
+                enter [1, 1, q]; rw [IterativeDomain.parallel_comm]
+              conv_rhs =>
+                enter [2, 1, x, 1, b, 2]; rw [Branch.parallel_left_eq_map]
+
+              change _ = {p | _}
+
+              simp only [Nat.succ_eq_add_one, Set.mem_setOf_eq, Nat.add_eq, exists_exists_and_eq_and]
+              rw! [Nat.succ_add_eq_add_succ n m, ← Nat.add_comm n (m + 1)]
+              simp only [Branch.map_comp']
+              rfl
+            · conv_lhs =>
+                enter [1, x, 1, b, 2]; rw [Branch.parallel_left_eq_map]
+                enter [1, 1, 1, q]; rw [IterativeDomain.parallel_comm]
+              conv_rhs =>
+                enter [2, 1, x, 1, b, 2]; rw [Branch.parallel_right_eq_map]
+
+              change _ = {p | _}
+
+              simp only [Nat.succ_eq_add_one, Set.mem_setOf_eq, Nat.add_eq, exists_exists_and_eq_and]
+              rw! [Nat.succ_add_eq_add_succ m n, ← Nat.add_comm (n + 1) m]
+              simp only [Branch.map_comp']
+              rfl
+            · simp only [exists_and_left, Nat.add_eq, Set.mem_setOf_eq, ↓existsAndEq, and_true,
+                         Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift]
+              conv_lhs =>
+                enter [p, 1, v, 1, c, 1, p', 2, 1, π, 2, 2, 2, 1, 2]; rw [IterativeDomain.parallel_comm]
+              grind only
+            · simp only [exists_and_left, Nat.add_eq, Set.mem_setOf_eq, ↓existsAndEq, and_true,
+                         Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift]
+              conv_lhs =>
+                enter [p, 1, v, 1, c, 1, p', 2, 1, π, 2, 2, 2, 1, 2]; rw [IterativeDomain.parallel_comm]
+              grind only
+            · simp only [exists_and_left, exists_and_right, Nat.add_eq, Set.mem_setOf_eq,
+                         ↓existsAndEq, and_true, Branch.map_next, Restriction.map, IterativeDomain.map_abort]
+              grind only
+            · simp only [exists_and_left, exists_and_right, Nat.add_eq, Set.mem_setOf_eq,
+                         ↓existsAndEq, and_true, Branch.map_next, Restriction.map, IterativeDomain.map_abort]
+              grind only
+            · simp only [Nat.succ_eq_add_one, Nat.add_eq, exists_and_left, Set.mem_setOf_eq,
+                         ↓existsAndEq, and_true, Branch.map_next, Restriction.map]
+              conv_lhs =>
+                enter [p, 1, c, 1, p', 2, 1, p'', 2, 2, 2, 1, 1, 1, σ, 1, 2, 1]
+                rw [IterativeDomain.parallel_comm]
+              rw! [Nat.succ_add_eq_add_succ n m]
+              conv_rhs =>
+                enter [p, 1, c, 1, π', 1, p', 2, 1, 1, 2, 1]
+                erw [IterativeDomain.map_branch]
+                enter [1, σ]
+                rw [Set.image_singleton, Branch.map_close, Restriction.map]
+              simp only [Nat.succ_eq_add_one]
+
+              conv_lhs =>
+                enter [p, 1, c, 1, π']; rw [← exists_and_left]
+                enter [1, p']; rw [← and_assoc]
+                enter [2]; rw [eq_comm]
+
+              ext p
+              apply exists₃_congr λ c π' p' ↦ ?_
+              apply and_congr_right λ _ ↦ ?_
+              apply Eq.congr_left
+
+              erw [Branch.cast_next]
+              rw! (config := {transparency := .reducible}) [Nat.succ_add_eq_add_succ m n]
+              erw [IterativeDomain.branch_cast]
+              dsimp
+              congr 3 with σ : 1
+              rw [Set.singleton_cast (f := λ n ↦ Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) n).carrier),
+                  Branch.cast_close]
+            · simp only [Nat.succ_eq_add_one, Nat.add_eq, exists_and_left, Set.mem_setOf_eq,
+                         ↓existsAndEq, and_true, Branch.map_next, Restriction.map]
+              conv_lhs =>
+                enter [p, 1, c, 1, π']; rw [← exists_and_left]
+                enter [1, p']; rw [← and_assoc]
+                enter [2]; rw [eq_comm, IterativeDomain.parallel_comm]
+              rw! [Nat.succ_add_eq_add_succ n m]
+              conv_rhs =>
+                enter [p, 1, c, 1, π', 1, p', 2, 1, 1, 2, 1]; erw [IterativeDomain.map_branch]
+                enter [1, σ]; rw [Set.image_singleton, Branch.map_close, Restriction.map]
+              simp only [Nat.succ_eq_add_one]
+
+              ext p
+              apply exists₃_congr λ c π p ↦ ?_
+              apply and_congr_right λ _ ↦ ?_
+              apply Eq.congr_left
+
+              erw [Branch.cast_next]
+              rw! (config := {transparency := .reducible}) [Nat.succ_add_eq_add_succ m n]
+              erw [IterativeDomain.branch_cast]
+              dsimp
+              congr 3 with σ : 1
+              rw [Set.singleton_cast (f := λ n ↦ Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) n).carrier),
+                  Branch.cast_close]
+
+      theorem IterativeDomain.parallel_idist_le_left {m n} {p p' : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          idist (IterativeDomain.parallel zero p q) (IterativeDomain.parallel zero p' q) ≤ idist p p' := by
+        match n, q with
+        | 0, IterativeDomain.leaf v
+        | n + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.parallel_leaf, IterativeDomain.parallel_leaf, IterativeDomain.lift_isometry',
+              ← Subtype.coe_le_coe, ← one_mul (a := (idist p p' : ℝ))]
+
+          set f' : β →ₗ[1] β × γ := { toFun := λ x : β ↦ (x, v), lipschitz := LipschitzWith.prodMk_right v }
+
+          change (idist (IterativeDomain.map f'.toFun p) (IterativeDomain.map f'.toFun p') : ℝ) ≤ _
+
+          apply IterativeDomain.map_idist_le' (le_refl _)
+        | 0, IterativeDomain.abort
+        | n + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.parallel_abort, IterativeDomain.parallel_abort, idist_self]
+          apply OrderBot.bot_le
+        | n + 1, IterativeDomain.branch f'' =>
+          match m, p, p' with
+          | 0, IterativeDomain.leaf v, IterativeDomain.leaf v'
+          | m + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.leaf_parallel, IterativeDomain.leaf_parallel, IterativeDomain.idist_leaf_leaf,
+                IterativeDomain.lift_isometry']
+
+            apply le_trans
+            · apply IterativeDomain.map_idist_le
+            · rw [UniformFun.idist_eq_iSup]
+              apply iSup_le λ x ↦ ?_
+
+              change idist v v' ⊔ idist x x ≤ idist v v'
+
+              erw [idist_self, sup_bot_eq]
+          | 0, IterativeDomain.abort, IterativeDomain.abort
+          | m + 1, IterativeDomain.abort, IterativeDomain.abort =>
+            rw [IterativeDomain.abort_parallel, IterativeDomain.idist_abort_abort]
+            apply OrderBot.bot_le
+          | 0, IterativeDomain.leaf _, IterativeDomain.abort
+          | 0, IterativeDomain.abort, IterativeDomain.leaf _
+          | m + 1, IterativeDomain.leaf _, IterativeDomain.abort
+          | m + 1, IterativeDomain.abort, IterativeDomain.leaf _ =>
+            first | rw [IterativeDomain.idist_leaf_abort]
+                  | rw [IterativeDomain.idist_abort_leaf]
+            apply OrderTop.le_top
+          | m + 1, IterativeDomain.leaf v, IterativeDomain.branch f'
+          | m + 1, IterativeDomain.branch f, IterativeDomain.leaf v =>
+            first | rw [IterativeDomain.idist_leaf_branch]
+                  | rw [IterativeDomain.idist_branch_leaf]
+            apply OrderTop.le_top
+          | m + 1, IterativeDomain.abort, IterativeDomain.branch f'
+          | m + 1, IterativeDomain.branch f, IterativeDomain.abort =>
+            first | rw [IterativeDomain.idist_abort_branch]
+                  | rw [IterativeDomain.idist_branch_abort]
+            apply OrderTop.le_top
+          | m + 1, IterativeDomain.branch f, IterativeDomain.branch f' =>
+            erw [IterativeDomain.idist_branch_branch, IterativeDomain.parallel_branch_branch, IterativeDomain.parallel_branch_branch,
+                  IterativeDomain.idist_branch_branch]
+            apply iSup_le λ σ ↦ ?_
+            repeat grw [IMetric.hausdorffIDist_union_le]
+            iterate 7 apply max_le
+            · change IMetric.hausdorffIDist (_ '' f σ) (_ '' f' σ) ≤ _
+              apply le_trans (IMetric.hausdorffIDist_image_le λ b b' ↦ ?_)
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
+              · rw [← IterativeDomain.Branch.idist_cast, Branch.parallel_left_eq_map, ← Subtype.coe_le_coe,
+                    ← one_mul (a := (idist b b' : ℝ))]
+                grw [Branch.map_idist_le_right' (le_refl _)]
+                intros p p'
+                rw [one_mul, Subtype.coe_le_coe]
+                apply IterativeDomain.parallel_idist_le_left
+            · change IMetric.hausdorffIDist (_ '' f'' σ) (_ '' f'' σ) ≤ _
+              grw [IMetric.hausdorffIDist_image_le_of_le_sup']
+              apply iSup₂_le λ b b_in ↦ ?_
+              rw [Branch.parallel_right_eq_map, Branch.parallel_right_eq_map]
+              grw [Branch.map_idist_le_left (r := idist (IterativeDomain.branch f) (IterativeDomain.branch f'))]
+              · rw [IterativeDomain.idist_branch_branch]
+              · intros p
+                apply le_trans
+                · apply unitInterval.half_mul_le_self
+                · apply IterativeDomain.parallel_idist_le_left
+            · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
+              · admit
+
+                -- FIXME: this is unprovable because `α` is not a `DiscreteIMetricSpace`.
+                -- But requiring `α` to be equipped with the discrete metric implies that the framework
+                -- is uninstanciable for `𝕍` defined later on, because `𝕍` simply cannot be equipped with
+                -- the discrete metric.
+                -- This may be a dead end, in which case I don't know what to do about it.
+
+
+
+                -- -- Rewrite the set into a more convenient set
+                -- have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                --     {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                --       ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ A ∧ Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} =
+                --     ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                --       | Branch.send c v ⟨p'⟩ => {p | ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩}
+                --       | _ => ∅ := by
+                --   ext b
+                --   iff_intro h h
+                --   · simp only [exists_and_left, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
+                --     obtain ⟨v, c, p', send_in, π', recv_in, rfl⟩ := h
+                --     exists _, send_in, _, recv_in
+                --   · simp only [Set.mem_iUnion, exists_prop, exists_and_left, Set.mem_setOf_eq] at h ⊢
+                --     obtain ⟨b', b'_in, h⟩ := h
+                --     cases b' <;> try contradiction
+                --     obtain ⟨π', recv_in, rfl⟩ := h
+                --     exists _, _, _, b'_in, _, recv_in
+
+                -- rw [h (f σ), h (f' σ)]; clear h
+                -- apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+
+                -- cases b <;> cases b'
+
+                -- case send.send c₁ v₁ p₁ c₂ v₂ p₂ =>
+                --   rw [Branch.idist_send_send]
+                --   dsimp
+
+                --   have h' (c v) (p' : (IterativeDomain «Σ» Γ α β m).carrier) :
+                --       {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                --         ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} =
+                --       ⋃ p'' ∈ f'' σ, match (motive := Branch .. → Set _) p'' with
+                --         | Branch.recv c' π' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} else ∅
+                --         | _ => ∅ := by
+                --     ext b
+                --     iff_intro h h
+                --     · simp only [Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
+                --       obtain ⟨π', recv_in, rfl⟩ := h
+                --       exists _, recv_in
+                --       dsimp
+                --       erw [if_pos (rfl : c = c)]
+                --       apply Set.mem_singleton
+                --     · simp only [Set.mem_iUnion, exists_prop, Set.mem_setOf_eq] at h ⊢
+                --       obtain ⟨b', b'_in, h⟩ := h
+                --       cases b' <;> try contradiction
+                --       dsimp at h
+                --       split_ifs at h <;> try contradiction
+                --       cases propext Set.mem_singleton_iff ▸ h
+                --       subst c
+                --       exists _, b'_in
+
+                --   rw [h' c₁ v₁ p₁.val, h' c₂ v₂ p₂.val]; clear h'
+                --   grw [IMetric.hausdorffIDist_biUnion_biUnion']
+                --   intros b
+                --   cases b with
+                --   | recv c π =>
+                --     erw [idist_discrete c₁ c₂]
+                --     dsimp only
+                --     split_ifs with h₁ h₂ h₃
+                --     · subst c c₁
+                --       erw [IMetric.hausdorffIDist_singleton, Branch.idist_sync_sync, idist_self,
+                --           Restriction.idist_eq, IterativeDomain.lift_isometry', bot_sup_eq, bot_sup_eq]
+                --       admit
+                --     · admit
+                --     · admit
+                --     · admit
+                --     · admit
+                --     · admit
+                --     · admit
+                --     · admit
+                --   | send c v p | close c p | sync c p | next σ p =>
+                --     erw [IMetric.hausdorffIDist_self]
+                --     apply OrderBot.bot_le
+
+                -- case send.recv | send.close | send.sync | send.next | recv.send | close.send | sync.send | next.send =>
+                --   apply OrderTop.le_top
+
+                -- all:
+                --   rw [IMetric.hausdorffIDist_self]
+                --   apply OrderBot.bot_le
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
+            ·
+              admit
+            ·
+              admit
+            ·
+              admit
+            ·
+              admit
+            ·
+              admit
+
+      theorem IterativeDomain.parallel_lipschitz_left {m n} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          LipschitzWith 1 λ p : (IterativeDomain «Σ» Γ α β m).carrier ↦ parallel zero p q := by
+        intros p p'
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply IterativeDomain.parallel_idist_le_left
+
+      theorem IterativeDomain.parallel_idist_le_right {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {q q' : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          idist (IterativeDomain.parallel zero p q) (IterativeDomain.parallel zero p q') ≤ idist q q' := by
+        rw [IterativeDomain.parallel_comm (q := q), IterativeDomain.parallel_comm (q := q'),
+            ← IterativeDomain.idist_cast, ← Subtype.coe_le_coe, ← one_mul (idist q q' : ℝ)]
+
+        set f' : γ × β →ₗ[1] β × γ := { toFun := Prod.swap, lipschitz := LipschitzWith.prodSwap }
+
+        apply le_trans
+        · apply IterativeDomain.map_idist_le' (f := f') (le_refl _)
+        · erw [one_mul, one_mul, Subtype.coe_le_coe]
+          apply IterativeDomain.parallel_idist_le_left
+
+      theorem IterativeDomain.parallel_lipschitz_right {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+          LipschitzWith 1 (parallel zero p : (IterativeDomain «Σ» Γ α γ n).carrier → _) := by
+        intros q q'
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
+        apply IterativeDomain.parallel_idist_le_right
 
       theorem IterativeDomain.parallel_lipschitz {m n} :
           LipschitzWith 2 (Function.uncurry (IterativeDomain.parallel zero («Σ» := «Σ») (β := β) (γ := γ) (m := m) (n := n))) := by
@@ -3643,10 +3994,8 @@ noncomputable section Domain
         rw [this]; clear this
 
         apply LipschitzWith.uncurry
-        ·
-          admit
-        ·
-          admit
+        · apply IterativeDomain.parallel_lipschitz_left
+        · exact λ _ ↦ IterativeDomain.parallel_lipschitz_right zero
 
       theorem IterativeDomain.parallel_uniform_continuous {m n} :
           UniformContinuous₂ (IterativeDomain.parallel zero («Σ» := «Σ») (β := β) (γ := γ) (m := m) (n := n)) :=
@@ -3875,218 +4224,10 @@ noncomputable section Domain
           IterativeDomain.lift h (IterativeDomain.parallel zero p q) =
             (by grind only : m + (o - m) = o) ▸
               IterativeDomain.parallel zero p (IterativeDomain.lift (Nat.le_sub_of_add_le' h) q) := by
-        match n, q with
-        | 0, IterativeDomain.leaf v'
-        | n + 1, IterativeDomain.leaf v' =>
-          rw [IterativeDomain.parallel_leaf, IterativeDomain.lift_leaf, IterativeDomain.parallel_leaf,
-              IterativeDomain.lift_lift']
-          grind only
-        | 0, IterativeDomain.abort
-        | n + 1, IterativeDomain.abort =>
-          rw [IterativeDomain.parallel_abort, IterativeDomain.lift_abort, IterativeDomain.lift_abort, IterativeDomain.parallel_abort]
-          grind only
-        | n + 1, IterativeDomain.branch f' =>
-          match m, p with
-          | 0, IterativeDomain.leaf v
-          | m + 1, IterativeDomain.leaf v =>
-            rw [IterativeDomain.leaf_parallel, IterativeDomain.leaf_parallel, IterativeDomain.lift_lift', IterativeDomain.map_lift,
-                IterativeDomain.map_lift, IterativeDomain.lift_lift']
-            grind only
-          | 0, IterativeDomain.abort
-          | m + 1, IterativeDomain.abort =>
-            rw [IterativeDomain.abort_parallel, IterativeDomain.abort_parallel, IterativeDomain.lift_abort]
-            grind only
-          | m + 1, IterativeDomain.branch f =>
-            rw [IterativeDomain.parallel_branch_branch, IterativeDomain.lift_branch']
-            conv_lhs => apply IterativeDomain.lift_branch'
-            rw [← IterativeDomain.parallel_cast_right, IterativeDomain.parallel_branch_branch]
-
-            repeat rw [eqRec_eq_cast]
-            rw [cast_cast]
-
-            have h₁ : m + 1 + (o - (m + 1) - 1) = o - 1 := by grind only
-            rw! (config := {transparency := .reducible}) [← h₁]
-
-            congr with σ : 1
-            repeat erw [Set.image_union]
-            congr 8
-            · ext b
-              simp_rw [Set.mem_image, Set.mem_setOf_eq]
-              conv_lhs => enter [1, x, 1]; apply Set.mem_setOf_eq
-              conv_lhs => apply propext exists_exists_and_eq_and
-
-              apply exists_congr λ b ↦ ?_
-              apply and_congr_right λ b_in ↦ ?_
-              apply Eq.congr_left
-
-              rw [Branch.parallel_left_eq_map, Branch.parallel_left_eq_map, Branch.map_cast_right]
-              conv_lhs => apply Branch.map_comp'
-
-              change Branch.map (λ p ↦ IterativeDomain.lift _ _) _ = _
-
-              have h₂ : m + 1 + (o - (m + 1) - 1) = m + (o - (m + 1) - 1) + 1 := by grind only
-              have h₃ : m + (o - (m + 1) - 1) + 1 = o - 1 := by grind only
-              rw! [h₂, h₃]
-
-              conv_rhs => enter [1, 1, p]; rw [← IterativeDomain.lift_branch (by grind only)]
-              rw [Branch.map_cast_right]
-              congr with p
-              erw [IterativeDomain.lift_cast_right, IterativeDomain.parallel_lift_right]
-              · have h₄ : o - (m + 1) - 1 = o - 1 - m - 1 := by grind only
-                have h₅ : o - 1 - m - 1 + 1 = o - 1 - m := by grind only
-                rw! [h₄, ← h₅]
-                rfl
-              · grind only
-            · ext b
-              simp_rw [Set.mem_image, Set.mem_setOf_eq, exists_exists_and_eq_and]
-              conv_lhs => enter [1, x, 1]; apply Set.mem_setOf_eq
-              conv_lhs => apply propext exists_exists_and_eq_and
-
-              apply exists_congr λ b ↦ ?_
-              apply and_congr_right λ b_in ↦ ?_
-              apply Eq.congr_left
-
-              rw [Branch.parallel_right_eq_map, Branch.parallel_right_eq_map, Branch.map_comp']
-              conv_lhs => apply Branch.map_comp'
-              congr with p
-              erw [Function.comp_apply, Function.comp_apply, IterativeDomain.parallel_lift_right]
-              grind only
-            · ext b
-              simp_rw [exists_and_left, Set.mem_image, Set.mem_setOf_eq]
-              conv_lhs => enter [1, x, 1]; apply Set.mem_setOf_eq
-              simp only [↓existsAndEq, and_true]
-              apply exists₃_congr λ v c p' ↦ ?_
-              iff_rintro ⟨π', ⟨send_in, recv_in⟩, rfl⟩ ⟨send_in, π, ⟨b', b'_in, b'_lift_eq⟩, rfl⟩
-              · exists send_in, λ v ok ↦ Restriction.map (IterativeDomain.lift ?_) (π' v ok), ⟨_, recv_in, ?_⟩
-                · grind only
-                · rw [Branch.map_recv]
-                · erw [Branch.map_sync, Restriction.map, IterativeDomain.lift_lift', IterativeDomain.parallel_lift_right,
-                       IterativeDomain.parallel_lift_right]
-                  beta_reduce
-                  erw [Restriction.map, IterativeDomain.lift_lift']
-              · -- invert Branch.map
-                obtain ⟨π', rfl⟩ := Branch.map_eq_recv b'_lift_eq
-                rw [Branch.map_recv] at b'_lift_eq
-                obtain _|_ := b'_lift_eq
-                exists _, ⟨send_in, b'_in⟩
-                erw [Branch.map_sync, Restriction.map, IterativeDomain.lift_lift', IterativeDomain.parallel_lift_right,
-                     IterativeDomain.parallel_lift_right]
-                beta_reduce
-                erw [Restriction.map, IterativeDomain.lift_lift']
-            · ext b
-              simp only [Nat.add_eq, exists_and_left, Set.mem_image, Set.mem_setOf_eq, ↓existsAndEq, and_true]
-              apply exists₂_congr λ v c ↦ ?_
-              iff_rintro ⟨p', π, ⟨send_in, recv_in⟩, rfl⟩ ⟨p', ⟨b', b'_in, b'_lift_eq⟩, π', recv_in, rfl⟩
-              · exists IterativeDomain.lift ?_ p', ⟨_, send_in, ?_⟩, _, recv_in
-                · grind only
-                · erw [Branch.map_send]
-                · erw [Branch.map_sync, Restriction.map, IterativeDomain.lift_lift', IterativeDomain.parallel_lift_right,
-                       IterativeDomain.parallel_lift_right, IterativeDomain.lift_lift']
-              · -- invert Branch.map
-                obtain ⟨p'', rfl⟩ := Branch.map_eq_send b'_lift_eq
-                rw [Branch.map_send] at b'_lift_eq
-                obtain _|_ := b'_lift_eq
-                exists _, _, ⟨b'_in, recv_in⟩
-                erw [Branch.map_sync, Restriction.map, IterativeDomain.lift_lift', IterativeDomain.parallel_lift_right,
-                     IterativeDomain.parallel_lift_right, IterativeDomain.lift_lift']
-            · ext b
-              simp only [Nat.add_eq, exists_and_left, Set.mem_image, Set.mem_setOf_eq, ↓existsAndEq, and_true]
-              apply exists₃_congr λ v c p ↦ ?_
-              iff_rintro ⟨p', ⟨send_in, recv_in⟩, rfl⟩ ⟨send_in, p', ⟨b', b'_in, b'_lift_eq⟩, recv_in, rfl⟩
-              · exists send_in, IterativeDomain.lift ?_ p', ⟨_, recv_in, ?_⟩
-                · grind only
-                · erw [Branch.map_close]
-                · erw [Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
-              · -- invert Branch.map
-                obtain ⟨p'', rfl⟩ := Branch.map_eq_close b'_lift_eq
-                rw [Branch.map_close] at b'_lift_eq
-                obtain _|_ := b'_lift_eq
-                exists _, ⟨send_in, b'_in⟩
-                erw [Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
-            · ext b
-              simp only [Nat.add_eq, exists_and_left, Set.mem_image, Set.mem_setOf_eq, ↓existsAndEq, and_true]
-              apply exists₂_congr λ v c ↦ ?_
-              iff_rintro ⟨p', p'', ⟨send_in, close_in⟩, rfl⟩ ⟨p', ⟨b', b'_in, b'_lift_eq⟩, p'', close_in, rfl⟩
-              · exists IterativeDomain.lift ?_ p', ⟨_, send_in, ?_⟩, _, close_in
-                · grind only
-                · erw [Branch.map_send]
-                · erw [Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
-              · -- invert Branch.map
-                obtain ⟨_, rfl⟩ := Branch.map_eq_send b'_lift_eq
-                rw [Branch.map_send] at b'_lift_eq
-                obtain _|_ := b'_lift_eq
-                exists _, _, ⟨b'_in, close_in⟩
-                erw [Branch.map_next, Restriction.map, IterativeDomain.lift_abort]
-            · ext b
-              simp only [Nat.add_eq, Nat.succ_eq_add_one, exists_and_left, Set.mem_image, Set.mem_setOf_eq, ↓existsAndEq, and_true]
-              apply exists₂_congr λ c π ↦ ?_
-              iff_rintro ⟨p', ⟨recv_in, close_in⟩, rfl⟩ ⟨recv_in, p', ⟨b', b'_in, b'_lift_eq⟩, _, rfl⟩
-              · exists recv_in, IterativeDomain.lift ?_ p', ⟨_, close_in, ?_⟩
-                · grind only
-                · erw [Branch.map_close]
-                · erw [Branch.map_next, Restriction.map]
-                  congr 2
-                  dsimp
-                  rw [IterativeDomain.lift_cast_right]
-                  · have h₂ : m + 1 + (o - (m + 1) - 1) = m + (o - (m + 1) - 1) + 1 := by grind only
-                    rw! [h₂]
-                    erw [IterativeDomain.lift_branch]
-                    congr with σ : 1
-                    erw [Set.image_singleton, Branch.map_close, Restriction.map, IterativeDomain.parallel_lift_right]
-                    grind only [= Set.mem_Icc]
-                  · grind only
-              · -- invert Branch.map
-                obtain ⟨_, rfl⟩ := Branch.map_eq_close b'_lift_eq
-                rw [Branch.map_close] at b'_lift_eq
-                obtain _|_ := b'_lift_eq
-                exists _, ⟨recv_in, b'_in⟩
-                erw [Branch.map_next, Restriction.map]
-                congr 2
-                dsimp
-
-                have h₂ : (m + 1) + n = m + n + 1 := by ac_rfl
-                have h₃ : m + 1 + (o - (m + 1) - 1) = m + (o - (m + 1) - 1) + 1 := by ac_rfl
-                rw! [h₂, h₃]
-
-                erw [IterativeDomain.lift_branch]
-                congr with σ : 1
-                erw [Set.image_singleton, Branch.map_close, Restriction.map, IterativeDomain.parallel_lift_right]
-                grind only [= Set.mem_singleton_iff]
-            · ext b
-              simp only [Nat.add_eq, Nat.succ_eq_add_one, exists_and_left, Set.mem_image, Set.mem_setOf_eq, ↓existsAndEq, and_true]
-              apply exists_congr λ c ↦ ?_
-              iff_rintro ⟨π', p', ⟨recv_in, close_in⟩, rfl⟩ ⟨π', ⟨b', b'_in, b'_lift_eq⟩, p', close_in, rfl⟩
-              · exists λ v ok ↦ Restriction.map (IterativeDomain.lift ?_) (π' v ok), ⟨_, recv_in, ?_⟩, _, close_in
-                · grind only
-                · erw [Branch.map_recv]
-                · erw [Branch.map_next, Restriction.map]
-                  congr 2
-                  dsimp
-                  rw [IterativeDomain.lift_cast_right]
-                  · have h₂ : m + 1 + (o - (m + 1) - 1) = m + (o - (m + 1) - 1) + 1 := by grind only
-                    rw! [h₂]
-                    erw [IterativeDomain.lift_branch]
-                    congr with σ : 1
-                    erw [Set.image_singleton, Branch.map_close, Restriction.map, IterativeDomain.parallel_lift_right]
-                    grind only [= Set.mem_Icc]
-                  · grind only
-              · -- invert Branch.map
-                obtain ⟨π', rfl⟩ := Branch.map_eq_recv b'_lift_eq
-                rw [Branch.map_recv] at b'_lift_eq
-                obtain _|_ := b'_lift_eq
-                exists _, _, ⟨b'_in, close_in⟩
-                erw [Branch.map_next, Restriction.map]
-                congr 2
-                dsimp
-
-                have h₂ : (m + 1) + n = m + n + 1 := by ac_rfl
-                have h₃ : m + 1 + (o - (m + 1) - 1) = m + (o - (m + 1) - 1) + 1 := by ac_rfl
-                rw! [h₂, h₃]
-
-                erw [IterativeDomain.lift_branch]
-                congr with σ : 1
-                erw [Set.image_singleton, Branch.map_close, Restriction.map, IterativeDomain.parallel_lift_right]
-                grind only [= Set.mem_singleton_iff]
+        rw [IterativeDomain.parallel_comm (p := p), IterativeDomain.parallel_comm (p := p)]
+        rw! [← Nat.add_comm n m]
+        erw [IterativeDomain.map_lift, IterativeDomain.parallel_lift_left]
+        grind only
 
       def DomainUnion.parallel : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ → DomainUnion «Σ» Γ α (β × γ) :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.parallel zero p q)

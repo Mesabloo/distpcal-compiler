@@ -46,17 +46,17 @@ end Topology
 namespace Topology
   variable {W X Y Z} [UniformSpace W] [UniformSpace X] [UniformSpace Y] [UniformSpace Z]
 
-theorem uniformContinuous_sum_dom {f : X ⊕ Y → Z} :
-    UniformContinuous f ↔ UniformContinuous (f ∘ Sum.inl) ∧ UniformContinuous (f ∘ Sum.inr) := by
-  iff_rintro hf ⟨hf_inl, hf_inr⟩
-  · constructor
-    · apply UniformContinuous.comp
-      · exact hf
-      · exact uniformContinuous_inl
-    · apply UniformContinuous.comp
-      · exact hf
-      · exact uniformContinuous_inr
-  · tauto
+  theorem uniformContinuous_sum_dom {f : X ⊕ Y → Z} :
+      UniformContinuous f ↔ UniformContinuous (f ∘ Sum.inl) ∧ UniformContinuous (f ∘ Sum.inr) := by
+    iff_rintro hf ⟨hf_inl, hf_inr⟩
+    · constructor
+      · apply UniformContinuous.comp
+        · exact hf
+        · exact uniformContinuous_inl
+      · apply UniformContinuous.comp
+        · exact hf
+        · exact uniformContinuous_inr
+    · tauto
 
   theorem UniformContinuous.sumElim {f : W → X} {g : Y → X}
     (hf : UniformContinuous f) (hg : UniformContinuous g) :
@@ -77,3 +77,11 @@ theorem uniformContinuous_sum_dom {f : X ⊕ Y → Z} :
       · exact uniformContinuous_inr
       · exact hg
 end Topology
+
+theorem LipschitzWith.prodSwap {α β} [PseudoEMetricSpace α] [PseudoEMetricSpace β] :
+    LipschitzWith 1 (@Prod.swap α β) := by
+  rintro ⟨x1, x2⟩ ⟨y1, y2⟩
+  change edist x2 y2 ⊔ edist x1 y1 ≤ 1 * (edist x1 y1 ⊔ edist x2 y2)
+  conv_lhs => apply max_comm
+  rw [one_mul]
+  apply le_refl
