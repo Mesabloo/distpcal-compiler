@@ -1352,7 +1352,7 @@ noncomputable section Domain
   section Operators
     variable
       {«Σ» : Type u} {Γ : Type v} {α : Type w} {β : Type x} {γ : Type y} {δ : Type z}
-      [IMetricSpace «Σ»] [DecidableEq Γ] [DiscreteIMetricSpace Γ] [IMetricSpace α] [IMetricSpace β] [IMetricSpace γ]
+      [IMetricSpace «Σ»] [DecidableEq Γ] [DiscreteIMetricSpace Γ] [DecidableEq α] [DiscreteIMetricSpace α] [IMetricSpace β] [IMetricSpace γ]
       -- [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β]
 
     section Functor
@@ -3859,106 +3859,465 @@ noncomputable section Domain
                 · apply unitInterval.half_mul_le_self
                 · apply IterativeDomain.parallel_idist_le_left
             · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
-              · admit
+              · -- Rewrite the set into a more convenient set
+                have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                    {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                      ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ A ∧ Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} =
+                    ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                      | Branch.send c v ⟨p'⟩ => {p | ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩}
+                      | _ => ∅ := by
+                  ext b
+                  iff_intro h h
+                  · simp only [exists_and_left, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
+                    obtain ⟨v, c, p', send_in, π', recv_in, rfl⟩ := h
+                    exists _, send_in, _, recv_in
+                  · simp only [Set.mem_iUnion, exists_prop, exists_and_left, Set.mem_setOf_eq] at h ⊢
+                    obtain ⟨b', b'_in, h⟩ := h
+                    cases b' <;> try contradiction
+                    obtain ⟨π', recv_in, rfl⟩ := h
+                    exists _, _, _, b'_in, _, recv_in
 
-                -- FIXME: this is unprovable because `α` is not a `DiscreteIMetricSpace`.
-                -- But requiring `α` to be equipped with the discrete metric implies that the framework
-                -- is uninstanciable for `𝕍` defined later on, because `𝕍` simply cannot be equipped with
-                -- the discrete metric.
-                -- This may be a dead end, in which case I don't know what to do about it.
+                rw [h (f σ), h (f' σ)]; clear h
+                apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
 
+                cases b <;> cases b'
 
+                case send.send c₁ v₁ p₁ c₂ v₂ p₂ =>
+                  rw [Branch.idist_send_send]
+                  dsimp
 
-                -- -- Rewrite the set into a more convenient set
-                -- have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
-                --     {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
-                --       ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ A ∧ Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} =
-                --     ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
-                --       | Branch.send c v ⟨p'⟩ => {p | ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩}
-                --       | _ => ∅ := by
-                --   ext b
-                --   iff_intro h h
-                --   · simp only [exists_and_left, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
-                --     obtain ⟨v, c, p', send_in, π', recv_in, rfl⟩ := h
-                --     exists _, send_in, _, recv_in
-                --   · simp only [Set.mem_iUnion, exists_prop, exists_and_left, Set.mem_setOf_eq] at h ⊢
-                --     obtain ⟨b', b'_in, h⟩ := h
-                --     cases b' <;> try contradiction
-                --     obtain ⟨π', recv_in, rfl⟩ := h
-                --     exists _, _, _, b'_in, _, recv_in
+                  have h' (c v) (p' : (IterativeDomain «Σ» Γ α β m).carrier) :
+                      {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                        ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} =
+                      ⋃ p'' ∈ f'' σ, match (motive := Branch .. → Set _) p'' with
+                        | Branch.recv c' π' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} else ∅
+                        | _ => ∅ := by
+                    ext b
+                    iff_intro h h
+                    · simp only [Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
+                      obtain ⟨π', recv_in, rfl⟩ := h
+                      exists _, recv_in
+                      dsimp
+                      erw [if_pos (rfl : c = c)]
+                      apply Set.mem_singleton
+                    · simp only [Set.mem_iUnion, exists_prop, Set.mem_setOf_eq] at h ⊢
+                      obtain ⟨b', b'_in, h⟩ := h
+                      cases b' <;> try contradiction
+                      dsimp at h
+                      split_ifs at h <;> try contradiction
+                      cases propext Set.mem_singleton_iff ▸ h
+                      subst c
+                      exists _, b'_in
 
-                -- rw [h (f σ), h (f' σ)]; clear h
-                -- apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+                  rw [h' c₁ v₁ p₁.val, h' c₂ v₂ p₂.val]; clear h'
+                  grw [IMetric.hausdorffIDist_biUnion_biUnion']
+                  intros b
+                  cases b with
+                  | recv c π =>
+                    erw [idist_discrete c₁ c₂, idist_discrete v₁ v₂]
+                    dsimp only
+                    split_ifs with h₁ h₂ h₃ <;> try subst c <;> try subst c₁ <;> try subst v₁
+                    · erw [IMetric.hausdorffIDist_singleton, Branch.idist_sync_sync, idist_self,
+                          Restriction.idist_eq, IterativeDomain.lift_isometry', bot_sup_eq, bot_sup_eq,
+                          bot_sup_eq, Restriction.idist_eq]
+                      apply mul_le_mul
+                      · apply le_refl
+                      · apply IterativeDomain.parallel_idist_le_left
+                      · apply unitInterval.nonneg
+                      · apply unitInterval.nonneg
+                    · erw [bot_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · erw [top_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · erw [top_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · contradiction
+                    · contradiction
+                    · erw [top_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · erw [top_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · contradiction
+                    · contradiction
+                    · erw [top_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · erw [top_sup_eq, top_sup_eq]
+                      apply OrderTop.le_top
+                    · erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                    · erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                    · erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                    · erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                  | send c v p | close c p | sync c p | next σ p =>
+                    erw [IMetric.hausdorffIDist_self]
+                    apply OrderBot.bot_le
 
-                -- cases b <;> cases b'
+                case send.recv | send.close | send.sync | send.next | recv.send | close.send | sync.send | next.send =>
+                  apply OrderTop.le_top
 
-                -- case send.send c₁ v₁ p₁ c₂ v₂ p₂ =>
-                --   rw [Branch.idist_send_send]
-                --   dsimp
-
-                --   have h' (c v) (p' : (IterativeDomain «Σ» Γ α β m).carrier) :
-                --       {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
-                --         ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} =
-                --       ⋃ p'' ∈ f'' σ, match (motive := Branch .. → Set _) p'' with
-                --         | Branch.recv c' π' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero p' (π' v true).val)⟩} else ∅
-                --         | _ => ∅ := by
-                --     ext b
-                --     iff_intro h h
-                --     · simp only [Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
-                --       obtain ⟨π', recv_in, rfl⟩ := h
-                --       exists _, recv_in
-                --       dsimp
-                --       erw [if_pos (rfl : c = c)]
-                --       apply Set.mem_singleton
-                --     · simp only [Set.mem_iUnion, exists_prop, Set.mem_setOf_eq] at h ⊢
-                --       obtain ⟨b', b'_in, h⟩ := h
-                --       cases b' <;> try contradiction
-                --       dsimp at h
-                --       split_ifs at h <;> try contradiction
-                --       cases propext Set.mem_singleton_iff ▸ h
-                --       subst c
-                --       exists _, b'_in
-
-                --   rw [h' c₁ v₁ p₁.val, h' c₂ v₂ p₂.val]; clear h'
-                --   grw [IMetric.hausdorffIDist_biUnion_biUnion']
-                --   intros b
-                --   cases b with
-                --   | recv c π =>
-                --     erw [idist_discrete c₁ c₂]
-                --     dsimp only
-                --     split_ifs with h₁ h₂ h₃
-                --     · subst c c₁
-                --       erw [IMetric.hausdorffIDist_singleton, Branch.idist_sync_sync, idist_self,
-                --           Restriction.idist_eq, IterativeDomain.lift_isometry', bot_sup_eq, bot_sup_eq]
-                --       admit
-                --     · admit
-                --     · admit
-                --     · admit
-                --     · admit
-                --     · admit
-                --     · admit
-                --     · admit
-                --   | send c v p | close c p | sync c p | next σ p =>
-                --     erw [IMetric.hausdorffIDist_self]
-                --     apply OrderBot.bot_le
-
-                -- case send.recv | send.close | send.sync | send.next | recv.send | close.send | sync.send | next.send =>
-                --   apply OrderTop.le_top
-
-                -- all:
-                --   rw [IMetric.hausdorffIDist_self]
-                --   apply OrderBot.bot_le
+                all:
+                  rw [IMetric.hausdorffIDist_self]
+                  apply OrderBot.bot_le
               · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
-            ·
-              admit
-            ·
-              admit
-            ·
-              admit
-            ·
-              admit
-            ·
-              admit
+            · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
+              · -- Rewrite the set into a more convenient set
+                have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                    {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                      ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ Branch.recv c π' ∈ A ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero (π' v true).val p')⟩} =
+                    ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                      | Branch.recv c π' => {p | ∃ v p', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero (π' v true).val p')⟩}
+                      | _ => ∅ := by
+                  ext b
+                  iff_intro h h
+                  · simp only [exists_and_left, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
+                    obtain ⟨v, c, p', send_in, π', recv_in, rfl⟩ := h
+                    exists _, recv_in, _, _, send_in
+                  · simp only [Set.mem_iUnion, exists_prop, exists_and_left, Set.mem_setOf_eq] at h ⊢
+                    obtain ⟨b', b'_in, h⟩ := h
+                    cases b' <;> try contradiction
+                    obtain ⟨v, p, send_in, rfl⟩ := h
+                    exists _, _, _, send_in, _, b'_in
+
+                rw [h (f σ), h (f' σ)]; clear h
+                apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+
+                cases b <;> cases b'
+
+                case recv.recv c₁ π₁ c₂ π₂ =>
+                  rw [Branch.idist_recv_recv, idist_discrete c₁ c₂]
+                  split_ifs with h₁
+                  · subst c₂
+                    rw [bot_sup_eq, UniformFun.idist_eq_iSup₂]
+                    dsimp only
+
+                    have h' (c) (π' : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half) :
+                        {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                          ∃ v p', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero (π' v true).val p')⟩} =
+                        ⋃ p'' ∈ f'' σ, match (motive := Branch .. → Set _) p'' with
+                          | Branch.send c' v p' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel zero (π' v true).val p'.val)⟩} else ∅
+                          | _ => ∅ := by
+                      ext b
+                      iff_intro h h
+                      · simp only [Set.mem_setOf_eq, Set.mem_iUnion, exists_prop] at h ⊢
+                        obtain ⟨v, p'', send_in, rfl⟩ := h
+                        exists _, send_in
+                        dsimp
+                        erw [if_pos (rfl : c = c)]
+                        apply Set.mem_singleton
+                      · simp only [Set.mem_iUnion, exists_prop, Set.mem_setOf_eq] at h ⊢
+                        obtain ⟨b', b'_in, h⟩ := h
+                        cases b' <;> try contradiction
+                        dsimp at h
+                        split_ifs at h <;> try contradiction
+                        cases propext Set.mem_singleton_iff ▸ h
+                        subst c
+                        exists _, _, b'_in
+
+                    rw [h' c₁ π₁, h' c₁ π₂]; clear h'
+                    grw [IMetric.hausdorffIDist_biUnion_biUnion']
+                    intros b
+                    cases b with
+                    | send c v p =>
+                      dsimp only
+                      split_ifs with h₁
+                      · subst c₁
+                        erw [IMetric.hausdorffIDist_singleton, Branch.idist_sync_sync, idist_self, bot_sup_eq,
+                             Restriction.idist_eq, IterativeDomain.lift_isometry']
+                        conv_rhs =>
+                          conv => enter [1, v, 1, ok]; erw [Restriction.idist_eq]
+                          conv => enter [1, v]; rw [← unitInterval.mul_iSup]
+                          rw [← unitInterval.mul_iSup]
+                        apply mul_le_mul
+                        · apply le_refl
+                        · grw [IterativeDomain.parallel_idist_le_left]
+                          apply le_iSup₂ (f := λ v ok ↦ idist (π₁ v ok).val (π₂ v ok).val)
+                        · apply unitInterval.nonneg
+                        · apply unitInterval.nonneg
+                      · rw [IMetric.hausdorffIDist_self]
+                        apply OrderBot.bot_le
+                    | recv c π | close c p | sync c p | next σ p =>
+                      erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                  · rw [top_sup_eq]
+                    apply OrderTop.le_top
+
+                case recv.send | recv.close | recv.sync | recv.next | send.recv | close.recv | sync.recv | next.recv =>
+                  apply OrderTop.le_top
+
+                all:
+                  rw [IMetric.hausdorffIDist_self]
+                  apply OrderBot.bot_le
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
+            · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
+              · have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                    {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                      ∃ v c p' p'', Branch.send c v ⟨p'⟩ ∈ A ∧ Branch.close c ⟨p''⟩ ∈ f'' σ ∧ p = Branch.next σ ⟨IterativeDomain.abort⟩} =
+                    ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                      | Branch.send c v p' => {p | ∃ p'', Branch.close c ⟨p''⟩ ∈ f'' σ ∧ p = Branch.next σ ⟨IterativeDomain.abort⟩}
+                      | _ => ∅ := by
+                  ext b
+                  simp only [Set.mem_setOf_eq, Set.mem_iUnion, exists_prop]
+                  iff_intro h h
+                  · obtain ⟨v, c, p', p'', send_in, close_in, rfl⟩ := h
+                    exists _, send_in, _, close_in
+                  · obtain ⟨b', b'_in, h⟩ := h
+                    split at h <;> try contradiction
+                    obtain ⟨p'', close_in, rfl⟩ := h
+                    exists _, _, _, _, b'_in, close_in
+
+                rw [h (f σ), h (f' σ)]; clear h
+                apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+
+                cases b <;> cases b'
+
+                case send.send c₁ v₁ p₁ c₂ v₂ p₂ =>
+                  rw [Branch.idist_send_send, idist_discrete c₁ c₂, idist_discrete v₁ v₂]
+                  split_ifs with h₁ h₂ h₃
+                  · subst c₂ v₂
+                    dsimp only
+                    erw [bot_sup_eq, bot_sup_eq, IMetric.hausdorffIDist_self]
+                    apply OrderBot.bot_le
+                  · erw [sup_top_eq, top_sup_eq]
+                    apply OrderTop.le_top
+                  · erw [top_sup_eq, top_sup_eq]
+                    apply OrderTop.le_top
+                  · erw [top_sup_eq, top_sup_eq]
+                    apply OrderTop.le_top
+
+                case send.recv | send.close | send.sync | send.next | recv.send | close.send | sync.send | next.send =>
+                  apply OrderTop.le_top
+
+                all:
+                  rw [IMetric.hausdorffIDist_self]
+                  apply OrderBot.bot_le
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
+            · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
+              · have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                    {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                      ∃ v c p' p'', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ Branch.close c ⟨p''⟩ ∈ A ∧ p = Branch.next σ ⟨IterativeDomain.abort⟩} =
+                    ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                      | Branch.close c p' => {p | ∃ v p'', Branch.send c v ⟨p''⟩ ∈ f'' σ ∧ p = Branch.next σ ⟨IterativeDomain.abort⟩}
+                      | _ => ∅ := by
+                  ext b
+                  simp only [Set.mem_setOf_eq, Set.mem_iUnion, exists_prop]
+                  iff_intro h h
+                  · obtain ⟨v, c, p', p'', send_in, close_in, rfl⟩ := h
+                    exists _, close_in, _, _, send_in
+                  · obtain ⟨b', b'_in, h⟩ := h
+                    split at h <;> try contradiction
+                    obtain ⟨v, p'', send_in, rfl⟩ := h
+                    exists _, _, _, _, send_in, b'_in
+
+                rw [h (f σ), h (f' σ)]; clear h
+                apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+
+                cases b <;> cases b'
+
+                case close.close c₁ p₁ c₂ p₂ =>
+                  erw [Branch.idist_close_close, idist_discrete c₁ c₂]
+                  split_ifs with h₁
+                  · subst c₂
+                    dsimp only
+                    rw [IMetric.hausdorffIDist_self]
+                    apply OrderBot.bot_le
+                  · erw [top_sup_eq]
+                    apply OrderTop.le_top
+
+                case close.recv | close.send | close.sync | close.next | recv.close | send.close | sync.close | next.close =>
+                  apply OrderTop.le_top
+
+                all:
+                  rw [IMetric.hausdorffIDist_self]
+                  apply OrderBot.bot_le
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
+            · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
+              · have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                    {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                      ∃ c π' p', Branch.recv c π' ∈ A ∧ Branch.close c ⟨p'⟩ ∈ f'' σ ∧
+                        p = Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero (π' (zero c σ).2 false).val p'⟩}⟩} =
+                    ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                      | Branch.recv c π' =>
+                        {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                          ∃ p'', Branch.close c ⟨p''⟩ ∈ f'' σ ∧ p = Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero (π' (zero c σ).2 false).val p''⟩}⟩}
+                      | _ => ∅ := by
+                  ext b
+                  simp only [Nat.succ_eq_add_one, Nat.add_eq, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop]
+                  iff_intro h h
+                  · obtain ⟨c, π', p', recv_in, close_in, rfl⟩ := h
+                    exists _, recv_in, _, close_in
+                  · obtain ⟨b', b'_in, h⟩ := h
+                    split at h <;> try contradiction
+                    obtain ⟨p'', close_in, rfl⟩ := h
+                    exists _, _, _, b'_in, close_in
+
+                erw [h (f σ), h (f' σ)]; clear h
+                apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+
+                cases b <;> cases b'
+
+                case recv.recv c₁ π₁ c₂ π₂ =>
+                  rw [Branch.idist_recv_recv, idist_discrete c₁ c₂]
+                  dsimp only
+                  split_ifs with h₁
+                  · have h' (c) (π : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half) :
+                        {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                          ∃ p'',
+                            Branch.close c ⟨p''⟩ ∈ f'' σ ∧ p = Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero (π (zero c σ).2 false).val p''⟩}⟩} =
+                        ⋃ b ∈ f'' σ, match (motive := Branch .. → Set _) b with
+                          | Branch.close c' p'' => if c = c' then {Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero (π (zero c σ).2 false).val p''.val⟩}⟩} else ∅
+                          | _ => ∅ := by
+                      ext b
+                      simp only [Nat.succ_eq_add_one, Nat.add_eq, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop]
+                      iff_intro h h
+                      · obtain ⟨p'', close_in, rfl⟩ := h
+                        exists _, close_in
+                        dsimp only
+                        erw [if_pos (rfl : c = c)]
+                        apply Set.mem_singleton
+                      · obtain ⟨b', b'_in, h⟩ := h
+                        split at h <;> try contradiction
+                        split_ifs at h with h₁ <;> try contradiction
+                        subst c
+                        erw [Set.mem_singleton_iff] at h
+                        cases h
+                        exists _, b'_in
+
+                    erw [bot_sup_eq, h' c₁ π₁, h' c₂ π₂]; clear h'
+                    subst c₂
+                    grw [IMetric.hausdorffIDist_biUnion_biUnion']
+                    intros b
+
+                    cases b with
+                    | close c p =>
+                      dsimp only
+                      split_ifs with h₁
+                      · subst c₁
+                        erw [UniformFun.idist_eq_iSup₂, IMetric.hausdorffIDist_singleton, Branch.idist_next_next, idist_self,
+                             bot_sup_eq, Restriction.idist_eq, ← IterativeDomain.idist_cast, IterativeDomain.idist_branch_branch]
+                        conv_rhs =>
+                          conv => enter [1, v, 1, ok]; rw [Restriction.idist_eq]
+                          conv => enter [1, v]; rw [← unitInterval.mul_iSup]
+                          rw [← unitInterval.mul_iSup]
+                        apply mul_le_mul
+                        · apply le_refl
+                        · apply iSup_le λ σ' ↦ ?_
+                          erw [IMetric.hausdorffIDist_singleton, Branch.idist_close_close, idist_self, bot_sup_eq,
+                               Restriction.idist_eq]
+                          apply le_trans
+                          · apply unitInterval.half_mul_le_self
+                          · dsimp only
+                            grw [IterativeDomain.parallel_idist_le_left]
+                            apply le_iSup₂ (f := λ v ok ↦ idist (π₁ v ok).val (π₂ v ok).val)
+                        · apply unitInterval.nonneg
+                        · apply unitInterval.nonneg
+                      · erw [IMetric.hausdorffIDist_self]
+                        apply OrderBot.bot_le
+                    | recv c π | send c v p | sync c p | next σ p =>
+                      erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                  · erw [top_sup_eq]
+                    apply OrderTop.le_top
+
+                case recv.send | recv.close | recv.sync | recv.next | send.recv | close.recv | sync.recv | next.recv =>
+                  apply OrderTop.le_top
+
+                all:
+                  rw [IMetric.hausdorffIDist_self]
+                  apply OrderBot.bot_le
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
+            · apply le_trans (b := IMetric.hausdorffIDist (f σ) (f' σ))
+              · have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+                    {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                      ∃ c π' p', Branch.recv c π' ∈ f'' σ ∧ Branch.close c ⟨p'⟩ ∈ A ∧
+                        p = Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero p' (π' (zero c σ).2 false).val⟩}⟩} =
+                    ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
+                      | Branch.close c p' =>
+                        {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                          ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero p'.val (π' (zero c σ).2 false).val⟩}⟩}
+                      | _ => ∅ := by
+                  ext b
+                  simp only [Nat.succ_eq_add_one, Nat.add_eq, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop]
+                  iff_intro h h
+                  · obtain ⟨c, π', p', recv_in, close_in, rfl⟩ := h
+                    exists _, close_in, _, recv_in
+                  · obtain ⟨b', b'_in, h⟩ := h
+                    split at h <;> try contradiction
+                    obtain ⟨π', recv_in, rfl⟩ := h
+                    exists _, _, _, recv_in, b'_in
+
+                erw [h (f σ), h (f' σ)]; clear h
+                apply IMetric.hausdorffIDist_biUnion_biUnion λ b b' ↦ ?_
+
+                cases b <;> cases b'
+
+                case close.close c₁ p₁ c₂ p₂ =>
+                  rw [Branch.idist_close_close, idist_discrete c₁ c₂]
+                  dsimp only
+                  split_ifs with h₁
+                  · have h' (c) (p' : Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half) :
+                        {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
+                          ∃ π',
+                            Branch.recv c π' ∈ f'' σ ∧ p = Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero p'.val (π' (zero c σ).2 false).val⟩}⟩} =
+                        ⋃ b ∈ f'' σ, match (motive := Branch .. → Set _) b with
+                          | Branch.recv c' π' => if c = c' then {Branch.next (zero c σ).1 ⟨Nat.succ_add_eq_add_succ m n ▸ branch λ x ↦ {Branch.close c ⟨parallel zero p'.val (π' (zero c σ).2 false).val⟩}⟩} else ∅
+                          | _ => ∅ := by
+                      ext b
+                      simp only [Nat.succ_eq_add_one, Nat.add_eq, Set.mem_setOf_eq, Set.mem_iUnion, exists_prop]
+                      iff_intro h h
+                      · obtain ⟨p'', close_in, rfl⟩ := h
+                        exists _, close_in
+                        dsimp only
+                        erw [if_pos (rfl : c = c)]
+                        apply Set.mem_singleton
+                      · obtain ⟨b', b'_in, h⟩ := h
+                        split at h <;> try contradiction
+                        split_ifs at h with h₁ <;> try contradiction
+                        subst c
+                        erw [Set.mem_singleton_iff] at h
+                        cases h
+                        exists _, b'_in
+
+                    erw [bot_sup_eq, h' c₁ p₁, h' c₂ p₂]; clear h'
+                    subst c₂
+                    grw [IMetric.hausdorffIDist_biUnion_biUnion']
+                    intros b
+
+                    cases b with
+                    | recv c π =>
+                      dsimp only
+                      split_ifs with h₁
+                      · subst c₁
+                        erw [IMetric.hausdorffIDist_singleton, Branch.idist_next_next, idist_self,
+                             bot_sup_eq, Restriction.idist_eq, Restriction.idist_eq, ← IterativeDomain.idist_cast,
+                             IterativeDomain.idist_branch_branch]
+                        apply mul_le_mul
+                        · apply le_refl
+                        · apply iSup_le λ σ' ↦ ?_
+                          erw [IMetric.hausdorffIDist_singleton, Branch.idist_close_close, idist_self, bot_sup_eq,
+                               Restriction.idist_eq]
+                          apply le_trans
+                          · apply unitInterval.half_mul_le_self
+                          · apply IterativeDomain.parallel_idist_le_left
+                        · apply unitInterval.nonneg
+                        · apply unitInterval.nonneg
+                      · erw [IMetric.hausdorffIDist_self]
+                        apply OrderBot.bot_le
+                    | close c p | send c v p | sync c p | next σ p =>
+                      erw [IMetric.hausdorffIDist_self]
+                      apply OrderBot.bot_le
+                  · erw [top_sup_eq]
+                    apply OrderTop.le_top
+
+                case close.recv | close.send | close.sync | close.next | recv.close | send.close | sync.close | next.close =>
+                  apply OrderTop.le_top
+
+                all:
+                  rw [IMetric.hausdorffIDist_self]
+                  apply OrderBot.bot_le
+              · apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (f σ) (f' σ))
 
       theorem IterativeDomain.parallel_lipschitz_left {m n} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
           LipschitzWith 1 λ p : (IterativeDomain «Σ» Γ α β m).carrier ↦ parallel zero p q := by
@@ -4321,6 +4680,26 @@ noncomputable section Domain
     variable (Γ «Σ»)
     variable (ℍ : Type y) (Typ : Type w) [IMetricSpace ℍ] [IMetricSpace Typ]
 
+    /--
+      The type of values that can be sent through channels.
+    -/
+    inductive Send𝕍 : Type (max w y) where
+      | bool (b : Bool)
+      | int (n : ℤ)
+      | str (s : String)
+      | slice (cap low high : ℕ) (arr : ℍ)
+      | chan (len : ℍ) (τ : Typ) (arr closed? : ℍ)
+      | struct (fields : AList λ _ : String ↦ ℍ)
+      | array (len : ℕ) (indices : Fin len → ℍ)
+      | map (fields : List (Sigma λ _ : Send𝕍 ↦ ℍ)) (nil : Bool)
+      | tuple (fields : List Send𝕍)
+
+    instance : DecidableEq (Send𝕍 ℍ Typ) :=
+      sorry
+
+    instance : DiscreteIMetricSpace (Send𝕍 ℍ Typ) where
+      __ := IMetricSpace.discrete
+
     protected abbrev F (𝕍 : Type x) [IMetricSpace 𝕍] : Type (max u v w x y) :=
       -- bool
         Bool
@@ -4339,7 +4718,7 @@ noncomputable section Domain
       -- map
       ⊕ (Restriction 𝕍 unitInterval.half →ᵤ Option ℍ) × Bool
       -- func
-      ⊕ (String →ᵤ Option ℍ) × (List (Restriction 𝕍 unitInterval.half) × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ 𝕍 (Restriction 𝕍 unitInterval.half))
+      ⊕ (String →ᵤ Option ℍ) × (List (Restriction 𝕍 unitInterval.half) × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ (Send𝕍 ℍ Typ) (Restriction 𝕍 unitInterval.half))
       -- tuples
       ⊕ List (Restriction 𝕍 unitInterval.half)
 
@@ -4400,7 +4779,7 @@ noncomputable section Domain
     def 𝕍.map (maps : (𝕍 «Σ» Γ ℍ Typ).type →ᵤ Option ℍ) (isNil : Bool) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨maps ∘ Restriction.val, isNil⟩)
 
-    def 𝕍.func (closure : String →ᵤ Option ℍ) (call : List (𝕍 «Σ» Γ ℍ Typ).type × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ (𝕍 «Σ» Γ ℍ Typ).type (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
+    def 𝕍.func (closure : String →ᵤ Option ℍ) (call : List (𝕍 «Σ» Γ ℍ Typ).type × List Γ × (String → Option Γ) →ᵤ Domain «Σ» Γ (Send𝕍 ℍ Typ) (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inl ⟨closure, λ ⟨vs, ξ, ς⟩ ↦ call ⟨vs.map Restriction.val, ξ, ς⟩ |>.map Restriction.mk⟩)
 
     def 𝕍.tuple (vs : List (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
@@ -4418,7 +4797,7 @@ noncomputable section Domain
       (array : ∀ len indices, motive (𝕍.array len indices))
       (map : ∀ maps isNil, motive (𝕍.map maps isNil))
       (func : ∀ closure call, motive (𝕍.func closure call))
-      (tuple : ∀ vs : List (𝕍 «Σ» Γ ℍ Typ).type, motive (𝕍.tuple vs))
+      (tuple : ∀ vs, motive (𝕍.tuple vs))
       (v : (𝕍 «Σ» Γ ℍ Typ).type) :
         motive v :=
       match h : 𝕍_iso v with
