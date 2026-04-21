@@ -20,15 +20,10 @@ abbrev nil : Address := .inl .unit
 abbrev dummy : Address := .inr (.inl .unit)
 instance : Coe ℕ Address := ⟨λ x ↦ .inr (.inr x)⟩
 
-instance : IMetricSpace TypedSetTheory.Typ where
-  idist := sorry
-  idist_self := sorry
-  idist_comm := sorry
-  idist_triangle := sorry
-  eq_of_idist_eq_zero := sorry
-instance : CompleteSpace TypedSetTheory.Typ where
-  complete := by
-    admit
+noncomputable instance : DiscreteIMetricSpace TypedSetTheory.Typ where
+  __ := IMetricSpace.discrete
+instance : CompleteSpace TypedSetTheory.Typ :=
+  DiscreteIMetricSpace.completeSpace
 
 def Channel := (ℕ × TypedSetTheory.Typ)
   deriving DecidableEq
@@ -173,10 +168,10 @@ noncomputable section
   open Classical
 
   namespace TypedSetTheory.Expression
-    protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : Expression.{y} Typ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type
+    protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : Expression.{y} Typ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type
       | _ => sorry
 
-    protected def denotations (ξ : List Channel) (ς : String → Option Channel) : List (Expression Typ) → Domain Store.type Channel (Value.𝕍 Store.type Channel Address Typ).type (List (Value.𝕍 Store.type Channel Address Typ).type)
+    protected def denotations (ξ : List Channel) (ς : String → Option Channel) : List (Expression Typ) → Domain Store.type Channel (Value.Send𝕍 Address.{u, v} Typ.{x}) (List (Value.𝕍 Store.type Channel Address Typ).type)
       | [] => .pure []
       | e :: es => e.denotation ξ ς >>= λ v ↦ (v :: ·) <$> Expression.denotations ξ ς es
   end TypedSetTheory.Expression
@@ -187,11 +182,11 @@ noncomputable section
 
       -- TODO: introduce another type of types?
       -- Because there are TLA+ types which don't mean anything in here, e.g. set vs seq
-      private def zero (σ : Store.{u, v, w, x}.type) : Typ.{y} → Store.{u, v, w, x}.type × (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type
-        | .bool => (σ, Value.𝕍.bool false)
-        | .int => (σ, Value.𝕍.int 0)
-        | .str => (σ, Value.𝕍.str "")
-        | .function _ _ => (σ, Value.𝕍.map (λ _ ↦ .none) true)
+      private def zero (σ : Store.{u, v, w, x}.type) : Typ.{y} → Store.{u, v, w, x}.type × (Value.Send𝕍 Address.{u, v} Typ.{x})
+        | .bool => (σ, .bool false)
+        | .int => (σ, .int 0)
+        | .str => (σ, .str "")
+        | .function _ _ => (σ, .map [] true)
         | .set _ => sorry
         | .seq _ => sorry
         | .tuple _ => sorry
@@ -202,10 +197,10 @@ noncomputable section
         | .channel _ => sorry
         | .address => sorry
 
-      instance : HasDefaultInit Store.type Channel (Value.𝕍 Store.type Channel Address Typ).type where
+      instance : HasDefaultInit Store.type Channel (Value.Send𝕍 Address Typ) where
         zero c σ := zero σ (Prod.snd c)
 
-      def guard (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1} :=
+      def guard (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) : Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1} :=
         Expression.denotation ξ ς e >>= λ v ↦ Domain.branch λ σ ↦
           boolean v (default := {.next σ { val := .abort }})
             λ b ↦ if b then {.next σ { val := .pure .unit }} else ∅
@@ -215,42 +210,47 @@ noncomputable section
         -- unfold guard at h
         admit
 
-      def deref (σ : Store.{u, v, w, x}.type) (addr : Address.{u, v}) : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type :=
+      def deref (σ : Store.{u, v, w, x}.type) (addr : Address.{u, v}) : Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type :=
         match Store.deref σ addr with
         | .some v => .pure v
         | .none => .abort
 
-      -- TODO: there is some way to remove that `mutual` dependency, by abstracting over
-      -- some `Domain` rather than the list of statements `S`.
-      -- But is it worth it? Can be establish that `while_seq` is a Cauchy sequence irrespective
-      -- of how `S` is reduced?
-      private def while_seq_F (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (P' P : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}) :
-          Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1} :=
+      private def while_seq_F (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (P' P : Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1}) :
+          Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1} :=
         (P ⬰ P' ⬰ guard ξ ς e) ⊻ (.pure .unit ⬰ guard ξ ς (.prefix .«¬» e))
 
-      private def while_seq (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (P : Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}) :
-          ℕ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
+      private def while_seq (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression Typ) (P : Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1}) :
+          ℕ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1}
         | 0 => .branch λ σ ↦ {.next σ { val := .pure .unit }}
         | i + 1 => while_seq_F ξ ς e P (while_seq ξ ς e P i)
 
-      protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1}
+      protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1}
         | [] => .branch λ σ ↦ {.next σ { val := .pure .unit }}
         | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ .abort)
         | .return es :: ss => match ss with
           | [] => match ξ with
             | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ .branch λ σ ↦ match Store.popϙ σ with
               | .none => {.next σ { val := .abort }}
-              | .some σ => {.next σ <| { val := .branch λ _ ↦ {.send ret (Value.𝕍.tuple vs) { val := .pure .unit }}} }
+              | .some σ => {.next σ {
+                val := if h : ∀ v ∈ vs, Value.𝕍_isSend v then
+                  .branch λ _ ↦ {.send ret (Value.𝕍_extract (Value.𝕍.tuple vs) (Value.𝕍_isSend.tuple h)) { val := .pure .unit }}
+                else
+                  .abort
+              }}
             | [] => .branch λ σ ↦ {.next σ { val := .abort }}
           | _ => .branch λ σ ↦ {.next σ { val := .abort }}
         | .print e :: ss =>
-          Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦ .branch λ _ ↦ {.send out v { val := .pure .unit }})
+          Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦
+            if h : Value.𝕍_isSend v then
+              .branch λ _ ↦ {.send out (Value.𝕍_extract v h) { val := .pure .unit }}
+            else
+              .abort)
         -- make
         -- var
         | .if e S₁ S₂ :: ss =>
           Statement.denotation ξ ς ss ⬰ ((Statement.denotation ξ ς S₁ ⬰ guard ξ ς e) ⊻ (Statement.denotation ξ ς S₂ ⬰ guard ξ ς (.prefix .«¬» e)))
         | .while e S :: ss =>
-          -- NOTE: we show in `while_seq_cauchy` that the limit is actually defined
+          -- NOTE: we show in `while_seq_cauchy'` that the limit is actually defined
           Statement.denotation ξ ς ss ⬰ lim (Filter.atTop.map (while_seq ξ ς e (Statement.denotation ξ ς S)))
         -- close
         -- select
@@ -331,7 +331,7 @@ noncomputable section
 
         theorem while_seq_cauchy (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) (S : List (Statement.{y} Typ (Expression Typ) Typ.initArgs)) :
             CauchySeq (while_seq.{u, v, w, x, y} ξ ς e (Statement.denotation out ξ ς S)) := by
-          set p₀ : Domain.{max u v w x, w, max u v w x, y} Store.{u, v, w, x}.type Channel.{w} (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type PUnit.{y + 1} :=
+          set p₀ : Domain.{max u v w x, w, max u v x, y} Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1} :=
             Domain.branch λ σ ↦ {.next σ { val := .pure .unit }}
 
           have edist_ne_top : edist p₀ (while_seq_F.{u, v, w, x, y} ξ ς e (Statement.denotation out ξ ς S) p₀) ≠ ⊤ := by
@@ -342,6 +342,14 @@ noncomputable section
           conv at tendsto_nhds =>
             enter [1, n]; rw [← while_seq_eq]
           exact Filter.Tendsto.cauchySeq tendsto_nhds
+
+        theorem while_seq_cauchy' (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) (S : List (Statement.{y} Typ (Expression Typ) Typ.initArgs)) :
+            ∃ p, lim (Filter.atTop.map (while_seq ξ ς e (Statement.denotation out ξ ς S))) = p := by
+          apply Exists.imp
+          · intros p
+            apply Filter.Tendsto.limUnder_eq
+          · apply cauchySeq_tendsto_of_complete
+            apply while_seq_cauchy
     end Statement
   end GoCal
 end

@@ -4699,6 +4699,8 @@ noncomputable section Domain
 
     instance : DiscreteIMetricSpace (Send𝕍 ℍ Typ) where
       __ := IMetricSpace.discrete
+    instance : CompleteSpace (Value.Send𝕍 ℍ Typ) :=
+      DiscreteIMetricSpace.completeSpace
 
     protected abbrev F (𝕍 : Type x) [IMetricSpace 𝕍] : Type (max u v w x y) :=
       -- bool
@@ -4753,6 +4755,13 @@ noncomputable section Domain
     @[instance]
     axiom 𝕍_complete : CompleteSpace (𝕍 «Σ» Γ ℍ Typ).type
 
+    axiom 𝕍_isSend : (𝕍 «Σ» Γ ℍ Typ).type → Prop
+
+    @[instance]
+    axiom 𝕍_isSend_decidable {v : (𝕍 «Σ» Γ ℍ Typ).type} : Decidable (𝕍_isSend v)
+
+    axiom 𝕍_extract (v : (𝕍 «Σ» Γ ℍ Typ).type) (isSend : 𝕍_isSend v) : Send𝕍 ℍ Typ
+
 
 
     def 𝕍.bool (b : Bool) : (𝕍 «Σ» Γ ℍ Typ).type :=
@@ -4784,6 +4793,9 @@ noncomputable section Domain
 
     def 𝕍.tuple (vs : List (𝕍 «Σ» Γ ℍ Typ).type) : (𝕍 «Σ» Γ ℍ Typ).type :=
       𝕍_iso.symm (.inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr <| .inr vs)
+
+
+    axiom 𝕍_isSend.tuple {vs : List (𝕍 «Σ» Γ ℍ Typ).type} (h : ∀ v ∈ vs, 𝕍_isSend v) : 𝕍_isSend (𝕍.tuple vs)
 
 
     @[cases_eliminator]
