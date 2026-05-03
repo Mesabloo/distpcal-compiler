@@ -653,3 +653,33 @@ theorem DiscreteIMetricSpace.completeSpace {α} [DecidableEq α] [DiscreteIMetri
   exists u N
   apply tendsto_const_nhds.congr'
   exact Filter.eventually_atTop.mpr ⟨N, λ n hn ↦ (hev n hn).symm⟩
+
+theorem LipschitzWith.to_idist_le {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {f : α → β} {K : NNReal}
+  (h : LipschitzWith K f) :
+    ∀ x y, (idist (f x) (f y) : ℝ) ≤ K * idist x y := by
+  intros x y
+  specialize h x y
+  repeat rw [PseudoIMetricSpace.edist_eq] at h
+
+  have : K * ENNReal.ofReal (idist x y : ℝ) = ENNReal.ofReal (K * idist x y) := by
+    simp only [NNReal.zero_le_coe, ENNReal.ofReal_mul, ENNReal.ofReal_coe_nnreal]
+
+  rwa [this, ENNReal.ofReal_le_ofReal_iff] at h
+  apply mul_nonneg
+  · exact NNReal.zero_le_coe
+  · apply unitInterval.nonneg
+
+theorem LipschitzWith.of_idist_le {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {f : α → β} {K : NNReal}
+  (h : ∀ x y, (idist (f x) (f y) : ℝ) ≤ K * idist x y) :
+    LipschitzWith K f := by
+  intros x y
+  specialize h x y
+  repeat rw [PseudoIMetricSpace.edist_eq]
+
+  have : K * ENNReal.ofReal (idist x y : ℝ) = ENNReal.ofReal (K * idist x y) := by
+    simp only [NNReal.zero_le_coe, ENNReal.ofReal_mul, ENNReal.ofReal_coe_nnreal]
+
+  rwa [this, ENNReal.ofReal_le_ofReal_iff]
+  apply mul_nonneg
+  · exact NNReal.zero_le_coe
+  · apply unitInterval.nonneg
