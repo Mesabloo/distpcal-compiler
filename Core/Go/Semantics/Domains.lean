@@ -1378,6 +1378,11 @@ noncomputable section Domain
           map f (branch g) = branch λ σ ↦ Branch.map (IterativeDomain.map f) '' g σ := by
         rfl
 
+      theorem IterativeDomain.map_cast {m n} (h : m = n) {f : β →ᵤ γ} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+          IterativeDomain.map f (h ▸ p) = h ▸ IterativeDomain.map f p := by
+        cases h
+        rfl
+
       theorem IterativeDomain.map_lift {β'} [IMetricSpace β'] (f : β →ᵤ β')
         {m n} (h : m ≤ n) (x : (IterativeDomain «Σ» Γ α β m).carrier) :
           lift h (map f x) = map f (lift h x) := by
@@ -1895,6 +1900,10 @@ noncomputable section Domain
         apply ENNReal.ofReal_le_ofReal
         apply IterativeDomain.ap_idist_le_right hk
 
+      theorem IterativeDomain.pure_ap {m n K} {f : β →ₗ[K] γ} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+          IterativeDomain.ap (IterativeDomain.pure (n := m) f) q = IterativeDomain.lift (Nat.le_add_left n m) (IterativeDomain.map f q) := by
+        cases m with erw [ap_leaf, map_lift]
+
       theorem IterativeDomain.ap_lipschitz {m n K} (hk : 1 ≤ K) :
           LipschitzWith (1 + K) (Function.uncurry (IterativeDomain.ap (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ) (m := m) (n := n))) := by
         apply LipschitzWith.uncurry
@@ -2068,71 +2077,288 @@ noncomputable section Domain
                 rw [Branch.ap_lift_right]
                 grind only
             · grind only
+      end
 
+      mutual
+        theorem Branch.ap_pure {K} {x : β} {m n} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} :
+            Branch.ap (IterativeDomain.pure x) b = Branch.map (IterativeDomain.lift (Nat.le_add_right m n) ∘ IterativeDomain.map λ f ↦ f x) b := by
+          cases b with
+          | recv c π =>
+            rw [Branch.ap_recv, Branch.map_recv]
+            congr 2 with v ok : 2
+            congr 1 with p : 1
+            rw [IterativeDomain.ap_pure]
+            rfl
+          | send c v p =>
+            rw [Branch.ap_send, Branch.map_send]
+            congr 2 with p : 1
+            rw [IterativeDomain.ap_pure]
+            rfl
+          | close c p =>
+            rw [Branch.ap_close, Branch.map_close]
+            congr 2 with p : 1
+            rw [IterativeDomain.ap_pure]
+            rfl
+          | sync c p =>
+            rw [Branch.ap_sync, Branch.map_sync]
+            congr 2 with p : 1
+            rw [IterativeDomain.ap_pure]
+            rfl
+          | next σ p =>
+            rw [Branch.ap_next, Branch.map_next]
+            congr 2 with p : 1
+            rw [IterativeDomain.ap_pure]
+            rfl
+
+        theorem IterativeDomain.ap_pure {K} {x : β} {m n} {p : (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} :
+            IterativeDomain.ap p (IterativeDomain.pure (n := n) x) = IterativeDomain.lift (Nat.le_add_right m n) (IterativeDomain.map (λ f ↦ f x) p) := by
+          match m, p with
+          | 0, IterativeDomain.leaf g | m + 1, IterativeDomain.leaf g =>
+            erw [IterativeDomain.ap_leaf, ← IterativeDomain.map_lift, IterativeDomain.map_leaf,
+                 IterativeDomain.map_leaf, IterativeDomain.lift_leaf, IterativeDomain.lift_leaf]
+            rfl
+          | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+            erw [IterativeDomain.ap_abort, IterativeDomain.map_abort, IterativeDomain.lift_abort]
+          | m + 1, IterativeDomain.branch f =>
+            erw [IterativeDomain.ap_branch, IterativeDomain.map_branch]
+
+            have h : m + 1 + n = m + n + 1 := by grind only
+
+            rw! [h]
+            erw [IterativeDomain.lift_branch]
+            change IterativeDomain.branch _ = IterativeDomain.branch _
+            congr 1 with σ : 1
+            rw [Set.image_image]
+            congr 1 with b : 1
+            rw [Branch.map_comp', Branch.ap_pure]
+      end
+
+      mutual
+        theorem Branch.map_ap {f : γ →ᵤ δ} [IMetricSpace δ] {K₁ K₂} {m n} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β →ₗ[K₁] γ) m).carrier} {q : (IterativeDomain «Σ» Γ α β n).carrier} (hf : LipschitzWith K₂ f) :
+            Branch.map (IterativeDomain.map f) (Branch.ap q b) = Branch.ap q (Branch.map (IterativeDomain.map λ g ↦ { toFun := f, lipschitz := hf : LipschitzMap _ _ _ }.comp g) b) := by
+          cases b with
+          | recv c π =>
+            rw [Branch.ap_recv, Branch.map_recv, Branch.map_recv, Branch.ap_recv]
+            congr 1 with v ok : 2
+            rw [Restriction.map_map, Restriction.map_map, Restriction.map_map]
+            dsimp [Restriction.map]
+            congr 2
+            rw [IterativeDomain.map_ap]
+          | send c v p =>
+            rw [Branch.ap_send, Branch.map_send, Branch.map_send, Branch.ap_send, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map]
+            dsimp [Restriction.map]
+            congr 2
+            rw [IterativeDomain.map_ap]
+          | close c p =>
+            rw [Branch.ap_close, Branch.map_close, Branch.map_close, Branch.ap_close, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map]
+            dsimp [Restriction.map]
+            congr 2
+            rw [IterativeDomain.map_ap]
+          | sync c p =>
+            rw [Branch.ap_sync, Branch.map_sync, Branch.map_sync, Branch.ap_sync, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map]
+            dsimp [Restriction.map]
+            congr 2
+            rw [IterativeDomain.map_ap]
+          | next σ p =>
+            rw [Branch.ap_next, Branch.map_next, Branch.map_next, Branch.ap_next, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map]
+            dsimp [Restriction.map]
+            congr 2
+            rw [IterativeDomain.map_ap]
+
+        theorem IterativeDomain.map_ap {f : γ →ᵤ δ} [IMetricSpace δ] {K₁ K₂} {m n} {p : (IterativeDomain «Σ» Γ α (β →ₗ[K₁] γ) m).carrier} {q : (IterativeDomain «Σ» Γ α β n).carrier} (hf : LipschitzWith K₂ f) :
+            IterativeDomain.map f (IterativeDomain.ap p q) = IterativeDomain.ap (IterativeDomain.map (λ g ↦ LipschitzMap.comp ⟨f, hf⟩ g) p) q := by
+          match m, p with
+          | 0, IterativeDomain.leaf g | m + 1, IterativeDomain.leaf g =>
+            rw [IterativeDomain.ap_leaf, IterativeDomain.map_leaf, IterativeDomain.ap_leaf,
+                IterativeDomain.map_map]
+            rfl
+          | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.ap_abort, IterativeDomain.map_abort, IterativeDomain.map_abort,
+                IterativeDomain.ap_abort]
+          | m + 1, IterativeDomain.branch h =>
+            rw [IterativeDomain.map_branch, IterativeDomain.ap_branch, IterativeDomain.ap_branch,
+                IterativeDomain.map_cast, IterativeDomain.map_branch]
+            congr 2 with σ : 1
+            rw [Set.image_image, Set.image_image]
+            congr 1 with b : 1
+            rw [Branch.map_ap]
+      end
+
+      mutual
+        theorem Branch.ap_assoc {K₁ K₂} [IMetricSpace δ] {m n o} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (γ →ₗ[K₂] β) m).carrier}
+          {q : (IterativeDomain «Σ» Γ α (δ →ₗ[K₁] γ) n).carrier} {r : (IterativeDomain «Σ» Γ α δ o).carrier} :
+            Branch.ap (IterativeDomain.ap q r) b =
+              Nat.add_assoc m n o ▸
+                Branch.ap r (Branch.ap q (Branch.map (IterativeDomain.map λ f ↦ { toFun := f.comp, lipschitz := LipschitzMap.lipschitz_comp_right }) b)) := by
+          cases b with
+          | recv c π =>
+            rw [Branch.ap_recv, Branch.map_recv, Branch.ap_recv, Branch.ap_recv, IterativeDomain.Branch.cast_recv]
+            congr 1 with v ok : 2
+            rw [Restriction.map_map, Restriction.map_map, Restriction.map_map]
+            dsimp [Restriction.map]
+            congr 1
+            rw [IterativeDomain.ap_assoc]
+          | send c v p =>
+            rw [Branch.ap_send, Branch.map_send, Branch.ap_send, Branch.ap_send, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map, IterativeDomain.Branch.cast_send]
+            congr 1
+            dsimp [Restriction.map]
+            congr 1
+            rw [IterativeDomain.ap_assoc]
+          | close c p =>
+            rw [Branch.ap_close, Branch.map_close, Branch.ap_close, Branch.ap_close, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map, IterativeDomain.Branch.cast_close]
+            congr 1
+            dsimp [Restriction.map]
+            congr 1
+            rw [IterativeDomain.ap_assoc]
+          | sync c p =>
+            rw [Branch.ap_sync, Branch.map_sync, Branch.ap_sync, Branch.ap_sync, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map, IterativeDomain.Branch.cast_sync]
+            congr 1
+            dsimp [Restriction.map]
+            congr 1
+            rw [IterativeDomain.ap_assoc]
+          | next σ p =>
+            rw [Branch.ap_next, Branch.map_next, Branch.ap_next, Branch.ap_next, Restriction.map_map,
+                Restriction.map_map, Restriction.map_map, IterativeDomain.Branch.cast_next]
+            congr 1
+            dsimp [Restriction.map]
+            congr 1
+            rw [IterativeDomain.ap_assoc]
+
+        theorem IterativeDomain.ap_assoc {K₁ K₂} [IMetricSpace δ] {m n o} {p : (IterativeDomain «Σ» Γ α (γ →ₗ[K₂] β) m).carrier}
+          {q : (IterativeDomain «Σ» Γ α (δ →ₗ[K₁] γ) n).carrier} {r : (IterativeDomain «Σ» Γ α δ o).carrier} :
+            IterativeDomain.ap p (IterativeDomain.ap q r) =
+              Nat.add_assoc m n o ▸
+                IterativeDomain.ap (IterativeDomain.ap (IterativeDomain.map (λ f ↦ { toFun := f.comp, lipschitz := LipschitzMap.lipschitz_comp_right }) p) q) r := by
+          match m, p with
+          | 0, IterativeDomain.leaf f | m + 1, IterativeDomain.leaf f =>
+            rw [IterativeDomain.ap_leaf, IterativeDomain.map_leaf, IterativeDomain.ap_leaf,
+                ← IterativeDomain.map_lift, ← IterativeDomain.map_lift,
+                IterativeDomain.map_ap, IterativeDomain.ap_lift_left]
+            dsimp
+            conv_lhs => enter [1, 1, 2, 1]; change f.comp
+            grind only
+          | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.ap_abort, IterativeDomain.map_abort, IterativeDomain.ap_abort,
+                IterativeDomain.ap_abort]
+            grind only
+          | m + 1, IterativeDomain.branch f =>
+            rw [IterativeDomain.ap_branch, IterativeDomain.map_branch, IterativeDomain.ap_branch,
+                IterativeDomain.ap_cast_left, IterativeDomain.ap_branch]
+
+            repeat rw [eqRec_eq_cast]
+            repeat rw [cast_cast]
+
+            have h₁ : m + 1 + (n + o) = m + n + o + 1 := by grind only
+            have h₂ : m + n + o + 1 = m + (n + o) + 1 := by grind only
+            rw! (castMode := .all) [h₁, ← h₂]
+            congr 1
+            rw [IterativeDomain.branch_cast]
+            congr 1 with σ : 1
+            rw [cast_image, Set.image_image, Set.image_image]
+            congr 1 with b : 1
+            rw [Branch.ap_assoc]
+            grind only
       end
 
       def DomainUnion.ap {K} :
           DomainUnion «Σ» Γ α (β →ₗ[K] γ) → DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.ap p q)
 
-    theorem DomainUnion.ap_lipschitz_left {K} {q : DomainUnion «Σ» Γ α β} :
-        LipschitzWith 1 λ p : DomainUnion «Σ» Γ α (β →ₗ[K] γ) ↦ DomainUnion.ap p q := by
-      intros x y
-      erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
-      apply ENNReal.ofReal_le_ofReal
-      apply Subtype.coe_le_coe.mpr
+      theorem DomainUnion.pure_ap {β' K} [IMetricSpace β'] {f : β →ₗ[K] β'} (q : DomainUnion «Σ» Γ α β) :
+          DomainUnion.ap (DomainUnion.mk (IterativeDomain.pure (n := 0) f)) q = DomainUnion.map f.toFun q := by
+        let ⟨n, q⟩ := q
+        unfold ap mk map
+        dsimp [Sigma.map]
+        rw! (castMode := .all) [Nat.zero_add]
+        congr 1
+        rw [IterativeDomain.pure_ap]
+        rw! [Nat.zero_add]
+        rw [IterativeDomain.lift_refl, id_def]
 
-      change IDist.idist (IterativeDomain.lift _ _) _ ≤ IDist.idist (IterativeDomain.lift _ _) _
+      theorem DomainUnion.ap_pure {K} {x : β} {p : DomainUnion «Σ» Γ α (β →ₗ[K] γ)} :
+          p.ap (DomainUnion.mk (IterativeDomain.pure (n := 0) x)) = DomainUnion.map (fun f ↦ f x) p := by
+        let ⟨m, p⟩ := p
+        unfold ap mk map
+        dsimp [Sigma.map]
+        congr 1
+        rw [IterativeDomain.ap_pure, IterativeDomain.lift_refl]
+        rfl
 
-      have : max (x.fst + q.fst) (y.fst + q.fst) - q.fst = max x.fst y.fst := by
-        grind only [= max_def]
+      theorem DomainUnion.ap_assoc {K₁ K₂} [IMetricSpace δ] {p : DomainUnion «Σ» Γ α (γ →ₗ[K₂] β)}
+        {q : DomainUnion «Σ» Γ α (δ →ₗ[K₁] γ)} {r : DomainUnion «Σ» Γ α δ} :
+          p.ap (q.ap r) = ((DomainUnion.map (λ f ↦ { toFun := f.comp, lipschitz := LipschitzMap.lipschitz_comp_right }) p).ap q).ap r := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q; let ⟨o, r⟩ := r
+        unfold ap map mk
+        dsimp [Sigma.map]
+        rw! (castMode := .all) [Nat.add_assoc]
+        congr 1
+        rw [IterativeDomain.ap_assoc]
 
-      rw [IterativeDomain.ap_lift_left, IterativeDomain.ap_lift_left, ← IterativeDomain.idist_cast,
-          IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
-          IterativeDomain.ap_cast_left, IterativeDomain.ap_cast_left,
-          ← IterativeDomain.idist_cast' (f := λ m ↦ m + q.fst)]
+      theorem DomainUnion.ap_lipschitz_left {K} {q : DomainUnion «Σ» Γ α β} :
+          LipschitzWith 1 λ p : DomainUnion «Σ» Γ α (β →ₗ[K] γ) ↦ DomainUnion.ap p q := by
+        intros x y
+        erw [one_mul, PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+        apply ENNReal.ofReal_le_ofReal
+        apply Subtype.coe_le_coe.mpr
 
-      rw [unitInterval.le_iff_le_val, ← ENNReal.ofReal_le_ofReal_iff, ← PseudoIMetricSpace.edist_eq,
-          ← PseudoIMetricSpace.edist_eq]
-      · conv_rhs => apply one_mul _ |>.symm
-        apply IterativeDomain.ap_lipschitz_left
-      · grind only [= Set.mem_Icc]
+        change IDist.idist (IterativeDomain.lift _ _) _ ≤ IDist.idist (IterativeDomain.lift _ _) _
 
-    theorem DomainUnion.ap_lipschitz_right {K} (hk : 1 ≤ K) {p : DomainUnion «Σ» Γ α (β →ₗ[K] γ)} :
-        LipschitzWith K (DomainUnion.ap p) := by
-      intros x y
-      erw [PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
-
-      convert_to _ ≤ ENNReal.ofReal (K.toReal * (IDist.idist x y : ℝ))
-      · norm_num
-      · apply ENNReal.ofReal_le_ofReal
-
-        change IDist.idist (IterativeDomain.lift _ _) _ ≤ K.toReal * IDist.idist (IterativeDomain.lift _ _) _
-
-        have : max (p.fst + x.fst) (p.fst + y.fst) - p.fst = max x.fst y.fst := by
+        have : max (x.fst + q.fst) (y.fst + q.fst) - q.fst = max x.fst y.fst := by
           grind only [= max_def]
 
-        rw [IterativeDomain.ap_lift_right, IterativeDomain.ap_lift_right, ← IterativeDomain.idist_cast,
+        rw [IterativeDomain.ap_lift_left, IterativeDomain.ap_lift_left, ← IterativeDomain.idist_cast,
             IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
-            IterativeDomain.ap_cast_right, IterativeDomain.ap_cast_right,
-            ← IterativeDomain.idist_cast' (f := λ n ↦ p.fst + n),
-            ← ENNReal.ofReal_le_ofReal_iff, ENNReal.ofReal_mul, ← PseudoIMetricSpace.edist_eq,
+            IterativeDomain.ap_cast_left, IterativeDomain.ap_cast_left,
+            ← IterativeDomain.idist_cast' (f := λ m ↦ m + q.fst)]
+
+        rw [unitInterval.le_iff_le_val, ← ENNReal.ofReal_le_ofReal_iff, ← PseudoIMetricSpace.edist_eq,
             ← PseudoIMetricSpace.edist_eq]
-        · have : ENNReal.ofReal ↑K = ENNReal.ofNNReal K := by norm_num
+        · conv_rhs => apply one_mul _ |>.symm
+          apply IterativeDomain.ap_lipschitz_left
+        · grind only [= Set.mem_Icc]
 
-          rw [this]
-          apply IterativeDomain.ap_lipschitz_right
-          assumption
-        · exact NNReal.zero_le_coe
-        · apply mul_nonneg
+      theorem DomainUnion.ap_lipschitz_right {K} (hk : 1 ≤ K) {p : DomainUnion «Σ» Γ α (β →ₗ[K] γ)} :
+          LipschitzWith K (DomainUnion.ap p) := by
+        intros x y
+        erw [PseudoIMetricSpace.edist_eq, PseudoIMetricSpace.edist_eq]
+
+        convert_to _ ≤ ENNReal.ofReal (K.toReal * (IDist.idist x y : ℝ))
+        · norm_num
+        · apply ENNReal.ofReal_le_ofReal
+
+          change IDist.idist (IterativeDomain.lift _ _) _ ≤ K.toReal * IDist.idist (IterativeDomain.lift _ _) _
+
+          have : max (p.fst + x.fst) (p.fst + y.fst) - p.fst = max x.fst y.fst := by
+            grind only [= max_def]
+
+          rw [IterativeDomain.ap_lift_right, IterativeDomain.ap_lift_right, ← IterativeDomain.idist_cast,
+              IterativeDomain.lift_refl_of_eq' rfl this, IterativeDomain.lift_refl_of_eq' rfl this,
+              IterativeDomain.ap_cast_right, IterativeDomain.ap_cast_right,
+              ← IterativeDomain.idist_cast' (f := λ n ↦ p.fst + n),
+              ← ENNReal.ofReal_le_ofReal_iff, ENNReal.ofReal_mul, ← PseudoIMetricSpace.edist_eq,
+              ← PseudoIMetricSpace.edist_eq]
+          · have : ENNReal.ofReal ↑K = ENNReal.ofNNReal K := by norm_num
+
+            rw [this]
+            apply IterativeDomain.ap_lipschitz_right
+            assumption
           · exact NNReal.zero_le_coe
-          · exact unitInterval.nonneg _
+          · apply mul_nonneg
+            · exact NNReal.zero_le_coe
+            · exact unitInterval.nonneg _
 
-    theorem DomainUnion.ap_lipschitz {K} (hk : 1 ≤ K) :
-          LipschitzWith (1 + K) (Function.uncurry (DomainUnion.ap (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ))) := by
-        apply LipschitzWith.uncurry
-        · apply DomainUnion.ap_lipschitz_left
-        · exact λ _ ↦ DomainUnion.ap_lipschitz_right hk
+      theorem DomainUnion.ap_lipschitz {K} (hk : 1 ≤ K) :
+            LipschitzWith (1 + K) (Function.uncurry (DomainUnion.ap (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ))) := by
+          apply LipschitzWith.uncurry
+          · apply DomainUnion.ap_lipschitz_left
+          · exact λ _ ↦ DomainUnion.ap_lipschitz_right hk
 
       theorem DomainUnion.ap.uniform_continuous₂ {K} (hk : 1 ≤ K) :
           UniformContinuous₂ (DomainUnion.ap (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ)) :=
@@ -2182,6 +2408,76 @@ noncomputable section Domain
           apply LipschitzWith.to_idist_le
           apply DomainUnion.ap_lipschitz_right
           assumption
+
+      theorem Domain.pure_ap {K} {f : β →ₗ[K] γ} {q : Domain «Σ» Γ α β} (hk : 1 ≤ K) :
+          Domain.ap (Domain.pure f) q = Domain.map f q := by
+        induction q using UniformSpace.Completion.induction_on with
+        | hp =>
+          apply isClosed_eq
+          · apply UniformSpace.Completion.continuous_map₂
+            · exact continuous_const
+            · apply continuous_id
+          · apply UniformSpace.Completion.continuous_map
+        | ih q =>
+          erw [Domain.ap_coe_coe hk, Domain.map_coe _ f.lipschitz hk]
+          congr 1
+          apply DomainUnion.pure_ap
+
+      theorem Domain.map_pure {K} {f : β →ₗ[K] γ} {x : β} (hk : 1 ≤ K) :
+          Domain.map f (Domain.pure («Σ» := «Σ») (Γ := Γ) (α := α) x) = Domain.pure (f x) := by
+        unfold pure
+        rw [map_coe _ f.lipschitz hk]
+        congr 1
+
+      theorem Domain.ap_pure {K} {x : β} (hk : 1 ≤ K) {p : Domain «Σ» Γ α (β →ₗ[K] γ)}:
+          Domain.ap p (Domain.pure x) = Domain.map (λ f ↦ f x) p := by
+        unfold pure
+        induction p using UniformSpace.Completion.induction_on with
+        | hp =>
+          apply isClosed_eq
+          · apply UniformSpace.Completion.continuous_map₂
+            · apply continuous_id
+            · exact continuous_const
+          · apply UniformSpace.Completion.continuous_map
+        | ih p =>
+          rw [ap_coe_coe hk, map_coe _ _ hk]
+          · congr 1
+            rw [DomainUnion.ap_pure]
+          · apply LipschitzWith.of_idist_le λ f f' ↦ ?_
+            apply le_trans (b := (idist f f' : ℝ))
+            · erw [Subtype.coe_le_coe, UniformFun.idist_eq_iSup]
+              apply le_iSup (f := λ x ↦ idist (f x) (f' x))
+            · conv_lhs => erw [← one_mul (a := (idist f f' : ℝ))]
+              apply mul_le_mul_of_nonneg
+              · exact NNReal.one_le_coe.mpr hk
+              · apply le_refl
+              · apply zero_le_one
+              · apply unitInterval.nonneg
+
+      theorem Domain.ap_assoc {K₁ K₂} [IMetricSpace δ]
+        {p : Domain «Σ» Γ α (γ →ₗ[K₂] β)} {q : Domain «Σ» Γ α (δ →ₗ[K₁] γ)} {r : Domain «Σ» Γ α δ}
+        (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) :
+          Domain.ap p (Domain.ap q r) =
+            Domain.ap (Domain.ap (Domain.map (λ f ↦ {toFun := LipschitzMap.comp f, lipschitz := LipschitzMap.lipschitz_comp_right}) p) q) r := by
+        induction p, q, r using UniformSpace.Completion.induction_on₃ with
+        | hp =>
+          apply isClosed_eq
+          · apply UniformSpace.Completion.continuous_map₂
+            · fun_prop
+            · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · apply UniformSpace.Completion.continuous_map₂
+            · apply UniformSpace.Completion.continuous_map₂
+              · apply Continuous.fst'
+                apply UniformSpace.Completion.continuous_map
+              · fun_prop
+            · fun_prop
+        | ih p q r =>
+          have hk₂k₁ : 1 ≤ K₂ * K₁ := Right.one_le_mul hk₂ hk₁
+
+          rw [ap_coe_coe hk₁, ap_coe_coe hk₂, map_coe _ _ (le_refl 1), ap_coe_coe hk₂, ap_coe_coe hk₂k₁]
+          congr 1
+          · rw [DomainUnion.ap_assoc]
+          · apply LipschitzMap.lipschitz_comp_left
 
       /-- General form of sequential composition. -/
       def Domain.ap' {K} : Domain «Σ» Γ α (β →ₗ[K] γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=

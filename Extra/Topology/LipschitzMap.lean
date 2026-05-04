@@ -13,7 +13,7 @@ theorem LipschitzMap.toFun_injective {α β K} [PseudoIMetricSpace α] [PseudoIM
   rintro ⟨f, _⟩ ⟨g, _⟩ (_|_)
   rfl
 
-notation:25 α:25 " →ₗ[" K:0 "] " β:26 => LipschitzMap α β K
+notation:25 α:26 " →ₗ[" K:0 "] " β:25 => LipschitzMap α β K
 
 instance {α β K} [PseudoIMetricSpace α] [PseudoIMetricSpace β] : CoeHead (α →ₗ[K] β) (α →ᵤ β) where
   coe := LipschitzMap.toFun
@@ -38,3 +38,54 @@ instance {α β K} [PseudoIMetricSpace α] [IMetricSpace β] [CompleteSpace β] 
       · intro hf; exact ⟨⟨f, hf⟩, rfl⟩
     rw [this]
     exact (UniformFun.isClosed_setOf_lipschitzWith K).isComplete
+
+def LipschitzMap.comp {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] {K₁ K₂}
+  (f : β →ₗ[K₂] γ) (g : α →ₗ[K₁] β) :
+    α →ₗ[K₂ * K₁] γ where
+  toFun := f ∘ g
+  lipschitz := LipschitzWith.comp f.lipschitz g.lipschitz
+
+theorem LipschitzMap.lipschitz_comp_right {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] {K₁ K₂} {f : γ →ₗ[K₂] β} :
+    LipschitzWith K₂ (λ g : α →ₗ[K₁] γ ↦ f.comp g) := by
+  apply LipschitzWith.of_idist_le λ g g' ↦ ?_
+  erw [UniformFun.idist_eq_iSup, UniformFun.idist_eq_iSup]
+  unfold LipschitzMap.comp
+  dsimp
+
+  apply unitInterval.coe_iSup_le
+  · apply mul_nonneg
+    · exact NNReal.zero_le_coe
+    · apply unitInterval.nonneg
+  · intros x
+    trans
+    · exact LipschitzWith.to_idist_le f.lipschitz (g x) (g' x)
+    · apply mul_le_mul_of_nonneg
+      · apply le_refl
+      · rw [Subtype.coe_le_coe]
+        apply le_iSup (f := λ x ↦ idist (g x) (g' x))
+      · exact NNReal.zero_le_coe
+      · apply unitInterval.nonneg
+
+theorem LipschitzMap.lipschitz_comp_left {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] {K₁ K₂} :
+    LipschitzWith 1 λ f : γ →ₗ[K₂] β ↦ {toFun := LipschitzMap.comp (α := α) (K₁ := K₁) f, lipschitz := LipschitzMap.lipschitz_comp_right : LipschitzMap _ _ _} := by
+  apply LipschitzWith.of_idist_le λ f f' ↦ ?_
+  erw [UniformFun.idist_eq_iSup, UniformFun.idist_eq_iSup]
+  dsimp
+  apply unitInterval.coe_iSup_le
+  · apply mul_nonneg
+    · apply zero_le_one
+    · apply unitInterval.nonneg
+  · intro g
+    erw [UniformFun.idist_eq_iSup]
+    apply unitInterval.coe_iSup_le
+    · apply mul_nonneg
+      · apply zero_le_one
+      · apply unitInterval.nonneg
+    · intro x
+      dsimp [LipschitzMap.comp]
+
+      trans (⨆ x, idist (f x) (f' x)).val
+      · rw [Subtype.coe_le_coe]
+        apply le_iSup (f := λ x ↦ idist (f x) (f' x))
+      · erw [one_mul]
+        rfl

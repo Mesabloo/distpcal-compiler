@@ -81,3 +81,5 @@ theorem UniformFun.isClosed_setOf_lipschitzWith {α : Type u} {β : Type v}
   · exact continuous_const
 
 attribute [-instance] UniformFun.instPseudoEMetricSpace UniformFun.instEMetricSpace
+
+def UniformFun.comp {α β γ} (f : β →ᵤ γ) (g : α →ᵤ β) : α →ᵤ γ := Function.comp f g
