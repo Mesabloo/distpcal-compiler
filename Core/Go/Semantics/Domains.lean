@@ -2301,6 +2301,15 @@ noncomputable section Domain
         congr 1
         rw [IterativeDomain.ap_assoc]
 
+      theorem DomainUnion.map_ap [IMetricSpace δ] {K₁ K₂} {f : β →ᵤ δ} (hf : LipschitzWith K₁ f)
+        {p : DomainUnion «Σ» Γ α (γ →ₗ[K₂] β)} {q : DomainUnion «Σ» Γ α γ} :
+          DomainUnion.map f (p.ap q) = (DomainUnion.map (λ g ↦ { toFun := f, lipschitz := hf : LipschitzMap _ _ _ }.comp g) p).ap q := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q
+        unfold ap map mk
+        dsimp [Sigma.map]
+        congr 1
+        rw [IterativeDomain.map_ap]
+
       theorem DomainUnion.ap_lipschitz_left {K} {q : DomainUnion «Σ» Γ α β} :
           LipschitzWith 1 λ p : DomainUnion «Σ» Γ α (β →ₗ[K] γ) ↦ DomainUnion.ap p q := by
         intros x y
@@ -2454,6 +2463,27 @@ noncomputable section Domain
               · apply zero_le_one
               · apply unitInterval.nonneg
 
+      theorem Domain.map_ap [IMetricSpace δ] {K₁ K₂} {p : Domain «Σ» Γ α (γ →ₗ[K₂] β)} {q : Domain «Σ» Γ α γ} {f : β →ᵤ δ} (hf : LipschitzWith K₁ f)
+        (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) :
+          Domain.map f (Domain.ap p q) = Domain.ap (Domain.map (λ g ↦ LipschitzMap.comp ⟨f, hf⟩ g) p) q := by
+        induction p, q using UniformSpace.Completion.induction_on₂ with
+        | hp =>
+          apply isClosed_eq
+          · apply Continuous.comp'
+            · apply UniformSpace.Completion.continuous_map
+            · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · apply UniformSpace.Completion.continuous_map₂
+            · apply Continuous.fst'
+              apply UniformSpace.Completion.continuous_map
+            · fun_prop
+        | ih p q =>
+          rw [ap_coe_coe hk₂, map_coe _ hf hk₁, map_coe, ap_coe_coe]
+          · congr 1
+            rw [DomainUnion.map_ap]
+          · exact Right.one_le_mul hk₁ hk₂
+          · apply LipschitzMap.lipschitz_comp_right
+          · exact hk₁
+
       theorem Domain.ap_assoc {K₁ K₂} [IMetricSpace δ]
         {p : Domain «Σ» Γ α (γ →ₗ[K₂] β)} {q : Domain «Σ» Γ α (δ →ₗ[K₁] γ)} {r : Domain «Σ» Γ α δ}
         (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) :
@@ -2479,6 +2509,12 @@ noncomputable section Domain
           · rw [DomainUnion.ap_assoc]
           · apply LipschitzMap.lipschitz_comp_left
 
+      theorem Domain.map_seq_map {β' γ'} [IMetricSpace β'] [IMetricSpace γ'] {K₁ K₂} {f : β →ᵤ γ' →ₗ[K₁] γ} {g : β' →ₗ[K₂] γ'}
+        {p : Domain «Σ» Γ α β} {q : Domain «Σ» Γ α β'} :
+          Domain.ap (Domain.map f p) (Domain.map g q) = Domain.ap (Domain.map ((λ x ↦ x.comp g) ∘ f) p) q := by
+
+        admit
+
       /-- General form of sequential composition. -/
       def Domain.ap' {K} : Domain «Σ» Γ α (β →ₗ[K] γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
         Domain.ap
@@ -2503,6 +2539,10 @@ noncomputable section Domain
         depth at most `n`.
         Unfortunately, if `f` performs infinitely many choices, mapping each leaf to trees
         that are bigger and bigger, the actual depth becomes unbounded!
+
+        Perhaps this is not much of a restriction in our actual semantics?
+        One problem then would be to extend such function to the completion, which seems
+        rather cumbersome.
       -/
 
       -- TODO: maybe we should need to restrict the class of continuation functions
@@ -2716,6 +2756,41 @@ noncomputable section Domain
           idist (Domain.seq (Domain.branch f) p) (Domain.seq (Domain.branch f) p') ≤ unitInterval.half * idist p p' := by
         admit
 
+      theorem Domain.seq_assoc {p q r : Domain «Σ» Γ α PUnit} :
+          Domain.seq p (Domain.seq q r) = Domain.seq (Domain.seq p q) r := by
+        repeat rw [Domain.seq_eq_app]
+
+        rw [Domain.ap_assoc, Domain.map_map, Domain.map_seq_map, Domain.map_ap, Domain.map_map]
+        · conv_lhs => enter [1, 1, 1]; repeat rw [Function.comp_def]
+          conv_rhs => enter [1, 1, 1]; repeat rw [Function.comp_def]
+          conv_lhs =>
+            enter [1, 1, 1, x]
+            change { toFun := λ _ ↦ { toFun := id, lipschitz := _ }, lipschitz := _ }
+          conv_rhs =>
+            enter [1, 1, 1, x]
+            change { toFun := λ _ ↦ { toFun := id, lipschitz := _ }, lipschitz := _ }
+          convert rfl
+          erw [one_mul]
+        · apply le_refl
+        · apply le_refl
+        · apply LipschitzWith.const'
+        · apply LipschitzMap.lipschitz_comp_right
+        · apply LipschitzWith.const'
+        · apply le_refl
+        · apply le_refl
+        · fapply LipschitzMap.mk
+          · intro _
+            fapply LipschitzMap.mk
+            · exact id
+            · apply LipschitzWith.id
+          · apply LipschitzWith.const'
+        · apply le_refl
+        · apply le_refl
+        · apply LipschitzWith.const'
+        · apply LipschitzMap.lipschitz_comp_left
+        · apply le_refl
+        · apply le_refl
+
       @[inherit_doc Domain.seq]
       def Domain.seq' : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
         flip Domain.seq
@@ -2734,9 +2809,8 @@ noncomputable section Domain
 
       theorem Domain.seq'_assoc {p q r : Domain «Σ» Γ α PUnit} :
           Domain.seq' (Domain.seq' r q) p = Domain.seq' r (Domain.seq' q p) := by
-        repeat rw [Domain.seq'_eq_app]
-
-        admit
+        unfold seq' flip
+        exact Domain.seq_assoc
 
       theorem Domain.seq'_left_nonexpansive {p p' q : Domain «Σ» Γ α PUnit} :
           idist (Domain.seq' q p) (Domain.seq' q p') ≤ idist p p' := by
