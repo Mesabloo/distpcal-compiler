@@ -89,3 +89,21 @@ theorem LipschitzMap.lipschitz_comp_left {α β γ} [PseudoIMetricSpace α] [Pse
         apply le_iSup (f := λ x ↦ idist (f x) (f' x))
       · erw [one_mul]
         rfl
+
+theorem LipschitzMap.lipschitz_comp_left' {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] {K₁ K₂} {g : α →ₗ[K₁] γ} :
+    LipschitzWith 1 λ f : γ →ₗ[K₂] β ↦ f.comp g := by
+  apply LipschitzWith.of_idist_le λ f f' ↦ ?_
+  erw [UniformFun.idist_eq_iSup, UniformFun.idist_eq_iSup]
+
+  trans (⨆ x, idist (f x) (f' x)).val
+  · rw [Subtype.coe_le_coe]
+    apply iSup_le λ x ↦ ?_
+    apply le_iSup (f := λ x ↦ idist (f x) (f' x))
+  · erw [one_mul]
+    rfl
+
+theorem LipschitzMap.lipschitz_apply {β γ δ} [IMetricSpace β] [IMetricSpace γ] [IMetricSpace δ] {K₁ K₂} {f : β →ᵤ γ} (hf : LipschitzWith K₁ f) :
+    LipschitzWith 1 λ g : (β →ₗ[K₁] γ) →ₗ[K₂] δ ↦ g { toFun := f, lipschitz := hf } := by
+  apply LipschitzWith.of_idist_le λ g g' ↦ ?_
+  erw [one_mul, Subtype.coe_le_coe, UniformFun.idist_eq_iSup]
+  apply le_iSup (f := λ x ↦ idist (g x) (g' x))

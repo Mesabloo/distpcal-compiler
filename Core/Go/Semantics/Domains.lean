@@ -2509,11 +2509,22 @@ noncomputable section Domain
           · rw [DomainUnion.ap_assoc]
           · apply LipschitzMap.lipschitz_comp_left
 
-      theorem Domain.map_seq_map {β' γ'} [IMetricSpace β'] [IMetricSpace γ'] {K₁ K₂} {f : β →ᵤ γ' →ₗ[K₁] γ} {g : β' →ₗ[K₂] γ'}
-        {p : Domain «Σ» Γ α β} {q : Domain «Σ» Γ α β'} :
-          Domain.ap (Domain.map f p) (Domain.map g q) = Domain.ap (Domain.map ((λ x ↦ x.comp g) ∘ f) p) q := by
+      theorem Domain.seq_map_assoc {K₁ K₂} [IMetricSpace δ] {p : Domain «Σ» Γ α (γ →ₗ[K₁] δ)} {f : β →ᵤ γ} {q : Domain «Σ» Γ α β} (hf : LipschitzWith K₂ f) (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) :
+          Domain.ap p (Domain.map f q) = Domain.ap (Domain.map (LipschitzMap.comp · ⟨f, hf⟩) p) q := by
+        rw [← Domain.pure_ap (f := ⟨f, hf⟩) hk₂, Domain.ap_assoc hk₂ hk₁, Domain.ap_pure hk₁,
+            Domain.map_map hk₁ hk₂]
+        · rfl
+        · apply LipschitzWith.weaken ?_ hk₁
+          apply LipschitzMap.lipschitz_comp_left
+        · apply LipschitzWith.weaken ?_ hk₂
+          apply LipschitzMap.lipschitz_apply hf
 
-        admit
+      theorem Domain.map_seq_map {β' γ'} [IMetricSpace β'] [IMetricSpace γ'] {K₁ K₂ K₃} {f : β →ᵤ γ' →ₗ[K₁] γ} {g : β' →ₗ[K₂] γ'}
+        {p : Domain «Σ» Γ α β} {q : Domain «Σ» Γ α β'} (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) (hk₃ : 1 ≤ K₃) (hf : LipschitzWith K₃ f) :
+          Domain.ap (Domain.map f p) (Domain.map g q) = Domain.ap (Domain.map ((λ x ↦ x.comp g) ∘ f) p) q := by
+        rw [Domain.seq_map_assoc g.lipschitz hk₁ hk₂, Domain.map_map hk₃ (le_refl 1)]
+        · exact hf
+        · apply LipschitzMap.lipschitz_comp_left'
 
       /-- General form of sequential composition. -/
       def Domain.ap' {K} : Domain «Σ» Γ α (β →ₗ[K] γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
@@ -2778,6 +2789,10 @@ noncomputable section Domain
         · apply LipschitzWith.const'
         · apply le_refl
         · apply le_refl
+        · apply le_refl
+        · apply le_refl
+        · apply le_refl
+        · apply LipschitzWith.const'
         · fapply LipschitzMap.mk
           · intro _
             fapply LipschitzMap.mk

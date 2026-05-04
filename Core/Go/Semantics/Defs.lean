@@ -258,7 +258,7 @@ noncomputable section
         | .go S :: ss => (λ _ ↦ PUnit.unit) <$> (Statement.denotation ξ ς S ∥ Statement.denotation ξ ς ss)
         | .send c e :: ss =>
           -- FIXME: need to explicitly check if `c` is a synchronous channel or not
-          -- i.e. if it synctatically is some names bound in `ς`.
+          -- i.e. if it syntactically is some names bound in `ς`.
           Expression.denotation ξ ς e >>= λ v ↦
           Expression.denotation ξ ς c >>= λ c ↦
           Statement.denotation ξ ς ss ⬰ Domain.branch λ σ ↦
