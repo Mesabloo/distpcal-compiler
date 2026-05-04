@@ -4341,9 +4341,9 @@ noncomputable section Domain
               · -- Rewrite the set into a more convenient set
                 have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
                     {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
-                      ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ A ∧ Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel p' (π' v true).val)⟩} =
+                      ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ A ∧ Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel p' (π' v true).val)⟩} =
                     ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
-                      | Branch.send c v ⟨p'⟩ => {p | ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel p' (π' v true).val)⟩}
+                      | Branch.send c v ⟨p'⟩ => {p | ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel p' (π' v true).val)⟩}
                       | _ => ∅ := by
                   ext b
                   iff_intro h h
@@ -4367,9 +4367,9 @@ noncomputable section Domain
 
                   have h' (c v) (p' : (IterativeDomain «Σ» Γ α β m).carrier) :
                       {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
-                        ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel p' (π' v true).val)⟩} =
+                        ∃ π', Branch.recv c π' ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel p' (π' v true).val)⟩} =
                       ⋃ p'' ∈ f'' σ, match (motive := Branch .. → Set _) p'' with
-                        | Branch.recv c' π' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel p' (π' v true).val)⟩} else ∅
+                        | Branch.recv c' π' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel p' (π' v true).val)⟩} else ∅
                         | _ => ∅ := by
                     ext b
                     iff_intro h h
@@ -4445,9 +4445,9 @@ noncomputable section Domain
               · -- Rewrite the set into a more convenient set
                 have h (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
                     {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
-                      ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ Branch.recv c π' ∈ A ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel (π' v true).val p')⟩} =
+                      ∃ v c p' π', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ Branch.recv c π' ∈ A ∧ p = Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel (π' v true).val p')⟩} =
                     ⋃ b ∈ A, match (motive := Branch .. → Set _) b with
-                      | Branch.recv c π' => {p | ∃ v p', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel (π' v true).val p')⟩}
+                      | Branch.recv c π' => {p | ∃ v p', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel (π' v true).val p')⟩}
                       | _ => ∅ := by
                   ext b
                   iff_intro h h
@@ -4474,9 +4474,9 @@ noncomputable section Domain
 
                     have h' (c) (π' : α →ᵤ Bool →ᵤ Restriction (IterativeDomain «Σ» Γ α β m).carrier unitInterval.half) :
                         {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier |
-                          ∃ v p', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel (π' v true).val p')⟩} =
+                          ∃ v p', Branch.send c v ⟨p'⟩ ∈ f'' σ ∧ p = Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel (π' v true).val p')⟩} =
                         ⋃ p'' ∈ f'' σ, match (motive := Branch .. → Set _) p'' with
-                          | Branch.send c' v p' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_7 m n) (parallel (π' v true).val p'.val)⟩} else ∅
+                          | Branch.send c' v p' => if c = c' then {Branch.sync c ⟨lift (parallel._proof_6 m n) (parallel (π' v true).val p'.val)⟩} else ∅
                           | _ => ∅ := by
                       ext b
                       iff_intro h h
