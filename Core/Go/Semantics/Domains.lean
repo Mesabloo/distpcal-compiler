@@ -3596,6 +3596,33 @@ noncomputable section Domain
               rw! [Nat.max_assoc m n o]
               rfl
 
+      theorem IterativeDomain.choice_comm {m n} {p : (IterativeDomain «Σ» Γ α PUnit m).carrier} {q : (IterativeDomain «Σ» Γ α PUnit n).carrier} :
+          IterativeDomain.choice p q = Nat.max_comm n m ▸ IterativeDomain.choice q p := by
+        match m, p with
+        | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.leaf_choice, IterativeDomain.choice_leaf]
+          grind only
+        | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.abort_choice, IterativeDomain.choice_abort]
+          grind only
+        | m + 1, IterativeDomain.branch f =>
+          match n, q with
+          | 0, IterativeDomain.leaf v' | n + 1, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.leaf_choice, IterativeDomain.choice_leaf]
+            grind only
+          | 0, IterativeDomain.abort | n + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.abort_choice, IterativeDomain.choice_abort]
+            grind only
+          | n + 1, IterativeDomain.branch f' =>
+            rw [IterativeDomain.choice_branch_branch, IterativeDomain.choice_branch_branch]
+            conv_lhs => enter [1, 1, σ]; rw [Set.union_comm]
+
+            repeat rw [eqRec_eq_cast]
+            repeat rw [cast_cast]
+
+            rw! [Nat.max_comm n m]
+            rfl
+
       def DomainUnion.choice : DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit → DomainUnion «Σ» Γ α PUnit :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.choice p q)
 
@@ -3671,6 +3698,14 @@ noncomputable section Domain
         rw! (castMode := .all) [Nat.max_assoc]
         congr 1
         apply IterativeDomain.choice_assoc
+
+      theorem DomainUnion.choice_comm {p q : DomainUnion «Σ» Γ α PUnit} : p.choice q = q.choice p := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q
+        change DomainUnion.mk _ = DomainUnion.mk _
+        rw! (castMode := .all) [Nat.max_comm n m]
+        congr 1
+        set_option pp.proofs true in
+        apply IterativeDomain.choice_comm
 
       /-- Non-deterministic choice, aka tree union. -/
       def Domain.choice : Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit → Domain «Σ» Γ α PUnit :=
@@ -3868,7 +3903,19 @@ noncomputable section Domain
               IterativeDomain.idist_abort_abort]
           rfl
 
-      theorem Domain.choice_assoc [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] {p q r : Domain «Σ» Γ α PUnit} :
+      theorem Domain.choice_comm {p q : Domain «Σ» Γ α PUnit} :
+          Domain.choice p q = Domain.choice q p := by
+        induction p, q using UniformSpace.Completion.induction_on₂ with
+        | hp =>
+          apply isClosed_eq
+          · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+        | ih p q =>
+          rw [choice_coe_coe, choice_coe_coe]
+          congr 1
+          apply DomainUnion.choice_comm
+
+      theorem Domain.choice_assoc {p q r : Domain «Σ» Γ α PUnit} :
           Domain.choice p (Domain.choice q r) = Domain.choice (Domain.choice p q) r := by
         induction p, q, r using UniformSpace.Completion.induction_on₃ with
         | hp =>
@@ -3884,7 +3931,7 @@ noncomputable section Domain
           congr 1
           apply DomainUnion.choice_assoc
 
-      theorem Domain.choice_distrib_map [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] {p q : Domain «Σ» Γ α PUnit} {f : PUnit.{x + 1} → PUnit.{x + 1}} :
+      theorem Domain.choice_distrib_map {p q : Domain «Σ» Γ α PUnit} {f : PUnit.{x + 1} → PUnit.{x + 1}} :
           Domain.map f (Domain.choice p q) = Domain.choice (Domain.map f p) (Domain.map f q) := by
         have : f = id := rfl
 
