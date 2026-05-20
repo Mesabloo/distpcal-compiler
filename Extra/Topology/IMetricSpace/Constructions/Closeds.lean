@@ -298,10 +298,6 @@ namespace IMetric
                   le_antisymm (IMetric.hausdorffInfIDist y t).2.2 h]
     linarith
 
-  theorem hausdorffIDist_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
-      hausdorffIDist (closure s) (closure t) = hausdorffIDist s t := by
-    simp only [hausdorffIDist, hausdorffInfIDist_closure, iSup_hausdorffInfIDist_closure]
-
   -- infIDist x t = ⊥ iff x is in the closure of t
   lemma mem_closure_iff_hausdorffInfIDist_eq_bot {α} [PseudoIMetricSpace α] {x : α} {t : Set α} :
       IMetric.hausdorffInfIDist x t = ⊥ ↔ x ∈ closure t := by
@@ -323,20 +319,52 @@ namespace IMetric
       hausdorffIDist s t = 0 ↔ closure s = closure t := by
     constructor
     · intro h
-      rw [← hausdorffIDist_closure] at h
+      rw [subset_antisymm_iff, isClosed_closure.closure_subset_iff, isClosed_closure.closure_subset_iff,
+          Set.subset_def, Set.subset_def]
       change max _ _ = ⊥ at h
       rw [max_eq_bot] at h
       obtain ⟨h1, h2⟩ := h
       rw [iSup₂_eq_bot] at h1 h2
-      apply Set.Subset.antisymm
-      · intro x hx
-        have := (mem_closure_iff_hausdorffInfIDist_eq_bot.mp (h1 x hx))
-        rwa [closure_closure] at this
-      · intro y hy
-        have := (mem_closure_iff_hausdorffInfIDist_eq_bot.mp (h2 y hy))
-        rwa [closure_closure] at this
-    · intro h
-      rw [← hausdorffIDist_closure, h, hausdorffIDist_self]
+
+      constructor
+      · intros x x_in
+        rw [← mem_closure_iff_hausdorffInfIDist_eq_bot]
+        exact h1 _ x_in
+      · intros x x_in
+        rw [← mem_closure_iff_hausdorffInfIDist_eq_bot]
+        exact h2 _ x_in
+    · rw [subset_antisymm_iff]
+      rintro ⟨s_sub_t, t_sub_s⟩
+      rw [isClosed_closure.closure_subset_iff, Set.subset_def] at s_sub_t t_sub_s
+
+      conv at t_sub_s => enter [x]; rw [← mem_closure_iff_hausdorffInfIDist_eq_bot]
+      conv at s_sub_t => enter [x]; rw [← mem_closure_iff_hausdorffInfIDist_eq_bot]
+
+      change max _ _ = 0
+      erw [sup_eq_bot_iff]
+      constructor <;> rwa [iSup₂_eq_bot]
+
+  theorem hausdorffIDist_self_closure {α} [PseudoIMetricSpace α] {s : Set α} :
+      hausdorffIDist s (closure s) = ⊥ := by
+    erw [hausdorffIDist_zero_iff_closure_eq_closure, closure_closure]
+
+  theorem hausdorffIDist_closure_left {α} [PseudoIMetricSpace α] {s t : Set α} :
+      hausdorffIDist (closure s) t = hausdorffIDist s t := by
+    apply le_antisymm
+    · grw (config := {transparency := .default})
+        [← Subtype.coe_le_coe, hausdorffIDist_idist_triangle (t := s), hausdorffIDist_comm,
+         hausdorffIDist_self_closure, zero_add]
+    · grw (config := {transparency := .default})
+        [← Subtype.coe_le_coe, hausdorffIDist_idist_triangle (t := closure s), hausdorffIDist_self_closure,
+         zero_add]
+
+  theorem hausdorffIDist_closure_right {α} [PseudoIMetricSpace α] {s t : Set α} :
+      hausdorffIDist s (closure t) = hausdorffIDist s t := by
+    rw [hausdorffIDist_comm, hausdorffIDist_closure_left, hausdorffIDist_comm]
+
+  theorem hausdorffIDist_closure {α} [PseudoIMetricSpace α] {s t : Set α} :
+      hausdorffIDist (closure s) (closure t) = hausdorffIDist s t := by
+    rw [hausdorffIDist_closure_left, hausdorffIDist_closure_right]
 
   theorem hausdorffIDist_eq_of_idist_eq_zero {α} {s t : Set α} [PseudoIMetricSpace α] (hs : IsClosed s) (ht : IsClosed t) :
       IMetric.hausdorffIDist s t = 0 ↔ s = t := by

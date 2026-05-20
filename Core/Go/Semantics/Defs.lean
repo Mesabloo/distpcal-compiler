@@ -338,9 +338,8 @@ noncomputable section
             rw [Domain.edist_eq]
             exact ENNReal.ofReal_ne_top
 
-          obtain ⟨q, q_fixed_point, tendsto_nhds, dist_le⟩ := while_seq_F_contracting.exists_fixedPoint p₀ edist_ne_top
-          conv at tendsto_nhds =>
-            enter [1, n]; rw [← while_seq_eq]
+          obtain ⟨q, -, tendsto_nhds, -⟩ := while_seq_F_contracting.exists_fixedPoint p₀ edist_ne_top
+          conv at tendsto_nhds => enter [1, n]; rw [← while_seq_eq]
           exact Filter.Tendsto.cauchySeq tendsto_nhds
 
         theorem while_seq_cauchy' (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) (e : Expression.{y} Typ) (S : List (Statement.{y} Typ (Expression Typ) Typ.initArgs)) :

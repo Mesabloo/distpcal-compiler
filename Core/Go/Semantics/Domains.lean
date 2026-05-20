@@ -2820,6 +2820,8 @@ noncomputable section Domain
       theorem Domain.seq_branch_contracting_right [CompleteSpace Γ] [CompleteSpace «Σ»] [CompleteSpace α]
         (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α PUnit))) (p p' : Domain «Σ» Γ α PUnit) :
           idist (Domain.seq (Domain.branch f) p) (Domain.seq (Domain.branch f) p') ≤ unitInterval.half * idist p p' := by
+        repeat rw [Domain.seq_eq_app]
+
         admit
 
       theorem Domain.seq_assoc {p q r : Domain «Σ» Γ α PUnit} :
