@@ -1343,6 +1343,28 @@ noncomputable section Domain
       def Domain.branch (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))) : Domain «Σ» Γ α β :=
         ⇑Domain.isSolution.symm (.inr (.inr λ σ ↦ ⟨closure (f σ), isClosed_closure⟩))
 
+      theorem Domain.idist_leaf_leaf {v v' : β} :
+          idist (Domain.leaf («Σ» := «Σ») (Γ := Γ) (α := α) v) (Domain.leaf v') = idist v v' := by
+        unfold Domain.leaf
+        rw [Isometry.to_idist_eq (IsometryEquiv.isometry _)]
+        rfl
+
+      theorem Domain.idist_abort_abort :
+          idist (Domain.abort («Σ» := «Σ») (Γ := Γ) (α := α) (β := β)) Domain.abort = ⊥ := by
+        unfold Domain.abort
+        rw [Isometry.to_idist_eq (IsometryEquiv.isometry _)]
+        rfl
+
+      theorem Domain.idist_branch_branch {f f' : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))} :
+          idist (Domain.branch f) (Domain.branch f') = ⨆ σ, idist (f σ) (f' σ) := by
+        unfold Domain.branch
+        erw [Isometry.to_idist_eq (IsometryEquiv.isometry _), UniformFun.idist_eq_iSup]
+        apply iSup_congr λ σ ↦ ?_
+        rw [Closeds.idist_eq]
+        change IMetric.hausdorffIDist (closure _) (closure _) = _
+        rw [IMetric.hausdorffIDist_closure]
+        rfl
+
       instance : Nonempty (Domain «Σ» Γ α β) := .intro .abort
 
       theorem Domain.isOpen_singleton_abort :
@@ -2589,33 +2611,153 @@ noncomputable section Domain
     section Monad
       /-! ## Monad -/
 
-      /-!
-        Unfortunately, this operator is inexpressible within Lean.
+      variable [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace γ]
 
-        Here's the problem.
-        Assume that we want to define the operator on `IterativeDomain`, then lift it
-        on `Domain` by extension.
-        Our signature would look like
-        ```lean
-        def IterativeDomain.bind {m n} (x : IterativeDomain «Σ» Γ α β m).carrier)
-          (f : β → IterativeDomain «Σ» Γ α γ n).carrier) :
-            IterativeDomain «Σ» Γ α γ (m + n)).carrier
-        ```
-        Yet, this signature assumes that `f` maps all leaves of `x` to trees that are of
-        depth at most `n`.
-        Unfortunately, if `f` performs infinitely many choices, mapping each leaf to trees
-        that are bigger and bigger, the actual depth becomes unbounded!
+      mutual
+        def Branch.bind {n} (f : β →ᵤ Domain «Σ» Γ α γ) (b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :
+            Branch «Σ» Γ α (Domain «Σ» Γ α γ) :=
+          match b with
+          | Branch.recv c π => Branch.recv c λ v ok ↦ ⟨IterativeDomain.bind (π v ok).val f⟩
+          | Branch.send c v p => Branch.send c v ⟨IterativeDomain.bind p.val f⟩
+          | Branch.close c p => Branch.close c ⟨IterativeDomain.bind p.val f⟩
+          | Branch.sync c p => Branch.sync c ⟨IterativeDomain.bind p.val f⟩
+          | Branch.next σ p => Branch.next σ ⟨IterativeDomain.bind p.val f⟩
 
-        Perhaps this is not much of a restriction in our actual semantics?
-        One problem then would be to extend such function to the completion, which seems
-        rather cumbersome.
-      -/
+        def IterativeDomain.bind {n} (p : (IterativeDomain «Σ» Γ α β n).carrier) (f : β →ᵤ Domain «Σ» Γ α γ) :
+            Domain «Σ» Γ α γ :=
+          match n, p with
+          | 0, IterativeDomain.leaf v | _ + 1, IterativeDomain.leaf v => f v
+          | 0, IterativeDomain.abort | _ + 1, IterativeDomain.abort => Domain.abort
+          | n + 1, IterativeDomain.branch g => Domain.branch λ σ ↦ Branch.bind f '' g σ
+      end
 
-      -- TODO: maybe we should need to restrict the class of continuation functions
-      -- `β → Domain «Σ» Γ α γ` (e.g. to Lipschitz functions or whatever)?
+      theorem Branch.bind_eq_map {m} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} :
+          Branch.bind f b = Branch.map (IterativeDomain.bind · f) b := by
+        cases b with
+          unfold bind
+        | recv c π => rw [Branch.map_recv]
+        | send c v p => rw [Branch.map_send]
+        | close c p => rw [Branch.map_close]
+        | sync c p => rw [Branch.map_sync]
+        | next σ p => rw [Branch.map_next]
+
+      theorem IterativeDomain.bind_leaf {n} {v : β} {f : β →ᵤ Domain «Σ» Γ α γ} :
+          IterativeDomain.bind (IterativeDomain.leaf v (n := n)) f = f v := by
+        match n with
+        | 0 | n + 1 =>
+          unfold IterativeDomain.bind
+          rfl
+
+      theorem IterativeDomain.bind_abort {n} {f : β →ᵤ Domain «Σ» Γ α γ} :
+          IterativeDomain.bind (IterativeDomain.abort (n := n)) f = Domain.abort := by
+        match n with
+        | 0 | n + 1 =>
+          unfold IterativeDomain.bind
+          rfl
+
+      theorem IterativeDomain.bind_branch {n} {f : β →ᵤ Domain «Σ» Γ α γ} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+          IterativeDomain.bind (IterativeDomain.branch g) f = Domain.branch λ σ ↦ Branch.map (IterativeDomain.bind · f) '' g σ := by
+        conv_lhs => unfold IterativeDomain.bind
+        conv_lhs => enter [1, σ, 1, b]; rw [Branch.bind_eq_map]
+
+      theorem IterativeDomain.bind_cast_left {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (h : m = n) :
+          IterativeDomain.bind (h ▸ p) f = IterativeDomain.bind p f := by
+        cases h
+        rfl
+
+      theorem IterativeDomain.bind_lift {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (h : m ≤ n) :
+          IterativeDomain.bind p f = IterativeDomain.bind (IterativeDomain.lift h p) f := by
+        match m, p with
+        | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.lift_leaf, IterativeDomain.bind_leaf, IterativeDomain.bind_leaf]
+        | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.lift_abort, IterativeDomain.bind_abort, IterativeDomain.bind_abort]
+        | m + 1, IterativeDomain.branch g =>
+          rw [IterativeDomain.lift_branch', IterativeDomain.bind_branch, IterativeDomain.bind_cast_left,
+              IterativeDomain.bind_branch]
+          congr 1 with σ : 1
+          rw [Set.image_image]
+          congr 1 with b : 1
+          rw [Branch.map_comp']
+          congr 1 with p : 1
+          rw [Function.comp_def, IterativeDomain.bind_lift]
+
+      theorem IterativeDomain.bind_lipschitz_left' {K} {n} {p q : (IterativeDomain «Σ» Γ α β n).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
+          (idist (IterativeDomain.bind p f) (IterativeDomain.bind q f) : ℝ) ≤ K * (idist p q : ℝ) := by
+        match n, p, q with
+        | 0, IterativeDomain.leaf v, IterativeDomain.leaf v' | n + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
+          rw [IterativeDomain.bind_leaf, IterativeDomain.bind_leaf, IterativeDomain.idist_leaf_leaf]
+          grw [hf.to_idist_le]
+        | 0, IterativeDomain.abort, IterativeDomain.abort | n + 1, IterativeDomain.abort, IterativeDomain.abort =>
+          erw [IterativeDomain.bind_abort, Domain.idist_abort_abort, IterativeDomain.idist_abort_abort, mul_zero]
+          rfl
+        | 0, IterativeDomain.leaf v, IterativeDomain.abort | n + 1, IterativeDomain.leaf v, IterativeDomain.abort =>
+          erw [IterativeDomain.idist_leaf_abort, mul_one]
+          trans 1
+          · grind only [= Set.mem_Icc]
+          · assumption
+        | 0, IterativeDomain.abort, IterativeDomain.leaf v' | n + 1, IterativeDomain.abort, IterativeDomain.leaf v' =>
+          erw [IterativeDomain.idist_abort_leaf, mul_one]
+          trans 1
+          · grind only [= Set.mem_Icc]
+          · assumption
+        | n + 1, IterativeDomain.leaf v, IterativeDomain.branch g' =>
+          erw [IterativeDomain.idist_leaf_branch, mul_one]
+          trans 1
+          · grind only [= Set.mem_Icc]
+          · assumption
+        | n + 1, IterativeDomain.abort, IterativeDomain.branch g' =>
+          erw [IterativeDomain.idist_abort_branch, mul_one]
+          trans 1
+          · grind only [= Set.mem_Icc]
+          · assumption
+        | n + 1, IterativeDomain.branch g, IterativeDomain.leaf v' =>
+          erw [IterativeDomain.idist_branch_leaf, mul_one]
+          trans 1
+          · grind only [= Set.mem_Icc]
+          · assumption
+        | n + 1, IterativeDomain.branch g, IterativeDomain.abort =>
+          erw [IterativeDomain.idist_branch_abort, mul_one]
+          trans 1
+          · grind only [= Set.mem_Icc]
+          · assumption
+        | n + 1, IterativeDomain.branch g, IterativeDomain.branch g' =>
+          rw [IterativeDomain.bind_branch, IterativeDomain.bind_branch, IterativeDomain.idist_branch_branch, Domain.idist_branch_branch]
+          apply unitInterval.coe_iSup_le ?_ λ σ ↦ ?_
+          · apply mul_nonneg
+            · exact NNReal.zero_le_coe
+            · grind only [= Set.mem_Icc]
+          · apply le_trans (IMetric.hausdorffIDist_image_lipschitz' hk ?_)
+            · apply mul_le_mul
+              · apply le_refl
+              · rw [Subtype.coe_le_coe]
+                apply le_iSup (f := λ σ ↦ IMetric.hausdorffIDist (g σ) (g' σ))
+              · apply unitInterval.nonneg
+              · exact NNReal.zero_le_coe
+            · intros b b'
+              grw [Branch.map_idist_le_right' hk]
+              · intros p q
+                exact IterativeDomain.bind_lipschitz_left' hf hk
+
+      def DomainUnion.bind (p : DomainUnion «Σ» Γ α β) : (β →ᵤ Domain «Σ» Γ α γ) →ᵤ Domain «Σ» Γ α γ :=
+        let ⟨_, p⟩ := p; IterativeDomain.bind p
+
+      theorem DomainUnion.bind_lipschitz_left {K} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
+          LipschitzWith K (DomainUnion.bind · f) := by
+        apply LipschitzWith.of_idist_le
+        rintro ⟨m, p⟩ ⟨n, q⟩
+        dsimp [DomainUnion.bind]
+        rw [IterativeDomain.bind_lift (le_max_left m n), IterativeDomain.bind_lift (le_max_right m n)]
+        apply le_trans (IterativeDomain.bind_lipschitz_left' hf hk)
+        rfl
+
+      theorem DomainUnion.bind_uniform_continuous {K} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
+          UniformContinuous (DomainUnion.bind · f) :=
+        (DomainUnion.bind_lipschitz_left hf hk).uniformContinuous
 
       /-- Replace leaves of the tree with subtrees depending on the value of the leaves. -/
-      axiom Domain.bind : Domain «Σ» Γ α β → (β → Domain «Σ» Γ α γ) → Domain «Σ» Γ α γ
+      def Domain.bind (p : Domain «Σ» Γ α β) (f : β → Domain «Σ» Γ α γ) : Domain «Σ» Γ α γ :=
+        UniformSpace.Completion.extension (DomainUnion.bind · f) p
     end Monad
 
     section Sequence

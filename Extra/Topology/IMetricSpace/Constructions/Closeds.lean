@@ -703,6 +703,10 @@ noncomputable instance {α : Type u} [IMetricSpace α] : IMetricSpace (Closeds �
     · exact s.isClosed
     · exact t.isClosed
 
+theorem Closeds.idist_eq {α} [PseudoIMetricSpace α] {x y : Closeds α} :
+    idist x y = idist (x : Set α) y := by
+  rfl
+
 -- Helper for completeness proof: from hausdorffIDist s t < ε, get a nearby point in t
 lemma IMetric.exists_idist_lt_of_hausdorffIDist_lt {α : Type*} [PseudoIMetricSpace α]
     {s t : Set α} {x : α} (hx : x ∈ s) {ε : ℝ} (hε : 0 ≤ ε) (hε1 : ε ≤ 1)
