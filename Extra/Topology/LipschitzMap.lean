@@ -45,6 +45,8 @@ def LipschitzMap.comp {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β]
   toFun := f ∘ g
   lipschitz := LipschitzWith.comp f.lipschitz g.lipschitz
 
+@[inherit_doc] infixr:90 " ∘ₗ "  => LipschitzMap.comp
+
 theorem LipschitzMap.lipschitz_comp_right {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] {K₁ K₂} {f : γ →ₗ[K₂] β} :
     LipschitzWith K₂ (λ g : α →ₗ[K₁] γ ↦ f.comp g) := by
   apply LipschitzWith.of_idist_le λ g g' ↦ ?_
