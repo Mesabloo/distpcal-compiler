@@ -17,6 +17,7 @@ import Extra.Topology.LipschitzMap
 import Extra.Sigma
 import Extra.Set
 import Extra.Prop
+import Mathlib.Topology.MetricSpace.Ultra.Basic
 -- import Mathlib.Data.Part
 
 open scoped UniformConvergence
@@ -76,6 +77,11 @@ noncomputable section Domain
         PseudoIMetricSpace (Branch «Σ» Γ α γ) :=
       inferInstanceAs (PseudoIMetricSpace (_ ⊕ _ ⊕ _ ⊕ _ ⊕ _))
 
+    instance [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ]
+      [IsUltrametricIDist «Σ»] [IsUltrametricIDist Γ] [IsUltrametricIDist α] [IsUltrametricIDist γ] :
+        IsUltrametricIDist (Branch «Σ» Γ α γ) :=
+      inferInstanceAs (IsUltrametricIDist (_ ⊕ _ ⊕ _ ⊕ _ ⊕ _))
+
     instance Branch.instIMetricSpace [IMetricSpace «Σ»] [IMetricSpace Γ] [IMetricSpace α] [IMetricSpace γ] :
         IMetricSpace (Branch «Σ» Γ α γ) :=
       inferInstanceAs (IMetricSpace (_ ⊕ _ ⊕ _ ⊕ _ ⊕ _))
@@ -119,10 +125,20 @@ noncomputable section Domain
 
   instance : IMetricSpace PUnit := .of_metric_space_of_dist_le_one
   instance (priority := high) : CompleteSpace PUnit := inferInstance
+  instance : DiscreteIMetricSpace PUnit where
 
   private def IterativeDomain : ℕ → Object.{max u v w x}
     | 0 => { carrier := β ⊕ PUnit.{max u v w + 1} }
     | n + 1 => { carrier := β ⊕ PUnit.{u + 1} ⊕ («Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain n).carrier)) }
+
+  instance instUltrametricIDistIterativeDomain {n} [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace β]
+      [IsUltrametricIDist «Σ»] [IsUltrametricIDist Γ] [IsUltrametricIDist α] [IsUltrametricIDist β] :
+        IsUltrametricIDist (IterativeDomain «Σ» Γ α β n).carrier :=
+      match n with
+      | 0 => inferInstanceAs (IsUltrametricIDist (β ⊕ PUnit))
+      | n + 1 =>
+        let : IsUltrametricIDist (IterativeDomain «Σ» Γ α β n).carrier := instUltrametricIDistIterativeDomain (n := n)
+        inferInstanceAs (IsUltrametricIDist (β ⊕ PUnit ⊕ («Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier))))
 
   section
     variable {«Σ» Γ α β γ δ} [PseudoIMetricSpace γ]
@@ -935,6 +951,31 @@ noncomputable section Domain
         IDist.idist (DomainUnion.mk p) (DomainUnion.mk q) = IDist.idist (IterativeDomain.lift (le_max_left m n) p) (IterativeDomain.lift (le_max_right m n) q) := by
       rfl
 
+    instance [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace β]
+      [IsUltrametricIDist «Σ»] [IsUltrametricIDist Γ] [IsUltrametricIDist α] [IsUltrametricIDist β] :
+        IsUltrametricIDist (DomainUnion «Σ» Γ α β) where
+      idist_triangle_max x y z := by
+        let ⟨m, x⟩ := x; let ⟨n, y⟩ := y; let ⟨o, z⟩ := z
+        repeat rw [DomainUnion.idist_eq]
+
+        have h₁ : max m o ≤ max m (max n o) := by grind only [= max_def]
+        have h₂ : n ≤ max m (max n o) := by grind only [= max_def]
+
+        conv_lhs => rw [← IterativeDomain.lift_isometry' h₁]
+        rw [IterativeDomain.lift_lift', IterativeDomain.lift_lift']
+        grw [idist_triangle_max _ (IterativeDomain.lift h₂ y) _]
+        apply max_le_max
+        · suffices h₃ : max m n ≤ max m (max n o) by
+            conv_rhs => rw [← IterativeDomain.lift_isometry' h₃]
+            rw [IterativeDomain.lift_lift', IterativeDomain.lift_lift']
+
+          grind only [= max_def]
+        · suffices h₃ : max n o ≤ max m (max n o) by
+            conv_rhs => rw [← IterativeDomain.lift_isometry' h₃]
+            rw [IterativeDomain.lift_lift', IterativeDomain.lift_lift']
+
+          grind only [= max_def]
+
     theorem DomainUnion.mk_isometry {n} : Isometry (DomainUnion.mk («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (n := n)) := by
       apply Isometry.of_idist_eq λ x y ↦ ?_
 
@@ -1024,6 +1065,18 @@ noncomputable section Domain
     change (⟨dist (x : Completion α) y, dist_nonneg, UniformSpace.Completion.dist_le_iff (λ x y ↦ unitInterval.le_one (idist x y)) _ _⟩ : unitInterval) = ⟨dist x y, dist_nonneg, unitInterval.le_one (idist x y)⟩
     congr 1
     rw [UniformSpace.Completion.dist_eq]
+
+  instance {α} [PseudoIMetricSpace α] [IsUltrametricIDist α] : IsUltrametricIDist (UniformSpace.Completion α) where
+    idist_triangle_max x y z := by
+      induction x, y, z using UniformSpace.Completion.induction_on₃ with
+      | hp =>
+        apply isClosed_le
+        · exact continuous_idist.comp (continuous_fst.prodMk continuous_snd.snd)
+        · exact (continuous_idist.comp (continuous_fst.prodMk continuous_snd.fst)).sup
+                   (continuous_idist.comp (continuous_snd.fst.prodMk continuous_snd.snd))
+      | ih x y z =>
+        repeat rw [UniformSpace.Completion.idist_eq]
+        apply idist_triangle_max
 
   theorem Domain.edist_eq {x y : Domain «Σ» Γ α β} : edist x y = ENNReal.ofReal (dist x y) := by
     rw [edist_dist]

@@ -528,6 +528,42 @@ namespace IMetric
     rw [hausdorffIDist_comm, hausdorffIDist_eq_top_of_idist_eq_top_right]
     · exact hx
     · exact λ y y_in ↦ idist_comm x y ▸ h y y_in
+
+  theorem hausdorffIDist_triangle_max {α} [PseudoIMetricSpace α] [IsUltrametricIDist α] {s t u : Set α} :
+      hausdorffIDist s u ≤ hausdorffIDist s t ⊔ hausdorffIDist t u := by
+    unfold hausdorffIDist
+    ac_change _ ≤ ((⨆ x ∈ s, hausdorffInfIDist x t) ⊔ (⨆ x ∈ t, hausdorffInfIDist x u)) ⊔ ((⨆ y ∈ t, hausdorffInfIDist y s) ⊔ (⨆ y ∈ u, hausdorffInfIDist y t))
+    apply max_le_max
+    · apply iSup₂_le λ x x_in ↦ ?_
+
+      suffices hausdorffInfIDist x u ≤ hausdorffInfIDist x t ⊔ ⨆ y ∈ t, hausdorffInfIDist y u by
+        apply le_trans this
+        apply max_le_max
+        · apply le_iSup₂ (f := λ x _ ↦ hausdorffInfIDist x t) _ x_in
+        · rfl
+
+      unfold hausdorffInfIDist
+      rw [iInf₂_sup_eq]
+      apply le_iInf₂ λ y y_in ↦ ?_
+      grw [iInf₂_mono λ z z_in ↦ idist_triangle_max x y z]
+      rw [← sup_iInf₂_eq]
+      apply sup_le_sup_left
+      apply le_iSup₂ _ y_in
+    · apply iSup₂_le λ z z_in ↦ ?_
+
+      suffices hausdorffInfIDist z s ≤ (⨆ y ∈ t, hausdorffInfIDist y s) ⊔ hausdorffInfIDist z t by
+        apply le_trans this
+        apply max_le_max
+        · rfl
+        · apply le_iSup₂ (f := λ x _ ↦ hausdorffInfIDist x t) _ z_in
+
+      unfold hausdorffInfIDist
+      rw [sup_iInf₂_eq]
+      apply le_iInf₂ λ y y_in ↦ ?_
+      grw [iInf₂_mono λ x x_in ↦ idist_triangle_max z y x]
+      rw [← sup_iInf₂_eq, sup_comm]
+      apply sup_le_sup_right
+      apply le_iSup₂ _ y_in
 end IMetric
 
 -- Helper: for (s,t) in hausdorffEntourage, hausdorffIDist s t < ε (requires ε ≤ 1)
@@ -626,6 +662,9 @@ noncomputable instance PseudoIMetricSpace.hausdorff {α} [PseudoIMetricSpace α]
       exact mem_hausdorffEntourage_of_hausdorffIDist_lt (by positivity) (min_le_left _ _)
         (Set.mem_setOf.mp hst)
 
+instance {α} [PseudoIMetricSpace α] [IsUltrametricIDist α] : IsUltrametricIDist (Set α) where
+  idist_triangle_max _ _ _ := IMetric.hausdorffIDist_triangle_max
+
 namespace IMetric
 -- If for every x ∈ s there exists y ∈ t with idist x y ≤ r, and vice versa,
 -- then hausdorffIDist s t ≤ r.
@@ -706,6 +745,9 @@ noncomputable instance {α : Type u} [IMetricSpace α] : IMetricSpace (Closeds �
 theorem Closeds.idist_eq {α} [PseudoIMetricSpace α] {x y : Closeds α} :
     idist x y = idist (x : Set α) y := by
   rfl
+
+instance {α} [PseudoIMetricSpace α] [IsUltrametricIDist α] : IsUltrametricIDist (Closeds α) where
+  idist_triangle_max _ _ _ := IMetric.hausdorffIDist_triangle_max
 
 -- Helper for completeness proof: from hausdorffIDist s t < ε, get a nearby point in t
 lemma IMetric.exists_idist_lt_of_hausdorffIDist_lt {α : Type*} [PseudoIMetricSpace α]

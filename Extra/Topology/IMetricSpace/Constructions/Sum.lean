@@ -62,6 +62,28 @@ instance Sum.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMet
     · apply eq_of_idist_eq_zero at h
       rw [h]
 
+instance {α β} [IDist α] [IDist β] [IsUltrametricIDist α] [IsUltrametricIDist β] : IsUltrametricIDist (α ⊕ β) where
+  idist_triangle_max x y z := by
+    rcases x, y, z with ⟨x|x, y|y, z|z⟩
+    · change idist x z ≤ idist x y ⊔ idist y z
+      apply idist_triangle_max
+    · change ⊤ ≤ idist x y ⊔ ⊤
+      erw [sup_top_eq]
+    · change idist x z ≤ ⊤ ⊔ ⊤
+      erw [sup_top_eq]
+      apply OrderTop.le_top
+    · change ⊤ ≤ ⊤ ⊔ idist y z
+      erw [top_sup_eq]
+    · change ⊤ ≤ ⊤ ⊔ idist y z
+      erw [top_sup_eq]
+    · change idist x z ≤ ⊤ ⊔ ⊤
+      erw [top_sup_eq]
+      apply OrderTop.le_top
+    · change ⊤ ≤ idist x y ⊔ ⊤
+      erw [sup_top_eq]
+    · change idist x z ≤ idist x y ⊔ idist y z
+      apply idist_triangle_max
+
 theorem Isometry.sumMap' {W X Y Z} {f : W → X} {g : Y → Z} [PseudoIMetricSpace W] [PseudoIMetricSpace X] [PseudoIMetricSpace Y] [PseudoIMetricSpace Z]
   (hf : ∀ x y, idist (f x) (f y) = idist x y) (hg : ∀ x y, idist (g x) (g y) = idist x y) :
     ∀ x y, idist (Sum.map f g x) (Sum.map f g y) = idist x y := by

@@ -62,6 +62,15 @@ theorem UniformFun.idist_eq_iSup₂.{w} {α : Type u} {β : Type v} {δ : Type w
     idist f g = ⨆ x, ⨆ y, idist (f x y) (g x y) := by
   simp_rw [UniformFun.idist_eq_iSup]
 
+instance {α β} [PseudoIMetricSpace β] [IsUltrametricIDist β] : IsUltrametricIDist (α →ᵤ β) where
+  idist_triangle_max f g h := by
+    repeat rw [UniformFun.idist_eq_iSup]
+    apply iSup_le λ x ↦ ?_
+    trans
+    · apply idist_triangle_max _ (g x) _
+    · rw [← iSup_sup_eq]
+      apply le_iSup (f := λ x ↦ max (idist (f x) (g x)) (idist (g x) (h x)))
+
 theorem UniformFun.continuous_apply {α : Type u} {β : Type v} [PseudoIMetricSpace β] (x : α) :
     Continuous (λ f : α →ᵤ β ↦ UniformFun.toFun f x) :=
   (UniformFun.lipschitzWith_eval x).continuous

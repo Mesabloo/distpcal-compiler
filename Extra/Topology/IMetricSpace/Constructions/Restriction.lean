@@ -82,6 +82,12 @@ theorem Restriction.idist_eq {α ε h} [PseudoIMetricSpace α] {x y : Restrictio
     idist x y = ε * idist x.val y.val :=
   rfl
 
+instance {α ε h} [PseudoIMetricSpace α] [IsUltrametricIDist α] : IsUltrametricIDist (Restriction α ε h) where
+  idist_triangle_max x y z := by
+    repeat rw [Restriction.idist_eq]
+    rw [max_mul_mul_left, mul_le_mul_iff_right₀ h]
+    apply idist_triangle_max
+
 abbrev Restriction.map {α β ε h} (f : α → β) (x : Restriction α ε h) : Restriction β ε h where
   val := f x.val
 

@@ -615,6 +615,7 @@ theorem PseudoIMetricSpace.discrete.idist_eq {α} [DecidableEq α] {x y : α} :
     PseudoIMetricSpace.discrete.idist x y = if x = y then ⊥ else ⊤ := by
   rfl
 
+-- TODO: transform into class `IsDiscreteDist` that does not extend `IMetricSpace`.
 class DiscreteIMetricSpace (α : Type _) [DecidableEq α] extends IMetricSpace α where
   idist_discrete : ∀ x y, idist x y = if x = y then ⊥ else ⊤ := by intros x y; rfl
 export DiscreteIMetricSpace (idist_discrete)
@@ -683,3 +684,16 @@ theorem LipschitzWith.of_idist_le {α β} [PseudoIMetricSpace α] [PseudoIMetric
   apply mul_nonneg
   · exact NNReal.zero_le_coe
   · apply unitInterval.nonneg
+
+class IsUltrametricIDist (α : Type _) [IDist α] where
+  idist_triangle_max : ∀ x y z : α, idist x z ≤ idist x y ⊔ idist y z
+export IsUltrametricIDist (idist_triangle_max)
+
+instance (priority := low) {α} [DecidableEq α] [DiscreteIMetricSpace α] : IsUltrametricIDist α where
+  idist_triangle_max x y z := by
+    repeat rw [idist_discrete]
+    split_ifs <;> solve
+      | apply OrderBot.bot_le
+      | subst_vars
+        contradiction
+      | simp

@@ -7,6 +7,16 @@ instance Prod.instPseudoIMetricSpace {α β} [PseudoIMetricSpace α] [PseudoIMet
     · exact unitInterval.le_one'
     · exact unitInterval.le_one'
 
+instance {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [IsUltrametricIDist α] [IsUltrametricIDist β] : IsUltrametricIDist (α × β) where
+  idist_triangle_max x y z := by
+    let ⟨x₁, x₂⟩ := x; let ⟨y₁, y₂⟩ := y; let ⟨z₁, z₂⟩ := z
+    ac_change idist x₁ z₁ ⊔ idist x₂ z₂ ≤ (idist x₁ y₁ ⊔ idist y₁ z₁) ⊔ (idist x₂ y₂ ⊔ idist y₂ z₂)
+    · change (_ ⊔ _) ⊔ (_ ⊔ _) = _
+      ac_rfl
+    · apply max_le_max
+      · apply idist_triangle_max
+      · apply idist_triangle_max
+
 instance Prod.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMetricSpace (α × β) :=
   .of_metric_space_of_dist_le_one (inst := Prod.metricSpaceMax) λ x y ↦ by
     change max (idist x.1 y.1) (idist x.2 y.2) ≤ 1
