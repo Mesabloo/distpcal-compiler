@@ -41,6 +41,9 @@ instance : Nonempty Store.type := Store.property
 axiom Store_metricspace : IMetricSpace Store.type
 
 @[instance]
+axiom Store_ultrametricspace : IsUltrametricIDist Store.type
+
+@[instance]
 axiom Store_completespace : CompleteSpace Store.type
 
 open Classical in
@@ -169,7 +172,7 @@ noncomputable section
 
   namespace TypedSetTheory.Expression
     protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : Expression.{y} Typ → Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) (Value.𝕍 Store.{u, v, w, x}.type Channel.{w} Address.{u, v} Typ.{x}).type
-      | _ => sorry
+      | _ => Domain.branch sorry
 
     protected def denotations (ξ : List Channel) (ς : String → Option Channel) : List (Expression Typ) → Domain Store.type Channel (Value.Send𝕍 Address.{u, v} Typ.{x}) (List (Value.𝕍 Store.type Channel Address Typ).type)
       | [] => .pure []
@@ -226,10 +229,10 @@ noncomputable section
 
       protected def denotation (ξ : List Channel.{w}) (ς : String → Option Channel.{w}) : List (Statement.{y} Typ (Expression Typ) Typ.initArgs) → Domain Store.{u, v, w, x}.type Channel.{w} (Value.Send𝕍 Address.{u, v} Typ.{x}) PUnit.{y + 1}
         | [] => .branch λ σ ↦ {.next σ { val := .pure .unit }}
-        | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ .abort)
+        | .panic e :: ss => Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ _ ↦ Domain.abort)
         | .return es :: ss => match ss with
           | [] => match ξ with
-            | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ .branch λ σ ↦ match Store.popϙ σ with
+            | ret :: _ => Expression.denotations ξ ς es >>= λ vs ↦ Domain.branch λ σ ↦ match Store.popϙ σ with
               | .none => {.next σ { val := .abort }}
               | .some σ => {.next σ {
                 val := if h : ∀ v ∈ vs, Value.𝕍_isSend v then
@@ -242,9 +245,9 @@ noncomputable section
         | .print e :: ss =>
           Statement.denotation ξ ς ss ⬰ (Expression.denotation ξ ς e >>= λ v ↦
             if h : Value.𝕍_isSend v then
-              .branch λ _ ↦ {.send out (Value.𝕍_extract v h) { val := .pure .unit }}
+              Domain.branch λ _ ↦ {.send out (Value.𝕍_extract v h) { val := .pure .unit }}
             else
-              .abort)
+              Domain.abort)
         -- make
         -- var
         | .if e S₁ S₂ :: ss =>

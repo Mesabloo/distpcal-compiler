@@ -1079,6 +1079,9 @@ noncomputable section Domain
         repeat rw [UniformSpace.Completion.idist_eq]
         apply idist_triangle_max
 
+  variable [IsUltrametricIDist «Σ»] [IsUltrametricIDist Γ] [IsUltrametricIDist α] [IsUltrametricIDist β] in
+  example : IsUltrametricIDist (Domain «Σ» Γ α β) := inferInstance
+
   theorem Domain.edist_eq {x y : Domain «Σ» Γ α β} : edist x y = ENNReal.ofReal (dist x y) := by
     rw [edist_dist]
 
@@ -3109,7 +3112,7 @@ noncomputable section Domain
       variable [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace γ]
 
       mutual
-        def Branch.bind {K} {n} (f : β →ₗ[K] Domain «Σ» Γ α γ) (b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :
+        def Branch.bind {n} (f : β →ᵤ Domain «Σ» Γ α γ) (b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier) :
             Branch «Σ» Γ α (Domain «Σ» Γ α γ) :=
           match b with
           | Branch.recv c π => Branch.recv c λ v ok ↦ ⟨IterativeDomain.bind (π v ok).val f⟩
@@ -3118,7 +3121,7 @@ noncomputable section Domain
           | Branch.sync c p => Branch.sync c ⟨IterativeDomain.bind p.val f⟩
           | Branch.next σ p => Branch.next σ ⟨IterativeDomain.bind p.val f⟩
 
-        def IterativeDomain.bind {K} {n} (p : (IterativeDomain «Σ» Γ α β n).carrier) (f : β →ₗ[K] Domain «Σ» Γ α γ) :
+        def IterativeDomain.bind {n} (p : (IterativeDomain «Σ» Γ α β n).carrier) (f : β →ᵤ Domain «Σ» Γ α γ) :
             Domain «Σ» Γ α γ :=
           match n, p with
           | 0, IterativeDomain.leaf v | _ + 1, IterativeDomain.leaf v => f v
@@ -3126,7 +3129,7 @@ noncomputable section Domain
           | n + 1, IterativeDomain.branch g => Domain.branch λ σ ↦ Branch.bind f '' g σ
       end
 
-      theorem Branch.bind_eq_map {K} {m} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem Branch.bind_eq_map {m} {b : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} :
           Branch.bind f b = Branch.map (IterativeDomain.bind · f) b := by
         cases b with
           unfold bind
@@ -3136,31 +3139,31 @@ noncomputable section Domain
         | sync c p => rw [Branch.map_sync]
         | next σ p => rw [Branch.map_next]
 
-      theorem IterativeDomain.bind_leaf {K} {n} {v : β} {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem IterativeDomain.bind_leaf {n} {v : β} {f : β →ᵤ Domain «Σ» Γ α γ} :
           IterativeDomain.bind (IterativeDomain.leaf v (n := n)) f = f v := by
         match n with
         | 0 | n + 1 =>
           unfold IterativeDomain.bind
           rfl
 
-      theorem IterativeDomain.bind_abort {K} {n} {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem IterativeDomain.bind_abort {n} {f : β →ᵤ Domain «Σ» Γ α γ} :
           IterativeDomain.bind (IterativeDomain.abort (n := n)) f = Domain.abort := by
         match n with
         | 0 | n + 1 =>
           unfold IterativeDomain.bind
           rfl
 
-      theorem IterativeDomain.bind_branch {K} {n} {f : β →ₗ[K] Domain «Σ» Γ α γ} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
+      theorem IterativeDomain.bind_branch {n} {f : β →ᵤ Domain «Σ» Γ α γ} {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} :
           IterativeDomain.bind (IterativeDomain.branch g) f = Domain.branch λ σ ↦ Branch.map (IterativeDomain.bind · f) '' g σ := by
         conv_lhs => unfold IterativeDomain.bind
         conv_lhs => enter [1, σ, 1, b]; rw [Branch.bind_eq_map]
 
-      theorem IterativeDomain.bind_cast_left {K} {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ₗ[K] Domain «Σ» Γ α γ} (h : m = n) :
+      theorem IterativeDomain.bind_cast_left {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (h : m = n) :
           IterativeDomain.bind (h ▸ p) f = IterativeDomain.bind p f := by
         cases h
         rfl
 
-      theorem IterativeDomain.bind_lift {K} {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ₗ[K] Domain «Σ» Γ α γ} (h : m ≤ n) :
+      theorem IterativeDomain.bind_lift {m n} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (h : m ≤ n) :
           IterativeDomain.bind p f = IterativeDomain.bind (IterativeDomain.lift h p) f := by
         match m, p with
         | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
@@ -3177,12 +3180,12 @@ noncomputable section Domain
           congr 1 with p : 1
           rw [Function.comp_def, IterativeDomain.bind_lift]
 
-      theorem IterativeDomain.bind_lipschitz_left' {K} {n} {p q : (IterativeDomain «Σ» Γ α β n).carrier} {f : β →ₗ[K] Domain «Σ» Γ α γ} (hk : 1 ≤ K) :
-          (idist (IterativeDomain.bind p f) (IterativeDomain.bind q f) : ℝ) ≤ K * (idist p q : ℝ) := by
+      theorem IterativeDomain.bind_lipschitz_left' {K} {n} {p q : (IterativeDomain «Σ» Γ α β n).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
+          (idist (IterativeDomain.bind p f) (IterativeDomain.bind q f.toFun) : ℝ) ≤ K * (idist p q : ℝ) := by
         match n, p, q with
         | 0, IterativeDomain.leaf v, IterativeDomain.leaf v' | n + 1, IterativeDomain.leaf v, IterativeDomain.leaf v' =>
           rw [IterativeDomain.bind_leaf, IterativeDomain.bind_leaf, IterativeDomain.idist_leaf_leaf]
-          exact f.lipschitz.to_idist_le v v'
+          exact hf.to_idist_le v v'
         | 0, IterativeDomain.abort, IterativeDomain.abort | n + 1, IterativeDomain.abort, IterativeDomain.abort =>
           erw [IterativeDomain.bind_abort, Domain.idist_abort_abort, IterativeDomain.idist_abort_abort, mul_zero]
           rfl
@@ -3232,10 +3235,10 @@ noncomputable section Domain
             · intros b b'
               grw [Branch.map_idist_le_right' hk]
               · intros p q
-                exact IterativeDomain.bind_lipschitz_left' hk
+                exact IterativeDomain.bind_lipschitz_left' hf hk
 
       theorem IterativeDomain.bind_lipschitz_right' {K} {f g : β →ₗ[K] Domain «Σ» Γ α γ} {m} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
-          idist (IterativeDomain.bind p f) (IterativeDomain.bind p g) ≤ idist f g := by
+          idist (IterativeDomain.bind p f.toFun) (IterativeDomain.bind p g.toFun) ≤ idist f g := by
         match m, p with
         | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
           erw [IterativeDomain.bind_leaf, IterativeDomain.bind_leaf, UniformFun.idist_eq_iSup]
@@ -3256,11 +3259,11 @@ noncomputable section Domain
             grw [IterativeDomain.bind_lipschitz_right']
             exact unitInterval.half_mul_le_self
 
-      theorem IterativeDomain.bind_pure_comp {K} {f : β →ₗ[K] γ} {m : ℕ} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
-          IterativeDomain.bind p (Domain.pureₗ ∘ₗ f) = (DomainUnion.mk (IterativeDomain.map f.toFun p) : Domain «Σ» Γ α γ) := by
+      theorem IterativeDomain.bind_pure_comp {f : β →ᵤ γ} {m : ℕ} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+          IterativeDomain.bind p (Domain.pure ∘ f) = (DomainUnion.mk (IterativeDomain.map f p) : Domain «Σ» Γ α γ) := by
         match m, p with
         | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
-          rw [IterativeDomain.bind_leaf, IterativeDomain.map_leaf, LipschitzMap.comp]
+          rw [IterativeDomain.bind_leaf, IterativeDomain.map_leaf]
           dsimp [Domain.pure, IterativeDomain.pure, IterativeDomain.leaf]
           try
             apply eq_of_idist_eq_zero
@@ -3284,19 +3287,7 @@ noncomputable section Domain
             rfl
 
       theorem IterativeDomain.bind_map {K} (hk : 1 ≤ K) {m n} {p : (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
-          IterativeDomain.bind (K := 1) p
-              { toFun := λ f ↦ (DomainUnion.mk (IterativeDomain.map f.toFun q) : Domain ..),
-                lipschitz := by
-                  change LipschitzWith 1 (UniformSpace.Completion.coe' ∘ DomainUnion.mk ∘ (λ f ↦ IterativeDomain.map (LipschitzMap.toFun f) q))
-                  conv => enter [1]; rw [← one_mul (a := 1)]; enter [2]; rw [← one_mul (a := 1)]
-                  apply LipschitzWith.comp
-                  · apply UniformSpace.Completion.coe_isometry.lipschitz
-                  · apply LipschitzWith.comp
-                    · apply DomainUnion.mk_isometry.lipschitz
-                    · apply LipschitzWith.of_idist_le λ _ _ ↦ ?_
-                      erw [one_mul, Subtype.coe_le_coe]
-                      apply IterativeDomain.map_idist_le''
-              } =
+          IterativeDomain.bind p (λ f ↦ (DomainUnion.mk (IterativeDomain.map f.toFun q) : Domain ..)) =
             (DomainUnion.mk (IterativeDomain.ap p q) : Domain «Σ» Γ α γ) := by
         match m, p with
         | 0, IterativeDomain.leaf g | m + 1, IterativeDomain.leaf g =>
@@ -3328,51 +3319,50 @@ noncomputable section Domain
             conv_rhs => enter [1, 1, 1, p]; rw [IterativeDomain.bind_map hk]
             congr 2
 
-      def DomainUnion.bind {K} (p : DomainUnion «Σ» Γ α β) : (β →ₗ[K] Domain «Σ» Γ α γ) →ᵤ Domain «Σ» Γ α γ :=
+      def DomainUnion.bind (p : DomainUnion «Σ» Γ α β) : (β →ᵤ Domain «Σ» Γ α γ) →ᵤ Domain «Σ» Γ α γ :=
         let ⟨_, p⟩ := p; IterativeDomain.bind p
 
-      theorem DomainUnion.bind_lipschitz_left {K} {f : β →ₗ[K] Domain «Σ» Γ α γ} (hk : 1 ≤ K) :
-          LipschitzWith K (DomainUnion.bind · f) := by
+      theorem DomainUnion.bind_lipschitz_left {K} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
+          LipschitzWith K (DomainUnion.bind · f.toFun) := by
         apply LipschitzWith.of_idist_le
         rintro ⟨m, p⟩ ⟨n, q⟩
         dsimp [DomainUnion.bind]
         rw [IterativeDomain.bind_lift (le_max_left m n), IterativeDomain.bind_lift (le_max_right m n)]
-        apply le_trans (IterativeDomain.bind_lipschitz_left' hk)
+        apply le_trans (IterativeDomain.bind_lipschitz_left' hf hk)
         rfl
 
-      theorem DomainUnion.pure_bind {K} {n} {v : β} {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem DomainUnion.pure_bind {n} {v : β} {f : β →ᵤ Domain «Σ» Γ α γ} :
           (DomainUnion.mk (n := n) (IterativeDomain.pure v)).bind f = f v := by
         unfold IterativeDomain.pure DomainUnion.bind
         cases n with (dsimp; erw [IterativeDomain.bind_leaf])
 
-      theorem DomainUnion.bind_pure_comp {K} {f : β →ₗ[K] γ} {p : DomainUnion «Σ» Γ α β} :
-          DomainUnion.bind p (Domain.pureₗ ∘ₗ f) = (DomainUnion.map f.toFun p : Domain «Σ» Γ α γ) := by
+      theorem DomainUnion.bind_pure_comp {f : β →ᵤ γ} {p : DomainUnion «Σ» Γ α β} :
+          DomainUnion.bind p (Domain.pure ∘ f) = (DomainUnion.map f p : Domain «Σ» Γ α γ) := by
         let ⟨m, p⟩ := p
         dsimp [DomainUnion.bind, DomainUnion.map, Sigma.map]
         rw [IterativeDomain.bind_pure_comp]
 
-      theorem DomainUnion.bind_uniform_continuous {K} {f : β →ₗ[K] Domain «Σ» Γ α γ} (hk : 1 ≤ K) :
-          UniformContinuous (DomainUnion.bind · f) :=
-        (DomainUnion.bind_lipschitz_left hk).uniformContinuous
+      theorem DomainUnion.bind_uniform_continuous {K} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
+          UniformContinuous (DomainUnion.bind · f.toFun) :=
+        (DomainUnion.bind_lipschitz_left hf hk).uniformContinuous
 
       /-- Replace leaves of the tree with subtrees depending on the value of the leaves. -/
-      def Domain.bind {K} (p : Domain «Σ» Γ α β) (f : β →ₗ[K] Domain «Σ» Γ α γ) : Domain «Σ» Γ α γ :=
+      def Domain.bind (p : Domain «Σ» Γ α β) (f : β →ᵤ Domain «Σ» Γ α γ) : Domain «Σ» Γ α γ :=
         UniformSpace.Completion.extension (DomainUnion.bind · f) p
 
-      theorem Domain.bind_coe {K} {p : DomainUnion «Σ» Γ α β} {f : β →ₗ[K] Domain «Σ» Γ α γ} (hk : 1 ≤ K) :
+      theorem Domain.bind_coe {K} {p : DomainUnion «Σ» Γ α β} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
           Domain.bind (p : Domain «Σ» Γ α β) f = DomainUnion.bind p f := by
         unfold Domain.bind
         rw [UniformSpace.Completion.extension_coe]
-        · apply DomainUnion.bind_uniform_continuous
-          assumption
+        · apply DomainUnion.bind_uniform_continuous <;> assumption
 
-      theorem Domain.bind_lipschitz_left {K} (hk : 1 ≤ K) {f : β →ₗ[K] Domain «Σ» Γ α γ} :
-          LipschitzWith K λ p ↦ Domain.bind p f := by
+      theorem Domain.bind_lipschitz_left {K} (hk : 1 ≤ K) {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) :
+          LipschitzWith K λ p ↦ Domain.bind p f.toFun := by
         apply LipschitzWith.completion_extension
-        apply DomainUnion.bind_lipschitz_left hk
+        apply DomainUnion.bind_lipschitz_left hf hk
 
       theorem Domain.bind_lipschitz_right {K} {p : Domain «Σ» Γ α β} (hk : 1 ≤ K) :
-          LipschitzWith 1 (Domain.bind (K := K) (α := α) (γ := γ) p) := by
+          LipschitzWith 1 λ f : β →ₗ[K] Domain «Σ» Γ α γ ↦ Domain.bind p f.toFun := by
         apply LipschitzWith.of_idist_le λ f g ↦ ?_
         erw [one_mul, Subtype.coe_le_coe]
         induction p using UniformSpace.Completion.induction_on with
@@ -3383,23 +3373,26 @@ noncomputable section Domain
             · apply UniformSpace.Completion.continuous_extension
           · apply Continuous.idist <;> fun_prop
         | ih p =>
-          rw [Domain.bind_coe hk, Domain.bind_coe hk]
-          let ⟨m, p⟩ := p
-          dsimp [DomainUnion.bind]
-          apply IterativeDomain.bind_lipschitz_right'
+          rw [Domain.bind_coe ?_ hk, Domain.bind_coe ?_ hk]
+          · let ⟨m, p⟩ := p
+            dsimp [DomainUnion.bind]
+            apply IterativeDomain.bind_lipschitz_right'
+          · exact g.lipschitz
+          · exact f.lipschitz
 
       theorem Domain.bind_lipschitz {K} (hk : 1 ≤ K) :
-          LipschitzWith (K + 1) (Function.uncurry (Domain.bind (K := K) («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ))) := by
+          LipschitzWith (K + 1) (Function.uncurry (λ p (f : β →ₗ[K] Domain «Σ» Γ α γ) ↦ Domain.bind p f.toFun)) := by
         apply LipschitzWith.uncurry
         · intro f
           apply Domain.bind_lipschitz_left
-          assumption
+          · assumption
+          · exact f.lipschitz
         · intro p
           apply Domain.bind_lipschitz_right
           assumption
 
       theorem Domain.bind_pure_comp {K} {p : Domain «Σ» Γ α β} {f : β →ₗ[K] γ} (hk : 1 ≤ K) :
-          Domain.bind p (Domain.pureₗ ∘ₗ f) = Domain.map f p := by
+          Domain.bind p (Domain.pure ∘ f) = Domain.map f.toFun p := by
         induction p using UniformSpace.Completion.induction_on with
         | hp =>
           apply isClosed_eq
@@ -3407,19 +3400,24 @@ noncomputable section Domain
           · apply UniformSpace.Completion.continuous_map
         | ih p =>
           rw [Domain.bind_coe (K := 1 * K) ?_, Domain.map_coe _ f.lipschitz hk, DomainUnion.bind_pure_comp]
+          · rfl
           · erwa [one_mul]
+          · apply LipschitzWith.comp
+            · exact pure_lipschitz
+            · exact f.lipschitz
 
       theorem Domain.bind_map {K} {p : Domain «Σ» Γ α (β →ₗ[K] γ)} {q : Domain «Σ» Γ α β} (hk : 1 ≤ K) :
-          Domain.bind p { toFun := (Domain.map · q), lipschitz := by exact Domain.map_lipschitz_left hk } = Domain.ap p q := by
+          Domain.bind p (Domain.map · q) = Domain.ap p q := by
+        change Domain.bind p (LipschitzMap.toFun (K := 1) { toFun := (Domain.map · q), lipschitz := by exact Domain.map_lipschitz_left hk }) = Domain.ap p q
         induction p, q using UniformSpace.Completion.induction_on₂ with
         | hp =>
           apply isClosed_eq
-          · change Continuous (Function.uncurry (Function.bicompl (Domain.bind («Σ» := «Σ») (Γ := Γ) (α := α) (β := β →ₗ[K] γ)) id (λ p ↦ { toFun := λ f ↦ Domain.map f.toFun p, lipschitz := by exact Domain.map_lipschitz_left hk })))
+          · change Continuous (Function.uncurry (Function.bicompl (λ p (f : (β →ₗ[K] γ) →ₗ[1] Domain «Σ» Γ α γ) ↦ Domain.bind p f.toFun)
+              id (λ p ↦ { toFun := λ f ↦ Domain.map f.toFun p, lipschitz := by exact Domain.map_lipschitz_left hk })))
             rw [Function.uncurry_bicompl]
             apply Continuous.comp
-            · apply LipschitzWith.continuous
-              apply Domain.bind_lipschitz
-              rfl
+            · apply LipschitzWith.continuous (K := 1 + 1)
+              apply Domain.bind_lipschitz (le_refl _)
             · apply Continuous.prodMap
               · fun_prop
               · rw [Topology.IsInducing.continuous_iff (g := LipschitzMap.toFun)]
@@ -3437,30 +3435,32 @@ noncomputable section Domain
                 · solve_by_elim
           · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
         | ih p q =>
-          rw [Domain.bind_coe (le_refl _), Domain.ap_coe_coe hk]
-          conv_lhs => enter [2, 1, f]; rw [Domain.map_coe _ f.lipschitz hk]
-          let ⟨m, p⟩ := p; let ⟨n, q⟩ := q
-          dsimp [DomainUnion.bind, DomainUnion.map, Sigma.map, DomainUnion.ap]
-          apply IterativeDomain.bind_map hk
+          rw [Domain.bind_coe ?_ (le_refl _), Domain.ap_coe_coe hk]
+          · conv_lhs => enter [2, f]; dsimp; rw [Domain.map_coe _ f.lipschitz hk]
+            let ⟨m, p⟩ := p; let ⟨n, q⟩ := q
+            dsimp [DomainUnion.bind, DomainUnion.map, Sigma.map, DomainUnion.ap]
+            apply IterativeDomain.bind_map hk
+          · exact map_lipschitz_left hk
 
-      theorem Domain.pure_bind {K} {v : β} {f : β →ₗ[K] Domain «Σ» Γ α γ} (hk : 1 ≤ K) :
+      theorem Domain.pure_bind {K} {v : β} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) :
           Domain.bind (Domain.pure v) f = f v := by
         unfold pure
-        rw [Domain.bind_coe hk, DomainUnion.pure_bind]
+        rw [Domain.bind_coe hf hk, DomainUnion.pure_bind]
 
-      theorem Domain.bind_abort [CompleteSpace β] {K} (hk : 1 ≤ K) {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem Domain.bind_abort [CompleteSpace β] {K} (hk : 1 ≤ K) {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) :
           Domain.bind Domain.abort f = Domain.abort := by
         obtain ⟨m, h₁⟩ := Domain.exists_abort_eq («Σ» := «Σ») (Γ := Γ) (α := α) (β := β)
-        rw [h₁, Domain.bind_coe hk, DomainUnion.mk, DomainUnion.bind, IterativeDomain.bind_abort]
+        rw [h₁, Domain.bind_coe hf hk, DomainUnion.mk, DomainUnion.bind, IterativeDomain.bind_abort]
 
-      theorem IterativeDomain.bind_eq_bind_embedAt {K} (hk : 1 ≤ K) {m} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem IterativeDomain.bind_eq_bind_embedAt {K} (hk : 1 ≤ K) {m} {p : (IterativeDomain «Σ» Γ α β m).carrier} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) :
           IterativeDomain.bind p f = Domain.bind (embedAt _ p) f := by
         unfold embedAt
         rw [Domain.bind_coe]
         · rfl
         · assumption
+        · assumption
 
-      theorem Domain.bind_branch {K} (hk : 1 ≤ K) [CompleteSpace β] {h : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))} {f : β →ₗ[K] Domain «Σ» Γ α γ} :
+      theorem Domain.bind_branch {K} (hk : 1 ≤ K) [CompleteSpace β] {h : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K f) :
           Domain.bind (Domain.branch h) f = Domain.branch λ σ ↦ Branch.map (Domain.bind · f) '' h σ := by
         let G : β ⊕ PUnit ⊕ («Σ» →ᵤ Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β))) → Domain «Σ» Γ α γ
           | .inl v => f v
@@ -3473,7 +3473,7 @@ noncomputable section Domain
 
           case inl.inl v₁ v₂ =>
             change (idist (f v₁) (f v₂) : ℝ) ≤ K * idist v₁ v₂
-            apply f.lipschitz.to_idist_le
+            apply hf.to_idist_le
           case inr.inl.inr.inl =>
             change (idist Domain.abort Domain.abort : ℝ) ≤ K * (0 : unitInterval).val
             erw [Domain.idist_abort_abort, mul_zero]
@@ -3495,7 +3495,7 @@ noncomputable section Domain
               · exact hk
               · intros b b'
                 apply Branch.map_idist_le_right' hk λ p p' ↦ ?_
-                apply le_trans (Domain.bind_lipschitz_left (f := f) hk |>.to_idist_le p p')
+                apply le_trans (Domain.bind_lipschitz_left hk hf |>.to_idist_le p p')
                 rfl
 
           all:
@@ -3519,10 +3519,10 @@ noncomputable section Domain
               rfl
             · intros b b'
               apply Branch.map_idist_le_right' hk λ p p' ↦ ?_
-              apply le_trans (Domain.bind_lipschitz_left (f := f) hk |>.to_idist_le p p')
+              apply le_trans (Domain.bind_lipschitz_left hk hf |>.to_idist_le p p')
               rfl
           · apply OrderBot.bot_le
-        · apply DomainUnion.bind_uniform_continuous hk
+        · apply DomainUnion.bind_uniform_continuous hf hk
         · apply UniformContinuous.comp
           · exact G_lipschitz.uniformContinuous
           · apply Isometry.uniformContinuous
@@ -3547,7 +3547,7 @@ noncomputable section Domain
               apply le_antisymm
               · conv_lhs =>
                   enter [1, 1, 1, p]
-                  rw [IterativeDomain.bind_eq_bind_embedAt hk]
+                  rw [IterativeDomain.bind_eq_bind_embedAt hk hf]
                   change ((λ x : Domain «Σ» Γ α β ↦ Domain.bind x f) ∘ embedAt m) p
                 rw [← Branch.map_comp, Set.image_comp]
                 apply le_trans (IMetric.hausdorffIDist_image_lipschitz' hk ?_)
@@ -3555,34 +3555,30 @@ noncomputable section Domain
                   rfl
                 · intros b b'
                   apply Branch.map_idist_le_right' hk λ p p' ↦ ?_
-                  apply le_trans (Domain.bind_lipschitz_left (f := f) hk |>.to_idist_le p p')
+                  apply le_trans (Domain.bind_lipschitz_left hk hf |>.to_idist_le p p')
                   rfl
               · apply OrderBot.bot_le
           · exact φ_uniform_continuous
 
-      theorem IterativeDomain.bind_assoc {K₁ K₂} [IMetricSpace δ] [CompleteSpace δ] {f : β →ₗ[K₁] Domain «Σ» Γ α γ} {g : γ →ₗ[K₂] Domain «Σ» Γ α δ} (hk₂ : 1 ≤ K₂) {m} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
-          (IterativeDomain.bind p f).bind g =
-            IterativeDomain.bind p { toFun := λ x ↦ (f.toFun x).bind g, lipschitz := id (LipschitzWith.comp (Domain.bind_lipschitz_left hk₂) f.lipschitz) } := by
+      theorem IterativeDomain.bind_assoc {K₁ K₂} [IMetricSpace δ] [CompleteSpace δ] {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K₁ f)
+        {g : γ →ᵤ Domain «Σ» Γ α δ} (hg : LipschitzWith K₂ g) (hk₂ : 1 ≤ K₂) {m} {p : (IterativeDomain «Σ» Γ α β m).carrier} :
+          (IterativeDomain.bind p f).bind g = IterativeDomain.bind p (λ x ↦ (f x).bind g) := by
         match m, p with
         | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
           rw [IterativeDomain.bind_leaf, IterativeDomain.bind_leaf]
-          rfl
         | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
           rw [IterativeDomain.bind_abort, IterativeDomain.bind_abort, Domain.bind_abort hk₂]
+          · assumption
         | m + 1, IterativeDomain.branch h =>
           rw [IterativeDomain.bind_branch, IterativeDomain.bind_branch, Domain.bind_branch hk₂]
-          conv_lhs =>
-            enter [1, σ]; rw [← Set.image_comp, Branch.map_comp, Function.comp_def]
-            enter [1, 1, p]; rw [IterativeDomain.bind_assoc hk₂]
+          · conv_lhs =>
+              enter [1, σ]; rw [← Set.image_comp, Branch.map_comp, Function.comp_def]
+              enter [1, 1, p]; rw [IterativeDomain.bind_assoc hf hg hk₂]
+          · assumption
 
-      theorem Domain.bind_assoc {K₁ K₂} [IMetricSpace δ] [CompleteSpace δ] {p : Domain «Σ» Γ α β} {f : β →ₗ[K₁] Domain «Σ» Γ α γ} {g : γ →ₗ[K₂] Domain «Σ» Γ α δ} (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) :
-          Domain.bind (Domain.bind p f) g = Domain.bind (K := K₂ * K₁) p { toFun := λ x ↦ Domain.bind (f.toFun x) g, lipschitz := by {
-            change LipschitzWith _ ((Domain.bind · g) ∘ f.toFun)
-            apply LipschitzWith.comp
-            · apply Domain.bind_lipschitz_left
-              assumption
-            · exact f.lipschitz
-          } } := by
+      theorem Domain.bind_assoc {K₁ K₂} [IMetricSpace δ] [CompleteSpace δ] {p : Domain «Σ» Γ α β} {f : β →ᵤ Domain «Σ» Γ α γ} (hf : LipschitzWith K₁ f)
+        {g : γ →ᵤ Domain «Σ» Γ α δ} (hg : LipschitzWith K₂ g) (hk₁ : 1 ≤ K₁) (hk₂ : 1 ≤ K₂) :
+          Domain.bind (Domain.bind p f) g = Domain.bind p (λ x ↦ Domain.bind (f x) g) := by
         induction p using UniformSpace.Completion.induction_on with
         | hp =>
           apply isClosed_eq
@@ -3591,10 +3587,13 @@ noncomputable section Domain
             · apply UniformSpace.Completion.continuous_extension
           · apply UniformSpace.Completion.continuous_extension
         | ih p =>
-          rw [Domain.bind_coe hk₁, Domain.bind_coe (Right.one_le_mul hk₂ hk₁)]
-          let ⟨m, p⟩ := p
-          unfold DomainUnion.bind
-          rw [IterativeDomain.bind_assoc hk₂]
+          rw [Domain.bind_coe hf hk₁, Domain.bind_coe ?_ (Right.one_le_mul hk₂ hk₁)]
+          · let ⟨m, p⟩ := p
+            unfold DomainUnion.bind
+            rw [IterativeDomain.bind_assoc hf hg hk₂]
+          · apply LipschitzWith.comp (g := f) (f := (Domain.bind · g))
+            · apply Domain.bind_lipschitz_left hk₂ hg
+            · exact hf
     end Monad
 
     section Sequence
@@ -4727,9 +4726,55 @@ noncomputable section Domain
         · apply UniformSpace.Completion.uniformContinuous_coe
         · apply DomainUnion.choice_uniform_continuous
 
-      theorem Domain.choice_idist_le {p p' q q' : Domain «Σ» Γ α PUnit} :
+      theorem Domain.choice_lipschitz_left {q : Domain «Σ» Γ α PUnit} :
+          LipschitzWith 1 λ p ↦ Domain.choice p q := by
+        apply LipschitzWith.of_idist_le λ p p' ↦ ?_
+        induction p, p', q using UniformSpace.Completion.induction_on₃ with
+        | hp =>
+          apply isClosed_le
+          · apply Continuous.comp
+            · exact continuous_subtype_val
+            · apply Continuous.idist
+              · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+              · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · conv => enter [1, b]; erw [one_mul]
+            apply Continuous.comp
+            · exact continuous_subtype_val
+            · apply Continuous.idist <;> fun_prop
+        | ih p p' q =>
+          erw [Domain.choice_coe_coe, Domain.choice_coe_coe, UniformSpace.Completion.idist_eq,
+               UniformSpace.Completion.idist_eq, one_mul, Subtype.coe_le_coe]
+          apply DomainUnion.choice_lipschitz_left'
+
+      theorem Domain.choice_lipschitz_right {p: Domain «Σ» Γ α PUnit} :
+          LipschitzWith 1 λ q ↦ Domain.choice p q := by
+        apply LipschitzWith.of_idist_le λ q q' ↦ ?_
+        induction p, q, q' using UniformSpace.Completion.induction_on₃ with
+        | hp =>
+          apply isClosed_le
+          · apply Continuous.comp
+            · exact continuous_subtype_val
+            · apply Continuous.idist
+              · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+              · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · conv => enter [1, b]; erw [one_mul]
+            apply Continuous.comp
+            · exact continuous_subtype_val
+            · apply Continuous.idist <;> fun_prop
+        | ih p q q' =>
+          erw [Domain.choice_coe_coe, Domain.choice_coe_coe, UniformSpace.Completion.idist_eq,
+               UniformSpace.Completion.idist_eq, one_mul, Subtype.coe_le_coe]
+          apply DomainUnion.choice_lipschitz_right'
+
+      theorem Domain.choice_idist_le {p p' q q' : Domain «Σ» Γ α PUnit}
+        [IsUltrametricIDist «Σ»] [IsUltrametricIDist Γ] [IsUltrametricIDist α] :
           idist (Domain.choice p q) (Domain.choice p' q') ≤ idist p p' ⊔ idist q q' := by
-        sorry
+        have h₁ : idist (Domain.choice p q) (Domain.choice p' q) ≤ idist p p' := by
+          grw (config := {transparency := .default}) [← Subtype.coe_le_coe, LipschitzWith.to_idist_le Domain.choice_lipschitz_left, one_mul]
+        have h₂ : idist (Domain.choice p' q) (Domain.choice p' q') ≤ idist q q' := by
+          grw (config := {transparency := .default}) [← Subtype.coe_le_coe, LipschitzWith.to_idist_le Domain.choice_lipschitz_right, one_mul]
+
+        grw [idist_triangle_max (y := Domain.choice p' q), h₁, h₂]
 
       def Domain.failure [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β] : Domain «Σ» Γ α β :=
         Domain.branch λ σ ↦ {Branch.next σ ⟨Domain.abort⟩}
