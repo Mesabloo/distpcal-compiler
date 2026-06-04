@@ -39,6 +39,12 @@ instance {α β K} [PseudoIMetricSpace α] [IMetricSpace β] [CompleteSpace β] 
     rw [this]
     exact (UniformFun.isClosed_setOf_lipschitzWith K).isComplete
 
+theorem LipschitzMap.idist_eq_iSup {K α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {f g : α →ₗ[K] β} :
+    idist f g = ⨆ x, idist (f x) (g x) := by
+  change idist f.toFun g.toFun = _
+  rw [UniformFun.idist_eq_iSup]
+  rfl
+
 def LipschitzMap.comp {α β γ} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [PseudoIMetricSpace γ] {K₁ K₂}
   (f : β →ₗ[K₂] γ) (g : α →ₗ[K₁] β) :
     α →ₗ[K₂ * K₁] γ where

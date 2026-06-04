@@ -136,6 +136,15 @@ namespace unitInterval
         : I
       } :=
     rfl
+
+  instance : ContinuousMul I where
+    continuous_mul := by
+      apply Continuous.subtype_mk
+      apply Continuous.fun_mul
+      · apply Continuous.fst'
+        exact continuous_subtype_val
+      · apply Continuous.snd'
+        exact continuous_subtype_val
 end unitInterval
 
 open scoped unitInterval

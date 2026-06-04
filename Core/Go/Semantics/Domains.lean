@@ -18,6 +18,7 @@ import Extra.Sigma
 import Extra.Set
 import Extra.Prop
 import Mathlib.Topology.MetricSpace.Ultra.Basic
+import Mathlib.Topology.Algebra.Monoid.Defs
 -- import Mathlib.Data.Part
 
 open scoped UniformConvergence
@@ -1844,6 +1845,160 @@ noncomputable section Domain
           apply LipschitzWith.comp (f := UniformSpace.Completion.coe')
           · exact UniformSpace.Completion.coe_isometry.lipschitz
           · apply DomainUnion.map_lipschitz_left
+
+      theorem Domain.map_branch {K} {f : β →ᵤ γ} (hf : LipschitzWith K f) (hk : 1 ≤ K) {g : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α β))}
+        [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β] [CompleteSpace γ] :
+          Domain.map f (Domain.branch g) = Domain.branch λ σ ↦ Branch.map (Domain.map f) '' g σ := by
+        let G : β ⊕ PUnit ⊕ («Σ» →ᵤ Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α β))) → Domain «Σ» Γ α γ
+          | .inl v => Domain.leaf (f v)
+          | .inr (.inl .unit) => Domain.abort
+          | .inr (.inr g) => Domain.branch λ σ ↦ Branch.map (Domain.map f) '' g σ
+
+        have G_lipschitz : LipschitzWith K G := by
+          apply LipschitzWith.of_idist_le
+          rintro (_|_|_) (_|_|_)
+
+          case inl.inl v₁ v₂ =>
+            dsimp [G]
+            change _ ≤ _ * (idist v₁ v₂ : ℝ)
+            rw [Domain.idist_leaf_leaf]
+            apply LipschitzWith.to_idist_le
+            assumption
+          case inr.inl.inr.inl =>
+            dsimp [G]
+            change _ ≤ _ * (0 : ℝ)
+            erw [Domain.idist_abort_abort, mul_zero]
+            rfl
+          case inr.inr.inr.inr g g' =>
+            dsimp [G]
+            change _ ≤ _ * (idist g g' : ℝ)
+            rw [Domain.idist_branch_branch, UniformFun.idist_eq_iSup]
+            apply unitInterval.coe_iSup_le
+            · apply mul_nonneg
+              · exact NNReal.zero_le_coe
+              · apply unitInterval.nonneg
+            · intro σ
+              apply le_trans (IMetric.hausdorffIDist_image_lipschitz' hk ?_)
+              · apply mul_le_mul
+                · rfl
+                · rw [Subtype.coe_le_coe]
+                  apply le_iSup (f := λ σ ↦ idist (g σ) (g' σ))
+                · apply unitInterval.nonneg
+                · exact NNReal.zero_le_coe
+              · intros b b'
+                apply le_trans (Branch.map_idist_le_right' hk ?_ _ _)
+                · rfl
+                · intros p q
+                  apply LipschitzWith.to_idist_le
+                  apply Domain.map_lipschitz_right <;> assumption
+
+          all:
+            change _ ≤ _ * (1 : ℝ)
+            erw [mul_one]
+            trans 1
+            · apply unitInterval.le_one
+            · exact hk
+
+        conv_lhs => unfold Domain.map
+        nth_rw 1 [UniformSpace.Completion.map_unique (g := G ∘ isSolution)]
+        · conv_lhs => unfold Domain.branch
+          rw [Function.comp_apply, IsometryEquiv.apply_symm_apply]
+          dsimp [G]
+          apply eq_of_idist_eq_zero
+          change _ = ⊥
+          rw [idist_branch_branch, iSup_eq_bot]
+          intro σ
+          apply le_antisymm
+          · erw [← Subtype.coe_le_coe]
+            conv_rhs => change 0; apply mul_zero (a := ↑K) |>.symm
+            grw (config := {transparency := .default}) [IMetric.hausdorffIDist_image_lipschitz' hk]
+            · rw [IMetric.hausdorffIDist_closure_left, IMetric.hausdorffIDist_self]
+              rfl
+            · intros b b'
+              dsimp only
+              apply Branch.map_idist_le_right' hk
+              intros p q
+              apply LipschitzWith.to_idist_le
+              apply Domain.map_lipschitz_right <;> assumption
+          · apply OrderBot.bot_le
+        · apply UniformContinuous.comp
+          · exact G_lipschitz.uniformContinuous
+          · exact isSolution.isometry.uniformContinuous
+        · rintro ⟨n, p⟩
+          apply eq_of_idist_eq_zero
+          match n, p with
+          | 0, IterativeDomain.leaf v | n + 1, IterativeDomain.leaf v =>
+            dsimp [isSolution]
+            rw [UniformSpace.Completion.extension_coe]
+            · dsimp [φ, G, DomainUnion.map, Sigma.map]
+              rw [IterativeDomain.map_leaf]
+              convert_to idist (Domain.leaf («Σ» := «Σ») (Γ := Γ) (α := α) (β := γ) (f v)) (Domain.leaf (f v)) = ⊥
+              · congr 1
+                apply_fun isSolution
+                dsimp [Domain.leaf]
+                rw [IsometryEquiv.apply_symm_apply]
+                dsimp [isSolution]
+                rw [UniformSpace.Completion.extension_coe]
+                · dsimp [φ]
+                · exact φ_uniform_continuous
+              · rw [idist_self]
+                rfl
+            · exact φ_uniform_continuous
+          | 0, IterativeDomain.abort | n + 1, IterativeDomain.abort =>
+            dsimp [isSolution]
+            rw [UniformSpace.Completion.extension_coe]
+            · dsimp [φ, G, DomainUnion.map, Sigma.map]
+              rw [IterativeDomain.map_abort]
+              convert_to idist (Domain.abort («Σ» := «Σ») (Γ := Γ) (α := α) (β := γ)) Domain.abort = ⊥
+              · congr 1
+                apply_fun isSolution
+                dsimp [Domain.abort]
+                rw [IsometryEquiv.apply_symm_apply]
+                dsimp [isSolution]
+                rw [UniformSpace.Completion.extension_coe]
+                · dsimp [φ]
+                · exact φ_uniform_continuous
+              · rw [idist_self]
+                rfl
+            · exact φ_uniform_continuous
+          | n + 1, IterativeDomain.branch g =>
+            dsimp [isSolution]
+            rw [UniformSpace.Completion.extension_coe]
+            · dsimp [φ, G, DomainUnion.map, Sigma.map]
+              rw [IterativeDomain.map_branch]
+              convert_to idist (Domain.branch λ σ ↦ closure (Branch.map (map f ∘ embedAt n) '' g σ)) (Domain.branch λ σ ↦ Branch.map (map f) '' closure (Branch.map (embedAt n) '' g σ)) = ⊥
+              · congr 1
+                apply_fun isSolution
+                unfold Domain.branch
+                rw [IsometryEquiv.apply_symm_apply]
+                conv_lhs => dsimp [isSolution]
+                rw [UniformSpace.Completion.extension_coe]
+                · dsimp [φ]
+                  congr 2 with σ : 1
+                  congr 1
+                  rw [closure_closure, ← Set.image_comp, Branch.map_comp]
+                  congr 3 with p : 1
+                  dsimp
+                  rw [map_coe _ hf hk]
+                  rfl
+                · exact φ_uniform_continuous
+              · rw [idist_branch_branch, iSup_eq_bot]
+                intro σ
+                change IMetric.hausdorffIDist _ _ = ⊥
+                rw [IMetric.hausdorffIDist_closure_left, ← Branch.map_comp, Set.image_comp]
+                apply le_antisymm
+                · rw [← Subtype.coe_le_coe]
+                  apply le_trans (IMetric.hausdorffIDist_image_lipschitz' hk ?_)
+                  · conv_rhs => apply mul_zero (a := ↑K) |>.symm
+                    rw [IMetric.hausdorffIDist_self_closure]
+                    rfl
+                  · intros b b'
+                    apply Branch.map_idist_le_right' hk
+                    intros p q
+                    apply LipschitzWith.to_idist_le
+                    apply Domain.map_lipschitz_right <;> assumption
+                · apply OrderBot.bot_le
+            · exact φ_uniform_continuous
     end Functor
 
     class HasDefaultInit («Σ» Γ : Type _) (α : outParam (Type _)) where
@@ -2770,6 +2925,179 @@ noncomputable section Domain
         · exact hf
         · apply LipschitzMap.lipschitz_comp_left'
 
+      theorem UniformSpace.Completion.extension₂_unique {α β γ} [UniformSpace α] [UniformSpace β] [UniformSpace γ] [T0Space γ] [CompleteSpace γ]
+        {f : α → β → γ} (hf : UniformContinuous₂ f) {g : Completion α → Completion β → γ} (hg : UniformContinuous₂ g)
+        (h : ∀ (a : α) (b : β), f a b = g (a : Completion α) (b : Completion β)) :
+          Completion.extension₂ f = g := by
+        unfold Completion.extension₂ AbstractCompletion.extend₂
+        have key : (cPkg.prod cPkg).extend (Function.uncurry f) = Function.uncurry g :=
+          (cPkg.prod cPkg).extend_unique hf hg (λ ⟨a, b⟩ => h a b)
+        rw [key]
+        exact Function.curry_uncurry g
+
+      theorem IterativeDomain.embedAt_ap {K} (hk : 1 ≤ K)
+        [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β] [CompleteSpace γ]
+        {m n} {q : (IterativeDomain «Σ» Γ α β n).carrier} {p : (IterativeDomain «Σ» Γ α (β →ₗ[K] γ) m).carrier} :
+          embedAt (m + n) (IterativeDomain.ap p q) = (embedAt m p).ap (DomainUnion.mk q) := by
+        unfold embedAt
+        rw [Domain.ap_coe_coe hk, DomainUnion.ap]
+
+      theorem Domain.branch_ap {K} (hk : 1 ≤ K) {p : Domain «Σ» Γ α β} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α (β →ₗ[K] γ)))}
+        [CompleteSpace «Σ»] [CompleteSpace Γ] [CompleteSpace α] [CompleteSpace β] [CompleteSpace γ] :
+          Domain.ap (Domain.branch f) p = Domain.branch λ σ ↦ Branch.map (Domain.ap · p) '' f σ := by
+        let G : (β →ₗ[K] γ) ⊕ PUnit ⊕ («Σ» →ᵤ Closeds (Branch «Σ» Γ α (Domain «Σ» Γ α (β →ₗ[K] γ)))) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ
+          | .inl f, p => Domain.map f p
+          | .inr (.inl .unit), _ => Domain.abort
+          | .inr (.inr g), p => Domain.branch λ σ ↦ Branch.map (Domain.ap · p) '' (g σ : Set (Branch «Σ» Γ α (Domain «Σ» Γ α (β →ₗ[K] γ))))
+
+        have G_lipschitz : LipschitzWith (1 + K) (Function.uncurry G) := by
+          apply LipschitzWith.uncurry
+          · intro q
+            apply LipschitzWith.of_idist_le
+            rintro (_|_|_) (_|_|_)
+
+            case inl.inl v₁ v₂ =>
+              dsimp [G]
+              change _ ≤ 1 * (idist v₁ v₂ : ℝ)
+              rw [LipschitzMap.idist_eq_iSup]
+              apply le_trans <| LipschitzWith.to_idist_le (Domain.map_lipschitz_left hk) _ _
+              apply mul_le_mul
+              · rfl
+              · rw [Subtype.coe_le_coe, LipschitzMap.idist_eq_iSup]
+              · apply unitInterval.nonneg
+              · apply zero_le_one
+            case inr.inl.inr.inl =>
+              change (idist Domain.abort Domain.abort) ≤ 1 * (0 : ℝ)
+              erw [Domain.idist_abort_abort, mul_zero]
+              rfl
+            case inr.inr.inr.inr g₁ g₂ =>
+              change _ ≤ 1 * idist g₁ g₂
+              dsimp [G]
+              rw [Domain.idist_branch_branch, UniformFun.idist_eq_iSup]
+              apply iSup_le λ σ ↦ ?_
+              apply le_trans (IMetric.hausdorffIDist_image_lipschitz' (k := 1) ?_ ?_)
+              · dsimp only
+                erw [one_mul, one_mul, Subtype.coe_le_coe]
+                apply le_iSup (f := λ x ↦ idist (g₁ x) (g₂ x))
+              · rfl
+              · intros b b'
+                apply Branch.map_idist_le_right'
+                · rfl
+                · intros p p'
+                  apply le_trans (LipschitzWith.to_idist_le (Domain.ap_lipschitz_left ?_) _ _)
+                  · rfl
+                  · exact hk
+
+            all:
+              change _ ≤ 1 * (1 : ℝ)
+              erw [mul_one]
+              trans 1
+              · apply unitInterval.le_one
+              · rfl
+          · rintro (v|_|g) <;> dsimp [G]
+            · apply Domain.map_lipschitz_right
+              · exact v.lipschitz
+              · exact hk
+            · apply LipschitzWith.const'
+            · apply LipschitzWith.of_idist_le λ p p' ↦ ?_
+              rw [idist_branch_branch]
+              apply unitInterval.coe_iSup_le
+              · apply mul_nonneg
+                · exact NNReal.zero_le_coe
+                · apply unitInterval.nonneg
+              · intro σ
+                change (IMetric.hausdorffIDist _ _ : ℝ) ≤ _
+                grw [IMetric.hausdorffIDist_image_le_of_le_sup']
+                apply unitInterval.coe_iSup₂_le
+                · apply mul_nonneg
+                  · exact NNReal.zero_le_coe
+                  · apply unitInterval.nonneg
+                · intro b b_in
+                  apply Branch.map_idist_le_left'
+                  · apply mul_nonneg
+                    · exact NNReal.zero_le_coe
+                    · apply unitInterval.nonneg
+                  · intro q
+                    grw [LipschitzWith.to_idist_le (Domain.ap_lipschitz_right hk)]
+                    · change (1 / 2) * _ ≤ _
+                      erw [div_mul_eq_mul_div₀, one_mul, half_le_self_iff]
+                      apply mul_nonneg
+                      · exact NNReal.zero_le_coe
+                      · apply unitInterval.nonneg
+                    · apply unitInterval.nonneg
+
+        apply_fun isSolution
+        conv_rhs => unfold Domain.branch
+        conv_lhs => unfold Domain.ap
+        rw [IsometryEquiv.apply_symm_apply, UniformSpace.Completion.extension₂_unique (g := Function.bicompl G isSolution id)]
+        · change isSolution (G (isSolution _) p) = _
+          conv_lhs => enter [2, 1]; dsimp [Domain.branch]
+          rw [IsometryEquiv.apply_symm_apply]
+          dsimp [G]
+          dsimp [Domain.branch]
+          rw [IsometryEquiv.apply_symm_apply]
+          congr 2 with σ : 1
+          congr 1
+          rw [closure_image_closure]
+          apply LipschitzWith.continuous
+          apply LipschitzWith.of_idist_le (K := 1)
+          intros b b'
+          apply Branch.map_idist_le_right' (le_refl _)
+          intros p p'
+          grw [LipschitzWith.to_idist_le (Domain.ap_lipschitz_left hk)]
+          rfl
+        · apply UniformContinuous.comp
+          · apply UniformSpace.Completion.uniformContinuous_coe
+          · apply DomainUnion.ap.uniform_continuous₂ hk
+        · apply UniformContinuous₂.bicompl ?_ ?_ ?_
+          · exact G_lipschitz.uniformContinuous
+          · exact isSolution.isometry.uniformContinuous
+          · exact uniformContinuous_id
+        · rintro ⟨m, p⟩ ⟨n, q⟩
+          change _ = G (isSolution _) _
+          conv_rhs => enter [1]; dsimp [isSolution]
+          rw [UniformSpace.Completion.extension_coe]
+          · dsimp [DomainUnion.ap, DomainUnion.mk]
+            match m, p with
+            | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
+              rw [IterativeDomain.ap_leaf]
+              dsimp [φ, G]
+              rw [Domain.map_coe v.toFun ?_ hk]
+              · dsimp [DomainUnion.map, Sigma.map]
+                apply eq_of_idist_eq_zero
+                rw [UniformSpace.Completion.idist_eq, ← IterativeDomain.map_lift, DomainUnion.idist_eq,
+                    IterativeDomain.lift_lift', idist_self]
+              · exact v.lipschitz
+            | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+              rw [IterativeDomain.ap_abort]
+              dsimp [φ, G]
+              nth_rw 1 [coe_eq_abort_iff]
+              exact ⟨_, rfl⟩
+            | m + 1, IterativeDomain.branch h =>
+              rw [IterativeDomain.ap_branch]
+              dsimp [φ, G]
+              nth_rw 1 [coe_eq_branch_iff]
+              exists m + n, λ σ ↦ Branch.ap q '' h σ, ?_
+              · grind only
+              · intro σ
+                dsimp
+                conv_lhs => enter [1, 2, 1, b]; rw [Branch.ap_eq_map]
+                rw [closure_image_closure]
+                · congr 1
+                  rw [← Set.image_comp, ← Set.image_comp (g := Branch.map (embedAt m)),
+                      Branch.map_comp, Branch.map_comp]
+                  congr 2 with p : 1
+                  dsimp
+                  rw [IterativeDomain.embedAt_ap hk]
+                · apply LipschitzWith.continuous
+                  apply LipschitzWith.of_idist_le (K := 1)
+                  intros b b'
+                  apply Branch.map_idist_le_right' (le_refl _)
+                  intros p p'
+                  grw [LipschitzWith.to_idist_le (Domain.ap_lipschitz_left hk)]
+                  rfl
+          · exact φ_uniform_continuous
+
       /-- General form of sequential composition. -/
       def Domain.ap' {K} : Domain «Σ» Γ α (β →ₗ[K] γ) → Domain «Σ» Γ α β → Domain «Σ» Γ α γ :=
         Domain.ap
@@ -3472,8 +3800,35 @@ noncomputable section Domain
         (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (Domain «Σ» Γ α PUnit))) (p p' : Domain «Σ» Γ α PUnit) :
           idist (Domain.seq (Domain.branch f) p) (Domain.seq (Domain.branch f) p') ≤ unitInterval.half * idist p p' := by
         repeat rw [Domain.seq_eq_app]
-
-        admit
+        induction p, p' using UniformSpace.Completion.induction_on₂ with
+        | hp =>
+          apply isClosed_le
+          · apply Continuous.idist
+            · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+            · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · apply Continuous.comp
+            · apply continuous_mul_left
+            · exact continuous_idist
+        | ih p p' =>
+          rw [Domain.map_branch ?_ (le_refl 1), UniformSpace.Completion.idist_eq, Domain.branch_ap, Domain.branch_ap,
+              Domain.idist_branch_branch]
+          · apply iSup_le λ σ ↦ ?_
+            rw [← Set.image_comp, Branch.map_comp, ← Set.image_comp, Branch.map_comp]
+            apply le_trans IMetric.hausdorffIDist_image_le_of_le_sup'
+            apply iSup₂_le λ b b_in ↦ ?_
+            apply Branch.map_idist_le_left'
+            · apply mul_nonneg
+              · apply unitInterval.nonneg
+              · apply unitInterval.nonneg
+            · intro q
+              dsimp
+              grw [LipschitzWith.to_idist_le (Domain.ap_lipschitz_right ?_)]
+              · erw [one_mul, UniformSpace.Completion.idist_eq]
+              · unit_interval
+              · rfl
+          · rfl
+          · rfl
+          · apply LipschitzWith.const'
 
       theorem Domain.seq_assoc {p q r : Domain «Σ» Γ α PUnit} :
           Domain.seq p (Domain.seq q r) = Domain.seq (Domain.seq p q) r := by
