@@ -209,6 +209,7 @@ noncomputable section
             λ b ↦ if b then {.next σ { val := .pure .unit }} else ∅
 
       theorem guard.is_branch {ξ ς e} : ∃ f, guard ξ ς e = Domain.branch f := by
+        unfold guard
         -- by_contra! h
         -- unfold guard at h
         admit
@@ -301,8 +302,8 @@ noncomputable section
           change idist _ _ ≤ unitInterval.half * idist _ _
 
           unfold while_seq_F
-          apply le_trans Domain.choice_idist_le
-          rw [idist_self, ← unitInterval.bot_eq, sup_bot_eq, Domain.seq'_assoc, Domain.seq'_assoc]
+          apply le_trans (Domain.choice_lipschitz_left.to_idist_le _ _)
+          erw [one_mul, Domain.seq'_assoc, Domain.seq'_assoc]
 
           obtain ⟨f, hf⟩ : ∃ f, (q ⬰ guard ξ ς e) = Domain.branch f := by
             obtain ⟨f', hf'⟩ := guard.is_branch (ξ := ξ) (ς := ς) (e := e)

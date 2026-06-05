@@ -681,16 +681,6 @@ open unitInterval in
       obtain ⟨x, hx, hxy⟩ := h₂ y hy
       exact iInf₂_le_of_le x hx (idist_comm x y ▸ hxy)
 
-  theorem hausdorffIDist_image_le_of_le_sup {α} [PseudoIMetricSpace α] {s : Set α} {f : α → α} :
-      IMetric.hausdorffIDist s (f '' s) ≤ ⨆ x ∈ s, idist x (f x) := by
-    apply hausdorffIDist_le
-    · intros x x_in
-      exists f x, Set.mem_image_of_mem _ x_in
-      exact le_iSup₂ (f := λ x _ ↦ idist x (f x)) x x_in
-    · rintro y ⟨x, x_in, rfl⟩
-      exists x, x_in
-      exact le_iSup₂ (f := λ x _ ↦ idist x (f x)) x x_in
-
   theorem hausdorffIDist_image_le_of_le_sup' {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {s : Set α} {f g : α → β} :
       IMetric.hausdorffIDist (f '' s) (g '' s) ≤ ⨆ x ∈ s, idist (f x) (g x) := by
     apply hausdorffIDist_le <;> {
@@ -699,6 +689,11 @@ open unitInterval in
       apply le_iSup₂ (f := λ x _ ↦ idist (f x) (g x))
       assumption
     }
+
+  theorem hausdorffIDist_image_le_of_le_sup {α} [PseudoIMetricSpace α] {s : Set α} {f : α → α} :
+      IMetric.hausdorffIDist s (f '' s) ≤ ⨆ x ∈ s, idist x (f x) := by
+    conv_lhs => enter [1]; rw [← Set.image_id s]
+    apply hausdorffIDist_image_le_of_le_sup'
 
   theorem hausdorffIDist_congr₂ {α} [PseudoIMetricSpace α] {s t s' t' : Set α}
     (hs : s = s') (ht : t = t') :

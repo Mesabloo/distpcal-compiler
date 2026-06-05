@@ -4766,7 +4766,7 @@ noncomputable section Domain
                UniformSpace.Completion.idist_eq, one_mul, Subtype.coe_le_coe]
           apply DomainUnion.choice_lipschitz_right'
 
-      theorem Domain.choice_idist_le {p p' q q' : Domain «Σ» Γ α PUnit}
+      theorem Domain.choice_idist_le_max {p p' q q' : Domain «Σ» Γ α PUnit}
         [IsUltrametricIDist «Σ»] [IsUltrametricIDist Γ] [IsUltrametricIDist α] :
           idist (Domain.choice p q) (Domain.choice p' q') ≤ idist p p' ⊔ idist q q' := by
         have h₁ : idist (Domain.choice p q) (Domain.choice p' q) ≤ idist p p' := by
