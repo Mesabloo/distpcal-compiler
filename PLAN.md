@@ -68,7 +68,7 @@ ask before overturning).
 | Verification ambition for this plan | **Match the prototype's already-verified surface only.** Concretely: aim to reproduce a refinement proof for Guarded→Network (the one pass with a complete proof in prior art), and treat every other pass — including both new backends — as unverified for the initial roadmap. Lock inference is the one exception explicitly called out as needing real design work now (see below), because without it the Go backend's semantics are simply undefined, not just unverified. |
 | Join Calculus executability | The compiler's job is to **emit a Join Calculus source file**; whether/how that file is later executed (custom interpreter, further lowering, etc.) is explicitly left open — see §9.1. Don't build an interpreter as part of this plan unless asked. |
 | Lock inference / Go concurrency safety | **In scope.** The rest of `Network2Go` already works (real, goroutine-based concurrency); lock inference is the one missing piece, not a reason to redesign the backend. Concretely: one lock per atomic block, derived from a conflict analysis over which blocks share process-local variables — see §5.7 for the algorithm as specified by the project owner. |
-| Example/regression suite | **Deprioritized.** The prototype's `tests/PingPong`, `tests/TPC`, `tests/LamportMutex` examples exist and are useful reading, but building a test harness is not a near-term milestone. The Ping-Pong example from the thesis is used informally throughout this plan as a running illustration only. |
+| Example/regression suite | **A *formal*, automated test harness is still deprioritized** — the prototype's `tests/PingPong`, `tests/TPC`, `tests/LamportMutex` examples exist and are useful reading, but building test infrastructure is not a near-term milestone; the Ping-Pong example from the thesis is used informally throughout this plan as a running illustration only. **Resolves §9.5's open question, though:** the project owner has asked for a concrete, lightweight home for the small hand-written accept/reject `.tla` smoke tests written while developing/correcting each pass (not a maintained, harnessed suite) — `tests/regression/`, one small `.tla` file per confirmed behavior, named `accept_<what>.tla`/`reject_<what>.tla` so the expected outcome is legible from the filename alone. **Always write these in this project's actual supported concrete syntax — PlusCal's *C-syntax* (`{ }`-braced bodies), never the p-manual's own P-syntax (`do … end while`/`end if`) — the parser (§5.1) only accepts the former** (confirmed the hard way: an early attempt at hand-writing P-syntax test input failed to parse until rewritten in C-syntax). No runner/harness is implied — these exist for a human (or a future, still-deprioritized harness) to point the CLI at individually. |
 | Build config format / toolchain version | **`lakefile.lean` (Lean DSL), not `lakefile.toml`** — same kind of config prior art uses. **Bump the Lean toolchain** rather than pinning to prior art's stale `v4.29.0-rc1`: start on the current stable release when implementation begins, updating `mathlib`/`batteries`/other pinned deps to match. **Expect real breakage from this, not just cosmetic fixes**, and not only in the three ported exceptions (§2) — `Extra/`'s vendored data-structure lemmas are exposed to the same API drift and should be expected to need real repair work too. This cuts both ways: some currently-broken `Extra/` theorems may become provable again once a partial API change elsewhere is fixed by the bump (e.g. string-related lemmas broken by a partial API change), not purely a one-directional cost. |
 | CLI flag surface | **Settled**, GCC/Clang-style flag naming on top of `leanprover/Cli` (still the underlying framework, as in prior art — `--help`/`--version` come free from it): `-d<name>[=<value>]` (debugging options generally — AST dumps, but also e.g. `-dtiming` for per-pass timing, not just dumps), `-f<name>[=<value>]` (feature/config toggles, e.g. `-fno-color` to disable ANSI-colored diagnostic output — implemented, `Common/Errors.lean`'s `CompilerDiagnostic.pretty` takes a `colored` flag threaded from this), `-W<name>`/`-Wno-<name>` (per-warning control — e.g. `-Wno-fair` suppresses the `fair process`/`fair+`-ignored warning, §5.1), `-o`/`--output`, `-t`/`--target go|join`, `-I <path>` (add a module search path, see §5.3). Two details still open — Join Calculus "flavors" and where the Go `-p` package name lives — see §9.3. **Concrete invocation syntax, pinned down during Phase 2 (CLI wiring):** `leanprover/Cli` rejects the same named flag being given more than once (`duplicateFlag`) and parses `Array α`-typed flags as a single comma-separated occurrence, not true repetition — so each of `-d`/`-f`/`-W`/`-I` is one Cli flag of an `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style (`-dfoo -dbar`). This is a mechanical consequence of the library, not a design choice, and doesn't change the settled semantics above. **`-d dump-dir=<path>`** (default `.fugue/debug`; prior art's own default was `.pcvc`, changed since this is a fresh project with its own name) sets where `-d dump-tokens`/`-d dump-cst` write their output — as in prior art, dumps go to `<dump-dir>/<input-file-name>-tokens`/`-cst` files, not stdout; `-d dump-dir` without a value is a hard error. **`-d`/`-f`/`-W` names are validated against a hardcoded allowlist** (`knownDebugOptions`/`knownFeatures`/`knownWarnings`, `Fugue.lean`) — an unrecognized name is a hard CLI error, not silently accepted (a misspelled `-d`/`-f`/`-W` option previously landed in `FlagsEnv`'s map unnoticed, since nothing ever looked it up). Extend these three arrays by hand as later phases add dump points/features/warnings — no registration mechanism beyond that, deliberately, since the current set is small enough not to warrant one. |
 | Go runtime library location | **Settled: `runtime/go/` in this repo**, versioned alongside the compiler that targets it, not a separate repo (unlike prior art's implicit `github.com/mesabloo/distpcal-compiler/lib`). See §5.7. |
@@ -81,7 +81,7 @@ ask before overturning).
 | Coercion realization: where do coercions live, and how does a *pending* one get resolved? | `Coercion := Expr → Expr` — applied by ordinary function application to the elaborated expression in hand once `subtype` yields a **successful** coercion. When it yields **pending** instead (an upper-bound check against an unresolved `?n`), the expression is wrapped in a new `mvar : MVarId → Expr → Expr` node added to `TypedTLAPlus`/`TypedPlusCal`'s grammar; the checker's context keeps, per unresolved `?n`, its pending upper bounds and the `mvar` sites created alongside them in lockstep (same length, by construction). The moment `?n` resolves, every one of its `mvar` sites is substituted with the now-computable coercion applied to the wrapped expression — this happens as part of the metavariable-resolution algorithm itself, not a separate pass, so `mvar` is fully eliminated before the checker's output reaches `Typed2Guarded`; downstream passes and both backends never see it. See §5.3. |
 | Diagnostic/error-model shape | **Per-pass error types, unified by a common rendering interface** — not one shared diagnostic sum type. Warning suppression (`-W`/`-Wno-<name>`, §2) is handled either at the point a warning is emitted or by filtering after the fact, before rendering — either is fine, implementer's call. Per the project owner, this mechanism (per-pass errors, common rendering, some form of warning filtering) is expected to already exist in `Common/Errors.lean` (§4), just not necessarily well-documented — read that file before designing something new rather than assuming a gap that isn't there. It's explicitly fine to later refactor either the error style or the warning/error emission mechanism if either doesn't hold up in practice. **Known bug to watch for when porting:** the project owner has observed a rendering bug somewhere in this diagnostic-printing code where, in some circumstances not yet pinned down, one character in the offending source line gets duplicated in the printed output — worth tracking down and fixing during the port rather than carrying it forward silently. |
 | Generated-identifier hygiene | **Resolved by renaming; direction doesn't matter.** Whether a user-chosen name or a compiler-introduced one is the one that gets renamed on collision is irrelevant — the only hard requirement is that **no shadowing is ever introduced in the generated code, checked at every pass, not just the final pretty-printer.** This is the same class of problem as escaping target-language reserved words (a PlusCal variable literally named `type` or `def` colliding with a Go/Join-Calculus keyword), which prior art already partially handles: `Core/Go/Pretty.lean` has a `keywords : Std.HashSet String` table and a `sanitize` function (suffixes a colliding name with `__`) applied at every point an identifier gets printed. **Port and generalize this mechanism** — to cover compiler-introduced internal names (`recv`, `inbox`, lock variables, label atoms, §5.6/§5.7) and the Join Calculus's own reserved surface, not just Go keywords — rather than treating it as a Go-only concern. See §5.2a, §5.6, §5.7. |
-| Flags, and `Ξ` (§9.10, now resolved): how do these cross-cutting effects fit the monad-polymorphism convention? | **Unified effect stack, not a driver/pass split.** Every function — pass code and the CLI driver alike — is written against one abstract `{m : Type _ → Type _} [Monad m]`, with every effect (errors, flags, module cache) as a typeclass constraint on that same `m`, rather than confining `IO`-flavored effects to an outer driver layer. Concretely: (1) **Flags are a contextual (Reader) effect, not an opaque action.** A single `getFlag : String → m (Option String)` was tried and rejected — flags aren't uniformly `Option String` (boolean `-f`/`-W` flags vs. valued `-d<name>=<value>` options vs. `-o`/`-t`/`-I`'s own typed values each need their real type, not a stringly-typed lookup every caller re-parses), and separately, this project's proofs run on `Std.Do.WP`, which cannot be instantiated at `IO` at all — an opaque, unconstrained action gives that framework nothing to reason about, whereas Reader is exactly the transparent, structural effect it already handles. So: a concrete, typed `FlagsEnv` structure (covering the full settled flag surface above), populated once by the CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus small typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`, not new typeclasses per flag. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup, replacing prior art's ad hoc `DebugOptions.from` + closure-capture pattern. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), with an `IO` instance backed by the disk-persisted cache (§5.3) — a genuine mutable-store effect, unlike flags, but it only shows up in `Checker`, which isn't part of §6.2's committed proof surface, so it doesn't hit the `Std.Do.WP`-compatibility question flags did; revisit its shape if Checker itself ever becomes a proof target. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Guarded2Network.compile` stays generic (`{m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadExceptOf G2NError m]`, same shape as every other pass) rather than being special-cased monomorphic. The refinement theorem is proved against whichever concrete instantiation `Std.Do.WP` actually supports (e.g. `m := Id`, or a `ReaderT FlagsEnv (Except G2NError)` stack) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for actual CLI execution is a **separate, deliberately unverified step** — same source term, same typeclass contract, believed equivalent by construction but not formally connected to the proof; this gap is to be documented explicitly in `Guarded2Network`'s own module docs once written. |
+| Flags, and `Ξ` (§9.10, now resolved): how do these cross-cutting effects fit the monad-polymorphism convention? | **Unified effect stack, not a driver/pass split.** Every function — pass code and the CLI driver alike — is written against one abstract `{m : Type _ → Type _} [Monad m]`, with every effect (errors, flags, module cache) as a typeclass constraint on that same `m`, rather than confining `IO`-flavored effects to an outer driver layer. Concretely: (1) **Flags are a contextual (Reader) effect, not an opaque action.** A single `getFlag : String → m (Option String)` was tried and rejected — flags aren't uniformly `Option String` (boolean `-f`/`-W` flags vs. valued `-d<name>=<value>` options vs. `-o`/`-t`/`-I`'s own typed values each need their real type, not a stringly-typed lookup every caller re-parses), and separately, this project's proofs run on `Std.Do.WP`, which cannot be instantiated at `IO` at all — an opaque, unconstrained action gives that framework nothing to reason about, whereas Reader is exactly the transparent, structural effect it already handles. So: a concrete, typed `FlagsEnv` structure (covering the full settled flag surface above), populated once by the CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus small typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`, not new typeclasses per flag. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup, replacing prior art's ad hoc `DebugOptions.from` + closure-capture pattern. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), with an `IO` instance backed by the disk-persisted cache (§5.3) — a genuine mutable-store effect, unlike flags, but it only shows up in `Checker`, which isn't part of §6.2's committed proof surface, so it doesn't hit the `Std.Do.WP`-compatibility question flags did; revisit its shape if Checker itself ever becomes a proof target. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Guarded2Network.compile` stays generic (`{m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadExceptOf G2NError m]`, same shape as every other pass) rather than being special-cased monomorphic. The refinement theorem is proved against whichever concrete instantiation `Std.Do.WP` actually supports (e.g. `m := Id`, or a `ReaderT FlagsEnv (Except G2NError)` stack) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for actual CLI execution is a **separate, deliberately unverified step** — same source term, same typeclass contract, believed equivalent by construction but not formally connected to the proof; this gap is to be documented explicitly in `Guarded2Network`'s own module docs once written. (4) **Fresh-name generation gets the same treatment as `Ξ`**, resolved during Phase 4: `MonadFresh m` (`Common/Fresh.lean`), a monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transformations (§5.2) and expected to recur at `Typed2Guarded`'s `𝒞_par` (§5.4). Names are generated as `"<prefix>$<n>"` — `$` cannot appear in a TLA⁺ identifier, so no scope-tracking is needed to prove freshness, unlike a general capture-avoiding-substitution setup. |
 
 ---
 
@@ -297,43 +297,180 @@ threading real source positions through comment/annotation parsing, which is a
 genuinely fiddly bit of surface area (not a quick fix) — worth doing for usability
 eventually, but not blocking the pipeline getting built.
 
-### 5.2 Desugaring
+### 5.2 Desugaring — done (Phase 4)
 **Input:** `SurfaceTLAPlus`/`SurfacePlusCal`. **Output:** `CoreTLAPlus`/`CorePlusCal`.
 
-Two independent halves:
+Both `Core/CoreTLAPlus/Syntax.lean` and `Core/CorePlusCal/Syntax.lean` were **written fresh**
+in Phase 4 (per §2/§4, `CoreTLAPlus`/`CorePlusCal` are fresh, not ported) — prior art's own
+`Core/CoreTLAPlus/Syntax.lean` predates the confirmed transformation list below and still
+carries `prefixCall`/`infixCall`/`postfixCall`, separate `bforall`/`forall` pairs, and an
+`@`-referencing case, none of which survive in the actual target shape (only prior art's
+`CorePlusCal.Statement`'s `Bool`-indexed terminal encoding was carried forward, per §2/§3.2).
 
-- **Expression desugaring** (`SurfaceTLAPlus.Expression.desugar`): produces
-  `CoreTLAPlus`, a deliberately simple core language for the checker (§5.3) and
-  everything downstream to work against, rather than TLA+'s full surface grammar. The
-  concrete transformations (confirmed with the project owner directly — treat this list
-  as authoritative, superseding the shorter gloss in `Core/README.md`):
+Two independent halves, both implemented:
+
+- **Expression desugaring** (`SurfaceTLAPlus.Expression.desugar`, `Desugarer/TLAPlus.lean`):
+  produces `CoreTLAPlus`, a deliberately simple core language for the checker (§5.3) and
+  everything downstream to work against, rather than TLA+'s full surface grammar. The four
+  confirmed transformations (confirmed with the project owner directly, and cross-checked
+  against the thesis's own formal typing rules, §3.1.3 — treat this list as authoritative,
+  superseding the shorter gloss in `Core/README.md`):
   - `@`, TLA+'s self-reference inside `EXCEPT`, desugars to the expression being
-    `EXCEPT`ed. In `[x EXCEPT ![1, 2, 3] = @ + 3]`, `@` becomes `x[1, 2, 3]`.
+    `EXCEPT`ed. In `[x EXCEPT ![1, 2, 3] = @ + 3]`, `@` becomes `x[1, 2, 3]`. Implemented via
+    prior art's own `Reader`-based approach (`Option (CoreTLAPlus.Expression α)`, `none`
+    outside any `EXCEPT` update) — a small, already-solved piece of design worth reusing as-is
+    (`CLAUDE.md`).
   - Conjunction/disjunction *lists* (TLA+'s indentation-sensitive `/\`/`\/` lists)
     desugar to the binary infix operators `/\`/`\/`.
-  - Prefix, postfix, and infix operator applications desugar to ordinary
-    (prefix-style) operator applications: `1 + 2` becomes the application `+(1, 2)`,
-    `TRUE^*` becomes `^*(TRUE)`, and likewise for every mixfix operator.
-  - Every quantifier binds exactly one variable over at most one domain. Tuple-pattern
-    binders desugar via a fresh variable: `\A ⟨x, y⟩ ∈ S : P` becomes
-    `\A z ∈ S : P[z[0]\x, z[1]\y]` for some `z` fresh in both `S` and `P`.
-    Multi-variable binders desugar to nested single-variable quantifiers:
-    `\A x, y : P` becomes `\A x : \A y : P` (and likewise for `\E`, and the other
-    binder forms).
-
-  **This is only partially implemented** in `distpcal-compiler`'s
-  `Desugarer/TLAPlus.lean` as of this plan being written — don't assume the existing
-  code covers all four transformations above; check what's actually there against this
-  list rather than treating any part of it as a finished port.
-- **Statement desugaring** (Distributed PlusCal → PlusCal with explicit gotos): **no
-  existing implementation** — `Desugarer/PlusCal.lean` is an empty stub in every branch
-  checked. This needs to be designed and written from the ground up. The target shape is
-  `Core/CorePlusCal/Syntax.lean`'s type-indexed `Statement α β (terminal : Bool)`
-  encoding (§3.2) — carry that pattern forward, it buys "every block ends in exactly one
-  terminal statement" for free as a type invariant instead of a side condition to
-  maintain by hand. The actual normalization (turning implicit fallthrough into explicit
-  `goto`, per PlusCal's own manual, referenced in thesis §3.2.2.1) is comparatively
-  mechanical once the target type is right.
+  - Prefix, postfix, and infix operator applications desugar to ordinary (prefix-style)
+    operator applications: `1 + 2` becomes the application `+(1, 2)`, `TRUE^*` becomes
+    `^*(TRUE)`, and likewise for every mixfix operator. **Resolved during implementation
+    (the project owner's own simplification, not something this plan anticipated):**
+    `CoreTLAPlus.Expression` needs *no* dedicated operator-enum types or value constructors at
+    all for this — every builtin operator becomes an ordinary `opCall` whose callee is
+    `Expression.var "<canonical-spelling>"` (e.g. `.var "+"`, `.var "\\in"`), reusing the exact
+    same constructor as any user-defined name. This is sound (no TLA⁺ identifier can ever be
+    spelled like an operator symbol — the lexer's `identifierOrKeyword` and `symbol`
+    productions are disjoint) and matches the thesis's own formalization verbatim: "1 + 2 is
+    treated as (+) 1 2 … we may assume that `+ : (Int, Int) ⇒ Int` is present in the typing
+    context Γ" (§3.1.3) — operators are pre-populated *names* in Γ, not a distinct syntactic
+    category. Canonicalizing every alternative spelling (e.g. `<=`/`=<`/`\leq`) to one string
+    happens once, in `Desugarer/TLAPlus.lean`'s `{Prefix,Infix,Postfix}Operator.canonicalName`.
+  - Every quantifier-like binder (`\A`/`\E`/`\AA`/`\EE`/`CHOOSE`/set-map/set-filter/function
+    literals) binds exactly one variable over at most one domain — confirmed not just by
+    example but against the thesis's own formal typing rules (Figures 3.1.2/3.1.3/3.1.5/3.1.6),
+    every one of which is single-variable; `CoreTLAPlus`'s quantifier constructors have no
+    multi-variable or tuple-pattern case to represent at all. Two distinct desugaring shapes
+    are needed, confirmed against real usage in `distpcal-compiler/tests/LamportMutex{3,4}.tla`
+    (both hit): tuple-pattern binders (`\A ⟨x, y⟩ ∈ S : P`, and `[⟨m,nd⟩ ∈ S ↦ …]`) desugar via
+    one fresh variable and substitution (`\A z ∈ S : P[z[1]/x, z[2]/y]`); **multi-variable
+    *quantifiers*** (`\A x, y : P`, `\A x, y ∈ S : P`) desugar to **nested** single-variable
+    quantification (`\A x : \A y : P` / `\A x ∈ S : \A y ∈ S : P`) since that's a genuine
+    logical equivalence — but **multi-binder *function literals/set-maps*** (`[x ∈ A, y ∈ B ↦
+    e]`, `{e : x ∈ A, y ∈ B}`) do *not* nest the same way (nesting would build a function of
+    functions, not a function over pairs) — they collapse to *one* fresh variable over the
+    **Cartesian product** `A × B` instead, confirmed against the thesis's Fig. 3.1.3 function
+    rule (single-variable only) and standard TLA⁺ semantics for this exact sugar. Both cases
+    reuse the same substitution helper (`CoreTLAPlus.Expression.subst`, `Desugarer/
+    TLAPlus.lean`) — a simple, non-capture-avoiding substitution that stops at any binder
+    rebinding the target name, sufficient given well-scoped programs never shadow (§5.2a). A
+    new shared `MonadFresh`/`freshName` effect (`Common/Fresh.lean`, alongside `FlagsEnv`'s
+    `MonadReaderOf`/`Ξ`'s `MonadModuleCache` as a cross-cutting effect class, §2/§9.10)
+    generates these fresh names, guaranteed collision-free via a `$` character no TLA⁺
+    identifier can contain — expected to recur at `Typed2Guarded`'s `𝒞_par`, §5.4.
+- **Statement desugaring** (Distributed PlusCal → PlusCal with explicit gotos,
+  `Desugarer/PlusCal.lean`): designed and written from the ground up, as anticipated (prior
+  art's own version was an empty stub in every branch). Target shape is `Core/CorePlusCal/
+  Syntax.lean`'s type-indexed `Statement α β (terminal : Bool)` encoding (§3.2), carried
+  forward from prior art per §2/§3.2 — **with two fixes**, one confirmed necessary by the
+  thesis's own account of Network PlusCal, one a correction caught by the project owner after
+  an initial wrong design (both documented honestly, not just the final state, in
+  `iridescent-enchanting-sparkle-findings.md`'s Phase 4 entry):
+  - **`Process.threads` labelling fix** (thesis §8.3, "Each thread of the process is a list of
+    labelled atomic blocks"): prior art's `Process.threads : List (Block α β true)` had no way
+    to attach a label to each block at all. Fixed to `List (List (String × Block α β true))`
+    (outer = parallel `{...}` threads, inner = the thread's own sequence of labelled blocks).
+  - **Basic-block extraction, corrected after an initially wrong design.** Real Distributed
+    PlusCal allows labels and `goto`s to appear *nested* inside `if`/`while`/`either` bodies —
+    only `with` genuinely disallows them (its binding only makes sense within one atomic step,
+    so execution can never pause/reschedule mid-`with`). The first implementation wrongly
+    rejected any label nested inside `if`/`while`/`either` and any `goto` not in tail position;
+    the project owner corrected this with a concrete before/after example (a labelled `print`
+    nested inside a `while` body) and clarified that the desugarer's actual job is **basic-block
+    extraction**: pull each nested labelled sub-block out to become its own top-level
+    `(label, Block)` entry in the thread, and stitch control flow back together with explicit
+    `goto`s (the extracted block ends with a `goto` back to whatever continues after it; the
+    point it was extracted from becomes a `goto` to the new label). This is now implemented as
+    `desugarSegment` in `Desugarer/PlusCal.lean`: it walks a thread's statement list carrying an
+    accumulator of already-desugared non-terminal statements, and on hitting a label, or a
+    nested construct that itself needs extraction, closes off the current segment as a
+    `CorePlusCal.Block ... true` and recurses. Fresh loop-back/continuation labels are
+    synthesized via `MonadFresh`/`freshName` (`"loop$n"`/`"cont$n"`) only when there's no
+    existing label to reuse (e.g. a `while`'s own label is reused as its loop-back target when
+    the loop starts the segment cleanly); this keeps generated output compact instead of
+    always minting new names. Dispatch between the "cheap" path (`desugarLabelFreeBlock`,
+    statically known to always produce a non-terminal `Block ... false`) and the "expensive"
+    extraction-capable path (`desugarSegment`) is decided by `Statement.needsExtraction`/
+    `List.needsExtraction`, which must check **both** "does this body contain a label anywhere"
+    **and** "does this body's own last statement resolve to a bare `goto`" — checking only the
+    first missed the case of an `either`/`if` branch ending in an explicit `goto` with no nested
+    label at all, which was a real regression caught by re-running the test fixtures after the
+    initial fix. `CorePlusCal.Statement.while`'s constructor was generalized from
+    `(cond : β) (B : Block α β false)` to `{b} (cond : β) (B : Block α β b) : Statement α β
+    false` to allow the loop body to be genuinely terminal (ending in an explicit loop-back
+    `goto`) once extraction can produce that; the `while` statement itself stays non-terminal
+    regardless, since falling out of the loop always continues normally.
+  - **Retained from the original design, not corrected:** a `goto` immediately followed by
+    further *unlabelled* statements is still rejected (`gotoNotInTailPosition`) — that's
+    genuinely unreachable dead code, not something to route around (a `goto` immediately
+    followed by a *label* is the ordinary "this block ends here" case and is fine). `with`
+    still rejects any nested label (`nestedLabel`, now documented as `with`-specific rather
+    than a general "no nested labels" rule). The **`goto Done` auto-insertion convention**
+    for thread termination is unchanged: if a thread's last label runs out of statements
+    without an explicit terminal, `goto Done` is auto-inserted — `"Done"` is a reserved
+    sentinel that never needs a matching label definition (standard PlusCal's official
+    translator convention; whoever implements well-labelledness, §5.2a, must keep `"Done"`
+    exempt from "every `goto` targets a real label").
+  - **Two more gaps found by cross-checking the PlusCal manual's §3 label/`goto` placement
+    rules directly** (project owner's request, after the corrections above — the manual's
+    §3.7 "Labels" is the exhaustive rule list; §5.2a's well-labelledness check is built on
+    the same rules, but some of them are precondition-like enough that desugaring itself must
+    already guarantee them, not just defer everything to §5.2a). Neither of these was
+    previously tested: none of the four fixture files exercise `while` at all (confirmed by
+    grepping them), so both gaps were fully latent.
+    - **A `while` must always be immediately preceded by a real label — and, corrected after
+      an initially wrong fix (see below), this compiler does not invent one if it's missing.**
+      The manual states the labeling requirement unconditionally (§3.2.4/§3.7: "A while
+      statement must be labeled" — unlike `if`/`either`, which only need a label *after* them,
+      and only when they themselves contain something requiring one), independently confirmed
+      by the thesis's own `𝒞_cflow` rewrite rule (§5.4 below): its pattern
+      `while e {B1}; B2; goto l'` *at label `l`* already assumes the `while` starts the block.
+    - **A `while` may never appear inside a `with` body, at any nesting depth, independent of
+      `nestedLabel`.** The manual (§3.2.6) lists this as its own, unconditional restriction —
+      a `while` is illegal inside `with` even with no label anywhere near it, since `with`'s
+      one-atomic-step semantics can never provide the label a `while` always needs. Previously
+      unenforced: `Statement.desugarLabelFree` accepted a `while` inside `with`'s body without
+      question. Fixed via a threaded `insideWith` flag (propagated through `if`/`either`'s own
+      sub-bodies, both legal inside `with`, but checked immediately on seeing a `while` before
+      even recursing into its body) and a new `DesugarError.whileInWith`.
+  - **Fourth correction, a reversal caught by the project owner while reviewing the generated
+    `tests/regression/` fixtures (below):** the *first* fix for "a `while` must always be
+    labeled" (just above) auto-synthesized a fresh label (`"loop$N"`) whenever a `while`
+    lacked one, mirroring how nested-label extraction already synthesizes `"cont$N"` for
+    `if`/`either` continuations. The project owner pointed out this is wrong: real PlusCal's
+    *default* translator behavior (no `-label` flag) **rejects** an unlabelled `while` outright
+    — auto-insertion is what the *opt-in* `-label` flag does, not the default, and this
+    compiler should match the default. The same correction applies symmetrically to
+    `if`/`either`'s "must be followed by a label" requirement (§3.2.2/§3.2.3): the `"cont$N"`
+    synthesis was *also* wrong for the same reason and is likewise now a hard error. Concretely:
+    - `desugarSegment`'s `while` case now throws `DesugarError.whileNotLabelled` (new) whenever
+      the current segment already has content, or has no real label to attribute the `while`
+      to, instead of minting `"loop$N"`.
+    - `desugarContinuation` now throws `DesugarError.notFollowedByLabel` (new) whenever what
+      follows a label/`goto`-containing `if`/`either` isn't itself already labelled, instead of
+      minting `"cont$N"`.
+    - A related, independent bug surfaced during this fix: `List.needsExtraction` treated a
+      `while` as "safe, no extraction needed" whenever it was the first element of a *nested*
+      `if`/`either` branch's own list — but being first inside a brace-delimited branch was
+      never the same thing as being immediately preceded by a real label (that label belongs to
+      the *enclosing* `if`, not to the `while` nested inside one of its branches). Fixed by
+      making `List.needsExtraction` flag *any* `while` found anywhere in a nested body,
+      unconditionally, so `desugarSegment` always gets a chance to check it's properly labelled.
+    - The now-unused `MonadFresh`/`Common.Fresh` dependency was removed from this file entirely
+      (still needed, unrelated, by `Desugarer/TLAPlus.lean`'s expression desugaring).
+    - Verified against all four fixture files (still pass unchanged) plus a larger
+      `tests/regression/` suite (13 hand-written `.tla` files, `accept_`/`reject_`-prefixed,
+      C-syntax only, checked by `tests/regression/run.sh`) covering: a `while` preceded by
+      other statements in the same segment (now correctly *rejected*, not extracted), a
+      `while` already labelled at its own enclosing label (accepted, reuses that label as its
+      loop-back target), a `while` nested inside `with` (rejected), a `while` as the sole,
+      unlabelled content of an `if`-branch (now correctly *rejected*, alongside its properly
+      labelled counterpart which is accepted), an `if`/`either` with a nested label but an
+      unlabelled continuation (now correctly *rejected*, alongside its properly labelled
+      counterpart which is accepted), and the project owner's original nested-labelled-step
+      example (unaffected, since every label in it was always user-written). See
+      `iridescent-enchanting-sparkle-findings.md`'s Phase 4 entry for the full trail, including
+      the reasoning that led to (then away from) auto-synthesis.
 
 ### 5.2a Well-formedness checking (NEW)
 **Input/output:** `CoreTLAPlus`/`CorePlusCal` — this is a checking pass, not a
@@ -348,10 +485,59 @@ three checks below are purely syntactic at this point — no typing is needed, s
 declarations, gotos, and operator shapes are all already resolved by the time
 `CorePlusCal`/`CoreTLAPlus` exist:
 
-- **Well-labelledness.** Every `goto` targets a label that actually exists in the
-  enclosing process/procedure. §5.3's `[Goto]` rule deliberately performs no check of its
-  own (correctly — this isn't a typing concern), on the assumption that something
-  upstream already guarantees it; this pass is that something.
+- **Well-labelledness**, grounded directly in the PlusCal manual's own placement rules
+  (`https://lamport.azurewebsites.net/tla/p-manual.pdf`, §3.2's statement-by-statement rules
+  and §3.7's exhaustive list — the project owner's explicit source for this pass, cross-
+  checked directly against the implementation rather than re-derived from memory or prose
+  summaries; the same cross-check is what caught the two `while`-placement gaps fixed in
+  §5.2 above). Every restriction the manual states is part of what "well-labelled" *means*
+  here, but they don't all need a *fresh* check in this pass — some are already impossible
+  to violate by the time a term reaches `CorePlusCal`, for two different reasons worth
+  telling apart (a genuine type-level guarantee is stronger than "the one producer we have
+  happens to respect it"):
+  - **Guaranteed by `CorePlusCal`'s type itself, for any term of that type regardless of
+    what constructed it:** every thread starts with a label and every block ends in exactly
+    one terminal statement (`Process.threads : List (List (String × Block α β true))`'s own
+    shape, §3.2/§8.3 — `Statement α β true` has no constructor except `goto`, so a `goto` can
+    only ever be a `Block`'s own `end`, never mid-list); "an `if`/`either` that contains a
+    labelled statement or `goto` anywhere within it must be followed by a label" (§3.2.2/
+    §3.2.3) — `CorePlusCal.Statement.if`/`.either`'s `Bool` index forces *both* branches to
+    share one terminality, so if extraction made either branch terminal (ends in `goto`), the
+    whole `if`/`either` is itself `Statement α β true` and can therefore *only* be a block's
+    own terminal `end` — meaning whatever follows it, by the same argument as above, has no
+    choice but to start a fresh labelled block.
+  - **Guaranteed today because `Desugarer/PlusCal.lean` (§5.2) is the *only* producer of
+    `CorePlusCal` terms in this pipeline and now correctly enforces it — not encoded in the
+    type, so a latent risk if that ever stops being true (e.g. a second frontend, or
+    hand-built `CorePlusCal` test fixtures) rather than a structural impossibility:** "a
+    `while` statement must be labeled," i.e. must be the first statement of whatever `Block`
+    contains it (§3.2.4/§3.7 — `CorePlusCal.Statement.while` carries no such restriction in
+    its own type, unlike `if`/`either` above; enforced by the desugarer *throwing*
+    `whileNotLabelled` rather than auto-inserting a label, per the fourth correction in §5.2);
+    "`with`'s body cannot contain a labelled statement, a `goto`, or a `while`" (§3.2.6 —
+    likewise enforced by the desugarer *throwing* `nestedLabel`/`whileInWith` rather than by
+    anything `CorePlusCal.Statement.with`'s type itself rules out).
+  - **Not guaranteed by anything upstream — this pass's actual, new work:**
+    - *Every `goto` targets a label that actually exists* in the enclosing process/thread (or
+      is the reserved `"Done"` sentinel). §5.3's `[Goto]` rule deliberately performs no check
+      of its own (correctly — this isn't a typing concern, and a `String` label name is just
+      data, not an index into "labels that exist," so nothing about `CorePlusCal`'s type can
+      possibly guarantee this), on the assumption that something upstream does; this pass is
+      that something.
+    - *No two assignments to the same variable within one atomic step, on the same control
+      path* (§3.2.1/§3.7) — walk each labelled block's statements, treating an `if`/`either`'s
+      separate branches as separate control paths (two *different* branches assigning to the
+      same variable is fine; the same branch doing so, or one branch and whatever both
+      branches converge to afterward, is not). Not previously listed in this plan at all;
+      added from the same manual cross-check that caught the `while` fixes above.
+    - *The reserved label `"Done"` is never redefined as an actual, user-written label*
+      (§3.7) — `"Error"`'s equivalent restriction doesn't apply here (no procedures exist in
+      this language subset, §3.4/§8, so there's no implicit `Error` label to collide with).
+  - **Optional, defense-in-depth:** re-verifying the "guaranteed by the desugarer" bullet
+    directly on `CorePlusCal` (rather than trusting `Desugarer/PlusCal.lean` unconditionally,
+    given it's *not* type-enforced) isn't required for this pipeline as it stands — but is
+    cheap to add here if that assurance is wanted regardless; revisit if `CorePlusCal` terms
+    ever start being producible some other way.
 - **Variable well-scopedness.** Every variable reference resolves to a declared name of
   the right kind (global, channel, process-local, or block-local `with`/`let` binding —
   matching prior art's Σ/Δ/Γ/Ξ scope classes), every `with`/`let` binder is fresh in its
@@ -1118,13 +1304,11 @@ Formalizing the target language's own operational semantics only starts to matte
 there's appetite to prove something about that pass (a prerequisite for the correctness
 question raised in thesis §8.7/this plan's §9.1) — revisit then, not before.
 
-### 9.5 Minimal per-pass sanity-checking discipline
-§2 deprioritizes a maintained example/regression suite, which is a decision about scope,
-not about hygiene — it doesn't say anything about how an implementer should sanity-check
-a single pass while building it, distinct from a maintained `tests/` suite. Worth a
-lightweight convention (e.g. a few `#eval`/`#guard_msgs` smoke checks per pass, checked
-in alongside the pass itself) even without committing to the bigger regression-suite
-effort §2 defers.
+### 9.5 Minimal per-pass sanity-checking discipline — resolved, moved to §2
+Resolved: `tests/regression/` holds small, hand-written, `accept_`/`reject_`-prefixed `.tla`
+smoke tests (C-syntax only) per confirmed pass behavior, distinct from — and not a
+replacement for — the still-deprioritized *formal, harnessed* example/regression suite. See
+§2's "Example/regression suite" row for the decision and rationale.
 
 ### 9.6 Multicast compilation is undescribed for both backends
 `multicast(x, [y ∈ e1 ↦ e2])` is explicitly part of the v1 language subset (§8), yet
