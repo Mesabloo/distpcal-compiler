@@ -221,13 +221,13 @@ private def runCli (p : Parsed) : IO UInt32 := do
 
   let algo ← match mod.pcalAlgorithm with
     | none => pure none
-    | some algo => withSpinner "Desugaring PlusCal statements…" λ spinner ↦ do
+    | some algo => withSpinner "Desugaring PlusCal algorithm…" λ spinner ↦ do
       match algo.runDesugarer with
       | .error e =>
-        spinner.fail "Failed to desugar PlusCal statements."
+        spinner.fail "Failed to desugar PlusCal algorithm."
         printErrorAndExit e lines colored
       | .ok algo =>
-        spinner.success "Desugared PlusCal statements."
+        spinner.success "Desugared PlusCal algorithm."
         return some algo
 
   if let some algo := algo then

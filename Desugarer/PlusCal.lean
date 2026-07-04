@@ -327,9 +327,8 @@ namespace SurfacePlusCal
         let ctx ← readThe SegmentContext
         pure (ctx.fallthrough, [])
       | .inl nextLabel :: rest' => do
-        let ctx ← readThe SegmentContext
         let (nextBlock, ex) ←
-          withTheReader SegmentContext (fun _ => { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest')
+          withTheReader SegmentContext ({ · with ownLabel := some nextLabel }) (desugarSegment [] rest')
         pure (nextLabel, (nextLabel, nextBlock) :: ex)
       | .inr s :: _ => throw (.notFollowedByLabel (posOf s))
 
