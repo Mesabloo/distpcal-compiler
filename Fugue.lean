@@ -1,9 +1,14 @@
 import Cli.Basic
 import Common.Flags
+import Common.Errors
+import Parser_.TLAPlus
+import Parser_.Annotations
 import ProgressBar.Spinner
 import ProgressBar.Spinners
+import Colorized
 
 open Cli
+open Colorized (Colorized)
 
 /-- The input source: a file path, or `-` to read from standard input. -/
 private inductive Input : Type
@@ -63,19 +68,35 @@ instance : ParseableType Target where
     | "join" => some .join
     | _ => none
 
-/-- Collect `<name>[=<value>]` options into a map, rejecting a `name` given more than once. -/
-private def NamedOption.toMap (kind : String) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
+/-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
+private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-dir"]
+
+/-- Default value of `-d dump-dir=<path>`. -/
+private def defaultDumpDir : System.FilePath := ".fugue/debug"
+
+/-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
+private def knownFeatures : Array String := #["no-color"]
+
+/-- `-W<name>` names recognized so far — matches every `ParserWarning.name` (`Parser_/Common.lean`), extend likewise. -/
+private def knownWarnings : Array String := #["fair"]
+
+/-- Collect `<name>[=<value>]` options into a map, rejecting an unknown or duplicate `name`. -/
+private def NamedOption.toMap (kind : String) (known : Array String) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
   let mut map : Std.HashMap String (Option String) := {}
   for opt in opts do
+    unless known.contains opt.name do
+      throw ↑s!"unknown {kind} option '{opt.name}'. Known {kind} options: {String.intercalate ", " known.toList}."
     if map.contains opt.name then
       throw ↑s!"{kind} option '{opt.name}' specified multiple times."
     map := map.insert opt.name opt.value
   return map
 
-/-- Collect `-W`'s toggles into a map, rejecting a `name` given more than once. -/
-private def WarningToggle.toMap (toggles : Array WarningToggle) : IO (Std.HashMap String Bool) := do
+/-- Collect `-W`'s toggles into a map, rejecting an unknown or duplicate `name`. -/
+private def WarningToggle.toMap (known : Array String) (toggles : Array WarningToggle) : IO (Std.HashMap String Bool) := do
   let mut map : Std.HashMap String Bool := {}
   for toggle in toggles do
+    unless known.contains toggle.name do
+      throw ↑s!"unknown warning '{toggle.name}'. Known warnings: {String.intercalate ", " known.toList}."
     if map.contains toggle.name then
       throw ↑s!"warning '{toggle.name}' specified multiple times."
     map := map.insert toggle.name toggle.enabled
@@ -96,19 +117,49 @@ private def withSpinner {α : Type} (msg : String) (act : Spinner → IO α) : I
     spinner.cancel .erase
   return res
 
-private def runCli (p : Parsed) : IO UInt32 := do
-  let debug ← NamedOption.toMap "debug" <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
-  let features ← NamedOption.toMap "feature" <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
-  let warnings ← WarningToggle.toMap <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
+/-- Output a compiler error on `stderr` and exit immediately with an exit code of `1`. -/
+@[noinline, specialize]
+private def printErrorAndExit {α β ε} [Colorized β] [ToString β] [CompilerDiagnostic ε β] (err : ε) (lines : List String.Slice) (colored : Bool) : IO α := do
+  IO.eprintln <| CompilerDiagnostic.pretty err lines colored
+  IO.Process.exit 1
+
+/-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. -/
+private def dumpToFile (content : String) (dir : System.FilePath) (name : String) : IO Unit := do
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir / name) content
+
+/--
+  Parses every flag out of `p` (rejecting unknown/duplicate `-d`/`-f`/`-W` names and a
+  valueless `-d dump-dir`, per `NamedOption.toMap`/`WarningToggle.toMap` above) and
+  populates `flagsRef` with the result. The one place all CLI-flag validation happens —
+  every later stage of `runCli` just reads back through `FlagsEnv`'s typed accessors.
+-/
+private def validateAndSetFlags (p : Parsed) : IO Unit := do
+  let debug ← NamedOption.toMap "debug" knownDebugOptions <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
+  let features ← NamedOption.toMap "feature" knownFeatures <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
+  let warnings ← WarningToggle.toMap knownWarnings <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
   let output := p.flag? "output" |>.map (·.as! System.FilePath)
   let target := p.flag? "target" |>.map (·.as! Target) |>.getD .go
   let searchPath := p.flag? "include" |>.map (·.as! (Array System.FilePath)) |>.getD #[] |>.toList
 
+  match debug.get? "dump-dir" with
+  | some none => throw ↑"debug option 'dump-dir' requires a path, e.g. -d dump-dir=.fugue/debug"
+  | _ => pure ()
+
   flagsRef.set { debug, features, warnings, output, target, searchPath }
 
-  let input := p.positionalArg! "input" |>.as! Input
+private def runCli (p : Parsed) : IO UInt32 := do
+  validateAndSetFlags p
 
-  withSpinner "Reading input…" λ spinner ↦ do
+  let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
+  let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim defaultDumpDir (↑·)
+
+  let input := p.positionalArg! "input" |>.as! Input
+  let dumpName := match input with
+    | .path path => path.fileName.getD (toString path)
+    | .stdin => "stdin"
+
+  let source ← withSpinner "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
         unless ← path.pathExists do
@@ -117,8 +168,47 @@ private def runCli (p : Parsed) : IO UInt32 := do
         IO.FS.readFile path
       | .stdin => (← IO.getStdin).readToEnd
     spinner.success s!"Read {source.utf8ByteSize} bytes from '{input}'."
+    return source
+  let lines := source.split (· == '\n') |>.toList
 
-  IO.println s!"Fugue: CLI wired, flags parsed, input read. The lexer/parser (Phase 3) isn't implemented yet, so the pipeline stops here."
+  let tokens ← withSpinner "Lexing TLA⁺ file…" λ spinner ↦ do
+    match SurfaceTLAPlus.Lexer.lexModule source with
+    | .inl e =>
+      let _ : ToString Char := ⟨λ c ↦ s!"'{c}'"⟩
+      spinner.fail "Failed to lex TLA⁺ file."
+      printErrorAndExit e lines colored
+    | .inr tokens =>
+      spinner.success s!"Lexed {tokens.size} tokens."
+      return tokens
+
+  if ← FlagsEnv.getDebugFlag "dump-tokens" then
+    dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens"
+
+  let (mod, warnings) ← withSpinner "Parsing TLA⁺ module…" λ spinner ↦ do
+    match SurfaceTLAPlus.Parser.parseModule tokens with
+    | .inl e =>
+      let _ {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toString x.data⟩
+      spinner.fail "Failed to parse TLA⁺ module."
+      printErrorAndExit e lines colored
+    | .inr (mod, warnings) =>
+      spinner.success s!"Parsed module '{mod.name}'."
+      return (mod, warnings)
+
+  if ← FlagsEnv.getDebugFlag "dump-cst" then
+    dumpToFile (reprStr mod) dumpDir s!"{dumpName}-cst"
+
+  for warning in warnings do
+    if ← FlagsEnv.isWarningEnabled warning.name then
+      IO.eprintln <| CompilerDiagnostic.pretty warning lines colored
+
+  let mod ← match resolveAnnotations mod with
+    | .error e => printErrorAndExit e lines colored
+    | .ok mod => pure mod
+
+  IO.println s!"Fugue: parsed module '{mod.name}' (extends {mod.extends.length} module(s), \
+{mod.declarations₁.length + mod.declarations₂.length} declaration(s), \
+{if mod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal algorithm). \
+The desugarer (Phase 4) isn't implemented yet, so the pipeline stops here."
   return 0
 
 private def cli : Cmd := `[Cli|
@@ -129,7 +219,7 @@ private def cli : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (AST dumps, timing, …), comma-separated `name[=value]` pairs."
+    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
     f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[=value]` pairs."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
 

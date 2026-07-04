@@ -16,8 +16,16 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   msgOf : ε → α
   hintsOf : ε → List α := λ _ ↦ []
 
-/-- Pretty basic error pretty printing. -/
-def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String.Slice) : String :=
+/-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). -/
+private def colorizeIf {α} [Colorized α] (enabled : Bool) (c : Colorized.Color) (x : α) : α :=
+  if enabled then Colorized.color c x else x
+
+/-- `Colorized.style`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). -/
+private def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) : α :=
+  if enabled then Colorized.style s x else x
+
+/-- Pretty basic error pretty printing. `colored := false` (driven by `-fno-color`) disables ANSI styling. -/
+def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String.Slice) (colored : Bool := true) : String :=
   let header := if CompilerDiagnostic.isError ε then "error" else "warning"
   let color := if CompilerDiagnostic.isError ε then Colorized.Color.Red else .Yellow
   let headerPadding := String.replicate (header.length + 2) ' '
@@ -26,11 +34,11 @@ def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [Com
   let linePadding := String.replicate (n.repr.length + 2) ' '
   let line := source[n - 1]!
   let startCol := pos.start.col
-  let endCol := if pos.end.line > n then line.length - 1 else pos.end.col
-  let beginLine := line.take (startCol - 1)
-  let middleLine := line.drop (startCol - 1) |>.take (endCol - startCol + 1)
+  let endCol := if pos.end.line > n then line.length else pos.end.col
+  let beginLine := line.take startCol
+  let middleLine := line.drop startCol |>.take (endCol - startCol)
   let endLine := line.takeEnd (line.length - endCol)
-  s!"{Colorized.color color <| Colorized.style .Bold s!"{header}:"} {toString (CompilerDiagnostic.msgOf err) |>.replace "\n" s!"\n{headerPadding}"}{String.join ((CompilerDiagnostic.hintsOf err).map λ s ↦ s!"\n{headerPadding}" ++ (toString s).replace "\n" s!"\n{headerPadding}")}
+  s!"{colorizeIf colored color <| styleIf colored .Bold s!"{header}:"} {toString (CompilerDiagnostic.msgOf err) |>.replace "\n" s!"\n{headerPadding}"}{String.join ((CompilerDiagnostic.hintsOf err).map λ s ↦ s!"\n{headerPadding}" ++ (toString s).replace "\n" s!"\n{headerPadding}")}
 {linePadding}|
- {n} | {beginLine}{Colorized.color color middleLine}{endLine}
-{linePadding}|{String.replicate (startCol + 1) ' '}{Colorized.color color <| String.replicate (endCol - startCol) '^'}"
+ {n} | {beginLine}{colorizeIf colored color middleLine}{endLine}
+{linePadding}|{String.replicate (startCol + 1) ' '}{colorizeIf colored color <| String.replicate (endCol - startCol) '^'}"

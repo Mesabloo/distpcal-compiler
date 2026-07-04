@@ -70,7 +70,7 @@ ask before overturning).
 | Lock inference / Go concurrency safety | **In scope.** The rest of `Network2Go` already works (real, goroutine-based concurrency); lock inference is the one missing piece, not a reason to redesign the backend. Concretely: one lock per atomic block, derived from a conflict analysis over which blocks share process-local variables — see §5.7 for the algorithm as specified by the project owner. |
 | Example/regression suite | **Deprioritized.** The prototype's `tests/PingPong`, `tests/TPC`, `tests/LamportMutex` examples exist and are useful reading, but building a test harness is not a near-term milestone. The Ping-Pong example from the thesis is used informally throughout this plan as a running illustration only. |
 | Build config format / toolchain version | **`lakefile.lean` (Lean DSL), not `lakefile.toml`** — same kind of config prior art uses. **Bump the Lean toolchain** rather than pinning to prior art's stale `v4.29.0-rc1`: start on the current stable release when implementation begins, updating `mathlib`/`batteries`/other pinned deps to match. **Expect real breakage from this, not just cosmetic fixes**, and not only in the three ported exceptions (§2) — `Extra/`'s vendored data-structure lemmas are exposed to the same API drift and should be expected to need real repair work too. This cuts both ways: some currently-broken `Extra/` theorems may become provable again once a partial API change elsewhere is fixed by the bump (e.g. string-related lemmas broken by a partial API change), not purely a one-directional cost. |
-| CLI flag surface | **Settled**, GCC/Clang-style flag naming on top of `leanprover/Cli` (still the underlying framework, as in prior art — `--help`/`--version` come free from it): `-d<name>[=<value>]` (debugging options generally — AST dumps, but also e.g. `-dtiming` for per-pass timing, not just dumps), `-f<name>[=<value>]` (feature/config toggles, e.g. `-fno-progress`), `-W<name>`/`-Wno-<name>` (per-warning control), `-o`/`--output`, `-t`/`--target go|join`, `-I <path>` (add a module search path, see §5.3). Two details still open — Join Calculus "flavors" and where the Go `-p` package name lives — see §9.3. **Concrete invocation syntax, pinned down during Phase 2 (CLI wiring):** `leanprover/Cli` rejects the same named flag being given more than once (`duplicateFlag`) and parses `Array α`-typed flags as a single comma-separated occurrence, not true repetition — so each of `-d`/`-f`/`-W`/`-I` is one Cli flag of an `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style (`-dfoo -dbar`). This is a mechanical consequence of the library, not a design choice, and doesn't change the settled semantics above. |
+| CLI flag surface | **Settled**, GCC/Clang-style flag naming on top of `leanprover/Cli` (still the underlying framework, as in prior art — `--help`/`--version` come free from it): `-d<name>[=<value>]` (debugging options generally — AST dumps, but also e.g. `-dtiming` for per-pass timing, not just dumps), `-f<name>[=<value>]` (feature/config toggles, e.g. `-fno-color` to disable ANSI-colored diagnostic output — implemented, `Common/Errors.lean`'s `CompilerDiagnostic.pretty` takes a `colored` flag threaded from this), `-W<name>`/`-Wno-<name>` (per-warning control — e.g. `-Wno-fair` suppresses the `fair process`/`fair+`-ignored warning, §5.1), `-o`/`--output`, `-t`/`--target go|join`, `-I <path>` (add a module search path, see §5.3). Two details still open — Join Calculus "flavors" and where the Go `-p` package name lives — see §9.3. **Concrete invocation syntax, pinned down during Phase 2 (CLI wiring):** `leanprover/Cli` rejects the same named flag being given more than once (`duplicateFlag`) and parses `Array α`-typed flags as a single comma-separated occurrence, not true repetition — so each of `-d`/`-f`/`-W`/`-I` is one Cli flag of an `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style (`-dfoo -dbar`). This is a mechanical consequence of the library, not a design choice, and doesn't change the settled semantics above. **`-d dump-dir=<path>`** (default `.fugue/debug`; prior art's own default was `.pcvc`, changed since this is a fresh project with its own name) sets where `-d dump-tokens`/`-d dump-cst` write their output — as in prior art, dumps go to `<dump-dir>/<input-file-name>-tokens`/`-cst` files, not stdout; `-d dump-dir` without a value is a hard error. **`-d`/`-f`/`-W` names are validated against a hardcoded allowlist** (`knownDebugOptions`/`knownFeatures`/`knownWarnings`, `Fugue.lean`) — an unrecognized name is a hard CLI error, not silently accepted (a misspelled `-d`/`-f`/`-W` option previously landed in `FlagsEnv`'s map unnoticed, since nothing ever looked it up). Extend these three arrays by hand as later phases add dump points/features/warnings — no registration mechanism beyond that, deliberately, since the current set is small enough not to warrant one. |
 | Go runtime library location | **Settled: `runtime/go/` in this repo**, versioned alongside the compiler that targets it, not a separate repo (unlike prior art's implicit `github.com/mesabloo/distpcal-compiler/lib`). See §5.7. |
 | Address visibility / deployment topology | **Accepted limitation, not fixed by this plan.** Distributed PlusCal lets any process know any other process's identity, so generated code can't principally avoid assuming worst-case full connectivity ("star" topology) between processes. A "minimal needed addresses" static analysis was considered but is **not planned work** — it's largely mooted by the nameserver-based addressing already settled for both backends (§5.6, §5.7). See §7's stretch list. |
 | Fairness (`isFair`, `fair process`/`fair+`) | **Largely ignored by the compiler** — there's no way to insert fairness into the target languages' runtimes (neither the generated Go's goroutine scheduler nor the Join Calculus's reaction-firing nondeterminism are made fairness-aware by this plan). `isFair` is still carried through the ASTs (parsing → both backends) for round-tripping/documentation purposes, but neither backend's compilation scheme (§5.6, §5.7) does anything with it. The parser emits a **warning** (§5.1) whenever a `fair process` / `fair+` annotation is encountered, telling the user it will be ignored. |
@@ -242,10 +242,21 @@ regression suite (deprioritized per §2).
 
 ### 5.1 Lexing & parsing
 **Input:** raw TLA+ module source (`.tla`), containing an embedded Distributed PlusCal
-algorithm inside a `(* --algorithm ... *)` comment block, plus `@type`/`@mailbox`/`@rx`
+algorithm inside a `(* --algorithm ... *)` comment block, plus `@type`/`@mailbox`
 annotations in comments (see the Ping-Pong listing in thesis §8.6 for the annotation
 style).
 **Output:** `SurfaceTLAPlus.Module` wrapping a `SurfacePlusCal.Algorithm`.
+
+**`@rx`, resolved (was previously miswritten into this section as a third source-level
+annotation kind):** per the project owner, `@rx` is not a source annotation the parser
+ever handles at all — it's purely an internal marker used later, during **pretty-printing
+of the Network PlusCal variant** (§5.5's output, consumed by §5.6/§5.7's backends), not
+something `Parser_`/`resolveAnnotations` needs to parse or represent. `Annotation`
+(`Parser_/Annotations.lean`) correctly has only `@type`/`@mailbox`/`@parameter` — no
+`@rx` case — matching prior art exactly; this was the parser being right and this
+document's prose being wrong, not a gap to fix in Phase 3. Whoever implements Network
+PlusCal pretty-printing (§5.5 onward) should introduce `@rx` there, not retrofit it into
+this section's annotation set.
 
 Per §2, this is one of the two passes ported from prior art rather than written fresh —
 and specifically ported from the **local** `~/Documents/distpcal-compiler` checkout
@@ -261,7 +272,7 @@ and is at most a secondary reference (e.g. for the handful of gaps §9.2 found �
 which block starting). §9.2 has the audit findings and the one check (an actual
 `lake build`) still outstanding.
 
-Annotations (`@type`, `@mailbox`, `@rx`) are parsed as a distinct pass over comments
+Annotations (`@type`, `@mailbox`) are parsed as a distinct pass over comments
 (`resolveAnnotations` in prior art) since TLA+'s own grammar has no room for them; this
 should stay a separate, explicit step rather than folded into the main parser, both for
 error-reporting clarity and because it's genuinely orthogonal (comments vs. grammar).
@@ -1001,34 +1012,87 @@ encoding, with the performance caveat the thesis flags), or (c) nothing at all, 
 the Join Calculus output purely as a verification artifact? Revisit once §5.6 exists and
 it's clearer what "done" should mean for this backend.
 
-### 9.2 Parser implementation — audited, one real check still outstanding
-Audited during planning (static read-through of `Parser_.lean` +
-`Parser_/{Annotations,Common,Monad,PlusCal,TLAPlus}.lean` +
-`Parser_/Tokens/{PlusCal,TLAPlus}.lean`, ~2,200 lines): no `sorry`, no `panic!`. It has
-real, complete top-level entry points — `SurfaceTLAPlus.Lexer.lexModule`,
-`SurfaceTLAPlus.Parser.parseModule`, `resolveAnnotations` — matching exactly the shape
-already wired into `fugue main`'s working CLI, and a commented-out `#eval` at the bottom
-of `TLAPlus.lean` reading and parsing `tests/TPC/TPC2.tla`, consistent with the project
-owner's own account of having gotten this building and working in earlier attempts.
-**No Lean toolchain is available in the environment planning happened in** (no `lake`,
-and the sandbox's network allowlist blocks `elan`/toolchain downloads), so this plan
-could not itself run `lake build` to give a from-scratch confirmation — treat the above
-as strong circumstantial evidence, not a build log. Whoever starts implementation should
-run `lake build` (or `./fugue.sh`) against `Fugue.Parser` first, before assuming this
-audit substitutes for it.
+### 9.2 Parser implementation — ported and confirmed building (Phase 3, done)
+Audited during planning (static read-through, see below for what changed once actually
+built), then ported for real in Phase 3 into this repo's `Parser_/{Annotations,Common,
+Monad,PlusCal,TLAPlus}.lean` + `Parser_/Tokens/{PlusCal,TLAPlus}.lean` +
+`Parser_.lean`. **The outstanding check from planning — an actual `lake build` — is now
+done**: `Fugue.Parser` builds clean, and the `fugue` executable lexes/parses a real
+`.tla` file end-to-end (`tests/PingPong/PingPong.tla`, thesis §8.6's worked example)
+through the CLI built in Phase 2. See `.claude/plans/iridescent-enchanting-sparkle-
+findings.md`'s Phase 3 entry for the four real bugs testing surfaced in total (a missing
+`return` in `parseMailbox`; an out-of-bounds panic in `parseModule`'s EOF-error path; the
+long-known duplicated-character rendering bug in `CompilerDiagnostic.pretty`; and
+`parseAtom` never handling the `.true`/`.false` tokens at all) and the toolchain-bump
+deprecations fixed along the way — none of it "no sorry, no panic!"-level static reading
+could have caught, confirming the planning-time caveat that a static read-through isn't a
+substitute for a real build. The last two of these were found only after the project
+owner pushed back on an initial, too-hasty "Phase 3 done" claim that had wrongly written
+off `tests/TPC/{TPC,TPC2}.tla` as out-of-scope fixtures rather than real inputs — see the
+correction later in this section.
 
-Known, bounded gaps found by the read-through (worth triaging, not blockers to starting):
+The **`fair process`/`fair+` → warning** requirement (§2, §5.1) is implemented via a
+`ParserWarning` type and a `ParserWarningM := StateT (List ParserWarning) Id` base monad
+for `TLAPlusParser`/`PlusCalParser` (`Parser_/Common.lean`, `Parser_/Monad.lean`) —
+warnings are collected out-of-band during parsing and returned alongside a successful
+`parseModule` result, filtered/rendered by the CLI driver (which has `FlagsEnv`) rather
+than checked mid-parse. `lexModule`/`parseModule`/`resolveAnnotations` themselves keep
+prior art's concrete `Except`/`Sum`-returning shape unchanged, per the project owner's
+explicit confirmation that only these entry points need to stay non-monad-polymorphic —
+the underlying `ParserT`/`SimpleParserT` combinators were already `m`-polymorphic before
+this project touched them (`fgdorais/Parser`'s own design), so this is simply the one
+concrete instantiation the compiler runs them at, not new abstraction.
+
+Known, bounded gaps found by the read-through (worth triaging, not blockers, and
+confirmed still present after the real port — none hit by the Ping-Pong exit criterion):
 - `TODO`s for: an incomplete TLA⁺ reserved-word list (`TLAPlus.lean:62`), no
   binary/octal/hex number literals (`TLAPlus.lean:376`), and no handling of junk before
   the module start / after the module end (`TLAPlus.lean:1135`).
 - PlusCal `macro`/`procedure`/`define` sections are explicitly unsupported
   (`PlusCal.lean:387`) — `Core/SurfacePlusCal/Syntax.lean` doesn't even have AST nodes
   for them yet. **Not a blocker**: none of these appear in the v1 language subset (§8),
-  which matches the thesis's own typing rules never mentioning them either.
+  which matches the thesis's own typing rules never mentioning them either. Confirmed by
+  testing: `distpcal-compiler/tests/LamportMutex/LamportMutex.tla` fails on exactly this
+  (a `define { ... }` block) — expected, not a regression.
 - `TLAPlus.lean:935`'s `-- TODO: parse annotations` comment on `parseQuantifierBound`
   looks stale on inspection — the code right below it already calls
   `tryParseAnnotations` for every binder — but worth a quick confirming look rather than
   trusting that read.
+- **New, found by testing:** `parseChannels`/`parseFifos` (`PlusCal.lean`) only accept a
+  single bracket-index group (`chan[S]`), unlike `Ref.args : List (List β)` which
+  supports the multi-dimensional form (`x[i][j]`) used elsewhere (e.g. `parseRef`). Found
+  via `LamportMutex.tla`'s `fifos network[Nodes][Nodes];` — moot for that specific file
+  (it also uses an unsupported `define` block), but a real, narrow grammar gap for any
+  future v1-subset program wanting a multi-dimensional channel/fifo declaration. Not
+  fixed in Phase 3 (out of scope: no `define`-free test program hits it), left for
+  whoever next touches `parseChannels`/`parseFifos`.
+- **Correction (the project owner caught this): `distpcal-compiler/tests/TPC/{TPC,TPC2}.tla`
+  are NOT out of scope** — an earlier draft of this entry wrongly assumed the appended
+  plain-TLA⁺ definitions after the algorithm comment (`a1(self) == ...`, `pc' = ...`) were
+  leftover output from the *old* pipeline never meant to feed back through this compiler.
+  That was wrong: the whole module, appended definitions included, is expected to parse.
+  The real cause was two genuine parser bugs, both found and fixed once actually pressed
+  on (see `iridescent-enchanting-sparkle-findings.md`'s Phase 3 entry for the debugging
+  trail): (1) the known duplicated-character rendering bug (`Common/Errors.lean`, fixed —
+  two compounding off-by-ones in `CompilerDiagnostic.pretty`'s column math, not just the
+  underline-width mismatch originally suspected), and (2) `parseAtom`
+  (`Parser_/TLAPlus.lean`) never had cases for the `.true`/`.false` tokens at all — `TRUE`/
+  `FALSE` lex to their own dedicated token constructors (not `.identifier`), so any bare
+  boolean literal was unparseable as an expression, which is exactly what TPC2.tla's
+  generated `/\ TRUE` conjuncts hit. Both fixed; **`tests/TPC/TPC2.tla` now parses fully
+  end-to-end.** `tests/TPC/TPC.tla` (the older variant) still fails, but for an unrelated,
+  legitimate reason confirmed by testing, not a parser bug: it uses a pre-Apalache-format
+  `@type` annotation dialect (`Channel[{type: string, agent: T}]`, square brackets and
+  lowercase generic names) that predates this project's settled "same format as Apalache"
+  decision (§2) — `TPC2.tla` uses the current syntax (`Channel({type: Str, agent:
+  Address})`) and is the fixture to prefer.
+- **New, found by the same testing pass:** `Expression.choose` (CHOOSE) and `LET`/`IN`
+  are lexed (`.choose`/`.let`/`.in` tokens exist and are produced) but have no parser rule
+  at all in `Parser_/TLAPlus.lean` — same shape of gap as the `.true`/`.false` one above,
+  just not yet fixed since none of the current test fixtures (`PingPong`, `PingPongs`,
+  `TPC`, `LamportMutex`) exercise CHOOSE or LET-IN. Worth a real implementation pass
+  before trusting any input that uses either, not a quick two-line fix like `.true`/
+  `.false` was.
 
 ### 9.3 CLI / UX — two remaining details
 The flag surface is settled (§2). Two details the project owner flagged as genuinely
