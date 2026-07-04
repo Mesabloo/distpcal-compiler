@@ -66,8 +66,11 @@ inductive Statement (α β : Type) : Type
   | assign (_ : List (Ref β × β))
   | «if» (cond : β) (B₁ : List (String ⊕ Statement α β)) (B₂ : Option (List (String ⊕ Statement α β)))
   | await (e : β)
-  /-- `with x = e do B` / `with x ∈ e do B` -- the `Bool` is `true` for `=`, `false` for `∈`. -/
-  | «with» (vars : List (String × Bool × β)) (B : List (String ⊕ Statement α β))
+  /-- `with (* @type: ... *) x = e do B` / `with (* @type: ... *) x ∈ e do B` -- the `Bool` is
+  `true` for `=`, `false` for `∈`. Each binder carries its own annotation slot (`α`), same as
+  a `variables`/`channels`/`fifos` entry -- a `with`-bound variable can be `@type`-annotated
+  too. -/
+  | «with» (vars : List (String × α × Bool × β)) (B : List (String ⊕ Statement α β))
   | assert (e : β)
   | either (branches : List (List (String ⊕ Statement α β)))
   | «while» (cond : β) (B : List (String ⊕ Statement α β))
@@ -85,7 +88,7 @@ protected partial def Statement.bimap {α β γ δ} (f : α → β) (g : γ → 
   | .assign asss, pos => .assign (bimap (g <$> ·) g <$> asss) @@ pos
   | .if e B₁ B₂, pos => .if (g e) ((Statement.bimap f g <$> ·) <$> B₁) (((Statement.bimap f g <$> ·) <$> ·) <$> B₂) @@ pos
   | .await e, pos => .await (g e) @@ pos
-  | .with vars B, pos => .with (vars.map λ (x, eq, e) ↦ (x, eq, g e)) ((Statement.bimap f g <$> ·) <$> B) @@ pos
+  | .with vars B, pos => .with (vars.map λ (x, ann, eq, e) ↦ (x, f ann, eq, g e)) ((Statement.bimap f g <$> ·) <$> B) @@ pos
   | .assert e, pos => .assert (g e) @@ pos
   | .either Bs, pos => .either (((Statement.bimap f g <$> ·) <$> ·) <$> Bs) @@ pos
   | .while e B, pos => .while (g e) ((Statement.bimap f g <$> ·) <$> B) @@ pos
@@ -108,7 +111,7 @@ protected partial def Statement.bitraverse {F : Type → Type} [Applicative F] {
       <*> traverse (traverse (traverse (Statement.bitraverse f g))) B₂
   | .await e, pos => (.await · @@ pos) <$> g e
   | .with vars B, pos =>
-    (.with · · @@ pos) <$> traverse (λ (x, eq, e) ↦ (x, eq, ·) <$> g e) vars
+    (.with · · @@ pos) <$> traverse (λ (x, ann, eq, e) ↦ (x, ·, eq, ·) <$> f ann <*> g e) vars
       <*> traverse (traverse (Statement.bitraverse f g)) B
   | .assert e, pos => (.assert · @@ pos) <$> g e
   | .either Bs, pos => (.either · @@ pos) <$> traverse (traverse (traverse (Statement.bitraverse f g))) Bs

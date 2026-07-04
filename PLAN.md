@@ -530,6 +530,85 @@ Two independent halves, both implemented:
     may still be freely *read* and that writing to an unrelated variable from within the same
     `with` body is unaffected (`accept_with_assign_other_var.tla`) — all 17 regression fixtures
     (13 prior + these 4) and all four external fixtures still pass unchanged.
+  - **Sixth addition: annotations disappear from `CorePlusCal`/`CoreTLAPlus` entirely, leaving
+    only their content.** Originally (while scoping Phase 5's annotation-placement
+    prerequisite, above) annotation checking was a separate, validate-only pass run after
+    statement desugaring, over an still-generic-in-annotation-type `CorePlusCal.Algorithm`.
+    Per the project owner, that pass now genuinely *transforms* the AST instead of just
+    validating it.
+
+    **Content that fits uniformly into "the declared-type annotation at whatever stage of
+    checking it's currently at" stays on the very same `α` `Statement`/`Block`/`Branches`/
+    `MulticastFilter` already had — `CorePlusCal.Declarations` shares it too, rather than
+    getting its own, separately-evolving type-of-types parameter.** (An earlier attempt gave
+    `Declarations` a second parameter `τ`, `Option`-wrapped only in its own fields; the project
+    owner corrected this twice — `τ` shouldn't be `Option`-wrapped at the field level any more
+    than `with`'s own binder slot is, and it should be *the same variable* as `Statement`'s `α`,
+    not a second one. Both together are what let `Process`/`Algorithm` stay ordinary,
+    unambiguous two-parameter `Bifunctor`/`Bitraversable` instances — the first attempt's three
+    parameters made `bimap`/`bitraverse` unable to infer which two of the three to curry on.)
+    Concretely: `Declarations.variables/channels/fifos` entries carry `α` directly (`List
+    Annotation` fresh out of statement desugaring, `Option Typ` after the same later, still-
+    independent `CorePlusCal.Algorithm.stripEmbeddedTypeAnnotations` pass that already stripped
+    `MulticastFilter`'s per-bind annotations and — a new addition, see below — a `with`-bound
+    variable's own annotation) — `Declarations` needed **no bespoke early extraction for its
+    declared-type content at all**, since it's swept up for free by the exact same
+    `Bitraversable` walk. Content that genuinely *can't* fit this uniform shape — `@mailbox`'s
+    channel name/index expressions, `@parameter`'s presence-as-a-`Bool` — is instead extracted
+    early, as its own concrete field, by bespoke validation fused directly into statement
+    desugaring (`Process.desugar`/`Declarations.desugarCheck`, `Desugarer/PlusCal.lean`, rather
+    than kept as a second, separately-named "raw, still-generic" `CorePlusCal`-shaped type
+    purely to bridge the gap between structural desugaring and this bespoke validation — a real
+    fork, resolved by asking: two coexisting shapes, e.g. a `CorePlusCal.Unchecked` namespace or
+    a suffixed `CheckedAlgorithm` name, were explicitly rejected in favor of there only ever
+    being one `CorePlusCal.Algorithm`, always fully checked): `CorePlusCal.Process.ann : α`
+    became a concrete `mailbox : Option (String × List β)` field (from at most one `@mailbox`,
+    `extractMailbox`); `Declarations.variables` gained a genuinely separate `isParameter : Bool`
+    field (from `@parameter`'s mere *presence*, `Declarations.desugarCheck`) alongside its
+    ordinary `α` slot. `CoreTLAPlus.Expression` (TLA⁺ side) needed no structural AST change at
+    all for this — it was already `Bifunctor`/`Bitraversable`-generic in its annotation type, so
+    `Expression (Option Typ)` (formerly `Expression (List Annotation)`) is just a different
+    instantiation of the same type.
+
+    **Second new feature, discovered as a natural consequence of unifying `Declarations`' and
+    `Statement`'s `α`: a `with`-bound variable can now carry its own `@type` annotation**
+    (`with (* @type: Int; *) x = e { … }`) — previously impossible, since `SurfacePlusCal.
+    Statement.with`'s binder tuple had no annotation slot at all. `CorePlusCal`/`SurfacePlusCal
+    Statement.with`'s `vars` gained an `α` slot (`String × α × Bool × β`, matching every other
+    binder-like site), and `Parser_/PlusCal.lean`'s `parseWith` now calls `tryParseAnnotations`
+    per binder. **A real parser bug found while testing this, same class as the one `parseFilter`
+    (multicast) already works around:** wrapping the whole binder list in `parens` swallows the
+    *first* binder's own annotation, since `parens`'s `lexeme (token (.tla .lparen))` treats a
+    comment sitting immediately after `(` as ordinary trailing whitespace to skip, before that
+    binder's own `tryParseAnnotations` call ever runs — confirmed via `-d dump-cst`
+    (`("x", [], …)`, empty, for the first binder; a *second* binder, after a `;`/`,`, correctly
+    captured `[("type", …)]`). **Fixed** by not using `parens` at all — a bare `token (.tla
+    .lparen)` (no `lexeme`), exactly `parseFilter`'s own established workaround for the identical
+    problem.
+
+    **A genuine, previously-latent gap found and fixed along the way:** `@mailbox`'s filter
+    arguments (`var[e₁, …, eₙ]`) were never actually desugared to `CoreTLAPlus.Expression` at
+    all before this — `Module.desugar`'s own traversal (`Desugarer/TLAPlus.lean`) treats every
+    annotation as opaque, untouched payload (`f = pure` over the annotation type), so these
+    arguments stayed raw `SurfaceTLAPlus.Expression` values forever, and the pre-fusion
+    `checkMailboxOnly` never even looked at them (compared only the channel name, since
+    `SurfaceTLAPlus.Expression` has no `BEq`). This was invisible before because nothing
+    downstream ever consumed a mailbox's filter arguments at all; it became a hard type error
+    the moment `CorePlusCal.Process` gained a real `mailbox : Option (String × List β)` field
+    those arguments have to actually inhabit. Fixed by running `SurfaceTLAPlus.Expression.
+    desugar` over them directly inside `Process.desugar`, through a throwaway local instantiation
+    of the same `ReaderT (Option (CoreTLAPlus.Expression α)) (StateT Nat (Except DesugarError))`
+    stack `SurfaceTLAPlus.Module.runDesugarer` already uses at the top level (`desugarMailboxArg`).
+
+    Verified: full `lake build` clean, and `-d dump-desugared` on fixtures covering a `@mailbox`,
+    a `@type`/`@parameter`-annotated variable, and a `with`-binder `@type` annotation (including
+    one sitting immediately after `with`'s opening `(`) all show genuinely concrete content —
+    `mailbox := some ("ch", [])`, `fifos := [("ch", some (Typ.channel (Typ.str)), [])]`,
+    `variables := [("x", some (Typ.str), true, some (false, …))]`,
+    `Statement.with [("x", some (Typ.int), false, …)] …` — no `Annotation`/`CommentAnnotation`
+    value anywhere in a `CorePlusCal` value any more. All 26 `tests/regression/` fixtures (25
+    prior + 1 new, `accept_with_binder_type_annotation.tla`) and all four external fixtures
+    still pass.
 
 ### 5.2a Well-formedness checking (NEW)
 **Input/output:** `CoreTLAPlus`/`CorePlusCal` — this is a checking pass, not a

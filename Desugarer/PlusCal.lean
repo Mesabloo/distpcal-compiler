@@ -9,9 +9,21 @@ import Parser_.Annotations
   `CorePlusCal`'s explicit-`goto`, type-indexed-terminal `Block`s (§5.2). Written from scratch —
   prior art's `Desugarer/PlusCal.lean` is an empty stub in every branch (`PLAN.md` §3.2/§5.2).
 
-  Purely structural: by the time this runs, `Module.desugar` (`Desugarer/TLAPlus.lean`) has
-  already desugared every embedded `β`-typed expression to `CoreTLAPlus.Expression`, so nothing
-  here needs to recurse into expressions at all.
+  Mostly structural: by the time this runs, `Module.desugar` (`Desugarer/TLAPlus.lean`) has
+  already desugared every embedded `β`-typed expression to `CoreTLAPlus.Expression`, so the
+  goto-explicitization machinery below never needs to recurse into expressions at all. The one
+  exception is `Process.desugar`/`Algorithm.desugar` themselves, which — per the project owner's
+  choice to fuse annotation checking into statement desugaring rather than keep a second,
+  separately-named "raw, still-generic" `CorePlusCal`-shaped type around just to bridge the gap
+  between structural desugaring and annotation checking (`Core/CorePlusCal/Syntax.lean`'s module
+  doc) — also validate and strip every `Process`/`Declarations`-level annotation (`@mailbox`,
+  `@type`, `@parameter`) down to its content right here, including running full expression
+  desugaring (`SurfaceTLAPlus.Expression.desugar`, via a throwaway local monad instantiation,
+  `desugarMailboxArg` below) over a `@mailbox`'s filter arguments — those were never desugared at
+  all before this (`Module.desugar`'s own traversal treats annotations as opaque, untouched
+  payload), a real, previously-latent gap that only became visible once `CorePlusCal.Process`
+  gained a genuine `mailbox : Option (String × List β)` field that these arguments have to
+  actually inhabit.
 
   **Labels may appear inside `if`/`while`/`either` bodies, not just at a thread's top level** —
   confirmed by the project owner with a worked example (a `while` loop with a labelled step
@@ -118,6 +130,7 @@ namespace SurfacePlusCal
     deriving Inhabited
 
   variable {α β : Type} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+    [MonadStateOf (List DesugarWarning) m]
     [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
     [MonadReaderOf SegmentContext m] [MonadWithReaderOf SegmentContext m]
 
@@ -364,106 +377,121 @@ namespace SurfacePlusCal
         withTheReader SegmentContext (fun _ => { ownLabel := some firstLabel, fallthrough := doneLabel }) (desugarSegment [] rest)
       pure ((firstLabel, block) :: extracted)
 
-  def Process.desugar (p : Process α β) : m (CorePlusCal.Process α β) :=
-    (CorePlusCal.Process.mk p.ann p.isFair p.name p.«=|∈» p.id p.localState ·)
-      <$> traverse Thread.desugar p.threads
+  /-- Run `SurfaceTLAPlus.Expression.desugar` against a single, self-contained expression,
+  discarding the fresh-name counter — the same concrete instantiation `SurfaceTLAPlus.Module.
+  runDesugarer` (`Desugarer/TLAPlus.lean`) uses, just scoped to one expression rather than a
+  whole module. Needed for `@mailbox`'s filter arguments (`extractMailbox` below), which
+  `Module.desugar`'s own traversal never reaches (annotations are opaque payload there). -/
+  private def desugarMailboxArg (e : SurfaceTLAPlus.Expression (List Annotation)) :
+      Except DesugarError (CoreTLAPlus.Expression (List Annotation)) :=
+    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (StateT Nat (Except DesugarError)) _ := e.desugar
+    (d.run none).run' 0
 
-  def Algorithm.desugar (a : Algorithm α β) : m (CorePlusCal.Algorithm α β) :=
-    (CorePlusCal.Algorithm.mk a.isFair a.name a.globalState ·) <$> traverse Process.desugar a.processes
-
-end SurfacePlusCal
-
-/-- Run statement desugaring against the concrete monad it's ever needed at: `WithContext`'s and
-`SegmentContext`'s `Reader`s, and error reporting — no fresh-name synthesis needed here (unlike
-`Desugarer/TLAPlus.lean`'s expression desugaring), since this compiler never invents a label the
-user didn't write (this file's module doc). Neither `Reader`'s outer seed value is ever actually
-observed: `Thread.desugar` always establishes a real `SegmentContext` via `withTheReader` before
-`desugarSegment` reads one, and `WithContext`'s default (`boundVars := []`) is exactly the
-correct ambient value for everything outside of a `with` body anyway. -/
-def SurfacePlusCal.Algorithm.runDesugarer {α β} (a : SurfacePlusCal.Algorithm α β) :
-    Except DesugarError (CorePlusCal.Algorithm α β) :=
-  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (Except DesugarError)) _ :=
-    a.desugar
-  (desugar.run {}).run default
-
-/--
-  §5.1's annotation-placement prerequisite, PlusCal half — companion to
-  `Desugarer/TLAPlus.lean`'s `CoreTLAPlus.Module.checkTLAPlusAnnotations`, covering the
-  algorithm-specific slots that check doesn't see. Two kinds of check, since the right rule
-  genuinely differs by *which* field a slot is:
-  - **Field-specific, hand-checked** (not via the generic `Bitraversable` walk, which applies
-    one uniform function to every `α`-slot regardless of field): `SurfacePlusCal.Process.ann`
-    is `@mailbox`-only, at most one (two different mailboxes on one process would be
-    ambiguous, same reasoning as duplicate `@type`); a `Declarations.variables` entry allows
-    `@parameter` only when it's `∈`-initialized (the `Bool` in `Option (Bool × β)`, `true` for
-    `=`) — repeated `@parameter` there is a warning, not an error, since it's a content-free
-    marker with nothing to actually disagree about — `@type` always, at most one; nothing
-    else; `channels`/`fifos` entries are `@type`-only, same as the TLA⁺ side.
-  - **Uniformly `@type`-only** (every embedded expression's own quantifier/record-literal
-    annotation slots — variable/channel/fifo domains, process IDs, statement expressions):
-    checked via the same generic `bitraverse pure (traverse checkTypeOnlySlot)` pattern as the
-    TLA⁺ side, since these slots follow the identical rule there.
-
-  Runs on `CorePlusCal.Algorithm` (after both `Module.desugar` and this file's own
-  `runDesugarer`), matching where the TLA⁺ half runs — post-desugaring, not folded into the
-  polymorphic `desugar` functions themselves. Polymorphic over `m` per this project's
-  monad-polymorphism convention (`CLAUDE.md`) — needs error-reporting plus a
-  `List DesugarWarning` accumulator (mirroring `Parser_/Common.lean`'s `ParserWarningM`, for
-  the `@parameter`-duplicate warning) — `runCheckPlusCalAnnotations` below is the concrete
-  entry point.
--/
-def CorePlusCal.Algorithm.checkPlusCalAnnotations {m : Type → Type} [Monad m]
-    [MonadExceptOf DesugarError m] [MonadStateOf (List DesugarWarning) m]
-    (algo : CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
-    m (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) := do
-  checkDeclarations algo.globalState
-  for p in algo.processes do
-    checkMailboxOnly p.ann
-    checkDeclarations p.localState
-  bitraverse pure (traverse checkTypeOnlySlot) algo
-where
-  checkMailboxOnly (anns : List Annotation) : m Unit := do
-    -- Compared by channel *name* only, not the full filter-expression list (`SurfaceTLAPlus.
-    -- Expression` has no `BEq`, and comparing just the name is enough to catch the case that
-    -- actually matters: two @mailboxes naming *different* channels on one process).
-    let mut seenMailbox : Option String := none
+  /-- Validate and extract a `Process.ann` slot: at most one `@mailbox`, nothing else
+  (`DesugarError.wrongAnnotationKindAtSite`/`duplicateAnnotation`, compared by channel name only
+  — same reasoning as the old `checkMailboxOnly`), with its filter arguments fully desugared
+  (`desugarMailboxArg`) rather than left as raw, never-consumed `SurfaceTLAPlus.Expression`s. -/
+  def extractMailbox {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+      (anns : List Annotation) : m (Option (String × List (CoreTLAPlus.Expression (List Annotation)))) := do
+    let mut mailbox : Option (String × List (SurfaceTLAPlus.Expression (List Annotation))) := none
     for ann in anns do
       match ann with
-      | .«@mailbox» pos name _ =>
-        match seenMailbox with
-        | some name' => unless name == name' do throw (.duplicateAnnotation pos "@mailbox")
-        | none => seenMailbox := some name
+      | .«@mailbox» pos name args =>
+        match mailbox with
+        | some (name', _) => unless name == name' do throw (.duplicateAnnotation pos "@mailbox")
+        | none => mailbox := some (name, args)
       | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@mailbox")
-  checkDeclarations {β} (decls : SurfacePlusCal.Declarations (List Annotation) β) : m Unit := do
-    for (_, anns, init) in decls.variables do
+    match mailbox with
+    | none => return none
+    | some (name, args) => match args.mapM desugarMailboxArg with
+      | .error e => throw e
+      | .ok args' => return some (name, args')
+
+  /-- Validate `@parameter`'s placement (only on a `∈`-initialized entry) and extract its
+  *presence* into the dedicated `isParameter` field — a repeated `@parameter` is a warning,
+  not an error, since it's content-free (nothing for two instances to disagree about). Leaves
+  every other annotation (in practice, at most one `@type`) untouched in `α`, for the later,
+  uniform `stripEmbeddedTypeAnnotations` to validate/extract exactly like any other `@type`-
+  only slot — `Declarations` shares that same `α` with `Statement`/`MulticastFilter`
+  (`Core/CorePlusCal/Syntax.lean`'s module doc), so there is no need to duplicate `@type`'s own
+  duplicate-detection here. `channels`/`fifos` never allow `@parameter` at all, so they pass
+  through unexamined — `stripEmbeddedTypeAnnotations` alone is enough to reject one that
+  sneaks in. -/
+  def Declarations.desugarCheck {β : Type} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+      [MonadStateOf (List DesugarWarning) m]
+      (decls : Declarations (List Annotation) β) : m (CorePlusCal.Declarations (List Annotation) β) := do
+    let «variables» ← decls.variables.mapM λ (x, anns, init) ↦ do
       -- `init`'s `Bool` is `true` for `=`, `false` for `∈` (`Declarations.variables`'s own doc
       -- comment) — `@parameter` only makes sense on a `∈`-initialized variable, matching
       -- `TPC2.tla`'s `aState ∈ {"accept","refuse"}` example.
       let allowParameter := match init with
         | some (false, _) => true
         | _ => false
-      let mut seenType : Option SurfaceTLAPlus.Typ := none
       let mut seenParameter := false
+      let mut rest : List Annotation := []
       for ann in anns do
         match ann with
-        | .«@type» pos τ =>
-          match seenType with
-          | some τ' => unless τ == τ' do throw (.duplicateAnnotation pos "@type")
-          | none => seenType := some τ
         | .«@parameter» pos =>
           unless allowParameter do throw (.wrongAnnotationKindAtSite pos "@parameter" "@type")
           if seenParameter then modify (DesugarWarning.duplicateParameterAnnotation pos :: ·)
           seenParameter := true
-        | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@type")
-    for (_, anns, _) in decls.channels do let _ ← checkTypeOnlySlot anns
-    for (_, anns, _) in decls.fifos do let _ ← checkTypeOnlySlot anns
+        | other => rest := other :: rest
+      return (x, rest.reverse, seenParameter, init)
+    return { «variables», channels := decls.channels, fifos := decls.fifos }
 
-/-- Run `checkPlusCalAnnotations` against the one concrete monad it's ever needed at:
-error-reporting plus a `List DesugarWarning` accumulator (mirroring `Parser_/Common.lean`'s
-`ParserWarningM`), returning the collected warnings alongside a successful result for the CLI
-driver to render subject to `-W`/`-Wno-<name>`. -/
-def CorePlusCal.Algorithm.runCheckPlusCalAnnotations
+  /-- Desugar one process: goto-explicitize its threads (`Thread.desugar`) and, fused in
+  alongside that, validate/extract its `@mailbox` annotation (`extractMailbox`) and its local
+  declarations' `@parameter` annotations (`Declarations.desugarCheck`). -/
+  def Process.desugar (p : Process (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
+      m (CorePlusCal.Process (List Annotation) (CoreTLAPlus.Expression (List Annotation))) := do
+    let mailbox ← extractMailbox p.ann
+    let localState ← p.localState.desugarCheck
+    (CorePlusCal.Process.mk mailbox p.isFair p.name p.«=|∈» p.id localState ·)
+      <$> traverse Thread.desugar p.threads
+
+  /-- Desugar a whole algorithm: its global declarations (`Declarations.desugarCheck`) and
+  every process (`Process.desugar`). -/
+  def Algorithm.desugar (a : Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
+      m (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) := do
+    let globalState ← a.globalState.desugarCheck
+    (CorePlusCal.Algorithm.mk a.isFair a.name globalState ·) <$> traverse Process.desugar a.processes
+
+end SurfacePlusCal
+
+/--
+  §5.1's annotation-placement prerequisite, residual PlusCal half — companion to
+  `Desugarer/TLAPlus.lean`'s `CoreTLAPlus.Module.stripTLAPlusAnnotations`. `Process.mailbox` and
+  `Declarations.variables`' `isParameter` are already resolved by the time this runs
+  (`Process.desugar`/`Declarations.desugarCheck` above) — everything else reachable through
+  `α` (`Declarations`' remaining entries, `MulticastFilter`'s per-bind annotations, a
+  `with`-bound variable's own annotation, and every embedded expression's own quantifier/
+  record-literal annotation slots, `β`'s internal `α`, reached via `traverse`) is uniformly
+  `@type`-only, checked/stripped via the same `extractType` (`Desugarer/TLAPlus.lean`) as the
+  TLA⁺ side — in one `Bitraversable` walk, since `Declarations` shares `Algorithm`'s own `α`
+  rather than a separate parameter (`Core/CorePlusCal/Syntax.lean`'s module doc).
+-/
+def CorePlusCal.Algorithm.stripEmbeddedTypeAnnotations
     (algo : CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
-    Except DesugarError (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation)) × List DesugarWarning) :=
-  let check : StateT (List DesugarWarning) (Except DesugarError) _ := algo.checkPlusCalAnnotations
-  check.run []
+    Except DesugarError (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) :=
+  bitraverse extractType (traverse extractType) algo
+
+/-- Run statement desugaring — now fused with `@mailbox`/`@parameter` checking/extraction
+(`Process.desugar`/`Algorithm.desugar`, `Core/CorePlusCal/Syntax.lean`'s module doc) — against
+the concrete monad it's ever needed at: `WithContext`'s and `SegmentContext`'s `Reader`s, error
+reporting, and a `List DesugarWarning` accumulator (mirroring `Parser_/Common.lean`'s
+`ParserWarningM`, for the `@parameter`-duplicate warning) — no fresh-name synthesis needed for
+the goto-explicitization itself (unlike `Desugarer/TLAPlus.lean`'s expression desugaring), since
+this compiler never invents a label the user didn't write (this file's module doc). Neither
+`Reader`'s outer seed value is ever actually observed: `Thread.desugar` always establishes a
+real `SegmentContext` via `withTheReader` before `desugarSegment` reads one, and `WithContext`'s
+default (`boundVars := []`) is exactly the correct ambient value for everything outside of a
+`with` body anyway. Finishes by running `stripEmbeddedTypeAnnotations` above, so the returned
+`CorePlusCal.Algorithm` is always fully checked, with every annotation slot — declaration-level
+and expression-level alike — resolved to its actual content. -/
+def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
+    Except DesugarError (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)) × List DesugarWarning) := do
+  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (StateT (List DesugarWarning) (Except DesugarError))) _ :=
+    a.desugar
+  let (algo, warnings) ← ((desugar.run {}).run default).run []
+  let algo ← algo.stripEmbeddedTypeAnnotations
+  return (algo, warnings)

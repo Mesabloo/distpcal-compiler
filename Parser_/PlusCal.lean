@@ -293,12 +293,18 @@ namespace SurfacePlusCal.Parser
       return .send c e
 
     private def parseWith (block : PlusCalParser (List (String ⊕ Statement (List CommentAnnotation) (Expression (List CommentAnnotation))))) : PlusCalParser (Statement (List CommentAnnotation) (Expression (List CommentAnnotation))) := do
-      let _ ← token .with
-      let vars ← parens <| sepBy1 (semicolon <|> comma) do
+      let _ ← lexeme <| token .with
+      -- NOTE: don't use `parens` here, same reason `parseFilter` (multicast) doesn't use
+      -- `brackets` -- it would potentially consume any type information given for the first
+      -- binder (`lexeme`'s own trailing-whitespace-skip treats comments as whitespace too).
+      let _ ← token (.tla .lparen)
+      let vars ← sepBy1 (semicolon <|> comma) do
+        let annotations ← patchTLAParser tryParseAnnotations
         let var ← parseIdentifier
         let «=|∈» ← located <| false <$ equals <|> true <$ token (.tla (.infix .«\in»))
         let e ← patchTLAParser parseExpression
-        return ⟨var, «=|∈», e⟩
+        return ⟨var, annotations, «=|∈», e⟩
+      let _ ← token (.tla .rparen)
       let b ← block
       return .with vars.toList b
 
@@ -340,7 +346,7 @@ namespace SurfacePlusCal.Parser
         parseAssert parseExpression,
         parseWhile parseExpression parseStatement,
         parseIf parseExpression parseStatement,
-        parseWith parseExpression parseStatement,
+        parseWith tryParseAnnotations parseExpression parseStatement,
         parseReceive parseExpression,
         parseSend parseExpression,
         parseEither parseStatement,

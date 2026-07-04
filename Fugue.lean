@@ -214,7 +214,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
       spinner.fail "Failed to desugar TLA⁺ expressions."
       printErrorAndExit e lines colored
     | .ok mod =>
-      match mod.checkTLAPlusAnnotations with
+      match mod.stripTLAPlusAnnotations with
       | .error e =>
         spinner.fail "Failed to desugar TLA⁺ expressions."
         printErrorAndExit e lines colored
@@ -232,15 +232,12 @@ private def runCli (p : Parsed) : IO UInt32 := do
       | .error e =>
         spinner.fail "Failed to desugar PlusCal algorithm."
         printErrorAndExit e lines colored
-      | .ok algo =>
-        match algo.runCheckPlusCalAnnotations with
-        | .error e => printErrorAndExit e lines colored
-        | .ok (algo, warnings) =>
-          for warning in warnings do
-            if ← FlagsEnv.isWarningEnabled warning.name then
-              IO.eprintln <| CompilerDiagnostic.pretty warning lines colored
-          spinner.success "Desugared PlusCal algorithm."
-          return some algo
+      | .ok (algo, warnings) =>
+        for warning in warnings do
+          if ← FlagsEnv.isWarningEnabled warning.name then
+            IO.eprintln <| CompilerDiagnostic.pretty warning lines colored
+        spinner.success "Desugared PlusCal algorithm."
+        return some algo
 
   if let some algo := algo then
     if ← FlagsEnv.getDebugFlag "dump-desugared" then

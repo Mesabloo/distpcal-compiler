@@ -32,7 +32,7 @@ partial def Statement.pretty {α β} [Std.ToFormat α] [Std.ToFormat β] (S : St
       B₂.elim .nil (λ B₂ ↦ .line ++ " else " ++ formatBlock Statement.pretty B₂) ++ ";"
     | .await e => f!"await {e};"
     | .with vars B =>
-      "with " ++ .joinSep (vars.map λ (x, eq, e) ↦ f!"{x} {if eq then "=" else "\\in"} {e}") ", " ++
+      "with " ++ .joinSep (vars.map λ (x, ann, eq, e) ↦ f!"{ann}{x} {if eq then "=" else "\\in"} {e}") ", " ++
       formatBlock Statement.pretty B ++ ";"
     | .assert e => f!"assert {e};"
     | .either branches => .align true ++ "either " ++ .joinSep (formatBlock Statement.pretty <$> branches) (.line ++ "or ") ++ ";"

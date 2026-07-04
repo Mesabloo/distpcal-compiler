@@ -6,6 +6,7 @@ import Mathlib.Control.Traversable.Instances
 import Mathlib.Control.Bitraversable.Basic
 import Mathlib.Control.Bitraversable.Instances
 import Common.Position
+import Core.SurfaceTLAPlus.Syntax
 import Core.SurfacePlusCal.Syntax
 
 /-!
@@ -25,9 +26,29 @@ import Core.SurfacePlusCal.Syntax
   here by pairing each block with its label: `threads : List (List (String × Block α β true))` —
   the outer list is `SurfacePlusCal`'s parallel `{...} {...}` threads, the inner list is the
   sequence of labelled atomic blocks *within* one thread.
+
+  **`Process`/`Declarations`/`Algorithm` share the very same `α`/`β` that `Statement`/`Block`/
+  `Branches`/`MulticastFilter` do — not a separate type-of-types parameter, and not `Option`-
+  wrapped in `Declarations`' own fields.** `α` denotes "the declared-type annotation at
+  whatever stage of checking it currently is" everywhere it appears: `List Annotation` fresh
+  out of statement desugaring, `Option SurfaceTLAPlus.Typ` after the uniform, still-independent
+  `stripEmbeddedTypeAnnotations` pass (`Desugarer/PlusCal.lean`) — which, because `Declarations`
+  shares this one `α` rather than a second, independently-evolving parameter, strips
+  `Declarations`' `variables`/`channels`/`fifos` entries for free, via the exact same
+  `Bitraversable` walk that already covers `MulticastFilter`'s per-bind annotations and a
+  `with`-bound variable's own annotation — no special-casing needed. Content that genuinely
+  *can't* be expressed via this shared `α` — `@mailbox`'s channel name/index expressions,
+  `@parameter`'s presence-as-a-`Bool` — is instead extracted early, as its own concrete field
+  (`Process.mailbox`, `Declarations.variables`' `isParameter`), by bespoke validation fused
+  directly into statement desugaring (`Process.desugar`/`Declarations.desugarCheck`, per the
+  project owner, rather than keeping a second "raw, still-generic" `CorePlusCal`-shaped type
+  around purely to bridge the gap between structural desugaring and this bespoke validation) —
+  there is exactly one `CorePlusCal.Algorithm` shape throughout. Keeping everything else on one
+  shared `α` (rather than splitting it out) is what lets `Process`/`Algorithm` stay ordinary,
+  unambiguous two-parameter `Bifunctor`/`Bitraversable` instances.
 -/
 namespace CorePlusCal
-  open SurfacePlusCal (Ref MulticastFilter Declarations)
+  open SurfacePlusCal (Ref MulticastFilter)
 
   mutual
     inductive Statement (α β : Type) : Bool → Type
@@ -37,7 +58,7 @@ namespace CorePlusCal
       | assign (_ : List (Ref β × β)) : Statement α β false
       | «if» {b} (cond : β) (B₁ B₂ : Block α β b) : Statement α β b
       | await (e : β) : Statement α β false
-      | «with» (vars : List (String × Bool × β)) (B : Block α β false) : Statement α β false
+      | «with» (vars : List (String × α × Bool × β)) (B : Block α β false) : Statement α β false
       | assert (e : β) : Statement α β false
       | either {b} (branches : Branches α β b) : Statement α β b
       /-- `while`'s own body may be either terminal or not: non-terminal in the common case
@@ -89,7 +110,7 @@ namespace CorePlusCal
       | .assign asss, pos => .assign (bimap (g <$> ·) g <$> asss) @@ pos
       | .if e B₁ B₂, pos => .if (g e) (Block.bimap f g B₁) (Block.bimap f g B₂) @@ pos
       | .await e, pos => .await (g e) @@ pos
-      | .with vars B, pos => .with (((g <$> ·) <$> ·) <$> vars) (Block.bimap f g B) @@ pos
+      | .with vars B, pos => .with (vars.map λ (x, ann, eq, e) ↦ (x, f ann, eq, g e)) (Block.bimap f g B) @@ pos
       | .assert e, pos => .assert (g e) @@ pos
       | .either Bs, pos => .either (Branches.bimap f g Bs) @@ pos
       | .while e B, pos => .while (g e) (Block.bimap f g B) @@ pos
@@ -130,7 +151,7 @@ namespace CorePlusCal
       | .await e, pos => (.await · @@ pos) <$> g e
       | .with vars B, pos =>
         (.with · · @@ pos)
-          <$> traverse (traverse (traverse g)) vars
+          <$> traverse (λ (x, ann, eq, e) ↦ (x, ·, eq, ·) <$> f ann <*> g e) vars
           <*> Block.bitraverse f g B
       | .assert e, pos => (.assert · @@ pos) <$> g e
       | .either Bs, pos => (.either · @@ pos) <$> Branches.bitraverse f g Bs
@@ -158,8 +179,54 @@ namespace CorePlusCal
   instance {b} : Bitraversable (Branches · · b) where
     bitraverse := Branches.bitraverse
 
+  /-- The declarations at the top of an `algorithm` or `process` block — the annotation-carrying
+  counterpart is `SurfacePlusCal.Declarations`. Shares the *same* `α` as `Statement`/`Block`/
+  `Branches`/`MulticastFilter` (not a separate type-of-types parameter, and not `Option`-wrapped
+  in its own fields, matching how `MulticastFilter`'s/`with`'s own binder-annotation slots are
+  bare `α`, since `α` already denotes "the declared-type annotation" at whatever stage of
+  checking it's currently at — `List Annotation` fresh out of statement desugaring, `Option
+  SurfaceTLAPlus.Typ` after `stripEmbeddedTypeAnnotations`, `Desugarer/PlusCal.lean`). Keeping
+  one shared `α` (rather than a second, independently-evolving parameter) is what lets
+  `Process`/`Algorithm` stay ordinary two-parameter `Bifunctor`/`Bitraversable` instances, with
+  no currying/instance-resolution ambiguity. -/
+  structure Declarations (α β : Type) : Type where
+    /-- `(name, declared-type annotation, isParameter — from `@parameter`, only ever `true` on
+    a `∈`-initialized entry — initializer)`; the initializer's own `Bool` is `true` for `=`,
+    `false` for `∈`, matching `SurfacePlusCal.Declarations`. `isParameter` is a genuinely
+    separate field, not folded into `α`, since it's populated by bespoke validation
+    (`Declarations.desugarCheck`, `Desugarer/PlusCal.lean`) rather than the uniform
+    `@type`-only rule `α` itself follows. -/
+    «variables» : List (String × α × Bool × Option (Bool × β))
+    channels : List (String × α × List β)
+    fifos : List (String × α × List β)
+    deriving Repr, Inhabited
+
+  def Declarations.bimap {α β γ δ} (f : α → β) (g : γ → δ) (decls : Declarations α γ) : Declarations β δ := {
+    «variables» := decls.variables.map λ (x, ann, isParam, e) ↦ (x, f ann, isParam, Bifunctor.snd g <$> e)
+    channels := decls.channels.map λ (x, ann, es) ↦ (x, f ann, g <$> es)
+    fifos := decls.fifos.map λ (x, ann, es) ↦ (x, f ann, g <$> es)
+  }
+
+  nonrec def Declarations.bitraverse {F : Type → Type} [Applicative F] {α β γ δ} (f : α → F β) (g : γ → F δ)
+      (decls : Declarations α γ) : F (Declarations β δ) :=
+    ({«variables» := ·, channels := ·, fifos := ·})
+      <$> traverse (λ (x, ann, isParam, e) ↦ (x, ·, isParam, ·) <$> f ann <*> traverse (bitraverse pure g) e) decls.variables
+      <*> traverse (λ (x, ann, es) ↦ (x, ·, ·) <$> f ann <*> traverse g es) decls.channels
+      <*> traverse (λ (x, ann, es) ↦ (x, ·, ·) <$> f ann <*> traverse g es) decls.fifos
+
+  instance : Bifunctor Declarations where
+    bimap := Declarations.bimap
+
+  instance : Bitraversable Declarations where
+    bitraverse := Declarations.bitraverse
+
   structure Process (α β : Type) : Type where
-    ann : α
+    /-- `(channel name, filter/index args)`, from at most one `@mailbox` annotation
+    (`Desugarer/PlusCal.lean`); `none` if the process has no mailbox. Always concrete, unlike
+    every other annotation-carrying slot here — a mailbox's content (a channel name plus index
+    expressions) isn't expressible as "the same `α` as everywhere else", so it's extracted
+    early (`extractMailbox`) rather than participating in the generic `α` machinery at all. -/
+    mailbox : Option (String × List β)
     isFair : Bool
     name : String
     /-- `true` for `=`, `false` for `∈`. -/
@@ -173,7 +240,7 @@ namespace CorePlusCal
 
   instance : Bifunctor Process where
     bimap f g p := { p with
-      ann := f p.ann
+      mailbox := Bifunctor.snd (g <$> ·) <$> p.mailbox
       id := g p.id
       localState := bimap f g p.localState
       threads := ((Bifunctor.snd (Block.bimap f g) <$> ·) <$> ·) p.threads
@@ -182,7 +249,7 @@ namespace CorePlusCal
   instance : Bitraversable Process where
     bitraverse f g p :=
       (Process.mk · p.isFair p.name p.«=|∈» · · · @@ posOf p)
-        <$> f p.ann
+        <$> traverse (λ (n, es) ↦ (n, ·) <$> traverse g es) p.mailbox
         <*> g p.id
         <*> bitraverse f g p.localState
         <*> traverse (traverse (bitraverse pure (Block.bitraverse f g))) p.threads
