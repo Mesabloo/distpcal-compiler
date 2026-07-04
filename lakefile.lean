@@ -89,8 +89,6 @@ lean_lib Fugue.N2JC where
 lean_lib Fugue.N2Go where
   roots := #[`Network2Go]
 
--- NOTE: not yet `@[default_target]` -- `Fugue.lean` (the CLI entry point) doesn't exist
--- until Phase 2 (CLI wiring). Restore the attribute once it does, so `lake build` keeps
--- building the executable by default from that phase onward.
+@[default_target]
 lean_exe fugue where
   root := `Fugue
