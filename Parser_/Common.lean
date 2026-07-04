@@ -127,16 +127,30 @@ instance {α} [ToString α] : CompilerDiagnostic (Unexpected α) String where
 inductive ParserWarning : Type
   /-- `fair process`/`fair+`: parsed and round-tripped, but never acted on (`PLAN.md` §2, §5.1). -/
   | fairIgnored (pos : SourceSpan)
+  /-- A comment parses as a well-formed annotation (`@type`/`@mailbox`/`@parameter`), but sits
+  somewhere no designated call site (`parseConstants`/`parseVariables`/`parseOperator`/
+  `parseQuantifierBound`/`parseRecordLiteral`, and `Parser_/PlusCal.lean`'s own equivalents)
+  ever gets a chance to consume it — it will be silently ignored. Emitted by `ws` itself, the
+  one place every otherwise-unclaimed comment ends up (§5.1's annotation-placement
+  prerequisite). Distinct from a *misplaced* annotation (one a real call site does capture,
+  but attached to the wrong specific role there), which is a separate, later hard error, not
+  a warning. -/
+  | unusedAnnotation (pos : SourceSpan)
   deriving Repr, Inhabited, BEq
 
 /-- The `-W<name>`/`-Wno-<name>` name a given warning is filtered under. -/
 def ParserWarning.name : ParserWarning → String
   | .fairIgnored _ => "fair"
+  | .unusedAnnotation _ => "unused-annotation"
 
 instance : CompilerDiagnostic ParserWarning String where
   isError := false
-  msgOf | .fairIgnored _ => "'fair'/'fair+' is parsed but ignored: this compiler does not act on fairness (neither the Go nor the Join Calculus backend's runtime is fairness-aware)."
-  posOf | .fairIgnored pos => pos
+  msgOf
+    | .fairIgnored _ => "'fair'/'fair+' is parsed but ignored: this compiler does not act on fairness (neither the Go nor the Join Calculus backend's runtime is fairness-aware)."
+    | .unusedAnnotation _ => "This annotation has no effect here and will be ignored."
+  posOf
+    | .fairIgnored pos
+    | .unusedAnnotation pos => pos
 
 /--
   The base monad every parser in `Parser_` runs against (`TLAPlusLexer`/`TLAPlusParser`/

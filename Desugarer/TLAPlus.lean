@@ -2,6 +2,7 @@ import Desugarer.Monad
 import Core.SurfaceTLAPlus.Syntax
 import Core.CoreTLAPlus.Syntax
 import Core.SurfacePlusCal.Syntax
+import Parser_.Annotations
 
 namespace SurfaceTLAPlus
   /-- The canonical (single-spelling) name a builtin prefix operator becomes as a `CoreTLAPlus.
@@ -279,3 +280,48 @@ def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] (mod : SurfaceTLAPlus
     Except DesugarError (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
   let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (StateT Nat (Except DesugarError)) _ := mod.desugar
   (desugar.run none).run' 0
+
+/--
+  §5.1's annotation-placement prerequisite: an annotation slot known to be `@type`-only
+  (every one of `CoreTLAPlus`'s own annotation slots except `SurfacePlusCal.Process.ann`,
+  which is `@mailbox`-only, and a `∈`-initialized process-local `variable`, which additionally
+  allows `@parameter` — both handled separately in `Desugarer/PlusCal.lean`, since the right
+  check genuinely differs by *which* field a slot is, not just its type) must contain only
+  `@type`, and at most one. Shared between the TLA⁺ half below (`checkTLAPlusAnnotations`) and
+  `Desugarer/PlusCal.lean`'s own check of embedded PlusCal-statement expressions, which have
+  exactly the same rule.
+-/
+def checkTypeOnlySlot {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+    (anns : List Annotation) : m (List Annotation) := do
+  let mut seenType : Option SurfaceTLAPlus.Typ := none
+  for ann in anns do
+    match ann with
+    | .«@type» pos τ =>
+      match seenType with
+      -- Two identical `@type`s genuinely disagree about nothing — accepted, not an error
+      -- (only a real conflict, a *different* `τ'`, is ambiguous enough to reject).
+      | some τ' => unless τ == τ' do throw (.duplicateAnnotation pos "@type")
+      | none => seenType := some τ
+    | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@type")
+  return anns
+
+/--
+  §5.1's annotation-placement prerequisite, TLA⁺ half: every `List Annotation` slot reachable
+  from a module's own declarations/expressions — excluding the embedded PlusCal algorithm,
+  left untouched here; `Desugarer/PlusCal.lean`'s `SurfacePlusCal.Algorithm.checkAnnotations`
+  covers that separately — must contain only `@type`, and at most one (`checkTypeOnlySlot`
+  above). Every such slot exists *only* because `tryParseAnnotations` (`Parser_/TLAPlus.lean`)
+  was deliberately called there during parsing (`CONSTANTS`/`VARIABLES` entries,
+  operator/function signatures, quantifier/`CHOOSE` binders, record-literal field values —
+  confirmed by reading `Expression.traverse`, which visits exactly these and no others), so
+  anything found there that isn't `@type` was captured at a real site but attached to the
+  wrong role — a hard error, not the separate, out-of-scope "floating annotation with no
+  consuming site at all" concern (`PLAN.md` §9.13).
+
+  Runs *after* `Module.desugar`/`runDesugarer`, not folded into them: those are polymorphic
+  over the annotation type `α`, but this check is only meaningful once `α` is concretely
+  `List Annotation`.
+-/
+def CoreTLAPlus.Module.checkTLAPlusAnnotations {γ} (mod : CoreTLAPlus.Module γ (List Annotation)) :
+    Except DesugarError (CoreTLAPlus.Module γ (List Annotation)) :=
+  bitraverse pure checkTypeOnlySlot mod

@@ -75,14 +75,16 @@ ask before overturning).
 | Address visibility / deployment topology | **Accepted limitation, not fixed by this plan.** Distributed PlusCal lets any process know any other process's identity, so generated code can't principally avoid assuming worst-case full connectivity ("star" topology) between processes. A "minimal needed addresses" static analysis was considered but is **not planned work** — it's largely mooted by the nameserver-based addressing already settled for both backends (§5.6, §5.7). See §7's stretch list. |
 | Fairness (`isFair`, `fair process`/`fair+`) | **Largely ignored by the compiler** — there's no way to insert fairness into the target languages' runtimes (neither the generated Go's goroutine scheduler nor the Join Calculus's reaction-firing nondeterminism are made fairness-aware by this plan). `isFair` is still carried through the ASTs (parsing → both backends) for round-tripping/documentation purposes, but neither backend's compilation scheme (§5.6, §5.7) does anything with it. The parser emits a **warning** (§5.1) whenever a `fair process` / `fair+` annotation is encountered, telling the user it will be ignored. |
 | `CONSTANT` values, and process-set (`p ∈ S`) cardinality | **Left to the user of the compiled code, deliberately.** `CONSTANT`s are genuinely abstract entities (both their type and their value) as far as this compiler is concerned — they only get concretized when someone builds a real executable program out of the generated code, matching the existing "the compiler doesn't emit `main`" scope boundary (§5.7). No `ASSUME`-pinning requirement, no companion config file. Correspondingly, a process set `p ∈ S` does **not** compile to `S`-many spawned goroutines/definitions — each process definition compiles to a **single entry point** (a Go function, a Join Calculus process definition), parameterized over the process's own identity/address; the user is responsible for invoking that entry point once per concrete process they want running, with whatever address they choose. See §5.3, §5.6, §5.7. |
-| When imported modules get processed | **Eagerly and transitively, recursively invoking the compiler driver right after desugaring, before type checking.** Every module reachable from the main module's `EXTENDS`/`INSTANCE` list gets fully processed up front, not lazily on first `Ξ` miss: once the main module itself is parsed and desugared (§5.1–§5.2), the driver recurses on each directly `EXTENDS`ed/`INSTANCE`d module — parse → desugar → recurse on *its* own imports the same way → type-check — before the main module's own type checker (§5.3) starts. By the time the main module reaches `[Goto]`/`[Assign]`/etc. typing rules, `Ξ` is already fully populated for everything it can reference. See §5.3. |
+| When imported modules get processed | **Eagerly and transitively, recursively invoking the compiler driver right after desugaring, before type checking.** Every module reachable from the main module's `EXTENDS` list gets fully processed up front, not lazily on first `Ξ` miss: once the main module itself is parsed and desugared (§5.1–§5.2), the driver recurses on each directly `EXTENDS`ed module — parse → desugar → recurse on *its* own imports the same way → type-check — before the main module's own type checker (§5.3) starts. By the time the main module reaches `[Goto]`/`[Assign]`/etc. typing rules, `Ξ` is already fully populated for everything it can reference. (`INSTANCE` is out of scope for now, §2/§9.8.) See §5.3. |
 | Well-scopedness: how `GuardedPlusCal.Algorithm.WellScoped` gets established for Guarded→Network | **A general preservation lemma, proved once**, not a per-run decision procedure: `CorePlusCal.WellScoped p → GuardedPlusCal.Algorithm.WellScoped (Typed2Guarded (Checker p))` (roughly), proved as part of `Checker`/`Typed2Guarded`'s verification work (§5.5, §6.2) and reused unchanged for every program the compiler processes. Per the project owner, this fits the compiler's overall verification aesthetic better than re-deciding the `Prop` computationally on each concrete compiled algorithm. **Note:** `CorePlusCal.WellScoped`, the lemma's antecedent, is not one of the ported files — it doesn't exist in prior art at all and must be authored fresh (§5.2a). See §5.2a, §5.5. |
+| Language-subset exclusions for the first type checker (§5.3, Phase 5/6) | **`INSTANCE` and `RECURSIVE` are both out of scope for now.** Neither is in §8's language subset, neither prior-art checkout's parser recognizes them, and both need real, non-trivial design work before they could be checked at all — `INSTANCE`'s parameter-substitution semantics (does substitution happen during desugaring, per instantiation site, or does `Ξ`/the checker track substitution environments directly?) and `RECURSIVE`'s annotation-seeded checking rule (§9.9, preserved there for whenever this is picked up) aren't needed to get a first type checker landed against the language subset §8 already describes. Revisit either if a program actually needs it. See §9.8, §9.9. |
+| `Ξ`'s cache: disk persistence and invalidation (§5.3, Phase 5/6) | **In-memory only for now, no disk persistence.** §5.3's original description called for a persistent, disk-backed cache under `~/.local/config/.fugue`, but that immediately raises an invalidation question (§9.11) with no good answer yet — a compiler-side change (bug fix, standard-module-stub update, toolchain bump) can silently invalidate a cached module's typed form without touching that module's own source, and nothing currently detects that. Since the checker itself is still under active development (i.e. exactly the kind of compiler-side change §9.11 worries about, happening constantly), an in-memory `MonadModuleCache` sidesteps the problem entirely for now — nothing persists across runs, so nothing can go stale. Disk persistence, and picking one of §9.11's two invalidation schemes, becomes its own later, explicitly-scoped addition once the checker has stabilized. See §9.11. |
 | Pipeline order: well-formedness checking (§5.2a) vs. type checking (§5.3) | **Type checking runs first — inverted from an earlier draft of this plan, which had well-formedness immediately after desugaring.** The project owner's observation: type checking already forces variable well-scopedness as a side effect of succeeding (an out-of-scope or undeclared reference is a `Γ`/`Σ`/`Δ`-lookup failure, i.e. a type error on its own, independent of any dedicated check), so running a separate well-scopedness pre-pass before type checking re-derives a fact type checking would catch anyway. Well-formedness's other two checks (well-labelledness, no-bare-temporal-operators) have no dependency on typing in either direction, so nothing is lost by deferring them. **Consequence, not a further decision:** the well-scopedness sub-check itself doesn't disappear — its "every reference resolves" half becomes redundant defense-in-depth, but its "no shadowing / no duplicate names in a scope" half is not implied by ordinary bidirectional type checking (shadowing still type-checks against *something*) and remains this pass's real, load-bearing job. See §5.2a, §7 (phases 6–7). |
 | Polymorphism-instantiation / metavariable resolution mechanics | **Direction-aware solving, not naive eager unification** — since the subtyping axioms here are asymmetric coercions, not an equivalence. Lower-bound constraints (`T <: ?n`) solve eagerly, because coercions only ever run narrow→wide; upper-bound constraints (`?n <: T`) only ever get recorded as pending, never solved from directly, since doing so would foreclose a narrower solution arriving later. Metavariable-vs-metavariable constraints (`?m <: ?n`, both unresolved) must **not** be resolved by merging/unioning the two variables into one — that's unsound in general, since it conflates two independently-constrained unknowns and forces equality where `<:` only ever demanded a directional relationship; instead, record the link on the lower side and propagate once one side resolves from a real ground bound. A metavariable left with no bounds at the end of checking — including one whose only recorded bound is another metavariable that itself never resolved — is a hard type error, not a silent default. Full algorithm, with the counterexamples motivating each rule, in §5.3. |
 | Coercion realization: where do coercions live, and how does a *pending* one get resolved? | `Coercion := Expr → Expr` — applied by ordinary function application to the elaborated expression in hand once `subtype` yields a **successful** coercion. When it yields **pending** instead (an upper-bound check against an unresolved `?n`), the expression is wrapped in a new `mvar : MVarId → Expr → Expr` node added to `TypedTLAPlus`/`TypedPlusCal`'s grammar; the checker's context keeps, per unresolved `?n`, its pending upper bounds and the `mvar` sites created alongside them in lockstep (same length, by construction). The moment `?n` resolves, every one of its `mvar` sites is substituted with the now-computable coercion applied to the wrapped expression — this happens as part of the metavariable-resolution algorithm itself, not a separate pass, so `mvar` is fully eliminated before the checker's output reaches `Typed2Guarded`; downstream passes and both backends never see it. See §5.3. |
 | Diagnostic/error-model shape | **Per-pass error types, unified by a common rendering interface** — not one shared diagnostic sum type. Warning suppression (`-W`/`-Wno-<name>`, §2) is handled either at the point a warning is emitted or by filtering after the fact, before rendering — either is fine, implementer's call. Per the project owner, this mechanism (per-pass errors, common rendering, some form of warning filtering) is expected to already exist in `Common/Errors.lean` (§4), just not necessarily well-documented — read that file before designing something new rather than assuming a gap that isn't there. It's explicitly fine to later refactor either the error style or the warning/error emission mechanism if either doesn't hold up in practice. **Known bug to watch for when porting:** the project owner has observed a rendering bug somewhere in this diagnostic-printing code where, in some circumstances not yet pinned down, one character in the offending source line gets duplicated in the printed output — worth tracking down and fixing during the port rather than carrying it forward silently. |
 | Generated-identifier hygiene | **Resolved by renaming; direction doesn't matter.** Whether a user-chosen name or a compiler-introduced one is the one that gets renamed on collision is irrelevant — the only hard requirement is that **no shadowing is ever introduced in the generated code, checked at every pass, not just the final pretty-printer.** This is the same class of problem as escaping target-language reserved words (a PlusCal variable literally named `type` or `def` colliding with a Go/Join-Calculus keyword), which prior art already partially handles: `Core/Go/Pretty.lean` has a `keywords : Std.HashSet String` table and a `sanitize` function (suffixes a colliding name with `__`) applied at every point an identifier gets printed. **Port and generalize this mechanism** — to cover compiler-introduced internal names (`recv`, `inbox`, lock variables, label atoms, §5.6/§5.7) and the Join Calculus's own reserved surface, not just Go keywords — rather than treating it as a Go-only concern. See §5.2a, §5.6, §5.7. |
-| Flags, and `Ξ` (§9.10, now resolved): how do these cross-cutting effects fit the monad-polymorphism convention? | **Unified effect stack, not a driver/pass split.** Every function — pass code and the CLI driver alike — is written against one abstract `{m : Type _ → Type _} [Monad m]`, with every effect (errors, flags, module cache) as a typeclass constraint on that same `m`, rather than confining `IO`-flavored effects to an outer driver layer. Concretely: (1) **Flags are a contextual (Reader) effect, not an opaque action.** A single `getFlag : String → m (Option String)` was tried and rejected — flags aren't uniformly `Option String` (boolean `-f`/`-W` flags vs. valued `-d<name>=<value>` options vs. `-o`/`-t`/`-I`'s own typed values each need their real type, not a stringly-typed lookup every caller re-parses), and separately, this project's proofs run on `Std.Do.WP`, which cannot be instantiated at `IO` at all — an opaque, unconstrained action gives that framework nothing to reason about, whereas Reader is exactly the transparent, structural effect it already handles. So: a concrete, typed `FlagsEnv` structure (covering the full settled flag surface above), populated once by the CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus small typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`, not new typeclasses per flag. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup, replacing prior art's ad hoc `DebugOptions.from` + closure-capture pattern. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), with an `IO` instance backed by the disk-persisted cache (§5.3) — a genuine mutable-store effect, unlike flags, but it only shows up in `Checker`, which isn't part of §6.2's committed proof surface, so it doesn't hit the `Std.Do.WP`-compatibility question flags did; revisit its shape if Checker itself ever becomes a proof target. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Guarded2Network.compile` stays generic (`{m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadExceptOf G2NError m]`, same shape as every other pass) rather than being special-cased monomorphic. The refinement theorem is proved against whichever concrete instantiation `Std.Do.WP` actually supports (e.g. `m := Id`, or a `ReaderT FlagsEnv (Except G2NError)` stack) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for actual CLI execution is a **separate, deliberately unverified step** — same source term, same typeclass contract, believed equivalent by construction but not formally connected to the proof; this gap is to be documented explicitly in `Guarded2Network`'s own module docs once written. (4) **Fresh-name generation gets the same treatment as `Ξ`**, resolved during Phase 4: `MonadFresh m` (`Common/Fresh.lean`), a monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transformations (§5.2) and expected to recur at `Typed2Guarded`'s `𝒞_par` (§5.4). Names are generated as `"<prefix>$<n>"` — `$` cannot appear in a TLA⁺ identifier, so no scope-tracking is needed to prove freshness, unlike a general capture-avoiding-substitution setup. |
+| Flags, and `Ξ` (§9.10, now resolved): how do these cross-cutting effects fit the monad-polymorphism convention? | **Unified effect stack, not a driver/pass split.** Every function — pass code and the CLI driver alike — is written against one abstract `{m : Type _ → Type _} [Monad m]`, with every effect (errors, flags, module cache) as a typeclass constraint on that same `m`, rather than confining `IO`-flavored effects to an outer driver layer. Concretely: (1) **Flags are a contextual (Reader) effect, not an opaque action.** A single `getFlag : String → m (Option String)` was tried and rejected — flags aren't uniformly `Option String` (boolean `-f`/`-W` flags vs. valued `-d<name>=<value>` options vs. `-o`/`-t`/`-I`'s own typed values each need their real type, not a stringly-typed lookup every caller re-parses), and separately, this project's proofs run on `Std.Do.WP`, which cannot be instantiated at `IO` at all — an opaque, unconstrained action gives that framework nothing to reason about, whereas Reader is exactly the transparent, structural effect it already handles. So: a concrete, typed `FlagsEnv` structure (covering the full settled flag surface above), populated once by the CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus small typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`, not new typeclasses per flag. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup, replacing prior art's ad hoc `DebugOptions.from` + closure-capture pattern. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), with an `IO` instance backed by an in-memory `IO.Ref` — **disk persistence is deferred** (§2, §9.11: the checker is still under active development, so a persisted cache would need a real invalidation story this project isn't ready to commit to yet; an in-memory cache sidesteps the question entirely rather than answering it, and can simply not survive past one compiler run for now) — a genuine mutable-store effect, unlike flags, but it only shows up in `Checker`, which isn't part of §6.2's committed proof surface, so it doesn't hit the `Std.Do.WP`-compatibility question flags did; revisit its shape if Checker itself ever becomes a proof target. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Guarded2Network.compile` stays generic (`{m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadExceptOf G2NError m]`, same shape as every other pass) rather than being special-cased monomorphic. The refinement theorem is proved against whichever concrete instantiation `Std.Do.WP` actually supports (e.g. `m := Id`, or a `ReaderT FlagsEnv (Except G2NError)` stack) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for actual CLI execution is a **separate, deliberately unverified step** — same source term, same typeclass contract, believed equivalent by construction but not formally connected to the proof; this gap is to be documented explicitly in `Guarded2Network`'s own module docs once written. (4) **Fresh-name generation gets the same treatment as `Ξ`**, resolved during Phase 4: `MonadFresh m` (`Common/Fresh.lean`), a monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transformations (§5.2) and expected to recur at `Typed2Guarded`'s `𝒞_par` (§5.4). Names are generated as `"<prefix>$<n>"` — `$` cannot appear in a TLA⁺ identifier, so no scope-tracking is needed to prove freshness, unlike a general capture-avoiding-substitution setup. |
 
 ---
 
@@ -297,6 +299,35 @@ made worse by annotations that span multiple comments. Fixing it properly means
 threading real source positions through comment/annotation parsing, which is a
 genuinely fiddly bit of surface area (not a quick fix) — worth doing for usability
 eventually, but not blocking the pipeline getting built.
+
+**Real bug found and fixed while scoping Phase 5's annotation-placement prerequisite:**
+`Parser_/TLAPlus.lean`'s `Annotations` namespace previously parsed a run of adjacent
+comment-tokens by concatenating them into a hand-rolled `Parser.Stream (Stream.OfList
+Substring.Raw) Char` instance — meant to let several comments be parsed as one logical
+unit while still recovering which original comment a given match fell in. Its
+`setPosition` (the file carried its own `FIXME` acknowledging doubt about this) rewound
+the `past`/`next` split by *element count* only, without correctly reconstructing a
+partially-consumed element's own inner position. Confirmed by hand (`comments.size=2`,
+but only 1 result out of the parser): two adjacent, argument-less annotations of the
+same kind (e.g. two bare `@parameter`) collapsed into a single parsed result, because
+parsing a bare annotation always probes for optional `(...)`/`: ...;` before giving up,
+and that failed, boundary-crossing lookahead corrupted the position on the way back.
+Every annotation kind with an explicit terminator (`@type: ...;`, `@mailbox(...)`) was
+unaffected, since its own parse always ends at a definite delimiter rather than via a
+failed lookahead. **Fixed** by dropping the custom multi-element stream entirely:
+comments in one run are now concatenated into a single flat `String` up front and
+parsed with the same, already-correct `Parser.Stream String.Slice Char` instance
+`parseType'` already relies on elsewhere in this file (`Position := String.Pos.Raw`,
+`setPosition` just re-slices — no custom bookkeeping to get wrong); a plain,
+non-parser-involved lookup over cumulative byte lengths (`commentIndexOf`) maps a
+match's flat position back to which original comment it fell in, purely to recover that
+comment's own `SourceSpan` for tagging. Verified: the two-`@parameter` case now
+correctly yields two results, and both the four external fixtures and the full
+`tests/regression/` suite pass unchanged. This is unrelated to §9.13 (`first`/`orElse`
+not rolling back monad state on backtrack, blocking a *different*, still-deferred
+warning) — that limitation is about the base parser combinators' own backtracking
+semantics; this one was a local bug in one hand-rolled stream instance built
+specifically for annotation-parsing.
 
 ### 5.2 Desugaring — done (Phase 4)
 **Input:** `SurfaceTLAPlus`/`SurfacePlusCal`. **Output:** `CoreTLAPlus`/`CorePlusCal`.
@@ -688,10 +719,9 @@ below):
 - **Discipline:** bidirectional (checking `Γ ⊢ e ⇐ τ` / synthesis `Γ ⊢ e ⇒ τ`), rank-1
   polymorphism only (type variables collected into a prenex `∀`, no first-class schemes).
   Annotations required only at binders the algorithm can't otherwise pin down (thesis
-  §3.1.1). **`RECURSIVE` operator declarations are not otherwise accounted for anywhere
-  in this plan** (not in §8's language subset, not parsed by either prior-art checkout) —
-  see §9.9 for whether they're in scope and, if so, the annotation requirement they'd
-  need.
+  §3.1.1). **`RECURSIVE` operator declarations are out of scope for this pass** (§2,
+  §9.9) — not in §8's language subset, not parsed by either prior-art checkout; the
+  annotation-seeded design for whenever this is picked up is preserved in §9.9.
 - **Polymorphism instantiation — do not implement the thesis's `Specialize` rule as
   written.** Instead, per the existing local `Checker/Typechecker/` code
   (`Convertibility.lean`, `Rules.lean`, etc. — read it before implementing this part):
@@ -826,36 +856,33 @@ below):
   type (Fig. 3.1.14: everything except function/operator/channel types, recursively);
   `[Goto]` performs no type check at all — label existence is checked separately, by the
   well-formedness pass (§5.2a, now sequenced after this one, §7), not the type checker's job.
-- **`Ξ` is a global map in the implementation, not threaded state.** On paper it's an
-  input to the judgment like `Γ`, but in practice it should be implemented as a global
-  cache rather than passed around explicitly through every rule. This will need some
-  form of caching — storing each module's encoded (typed) form keyed by a hash of its
-  source — so that a module doesn't get fully re-type-checked from scratch every time
-  it's referenced (e.g. repeatedly, via `EXTENDS`, across a session).
+- **`Ξ` is a global cache, not threaded state — in-memory only for now, no disk
+  persistence (§2, §9.11).** On paper it's an input to the judgment like `Γ`, but in
+  practice it's implemented as a `MonadModuleCache m` effect (`lookup`/`store` keyed by a
+  hash of each module's source) rather than passed around explicitly through every rule,
+  so a module doesn't get fully re-type-checked from scratch every time it's referenced
+  (e.g. repeatedly, via `EXTENDS`, within one compiler run). Disk persistence — and
+  picking one of §9.11's two invalidation schemes — is deferred to a later, explicitly-
+  scoped addition once the checker itself has stabilized; until then, the cache simply
+  doesn't survive past one run, which sidesteps the invalidation question entirely rather
+  than answering it.
 - **Module resolution and TLA+ standard modules (`EXTENDS Sequences, TLC, ...`) —
   settled architecture and timing (§2).** `-I <path>` (see §9.3) adds a search path
-  for locating `.tla` modules referenced via `EXTENDS`/`INSTANCE`. By default,
-  resolved/type-checked modules are cached persistently on disk (e.g. under
-  `~/.local/config/.fugue`, per the project owner — confirm exact location when
-  implementing), keyed so that re-running the compiler doesn't re-resolve or re-typecheck
-  modules it's already seen, tying directly into the `Ξ`-caching note above. **Keyed by
-  source hash alone, with no compiler-version component in the key** — see §9.11 for why
-  that's worth revisiting before relying on it.
+  for locating `.tla` modules referenced via `EXTENDS`. (`INSTANCE` is out of scope for
+  now, §2/§9.8 — not parsed, not resolved, not type-checked; the search-path/caching
+  mechanism below only needs to handle `EXTENDS`.)
   **Resolution is eager and transitive, not lazy.** Once the main module is parsed and
   desugared (§5.1–§5.2), and before its own type checker runs, the compiler driver
-  recurses on every module the main module `EXTENDS`/`INSTANCE`s: parse → desugar →
+  recurses on every module the main module `EXTENDS`s: parse → desugar →
   recurse the same way on *that* module's own imports → type-check, bottoming out once a
   module has no further unresolved imports (or a cache hit short-circuits the recursion
   entirely) — the recursion needs to track modules currently being resolved so that a
-  cyclic `EXTENDS`/`INSTANCE` is rejected with a real error instead of looping forever, a
+  cyclic `EXTENDS` is rejected with a real error instead of looping forever, a
   standard requirement for any recursive resolver rather than a further design choice.
   Only once that whole transitive closure is resolved does the main module's
   own type checker (below) begin, so every `Ξ` lookup it performs is guaranteed to
-  already be populated — never a live miss triggering resolution mid-check. `INSTANCE`
-  is new scope beyond what the rest of this plan (including §8's language subset)
-  previously accounted for — its parameter-substitution semantics (`INSTANCE M WITH
-  x <- e, ...`) are not the same problem as plain `EXTENDS` and need their own design
-  pass; see §9.8. TLA+'s actual standard modules (`Sequences`, `TLC`,
+  already be populated — never a live miss triggering resolution mid-check. TLA+'s
+  actual standard modules (`Sequences`, `TLC`,
   `Naturals`, `FiniteSets`, etc.) are **not** parsed from the real standard library —
   the compiler bundles its own stub versions, containing only enough to get operators
   like `Len`, `Head`, `Append` correctly typed, not real definitions. How those stubs
@@ -1422,73 +1449,53 @@ distributed system wedges" — still worth keeping in mind as a genuine, accepte
 consequence of the locking design, distinct from the numeric-representation question
 above.
 
-### 9.8 `INSTANCE` support and its parameter-substitution semantics
-Resolving §2's module-import-timing decision surfaced that `INSTANCE` (TLA+ module
-instantiation, e.g. `I == INSTANCE M WITH x <- e1, y <- e2`) is in scope for module
-resolution alongside `EXTENDS` — but this plan doesn't otherwise account for it: not in
-§8's language subset, and not in the parser discussion (§5.1), where the actual code
-(`Parser_`, the port source) doesn't currently support it. Its typing rules **are**
-described in the thesis's type-checking chapter (ch. 3.1) — this plan's §5.3 just doesn't
-summarize them yet, unlike the rest of that chapter's rules. Unlike `EXTENDS` (which just
-makes another module's declarations visible
-as-is), `INSTANCE` substitutes actual parameters for the instantiated module's declared
-`CONSTANT`s/`VARIABLE`s (the `WITH x <- e1, ...` clause) — resolving and type-checking an
-instantiated module isn't just "parse it and cache it" the way a plain `EXTENDS`ed module
-is, since the same module can be instantiated multiple times with different substitutions
-within one file. Needs its own design pass: is `INSTANCE` in scope for v1 at all (§8
-currently implies no), and if so, does substitution happen during desugaring (producing a
-substituted copy of the instantiated module's declarations per instantiation site) or does
-`Ξ`/the checker need to track substitution environments directly?
+### 9.8 `INSTANCE` support — resolved, out of scope for now, moved to §2
+Resolved: `INSTANCE` is out of scope for the initial type checker (Phase 5/6, §7). See
+§2's "Language-subset exclusions for the first type checker" row for the decision and
+rationale; revisit if/when a program actually needs it.
 
-### 9.9 `RECURSIVE` operator declarations — in scope, and if so, how are they checked?
+### 9.9 `RECURSIVE` operator declarations — resolved, out of scope for now, moved to §2
+Resolved: `RECURSIVE` is out of scope for the initial type checker (Phase 5/6, §7), same
+row as §9.8 above. The annotation-seeded design below is preserved for whenever this is
+picked up, but isn't being implemented now:
 
-TLA+'s `RECURSIVE f(_, _)` construct (declaring an operator's arity up front so its own
-definition, or a mutually-recursive group's definitions, can refer to each other) isn't
-accounted for anywhere in this plan: it's not in §8's language subset, neither prior-art
-checkout's parser recognizes the keyword (confirmed by grepping both — no hits beyond
-the English word "recursive" appearing incidentally in unrelated comments/vendored
-Mathlib code), and §5.3 doesn't give it a typing rule.
+> If it's in scope, the natural design (worked through informally, but never written in
+> until now) is to **require an explicit type annotation on the `RECURSIVE` declaration
+> itself**, for every operator in the group: extend `Γ` with all the declared sibling
+> types up front, then check each operator's body against its own annotation
+> independently. This breaks the circularity a mutually-recursive group would otherwise
+> create for a bidirectional checker with no other way to know `g`'s type while checking
+> `f`'s body (and vice versa) — no constraint propagation or guessing across the
+> recursive calls is needed, since each body just needs to match its own declared type.
+> This is standard precedent (mutual `def`/`def` blocks in Coq/Agda/Lean always carry
+> signatures; ML's `let rec ... and ...` is kept monomorphic for the same reason), and
+> under this plan's rank-1-polymorphism discipline (no let-generalization, §5.3), it's
+> close to *necessary* for decidability if any operator in the group is itself
+> polymorphic, not just a convenience. If picked up: add the surface syntax (parser
+> work, since neither prior-art checkout has it), add it to §8's language subset, and add
+> this checking rule to §5.3.
 
-If it's in scope for v1, the natural design (worked through informally already, outside
-this plan, but never written in) is to **require an explicit type annotation on the
-`RECURSIVE` declaration itself**, for every operator in the group: extend `Γ` with all
-the declared sibling types up front, then check each operator's body against its own
-annotation independently. This breaks the circularity a mutually-recursive group would
-otherwise create for a bidirectional checker with no other way to know `g`'s type while
-checking `f`'s body (and vice versa) — no constraint propagation or guessing across the
-recursive calls is needed, since each body just needs to match its own declared type.
-This is standard precedent (mutual `def`/`def` blocks in Coq/Agda/Lean always carry
-signatures; ML's `let rec ... and ...` is kept monomorphic for the same reason), and
-under this plan's rank-1-polymorphism discipline (no let-generalization, §5.3), it's
-close to *necessary* for decidability if any operator in the group is itself polymorphic,
-not just a convenience.
+### 9.11 `Ξ`'s disk cache — resolved, deferred entirely for now, moved to §2
+Resolved: `Ξ` is in-memory only for the initial type checker (Phase 5/6, §7) — no disk
+persistence, so no stale-cache correctness risk to invalidate in the first place. See
+§2's "`Ξ`'s cache: disk persistence and invalidation" row for the decision and
+rationale. The invalidation-scheme question below is preserved for whenever disk
+persistence is actually added:
 
-Open: is `RECURSIVE` in scope for v1 at all (§8 doesn't currently mention it either way)?
-If yes: add the surface syntax (parser work, since neither prior-art checkout has it),
-add it to §8's language subset, and add the annotation-seeded checking rule above to
-§5.3.
-
-### 9.11 `Ξ`'s disk cache has no invalidation story for compiler-side changes
-
-§5.3's persistent, disk-backed `Ξ` cache is keyed by a hash of each module's own source —
-which invalidates correctly when the *module* changes, but not when the *compiler*
-changes underneath it. Concretely: a bug fix in the checker, an updated standard-module
-stub (`Sequences`/`TLC`/`Naturals`/`FiniteSets`, §5.3), or the toolchain bump §2 already
-commits to could all change what a given module *should* type-check to, without
-touching that module's own source at all — so its cache entry's hash stays the same, and
-the stale, pre-change typed form keeps getting served on every subsequent run with no
-trigger to recompute it. This is a real correctness gap, not just a staleness
-inconvenience: a silently-wrong cached `Ξ` entry means a module downstream can look
-type-correct against an encoding the current compiler would no longer actually produce.
-
-Needs a decision: does the cache key grow a compiler/schema-version component (e.g. a
-version string or a hash of the checker's own relevant sources, bumped whenever anything
-that affects typing output changes), forcing a full cache invalidation on every such
-change? Or is there a lighter-weight alternative (e.g. a single global "cache format
-version" the whole `~/.local/config/.fugue` directory is stamped with, wiped wholesale on
-mismatch, rather than tracked per-entry)? Either is workable, but right now nothing
-invalidates the cache on a compiler-side change at all, which is the part that actually
-needs fixing before the cache can be trusted.
+> §5.3's persistent, disk-backed `Ξ` cache (as originally described) would be keyed by a
+> hash of each module's own source — which invalidates correctly when the *module*
+> changes, but not when the *compiler* changes underneath it. Concretely: a bug fix in
+> the checker, an updated standard-module stub (`Sequences`/`TLC`/`Naturals`/
+> `FiniteSets`, §5.3), or the toolchain bump §2 already commits to could all change what
+> a given module *should* type-check to, without touching that module's own source at
+> all — so its cache entry's hash stays the same, and the stale, pre-change typed form
+> keeps getting served on every subsequent run with no trigger to recompute it. Needs a
+> decision when this is picked up: does the cache key grow a compiler/schema-version
+> component (e.g. a version string or a hash of the checker's own relevant sources,
+> bumped whenever anything that affects typing output changes), forcing a full cache
+> invalidation on every such change? Or is there a lighter-weight alternative (e.g. a
+> single global "cache format version" the whole `~/.local/config/.fugue` directory is
+> stamped with, wiped wholesale on mismatch, rather than tracked per-entry)?
 
 ### 9.12 `send(c, e)`'s actual Go compilation scheme is unknown
 
@@ -1520,4 +1527,44 @@ all (that cannot cross OS processes, let alone machines) — it has to go throug
 nameserver-plus-network path above instead. §9.7's Go-channel-capacity discussion should
 be re-read with this split in mind (flagged there too): its reasoning was worked out
 assuming a literal Go `chan`, which is at best only half the picture.
+
+### 9.13 A "floating annotation" warning is blocked by the parser combinator library's backtracking, deferred
+
+While scoping the annotation-placement-checking prerequisite for Phase 5 (§5.1, §2), a
+warning for an annotation-shaped comment with *no* designated consuming site anywhere
+nearby (as opposed to a real annotation attached to the *wrong specific role* at a real
+site, §2/§5.1, which stays in scope and doesn't have this problem) was found to be
+blocked by a genuine limitation in how `Parser_/Common.lean`'s `first` — and the vendored
+`fgdorais/Parser` library's `first`/`orElse` it's built on — actually backtrack.
+
+**The mechanism:** `ParserT ε σ τ m α := σ → m (Parser.Result ε σ α)`. `orElse`/`first`'s
+failure branch only ever resets `Stream.Position` (an explicit field of `ParserT`'s own
+type) — never anything inside the base monad `m`. Concretely: `first [parseAssume,
+parseConstants, parseVariables, parseOperator, ...]` (`parseDeclaration`,
+`Parser_/TLAPlus.lean`) tries `parseConstants`/`parseVariables` before reaching the
+correct `parseOperator` alternative; both of the first two use `lexeme (pure ()) *>
+token .constants`/`(.variable <|> .variables)` — i.e. they generically skip past
+(`lexeme`/`ws`) whatever comment sits there *before* checking their own keyword and
+failing. Any `m`-side-effect performed during that skip (e.g. an accumulated warning)
+survives even though the *stream position* is correctly rolled back for the next
+alternative to retry — because `first`'s reset only touches `σ`, not `m`. This isn't
+specific to `MonadState` vs. `MonadWriter`: both are built over base monad `Id`, which
+has no failure/short-circuit semantics of its own for either to be discarded against: 
+`m`'s effects are fully executed as an ordinary part of running `p s`, before `first`'s
+`.ok`/`.error` match on the *result* even happens. **Confirmed this generic `lexeme (pure
+())`-before-keyword skip is load-bearing, not an oversight** — per the project owner, it
+is what allows comments to legally appear between/before declarations at all without
+risking being mistaken for consumed annotations; removing it isn't an option.
+
+Fixing this properly would mean giving `first`/`orElse` real "commit" semantics (a
+failure after any input has been consumed propagates immediately rather than retrying
+sibling alternatives, unlike today's unconditional-reset backtracking) — a change to the
+core parsing combinators themselves, not a narrow fix, and one that risks breaking other
+grammar productions that currently rely on retry-after-partial-consumption. **Deferred,
+per the project owner: not attempted now.** The annotation-placement prerequisite for
+Phase 5 proceeds with only the structural-role-mismatch half (a real annotation captured
+at a real site but attached to the wrong specific role there — e.g. `@parameter` on a
+quantifier binder — which runs on the already-successfully-parsed AST and has none of
+this problem, §2/§5.1) — the "nothing consumes this at all" half is out of scope until
+`first`/`orElse`'s backtracking semantics are revisited.
 

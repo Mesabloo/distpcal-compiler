@@ -544,53 +544,39 @@ namespace SurfaceTLAPlus.Parser
   end Tokens
 
   namespace Annotations
-    private def next? {σ τ} [inst : Parser.Stream σ τ] (s : Parser.Stream.OfList σ) [Repr τ] [Repr σ] : Option (τ × Parser.Stream.OfList σ) :=
-      if h : s.next.isEmpty then
-        .none
-      else match inst.next? <| s.next[0]'(by simpa [List.isEmpty_eq_false_iff, List.length_pos_iff] using h) with
-        | .none => next? {next := s.next.drop 1, past := (s.next[0]'(by simpa [List.isEmpty_eq_false_iff, List.length_pos_iff] using h)) :: s.past}
-        | .some ⟨tk, s'⟩ =>
-          -- dbg_trace "found token {repr tk} at beginning of stream {repr s'}"
-          some ⟨tk, {s with next := s.next.modifyHead λ _ ↦ s'}⟩
-    termination_by s.next
-    decreasing_by
-      all_goals simp_wf
-      · apply eq_false_of_ne_true at h
-        apply List.isEmpty_eq_false_iff.mp at h
-        obtain ⟨_, _, s_next_eq⟩ := List.exists_cons_of_ne_nil h
-        rw [s_next_eq, List.tail_cons]
-        decreasing_trivial
+    /--
+      Parse annotations over a *flat* `String.Slice` — the same, already-correct string-stream
+      instance `Parser_/Annotations.lean`'s own `parseType'` already relies on (`Parser.Stream
+      String.Slice Char`, `.lake/packages/Parser/Parser/Stream.lean:73`: `Position :=
+      String.Pos.Raw`, `setPosition` just re-slices — no custom bookkeeping needed at all).
 
-    private def getPosition {σ τ} [inst : Parser.Stream σ τ] [Inhabited inst.Position] (s : Parser.Stream.OfList σ) : Nat × inst.Position :=
-      if h : s.next.isEmpty then
-        if h' : s.past.isEmpty then
-          -- TODO: what to return?
-          ⟨0, default⟩
-        else
-          ⟨s.past.length - 1, inst.getPosition <| s.past[s.past.length - 1]'(by apply Nat.sub_one_lt_of_lt; simpa [← List.length_pos_iff] using h')⟩
-      else
-        ⟨s.past.length, inst.getPosition <| s.next[0]'(by simpa [List.length_pos_iff] using h)⟩
+      This replaces an earlier, genuinely broken design: a hand-rolled `Parser.Stream
+      (Stream.OfList Substring.Raw) Char` instance meant to let multiple adjacent
+      comment-tokens be parsed as one logical unit while still recovering which original
+      comment a given match fell in. Its `setPosition` (previously here, marked with a
+      `FIXME` acknowledging the doubt) rewound the `past`/`next` split by *element count*
+      only, without correctly reconstructing a partially-consumed element's own inner
+      position — so a failed lookahead that peeked past the end of one comment into the
+      next (exactly what happens after parsing a bare, argument-less annotation like
+      `@parameter`, which always probes for optional `(...)`/`: ...;` before giving up) could
+      leave the stream's position corrupted, silently swallowing the next comment's own
+      leading text. Confirmed by hand (and independently, by the project owner reading the
+      same code): two adjacent bare `@parameter` comments collapsed into a single parsed
+      result instead of two, while every annotation kind with an explicit terminator
+      (`@type: ...;`, `@mailbox(...)`) was unaffected, since its own parse always ends at a
+      definite delimiter rather than via a failed, boundary-crossing lookahead.
 
-    @[reducible]
-    local instance {σ τ} [inst : Parser.Stream σ τ] [Inhabited inst.Position] [Repr τ] [Repr σ] : Parser.Stream (Parser.Stream.OfList σ) τ where
-      Position := Nat × inst.Position
-      next? s := Annotations.next? s
-      getPosition s := Annotations.getPosition s
-      setPosition s pos :=
-        -- if pos.fst = (Annotations.getPosition s).fst then
-        --   {s with next := s.next.modifyHead λ h ↦ inst.setPosition h pos.snd}
-        -- else
-          let s' := s.setPosition pos.fst
-          {s' with next := s'.next.modifyHead λ h ↦ inst.setPosition h pos.snd}
-
-    -- Somehow this does not exist already, as a low priority instance?
-    local instance (priority := low) {α β} [LT α] [LT β] : LT (α × β) where
-      lt := Prod.Lex LT.lt LT.lt
-
-    local instance {α β} [instLTα : LT α] [instLTβ : LT β] [DecidableRel instLTα.lt] [DecidableRel instLTβ.lt] [DecidableEq α] : @DecidableRel (α × β) (α × β) LT.lt :=
-      inferInstanceAs (DecidableRel (Prod.Lex _ _))
-
-    private abbrev TypeParser := SimpleParser (Stream.OfList Substring.Raw) Char
+      New design: concatenate every comment's raw content into one flat `String` up front
+      (no per-comment stream elements at all, so there is no "crossing a boundary" for
+      `setPosition` to get wrong), parse annotations out of it with the ordinary,
+      already-trusted `String.Slice` machinery, then map each match's flat
+      `String.Pos.Raw` back to *which original comment* it fell in via `commentIndexOf`
+      below (a plain lookup over cumulative byte lengths — no parser-level bookkeeping
+      involved) purely to recover that comment's own `SourceSpan` for `@@`-tagging, exactly
+      matching what the old code did with its `comments[start.fst]!`/`comments[«end».fst]!`
+      indexing.
+    -/
+    private abbrev TypeParser := SimpleParser String.Slice Char
 
     /-- Surrounds the result of a parser `p` with its starting and ending positions. -/
     private def located {σ τ m α} [st : Parser.Stream σ τ] [Monad m] (p : SimpleParserT σ τ m α) : SimpleParserT σ τ m (st.Position × st.Position × α) := do
@@ -604,15 +590,21 @@ namespace SurfaceTLAPlus.Parser
     private def parseAnnotation : TypeParser CommentAnnotation := do
       let _ ← _root_.Parser.token '@'
       let name ← identifier
-      let args ← eoption <| first [
-        Array.toList <$> (_root_.Parser.token '(' *> sepBy1 (_root_.Parser.token ',' <* ws) arg <* _root_.Parser.token ')'),
+      let _ ← ws
+      let args : List _ ← first [
         do
-          let _ ← ws *> _root_.Parser.token ':' <* ws
+          let _ ← withBacktracking <| _root_.Parser.token '(' <* ws
+          let args ← sepBy1 (_root_.Parser.token ',' <* ws) arg
+          let _ ← _root_.Parser.token ')'
+          pure <| Array.toList args,
+        do
+          let _ ← withBacktracking <| _root_.Parser.token ':' <* ws
           let chars ← takeMany1 (withBacktracking <| tokenFilter λ | '@' | ';' => false | _ => true)
           let _ ← _root_.Parser.token ';'
-          return [Sum.inl <| String.ofList chars.toList],
+          pure [Sum.inl <| String.ofList chars.toList],
+        pure []
       ]
-      return ⟨name, args.toList.flatten⟩
+      return ⟨name, args⟩
     where
       ws := dropMany (withBacktracking Unicode.whitespace)
       identifier := do
@@ -643,37 +635,46 @@ namespace SurfaceTLAPlus.Parser
         let digits ← takeMany1 <| tokenFilter λ | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => true | _ => false
         return (sign.elim' "" String.singleton ++ String.ofList digits.toList).toInt!
 
-    /-- Try to parse annotations in a comment, ignoring any raw text. -/
-    private def tryParseAnnotations' : TypeParser (List (Stream.Position (Stream.OfList Substring.Raw) × Stream.Position (Stream.OfList Substring.Raw) × CommentAnnotation)) := do
+    /-- Try to parse annotations out of one flat string (the concatenation of every comment in
+    a run), ignoring any raw text in between. -/
+    private def tryParseAnnotations' : TypeParser (List (String.Pos.Raw × String.Pos.Raw × CommentAnnotation)) := do
       let ⟨anns, _⟩ ← takeUntil endOfInput <| first [
         .inr <$> located parseAnnotation,
-        .inl <$> first [
-          withBacktracking (chars r"\@"),
-          String.singleton <$> withBacktracking (tokenFilter λ | '@' => false | _ => true)
-        ],
+        .inl <$> String.singleton <$> anyToken,
       ]
       return anns.toList.filterMap Sum.getRight?
+
+    /-- Cumulative `[start, end)` byte-offset ranges, one per comment, within the flat string
+    `String.join contents` (in the same order). Purely arithmetic — no parser/stream
+    involvement, so there's nothing here for `setPosition`-style bugs to corrupt. -/
+    private def commentBoundaries (contents : List String) : Array (String.Pos.Raw × String.Pos.Raw) :=
+      (contents.foldl (init := (#[], 0)) λ (acc, off) c ↦
+        let endOff := off + c.utf8ByteSize
+        (acc.push (.mk off, .mk endOff), endOff)).fst
+
+    /-- Which comment (by index into the original list) a flat position falls in — the first
+    one whose own `[start, end)` range extends past `pos`, falling back to the last comment
+    for a position sitting exactly at the very end of the concatenation. -/
+    private def commentIndexOf (boundaries : Array (String.Pos.Raw × String.Pos.Raw)) (pos : String.Pos.Raw) : Nat :=
+      (boundaries.findIdx? λ (_, endOff) ↦ pos.byteIdx < endOff.byteIdx).getD (boundaries.size - 1)
 
     private def tryParseAnnotations : TLAPlusParser (List CommentAnnotation) := do
       let s ← getStream
       let comments ← takeMany <| withBacktracking <| tokenFilter λ | ⟨_, .inlineComment _⟩ | ⟨_, .blockComment _⟩ => true | _ => false
-      let stream := comments.map λ | ⟨_, .inlineComment c⟩ | ⟨_, .blockComment c⟩ => c.toRawSubstring | _ => unreachable!
+      let contents := comments.toList.map λ | ⟨_, .inlineComment c⟩ | ⟨_, .blockComment c⟩ => c | _ => unreachable!
 
-      if stream.size = 0 then
+      if contents.isEmpty then
         return []
-            -- Concatenate all comments into a single one, then try to parse this for annotations
-      match tryParseAnnotations'.run (Parser.Stream.mkOfList stream.toList) with
-        | .ok s' res =>
-          assert! List.Forall (Substring.Raw.bsize · == 0) s'.next
+      let boundaries := commentBoundaries contents
+      match tryParseAnnotations'.run (String.join contents) with
+        | .ok _ res =>
           return res.map λ ⟨start, «end», ann⟩ ↦
-            let startPos := comments[start.fst]!.segment
-            let endPos := comments[«end».fst]!.segment
+            let startPos := comments[commentIndexOf boundaries start]!.segment
+            let endPos := comments[commentIndexOf boundaries «end»]!.segment
             ann @@ startPos ++ endPos
-        | .error s' e =>
+        | .error _ e =>
           dbg_trace e
-          let m := Stream.getPosition s
-          let ⟨n, _⟩ := Stream.getPosition s'
-          throw (Error.unexpected (m + n) none) -- TODO: use `e` to report a better error
+          throw (Error.unexpected (Stream.getPosition s) none) -- TODO: use `e` to report a better error
   end Annotations
   export Annotations (tryParseAnnotations)
 

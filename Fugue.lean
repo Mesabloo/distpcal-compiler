@@ -79,8 +79,9 @@ private def defaultDumpDir : System.FilePath := ".fugue/debug"
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
 private def knownFeatures : Array String := #["no-color"]
 
-/-- `-W<name>` names recognized so far — matches every `ParserWarning.name` (`Parser_/Common.lean`), extend likewise. -/
-private def knownWarnings : Array String := #["fair"]
+/-- `-W<name>` names recognized so far — matches every `ParserWarning.name`
+(`Parser_/Common.lean`) and `DesugarWarning.name` (`Desugarer/Errors.lean`), extend likewise. -/
+private def knownWarnings : Array String := #["fair", "duplicate-parameter"]
 
 /-- Collect `<name>[=<value>]` options into a map, rejecting an unknown or duplicate `name`. -/
 private def NamedOption.toMap (kind : String) (known : Array String) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
@@ -213,8 +214,13 @@ private def runCli (p : Parsed) : IO UInt32 := do
       spinner.fail "Failed to desugar TLA⁺ expressions."
       printErrorAndExit e lines colored
     | .ok mod =>
-      spinner.success "Desugared TLA⁺ expressions."
-      return mod
+      match mod.checkTLAPlusAnnotations with
+      | .error e =>
+        spinner.fail "Failed to desugar TLA⁺ expressions."
+        printErrorAndExit e lines colored
+      | .ok mod =>
+        spinner.success "Desugared TLA⁺ expressions."
+        return mod
 
   if ← FlagsEnv.getDebugFlag "dump-desugared" then
     dumpToFile (reprStr mod) dumpDir s!"{dumpName}-desugared"
@@ -227,8 +233,14 @@ private def runCli (p : Parsed) : IO UInt32 := do
         spinner.fail "Failed to desugar PlusCal algorithm."
         printErrorAndExit e lines colored
       | .ok algo =>
-        spinner.success "Desugared PlusCal algorithm."
-        return some algo
+        match algo.runCheckPlusCalAnnotations with
+        | .error e => printErrorAndExit e lines colored
+        | .ok (algo, warnings) =>
+          for warning in warnings do
+            if ← FlagsEnv.isWarningEnabled warning.name then
+              IO.eprintln <| CompilerDiagnostic.pretty warning lines colored
+          spinner.success "Desugared PlusCal algorithm."
+          return some algo
 
   if let some algo := algo then
     if ← FlagsEnv.getDebugFlag "dump-desugared" then

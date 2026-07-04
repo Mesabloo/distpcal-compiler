@@ -1,6 +1,8 @@
 import Desugarer.Errors
 import Core.SurfacePlusCal.Syntax
 import Core.CorePlusCal.Syntax
+import Desugarer.TLAPlus
+import Parser_.Annotations
 
 /-!
   Statement desugaring: `SurfacePlusCal`'s implicit-fallthrough statement lists become
@@ -383,3 +385,85 @@ def SurfacePlusCal.Algorithm.runDesugarer {α β} (a : SurfacePlusCal.Algorithm 
   let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (Except DesugarError)) _ :=
     a.desugar
   (desugar.run {}).run default
+
+/--
+  §5.1's annotation-placement prerequisite, PlusCal half — companion to
+  `Desugarer/TLAPlus.lean`'s `CoreTLAPlus.Module.checkTLAPlusAnnotations`, covering the
+  algorithm-specific slots that check doesn't see. Two kinds of check, since the right rule
+  genuinely differs by *which* field a slot is:
+  - **Field-specific, hand-checked** (not via the generic `Bitraversable` walk, which applies
+    one uniform function to every `α`-slot regardless of field): `SurfacePlusCal.Process.ann`
+    is `@mailbox`-only, at most one (two different mailboxes on one process would be
+    ambiguous, same reasoning as duplicate `@type`); a `Declarations.variables` entry allows
+    `@parameter` only when it's `∈`-initialized (the `Bool` in `Option (Bool × β)`, `true` for
+    `=`) — repeated `@parameter` there is a warning, not an error, since it's a content-free
+    marker with nothing to actually disagree about — `@type` always, at most one; nothing
+    else; `channels`/`fifos` entries are `@type`-only, same as the TLA⁺ side.
+  - **Uniformly `@type`-only** (every embedded expression's own quantifier/record-literal
+    annotation slots — variable/channel/fifo domains, process IDs, statement expressions):
+    checked via the same generic `bitraverse pure (traverse checkTypeOnlySlot)` pattern as the
+    TLA⁺ side, since these slots follow the identical rule there.
+
+  Runs on `CorePlusCal.Algorithm` (after both `Module.desugar` and this file's own
+  `runDesugarer`), matching where the TLA⁺ half runs — post-desugaring, not folded into the
+  polymorphic `desugar` functions themselves. Polymorphic over `m` per this project's
+  monad-polymorphism convention (`CLAUDE.md`) — needs error-reporting plus a
+  `List DesugarWarning` accumulator (mirroring `Parser_/Common.lean`'s `ParserWarningM`, for
+  the `@parameter`-duplicate warning) — `runCheckPlusCalAnnotations` below is the concrete
+  entry point.
+-/
+def CorePlusCal.Algorithm.checkPlusCalAnnotations {m : Type → Type} [Monad m]
+    [MonadExceptOf DesugarError m] [MonadStateOf (List DesugarWarning) m]
+    (algo : CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
+    m (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) := do
+  checkDeclarations algo.globalState
+  for p in algo.processes do
+    checkMailboxOnly p.ann
+    checkDeclarations p.localState
+  bitraverse pure (traverse checkTypeOnlySlot) algo
+where
+  checkMailboxOnly (anns : List Annotation) : m Unit := do
+    -- Compared by channel *name* only, not the full filter-expression list (`SurfaceTLAPlus.
+    -- Expression` has no `BEq`, and comparing just the name is enough to catch the case that
+    -- actually matters: two @mailboxes naming *different* channels on one process).
+    let mut seenMailbox : Option String := none
+    for ann in anns do
+      match ann with
+      | .«@mailbox» pos name _ =>
+        match seenMailbox with
+        | some name' => unless name == name' do throw (.duplicateAnnotation pos "@mailbox")
+        | none => seenMailbox := some name
+      | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@mailbox")
+  checkDeclarations {β} (decls : SurfacePlusCal.Declarations (List Annotation) β) : m Unit := do
+    for (_, anns, init) in decls.variables do
+      -- `init`'s `Bool` is `true` for `=`, `false` for `∈` (`Declarations.variables`'s own doc
+      -- comment) — `@parameter` only makes sense on a `∈`-initialized variable, matching
+      -- `TPC2.tla`'s `aState ∈ {"accept","refuse"}` example.
+      let allowParameter := match init with
+        | some (false, _) => true
+        | _ => false
+      let mut seenType : Option SurfaceTLAPlus.Typ := none
+      let mut seenParameter := false
+      for ann in anns do
+        match ann with
+        | .«@type» pos τ =>
+          match seenType with
+          | some τ' => unless τ == τ' do throw (.duplicateAnnotation pos "@type")
+          | none => seenType := some τ
+        | .«@parameter» pos =>
+          unless allowParameter do throw (.wrongAnnotationKindAtSite pos "@parameter" "@type")
+          if seenParameter then modify (DesugarWarning.duplicateParameterAnnotation pos :: ·)
+          seenParameter := true
+        | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@type")
+    for (_, anns, _) in decls.channels do let _ ← checkTypeOnlySlot anns
+    for (_, anns, _) in decls.fifos do let _ ← checkTypeOnlySlot anns
+
+/-- Run `checkPlusCalAnnotations` against the one concrete monad it's ever needed at:
+error-reporting plus a `List DesugarWarning` accumulator (mirroring `Parser_/Common.lean`'s
+`ParserWarningM`), returning the collected warnings alongside a successful result for the CLI
+driver to render subject to `-W`/`-Wno-<name>`. -/
+def CorePlusCal.Algorithm.runCheckPlusCalAnnotations
+    (algo : CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
+    Except DesugarError (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation)) × List DesugarWarning) :=
+  let check : StateT (List DesugarWarning) (Except DesugarError) _ := algo.checkPlusCalAnnotations
+  check.run []

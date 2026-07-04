@@ -32,20 +32,38 @@ section
 
   open SurfaceTLAPlus (Typ Expression CommentAnnotation Module)
 
-  /-- A subset of general annotations, as understood by our tool. -/
+  /--
+    A subset of general annotations, as understood by our tool. Every constructor carries its
+    own `pos : SourceSpan` explicitly, rather than relying on `Common/Position.lean`'s
+    `@@`/`posOf` out-of-band mechanism (keyed by `ptrAddrUnsafe`, i.e. pointer identity) — that
+    mechanism is unsound for a genuinely nullary constructor like `«@parameter»` was: Lean
+    represents a zero-field constructor of a mixed inductive as a small tagged scalar shared
+    across every construction site, so `ptrAddrUnsafe` can't tell separate source occurrences
+    apart (confirmed empirically: two `.«@parameter»`-shaped values built at different call
+    sites report the *same* `ptrAddrUnsafe`, and the second `@@`-registration silently
+    overwrites the first). Storing `pos` as a real field sidesteps the problem entirely.
+  -/
   inductive Annotation
     /-- Type information for variables. -/
-    | «@type» (_ : Typ)
+    | «@type» (pos : SourceSpan) (_ : Typ)
     /-- Mailbox information for PlusCal processes. -/
-    | «@mailbox» (_ : SourceSpan) (_ : String) (_ : List (Expression (List Annotation)))
+    | «@mailbox» (pos : SourceSpan) (_ : String) (_ : List (Expression (List Annotation)))
     /-- Functional parameter of a PlusCal process. -/
-    | «@parameter»
+    | «@parameter» (pos : SourceSpan)
     deriving Repr, Inhabited, BEq
 
   def Annotation.name : Annotation → String
-    | .«@type» _ => "@type"
+    | .«@type» _ _ => "@type"
     | .«@mailbox» _ _ _ => "@mailbox"
-    | .«@parameter» => "@parameter"
+    | .«@parameter» _ => "@parameter"
+
+  /-- The position of the comment (group) this annotation was parsed from — a dedicated
+  accessor, *not* the generic `posOf`/`match_source` convention (see the module doc above for
+  why that's unreliable for this specific type). -/
+  def Annotation.posOf : Annotation → SourceSpan
+    | .«@type» pos _ => pos
+    | .«@mailbox» pos _ _ => pos
+    | .«@parameter» pos => pos
 
   section Types
     open Parser hiding eoption takeMany takeMany1 first
@@ -140,7 +158,7 @@ section
 
   private partial def tryResolveAnnotations (ann : CommentAnnotation) : m Annotation :=
     match_source ann with
-    | ⟨"type", [.inl arg]⟩, pos => (.«@type» <| · @@ pos) <$> parseType pos arg
+    | ⟨"type", [.inl arg]⟩, pos => (.«@type» pos <| · @@ pos) <$> parseType pos arg
     | ⟨"type", [_]⟩, pos => throw <| .invalidAnnotationType pos "@mailbox" "either a string literal or an inline argument"
     | ⟨"type", args⟩, pos => throw <| .invalidArgsLen pos "@type" 1 args.length
     | ⟨"mailbox", [.inl expr]⟩, pos => Sigma.uncurry (Annotation.«@mailbox» pos) <$> do
@@ -150,7 +168,7 @@ section
         | _ => throw <| .invalidMailboxSpecification pos
     | ⟨"mailbox", [_]⟩, pos => throw <| .invalidAnnotationType pos "@mailbox" "either a string literal or an inline argument"
     | ⟨"mailbox", args⟩, pos => throw <| .invalidArgsLen pos "@mailbox" 1 args.length
-    | ⟨"parameter", []⟩, _ => return .«@parameter»
+    | ⟨"parameter", []⟩, pos => return .«@parameter» pos
     | ⟨"parameter", args⟩, pos => throw <| .invalidArgsLen pos "@parameter" 0 args.length
     | _, _ => unreachable!
 
