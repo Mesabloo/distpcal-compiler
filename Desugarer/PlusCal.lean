@@ -73,8 +73,9 @@ import Core.CorePlusCal.Syntax
   flagging to whoever implements well-labelledness checking, §5.2a, since `"Done"` must stay
   exempt from "every `goto` targets a real label").
 
-  **`ownLabel`/`fallthrough` and `insideWith` are `Reader` effects (`SegmentContext`/
-  `WithContext` below), not manually-threaded parameters** — following `Desugarer/Monad.lean`'s
+  **`ownLabel`/`fallthrough` and `WithContext`'s with-bound-variable list are `Reader` effects
+  (`SegmentContext`/`WithContext` below), not manually-threaded parameters** — following
+  `Desugarer/Monad.lean`'s
   `MonadDesugarerExpr` precedent (a `Reader` of "what `@` currently refers to", `CLAUDE.md`'s
   monad-polymorphism convention applied literally). Both genuinely are "ambient, locally
   overridable context" rather than data being built up: every recursive call that doesn't change
@@ -92,11 +93,18 @@ import Core.CorePlusCal.Syntax
 
 namespace SurfacePlusCal
   /-- The reader context `Statement.desugarLabelFree` and friends thread through their
-  recursion: is this call (transitively) processing the body of a `with` statement? Propagated
-  unchanged through `if`/`either`'s own sub-bodies (both remain legal inside `with`); overridden
-  to `true` only by `with`'s own recursive call. -/
+  recursion: which variable names, if any, are currently bound by an enclosing `with`
+  (innermost binding first, but order is never actually relied upon — membership is all that
+  matters). Propagated unchanged through `if`/`either`'s own sub-bodies (both remain legal
+  inside `with`); each `with`'s own recursive call prepends its own bound names on top of
+  whatever's already there, so nested `with`s accumulate rather than replace. "Are we
+  (transitively) inside a `with` body at all?" is just `boundVars.isEmpty`, used by the `while`
+  check below exactly as before; "is `name` specifically with-bound?" is `boundVars.contains`,
+  used by the write check below (`withBoundVarWritten`) — a `with`-bound name is a local
+  binding to a fixed value, not a process variable, so writing to it (via `assign` or
+  `receive`) is meaningless. -/
   structure WithContext where
-    insideWith : Bool := false
+    boundVars : List String := []
 
   /-- The reader context `desugarSegment` threads through its recursion: which label (if any)
   "owns" the segment currently being built (`none` for an `if`/`either` branch, which has no
@@ -178,30 +186,41 @@ namespace SurfacePlusCal
       sub-blocks recursing via `desugarLabelFreeBlock` (still extraction-free, by the same
       assumption).
 
-      Reads `WithContext` to tell whether this call is (transitively) processing the body of a
-      `with` statement — inherited as-is through `if`/`either`'s own sub-bodies (both are legal
-      inside `with`), overridden to `true` only by `with`'s own recursive call via `withTheReader`.
-      A `while` is rejected outright the moment it's seen while `insideWith`: unlike a nested
+      Reads `WithContext` to tell which names, if any, are currently `with`-bound — inherited
+      as-is through `if`/`either`'s own sub-bodies (both are legal inside `with`), extended only
+      by `with`'s own recursive call via `withTheReader`. A `while` is rejected outright the
+      moment it's seen with any names currently bound (`boundVars` non-empty): unlike a nested
       label (also illegal inside `with`, `rejectLabels`), a `while` needs no label of its own
       nearby to be illegal here — the manual (§3.2.6) lists it as its own, unconditional
-      restriction (`whileInWith`).
+      restriction (`whileInWith`). An `assign` targeting a currently-`with`-bound name, or a
+      `receive` whose target `Ref` is one, is likewise rejected outright (`withBoundVarWritten`)
+      — a `with`-bound name is a local binding to a fixed value, not a process variable with
+      state to update, and `receive` writes into its target the same way `assign` does.
     -/
     partial def Statement.desugarLabelFree (s : Statement α β) : m (CorePlusCal.Statement α β false) := match_source s with
       | .goto _, pos => throw (.gotoNotInTailPosition pos)
       | .skip, _ => pure .skip
       | .print e, _ => pure (.print e)
-      | .assign a, _ => pure (.assign a)
+      | .assign a, pos => do
+        let ctx ← readThe WithContext
+        match a.find? (fun (r, _) => ctx.boundVars.contains r.name) with
+        | some (r, _) => throw (.withBoundVarWritten pos r.name)
+        | none => pure (.assign a)
       | .if cond b1 b2, _ => .if cond <$> desugarLabelFreeBlock b1 <*> desugarLabelFreeBlock (b2.getD [])
       | .await e, _ => pure (.await e)
       | .with vars b, _ =>
-        .with vars <$> withTheReader WithContext (fun _ => { insideWith := true }) (desugarLabelFreeBlock b)
+        let newNames := vars.map (·.1)
+        .with vars <$> withTheReader WithContext ({ boundVars := newNames ++ ·.boundVars }) (desugarLabelFreeBlock b)
       | .assert e, _ => pure (.assert e)
       | .either branches, _ => .either <$> Branches.desugarLabelFree branches
       | .while cond b, pos => do
         let ctx ← readThe WithContext
-        if ctx.insideWith then throw (.whileInWith pos)
+        if !ctx.boundVars.isEmpty then throw (.whileInWith pos)
         else .while cond <$> desugarLabelFreeBlock b
-      | .receive c r, _ => pure (.receive c r)
+      | .receive c r, pos => do
+        let ctx ← readThe WithContext
+        if ctx.boundVars.contains r.name then throw (.withBoundVarWritten pos r.name)
+        else pure (.receive c r)
       | .send c e, _ => pure (.send c e)
       | .multicast c f, _ => pure (.multicast c f)
 
@@ -357,7 +376,7 @@ end SurfacePlusCal
 `Desugarer/TLAPlus.lean`'s expression desugaring), since this compiler never invents a label the
 user didn't write (this file's module doc). Neither `Reader`'s outer seed value is ever actually
 observed: `Thread.desugar` always establishes a real `SegmentContext` via `withTheReader` before
-`desugarSegment` reads one, and `WithContext`'s default (`insideWith := false`) is exactly the
+`desugarSegment` reads one, and `WithContext`'s default (`boundVars := []`) is exactly the
 correct ambient value for everything outside of a `with` body anyway. -/
 def SurfacePlusCal.Algorithm.runDesugarer {α β} (a : SurfacePlusCal.Algorithm α β) :
     Except DesugarError (CorePlusCal.Algorithm α β) :=

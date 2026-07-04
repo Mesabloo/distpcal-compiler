@@ -39,6 +39,15 @@ inductive DesugarError : Type
   auto-synthesizing a continuation label (a correction from an earlier draft, alongside
   `whileNotLabelled` above — both found by the same deliberate cross-check against the manual). -/
   | notFollowedByLabel (pos : SourceSpan)
+  /-- A statement writes into a variable that is currently bound by an enclosing `with` (at any
+  nesting depth) — either an `assign` targeting it directly (`with x = e { x := 9 }`) or a
+  `receive` whose target `Ref` is it (`with x = e { receive(c, x) }`, which writes the received
+  value into `x` the same way `assign` writes into its target). A `with`-bound name is a local
+  binding to a fixed value for the duration of its body, not a process variable — it was never
+  declared in `variables` and has no state to update, so writing to it is meaningless the same
+  way assigning to a TLA⁺ `LET`-bound name would be, regardless of whether the `with` used `=`
+  or `∈`. -/
+  | withBoundVarWritten (pos : SourceSpan) (name : String)
 
 instance : CompilerDiagnostic DesugarError String where
   isError := true
@@ -49,7 +58,8 @@ instance : CompilerDiagnostic DesugarError String where
     | .nestedLabel pos
     | .whileInWith pos
     | .whileNotLabelled pos
-    | .notFollowedByLabel pos => pos
+    | .notFollowedByLabel pos
+    | .withBoundVarWritten pos _ => pos
   msgOf
     | .misplacedAt _ => "Unexpected '@' outside 'EXCEPT' construct."
     | .gotoNotInTailPosition _ => "'goto' may not be followed by further unlabelled statements."
@@ -58,3 +68,4 @@ instance : CompilerDiagnostic DesugarError String where
     | .whileInWith _ => "A 'while' statement may not appear inside a 'with' block."
     | .whileNotLabelled _ => "A 'while' statement must be immediately preceded by a label."
     | .notFollowedByLabel _ => "This statement must be labelled, since it follows an 'if'/'either' containing a label or 'goto'."
+    | .withBoundVarWritten _ name => s!"'{name}' is bound by an enclosing 'with' and cannot be written to."

@@ -77,6 +77,7 @@ ask before overturning).
 | `CONSTANT` values, and process-set (`p ∈ S`) cardinality | **Left to the user of the compiled code, deliberately.** `CONSTANT`s are genuinely abstract entities (both their type and their value) as far as this compiler is concerned — they only get concretized when someone builds a real executable program out of the generated code, matching the existing "the compiler doesn't emit `main`" scope boundary (§5.7). No `ASSUME`-pinning requirement, no companion config file. Correspondingly, a process set `p ∈ S` does **not** compile to `S`-many spawned goroutines/definitions — each process definition compiles to a **single entry point** (a Go function, a Join Calculus process definition), parameterized over the process's own identity/address; the user is responsible for invoking that entry point once per concrete process they want running, with whatever address they choose. See §5.3, §5.6, §5.7. |
 | When imported modules get processed | **Eagerly and transitively, recursively invoking the compiler driver right after desugaring, before type checking.** Every module reachable from the main module's `EXTENDS`/`INSTANCE` list gets fully processed up front, not lazily on first `Ξ` miss: once the main module itself is parsed and desugared (§5.1–§5.2), the driver recurses on each directly `EXTENDS`ed/`INSTANCE`d module — parse → desugar → recurse on *its* own imports the same way → type-check — before the main module's own type checker (§5.3) starts. By the time the main module reaches `[Goto]`/`[Assign]`/etc. typing rules, `Ξ` is already fully populated for everything it can reference. See §5.3. |
 | Well-scopedness: how `GuardedPlusCal.Algorithm.WellScoped` gets established for Guarded→Network | **A general preservation lemma, proved once**, not a per-run decision procedure: `CorePlusCal.WellScoped p → GuardedPlusCal.Algorithm.WellScoped (Typed2Guarded (Checker p))` (roughly), proved as part of `Checker`/`Typed2Guarded`'s verification work (§5.5, §6.2) and reused unchanged for every program the compiler processes. Per the project owner, this fits the compiler's overall verification aesthetic better than re-deciding the `Prop` computationally on each concrete compiled algorithm. **Note:** `CorePlusCal.WellScoped`, the lemma's antecedent, is not one of the ported files — it doesn't exist in prior art at all and must be authored fresh (§5.2a). See §5.2a, §5.5. |
+| Pipeline order: well-formedness checking (§5.2a) vs. type checking (§5.3) | **Type checking runs first — inverted from an earlier draft of this plan, which had well-formedness immediately after desugaring.** The project owner's observation: type checking already forces variable well-scopedness as a side effect of succeeding (an out-of-scope or undeclared reference is a `Γ`/`Σ`/`Δ`-lookup failure, i.e. a type error on its own, independent of any dedicated check), so running a separate well-scopedness pre-pass before type checking re-derives a fact type checking would catch anyway. Well-formedness's other two checks (well-labelledness, no-bare-temporal-operators) have no dependency on typing in either direction, so nothing is lost by deferring them. **Consequence, not a further decision:** the well-scopedness sub-check itself doesn't disappear — its "every reference resolves" half becomes redundant defense-in-depth, but its "no shadowing / no duplicate names in a scope" half is not implied by ordinary bidirectional type checking (shadowing still type-checks against *something*) and remains this pass's real, load-bearing job. See §5.2a, §7 (phases 6–7). |
 | Polymorphism-instantiation / metavariable resolution mechanics | **Direction-aware solving, not naive eager unification** — since the subtyping axioms here are asymmetric coercions, not an equivalence. Lower-bound constraints (`T <: ?n`) solve eagerly, because coercions only ever run narrow→wide; upper-bound constraints (`?n <: T`) only ever get recorded as pending, never solved from directly, since doing so would foreclose a narrower solution arriving later. Metavariable-vs-metavariable constraints (`?m <: ?n`, both unresolved) must **not** be resolved by merging/unioning the two variables into one — that's unsound in general, since it conflates two independently-constrained unknowns and forces equality where `<:` only ever demanded a directional relationship; instead, record the link on the lower side and propagate once one side resolves from a real ground bound. A metavariable left with no bounds at the end of checking — including one whose only recorded bound is another metavariable that itself never resolved — is a hard type error, not a silent default. Full algorithm, with the counterexamples motivating each rule, in §5.3. |
 | Coercion realization: where do coercions live, and how does a *pending* one get resolved? | `Coercion := Expr → Expr` — applied by ordinary function application to the elaborated expression in hand once `subtype` yields a **successful** coercion. When it yields **pending** instead (an upper-bound check against an unresolved `?n`), the expression is wrapped in a new `mvar : MVarId → Expr → Expr` node added to `TypedTLAPlus`/`TypedPlusCal`'s grammar; the checker's context keeps, per unresolved `?n`, its pending upper bounds and the `mvar` sites created alongside them in lockstep (same length, by construction). The moment `?n` resolves, every one of its `mvar` sites is substituted with the now-computable coercion applied to the wrapped expression — this happens as part of the metavariable-resolution algorithm itself, not a separate pass, so `mvar` is fully eliminated before the checker's output reaches `Typed2Guarded`; downstream passes and both backends never see it. See §5.3. |
 | Diagnostic/error-model shape | **Per-pass error types, unified by a common rendering interface** — not one shared diagnostic sum type. Warning suppression (`-W`/`-Wno-<name>`, §2) is handled either at the point a warning is emitted or by filtering after the fact, before rendering — either is fine, implementer's call. Per the project owner, this mechanism (per-pass errors, common rendering, some form of warning filtering) is expected to already exist in `Common/Errors.lean` (§4), just not necessarily well-documented — read that file before designing something new rather than assuming a gap that isn't there. It's explicitly fine to later refactor either the error style or the warning/error emission mechanism if either doesn't hold up in practice. **Known bug to watch for when porting:** the project owner has observed a rendering bug somewhere in this diagnostic-printing code where, in some circumstances not yet pinned down, one character in the offending source line gets duplicated in the printed output — worth tracking down and fixing during the port rather than carrying it forward silently. |
@@ -204,8 +205,8 @@ Fugue/                          (this repo)
 │                                    including annotation parsing + placement checking (§5.1)
 │                                    (named `Parser_`, not `Parser` — clashes with the `fgdorais/Parser` package import)
 ├── Desugarer/                    fresh — Surface → Core, for both TLA+ expressions and PlusCal statements
-├── WellFormedness/               fresh — well-labelledness + variable well-scopedness + no-bare-temporal-op checks over Core ASTs (§5.2a)
 ├── Checker/                      fresh — bidirectional type checker, Core → Typed
+├── WellFormedness/               fresh — well-labelledness + variable well-scopedness + no-bare-temporal-op checks over Core ASTs, run after the type checker (§5.2a)
 ├── Typed2Guarded/                fresh — the cflow/par/flat/reord pipeline (§5.4)
 ├── Guarded2Network/               ported from prior art incl. its proofs (§5.5)
 ├── Network2JoinCalculus/          NEW (§5.6)
@@ -471,11 +472,48 @@ Two independent halves, both implemented:
       example (unaffected, since every label in it was always user-written). See
       `iridescent-enchanting-sparkle-findings.md`'s Phase 4 entry for the full trail, including
       the reasoning that led to (then away from) auto-synthesis.
+  - **Fifth addition, a new restriction identified by the project owner, not a correction of a
+    prior mistake: a `with`-bound name can never be the target of a write** — neither a direct
+    assignment (`with (x = 3) { x := 9; }`) nor a `receive` whose target it is
+    (`with (x = "") { receive(ch, x); }`, which writes the received value into `x` the same way
+    `assign` writes into its target) — a `with`-bound name is a local binding to a fixed value
+    for the duration of its body, not a process variable with state to update; it was never
+    declared in `variables` and has nothing for either construct to overwrite. Implemented per
+    the project owner's own suggested design: `WithContext`'s single `insideWith : Bool` field
+    became `boundVars : List String`, the list of names currently bound by any enclosing `with`
+    (accumulated across nesting — an inner `with` prepends its own names onto whatever the
+    outer one(s) already bound, rather than replacing them). "Are we inside a `with` body at
+    all?" (needed by the existing `whileInWith` check, §5.2 above) is now simply
+    `boundVars.isEmpty`; the new check itself is `boundVars.contains` against each write's
+    target name (an `assign`'s LHS `Ref`, or a `receive`'s target `Ref`), throwing a new
+    `DesugarError.withBoundVarWritten (pos) (name)` on a hit. Applies transitively — an inner
+    `with`'s body writing to an *outer* `with`'s bound name is rejected too, exactly like the
+    accumulated-list design implies. **`receive` was initially left unchecked** (the project
+    owner's original request and example were specifically about `:=`), flagged here as an open
+    question rather than silently extended or silently left out — the project owner then
+    confirmed the same restriction applies to `receive` too, so it was added immediately after.
+    Verified via four `tests/regression/` fixtures: a direct `assign` hit
+    (`reject_assign_to_with_bound.tla`), a nested-`with` hit against the outer binding
+    (`reject_assign_to_outer_with_bound.tla`), a `receive` hit
+    (`reject_receive_into_with_bound.tla`), and an accept case confirming a `with`-bound name
+    may still be freely *read* and that writing to an unrelated variable from within the same
+    `with` body is unaffected (`accept_with_assign_other_var.tla`) — all 17 regression fixtures
+    (13 prior + these 4) and all four external fixtures still pass unchanged.
 
 ### 5.2a Well-formedness checking (NEW)
 **Input/output:** `CoreTLAPlus`/`CorePlusCal` — this is a checking pass, not a
 transform: it either accepts the term or rejects it with a diagnostic, and produces no
-new AST. Runs immediately after desugaring (§5.2), before type checking (§5.3).
+new AST. Runs after type checking (§5.3), not immediately after desugaring (§5.2) as an
+earlier draft of this plan had it — **reordered on the project owner's observation that
+type checking already forces variable well-scopedness as a side effect of succeeding**
+(a reference to an undeclared or out-of-scope name is a `Γ`-lookup failure, i.e. a type
+error, regardless of whether anything upstream checked for it), so gating type checking on
+a separate pre-pass that re-derives the same fact is redundant work with no payoff. The
+other two checks here (well-labelledness, no-bare-temporal-operators) have no dependency on
+typing either way — they're checked on `CoreTLAPlus`/`CorePlusCal` structure that typing
+doesn't touch — so nothing is lost by running them after the type checker instead of
+before it; see the well-scopedness bullet below for exactly which part of that check
+genuinely becomes redundant and which part doesn't.
 
 Per the project owner, this concern is "a combination of syntactical and typing
 assumptions, but mostly syntactical," should **not be dropped** (only cleaned up), and in
@@ -541,7 +579,18 @@ declarations, gotos, and operator shapes are all already resolved by the time
 - **Variable well-scopedness.** Every variable reference resolves to a declared name of
   the right kind (global, channel, process-local, or block-local `with`/`let` binding —
   matching prior art's Σ/Δ/Γ/Ξ scope classes), every `with`/`let` binder is fresh in its
-  scope, and there are no duplicate names within a scope. This is exactly what the
+  scope, and there are no duplicate names within a scope. **Now that this pass runs after
+  type checking (§5.3), the first half of that ("every reference resolves to a declared
+  name of the right kind") is redundant with type checking's own success** — the type
+  checker's `Γ`/`Σ`/`Δ` lookups already fail closed on any unresolvable reference, so a
+  program that reached this pass already has that property and re-deriving it here is a
+  no-op check kept mainly for documentation/defense-in-depth, not load-bearing. **The
+  second half — every binder fresh, no duplicate names in one scope — is *not* implied by
+  type checking and stays this pass's genuine, load-bearing work:** ordinary bidirectional
+  type checking has no reason to reject shadowing (a shadowed name still resolves to
+  *something* and still type-checks against it), so this pass is still where shadowing
+  and duplicate declarations actually get caught, regardless of where it sits in the
+  pipeline. This is exactly what the
   prototype's `Core/GuardedPlusCal/Syntax/WellScopedness.lean` and
   `Core/TypedSetTheory/Syntax/WellScopedness.lean` encode as Lean `Prop`s (Finset-based
   scopes, one predicate per scope class, threaded through `await`/`with`/`receive`/
@@ -775,8 +824,8 @@ below):
   upcasting the payload; `receive` checks the channel type against the synthesized
   reference type, exploiting `Channel`'s covariance); `[Print]` requires a `showable`
   type (Fig. 3.1.14: everything except function/operator/channel types, recursively);
-  `[Goto]` performs no type check at all — label existence is checked earlier, by the
-  well-formedness pass (§5.2a), not the type checker's job.
+  `[Goto]` performs no type check at all — label existence is checked separately, by the
+  well-formedness pass (§5.2a, now sequenced after this one, §7), not the type checker's job.
 - **`Ξ` is a global map in the implementation, not threaded state.** On paper it's an
   input to the judgment like `Γ`, but in practice it should be implemented as a global
   cache rather than passed around explicitly through every rule. This will need some
@@ -1136,18 +1185,25 @@ buildable (`lake build`), even if incomplete/unverified.
    through the CLI built in phase 3.
 5. **Desugarer** (§5.2): port expression desugaring, design + implement statement
    desugaring (`CorePlusCal`'s explicit-goto normalization) from scratch.
-6. **Well-formedness checking** (§5.2a): well-labelledness, variable well-scopedness, and
+6. **Type checker** (§5.3): implement the bidirectional rules from thesis §3.1
+   essentially verbatim. Sequenced ahead of well-formedness checking (phase 7) —
+   **inverted from an earlier draft of this plan** — because type checking already
+   forces variable well-scopedness as a side effect of succeeding (an out-of-scope or
+   undeclared reference is a `Γ`-lookup failure, i.e. a type error on its own), so there's
+   no reason to gate it behind a separate pre-pass re-deriving the same fact; see §5.2a.
+7. **Well-formedness checking** (§5.2a): well-labelledness, variable well-scopedness, and
    the no-bare-temporal/action-operator check, over `CoreTLAPlus`/`CorePlusCal` — purely
-   syntactic, no dependency on the type checker (phase 7). Port the two
-   `WellScopedness.lean` files here too (§2), even though their primary use shifts to
-   proof-support at phases 8 and 9.
-7. **Type checker** (§5.3): implement the bidirectional rules from thesis §3.1
-   essentially verbatim.
+   syntactic, and has no dependency on the type checker (phase 6) either way, so it's free
+   to run after it. Of the well-scopedness sub-check, only the freshness/no-duplicate-names
+   half is still genuinely load-bearing at this point — variable-reference resolution is
+   already guaranteed by having gotten through phase 6 (see §5.2a for the detailed
+   breakdown). Port the two `WellScopedness.lean` files here too (§2), even though their
+   primary use shifts to proof-support at phases 8 and 9.
 8. **`TypedTLAPlus` → `TypedSetTheory`** (§5.3): a separate pass from the type checker
    itself — translate every expression used in the PlusCal algorithm (and every operator
    defined earlier in the module that those expressions depend on) by stripping out
    actions and temporal formulas, which doubles as checking none were illegitimately
-   present. Depends on phase 7, but is its own small pass, not part of it.
+   present. Depends on phase 6, but is its own small pass, not part of it.
 9. **`Typed2Guarded`** (§5.4): the four subpasses, in order, each independently
    testable against the thesis's Two-Phase Commit worked example.
 10. **`Guarded2Network`** (§5.5): port pass + proof from prior art.

@@ -237,7 +237,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
   IO.println s!"Fugue: desugared module '{mod.name}' (extends {mod.extends.length} module(s), \
 {mod.declarations₁.length + mod.declarations₂.length} declaration(s), \
 {if algo.isSome then "with" else "without"} an embedded PlusCal algorithm). \
-The well-formedness checker (Phase 5) isn't implemented yet, so the pipeline stops here."
+The type checker (Phase 5) isn't implemented yet, so the pipeline stops here."
   return 0
 
 private def cli : Cmd := `[Cli|
