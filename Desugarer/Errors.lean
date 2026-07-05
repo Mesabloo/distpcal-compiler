@@ -103,8 +103,10 @@ instance : CompilerDiagnostic DesugarError String where
     | .conflictingAssignment _ name => s!"'{name}' is written to more than once within the same atomic step."
 
 /-- Non-fatal issues found while desugaring — collected out-of-band (mirroring
-`Parser_/Common.lean`'s `ParserWarning`/`ParserWarningM`) rather than emitted immediately,
-since `-W`/`-Wno-<name>` suppression is a CLI-driver concern. -/
+`Parser_/Common.lean`'s `ParserWarning`/`ParserWarningM`) rather than emitted immediately, since
+`-W`/`-Wno-<name>` suppression needs `FlagsEnv`, which the desugarer itself doesn't have access
+to — the compiler driver does (`Driver/Modules.lean`'s `compileModule`), and filters/prints these
+once desugaring returns. -/
 inductive DesugarWarning : Type
   /-- A `@parameter` marker repeated on the same variable. Unlike `@type`/`@mailbox`,
   `@parameter` carries no content of its own to disagree about — a second one changes

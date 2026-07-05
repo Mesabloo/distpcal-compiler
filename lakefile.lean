@@ -76,6 +76,10 @@ lean_lib Fugue.WF where
 /-- The bidirectional type checker, Core to Typed. -/
 lean_lib Fugue.Elaborator where
   roots := #[`Elaborator]
+/-- Recursive `EXTENDS` module resolution — not type-checking rules, but the driver-level
+orchestration around invoking them. -/
+lean_lib Fugue.Driver where
+  roots := #[`Driver]
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
 lean_lib Fugue.T2G where
   roots := #[`Typed2Guarded]

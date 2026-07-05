@@ -47,6 +47,13 @@ hoc inside `Desugarer/PlusCal.lean` instead.
 ## `Elaborator/`
 Bidirectional type checker (`PLAN.md` §3.1, ch. 3.1 of the thesis) — not yet started.
 
+## `Driver/`
+Recursive `EXTENDS` module resolution (`PLAN.md` §2/§5.3) — not type-checking rules, but the
+driver-level orchestration around invoking them: locating/lexing/parsing/desugaring a module,
+recursing on its own `EXTENDS` list, the module cache `Ξ`, and the standard-library operator
+table. `Fugue.lean` calls into this for the main module; it calls back into itself recursively
+for each dependency.
+
 ## `Typed2Guarded/`
 Distributed → Guarded PlusCal desugaring (`PLAN.md` §3.2, ch. 3.2 of the thesis) — not yet
 started.

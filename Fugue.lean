@@ -5,6 +5,7 @@ import Parser_.TLAPlus
 import Parser_.Annotations
 import Desugarer.TLAPlus
 import Desugarer.PlusCal
+import Driver.Modules
 import ProgressBar.Spinner
 import ProgressBar.Spinners
 import Colorized
@@ -71,7 +72,7 @@ instance : ParseableType Target where
     | _ => none
 
 /-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
-private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-dir"]
+private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-dir"]
 
 /-- Default value of `-d dump-dir=<path>`. -/
 private def defaultDumpDir : System.FilePath := ".fugue/debug"
@@ -174,79 +175,39 @@ private def runCli (p : Parsed) : IO UInt32 := do
     return source
   let lines := source.split (· == '\n') |>.toList
 
-  let tokens ← withSpinner "Lexing TLA⁺ file…" λ spinner ↦ do
-    match SurfaceTLAPlus.Lexer.lexModule source with
-    | .inl e =>
-      let _ : ToString Char := ⟨λ c ↦ s!"'{c}'"⟩
-      spinner.fail "Failed to lex TLA⁺ file."
-      printErrorAndExit e lines colored
-    | .inr tokens =>
-      spinner.success s!"Lexed {tokens.size} tokens."
-      return tokens
+  let containingDir := match input with
+    | .path path => path.parent
+    | .stdin => none
 
-  if ← FlagsEnv.getDebugFlag "dump-tokens" then
-    dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens"
-
-  let (mod, warnings) ← withSpinner "Parsing TLA⁺ module…" λ spinner ↦ do
-    match SurfaceTLAPlus.Parser.parseModule tokens with
-    | .inl e =>
-      let _ {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toString x.data⟩
-      spinner.fail "Failed to parse TLA⁺ module."
-      printErrorAndExit e lines colored
-    | .inr (mod, warnings) =>
-      spinner.success s!"Parsed module '{mod.name}'."
-      return (mod, warnings)
-
-  if ← FlagsEnv.getDebugFlag "dump-cst" then
-    dumpToFile (reprStr mod) dumpDir s!"{dumpName}-cst"
-
-  for warning in warnings do
-    if ← FlagsEnv.isWarningEnabled warning.name then
-      IO.eprintln <| CompilerDiagnostic.pretty warning lines colored
-
-  let mod ← match resolveAnnotations mod with
-    | .error e => printErrorAndExit e lines colored
-    | .ok mod => pure mod
-
-  let mod ← withSpinner "Desugaring TLA⁺ expressions…" λ spinner ↦ do
-    match mod.runDesugarer with
+  let typedMod ← withSpinner "Lexing TLA⁺ file…" λ spinner ↦ do
+    let result ← runM <| compileModule source containingDir
+      (onTokens := λ tokens ↦ do
+        if ← FlagsEnv.getDebugFlag "dump-tokens" then
+          dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens"
+        spinner.setTitle "Parsing TLA⁺ module…")
+      (onParsed := λ mod ↦ do
+        if ← FlagsEnv.getDebugFlag "dump-cst" then
+          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-cst"
+        spinner.setTitle "Desugaring…")
+      (onDesugared := λ mod ↦ do
+        if ← FlagsEnv.getDebugFlag "dump-desugared" then
+          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-desugared"
+        spinner.setTitle "Resolving EXTENDS and type-checking…")
+      (onTyped := λ typed ↦ do
+        if ← FlagsEnv.getDebugFlag "dump-typed" then
+          dumpToFile (reprStr typed) dumpDir s!"{dumpName}-typed")
+    match result with
     | .error e =>
-      spinner.fail "Failed to desugar TLA⁺ expressions."
+      spinner.fail "Compilation failed."
       printErrorAndExit e lines colored
-    | .ok mod =>
-      match mod.stripTLAPlusAnnotations with
-      | .error e =>
-        spinner.fail "Failed to desugar TLA⁺ expressions."
-        printErrorAndExit e lines colored
-      | .ok mod =>
-        spinner.success "Desugared TLA⁺ expressions."
-        return mod
+    | .ok typedMod =>
+      spinner.success s!"Type-checked module '{typedMod.name}'."
+      return typedMod
 
-  if ← FlagsEnv.getDebugFlag "dump-desugared" then
-    dumpToFile (reprStr mod) dumpDir s!"{dumpName}-desugared"
-
-  let algo ← match mod.pcalAlgorithm with
-    | none => pure none
-    | some algo => withSpinner "Desugaring PlusCal algorithm…" λ spinner ↦ do
-      match algo.runDesugarer with
-      | .error e =>
-        spinner.fail "Failed to desugar PlusCal algorithm."
-        printErrorAndExit e lines colored
-      | .ok (algo, warnings) =>
-        for warning in warnings do
-          if ← FlagsEnv.isWarningEnabled warning.name then
-            IO.eprintln <| CompilerDiagnostic.pretty warning lines colored
-        spinner.success "Desugared PlusCal algorithm."
-        return some algo
-
-  if let some algo := algo then
-    if ← FlagsEnv.getDebugFlag "dump-desugared" then
-      dumpToFile (reprStr algo) dumpDir s!"{dumpName}-desugared-algorithm"
-
-  IO.println s!"Fugue: desugared module '{mod.name}' (extends {mod.extends.length} module(s), \
-{mod.declarations₁.length + mod.declarations₂.length} declaration(s), \
-{if algo.isSome then "with" else "without"} an embedded PlusCal algorithm). \
-The type checker (Phase 5) isn't implemented yet, so the pipeline stops here."
+  IO.println s!"Fugue: type-checked module '{typedMod.name}' (extends {typedMod.extends.length} module(s), \
+{typedMod.declarations₁.length + typedMod.declarations₂.length} declaration(s), \
+{if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal algorithm). \
+The rest of the pipeline (Phase 6 onward) isn't implemented yet, so it stops here."
   return 0
 
 private def cli : Cmd := `[Cli|
@@ -257,7 +218,7 @@ private def cli : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
+    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
     f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[=value]` pairs."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
 

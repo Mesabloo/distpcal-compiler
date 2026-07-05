@@ -208,6 +208,8 @@ Fugue/                          (this repo)
 │                                    (named `Parser_`, not `Parser` — clashes with the `fgdorais/Parser` package import)
 ├── Desugarer/                    fresh — Surface → Core, for both TLA+ expressions and PlusCal statements
 ├── Elaborator/                   fresh — bidirectional type checker, Core → Typed
+├── Driver/                       fresh — recursive `EXTENDS` resolution: not type-checking rules, the orchestration around invoking them
+│                                    (locate/lex/parse/desugar a module, recurse on its own `EXTENDS`, module cache `Ξ`, stdlib operator table)
 ├── WellFormedness/               fresh — well-labelledness + variable well-scopedness + no-bare-temporal-op checks over Core ASTs, run after the type checker (§5.2a)
 ├── Typed2Guarded/                fresh — the cflow/par/flat/reord pipeline (§5.4)
 ├── Guarded2Network/               ported from prior art incl. its proofs (§5.5)
@@ -228,8 +230,8 @@ Each `Core/<Lang>` module owns exactly one AST plus its pretty-printer; semantic
 (`Semantics/Denotational.lean`, `Semantics/Lemmas.lean`) are added only for passes that
 have (or are actively getting) a refinement proof, to avoid maintaining semantics nobody
 is using. `Fugue.Core`, `Fugue.Parser`, `Fugue.Desugarer`, `Fugue.WF`, `Fugue.Elaborator`,
-`Fugue.T2G`, `Fugue.G2N`, `Fugue.N2JC`, `Fugue.N2Go` are the corresponding `lean_lib`
-targets in `lakefile.lean`, mirroring the `distpcal-compiler` naming scheme.
+`Fugue.Driver`, `Fugue.T2G`, `Fugue.G2N`, `Fugue.N2JC`, `Fugue.N2Go` are the corresponding
+`lean_lib` targets in `lakefile.lean`, mirroring the `distpcal-compiler` naming scheme.
 
 ---
 

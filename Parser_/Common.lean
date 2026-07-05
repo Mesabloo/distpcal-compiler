@@ -121,8 +121,9 @@ instance {α} [ToString α] : CompilerDiagnostic (Unexpected α) String where
 /--
   Warnings raised by the parser itself (as opposed to hard errors, `Unexpected`). Collected
   out-of-band during parsing (`ParserWarningM`, below) rather than emitted immediately, since
-  `-W`/`-Wno-<name>` suppression (`PLAN.md` §2) is a CLI-driver concern and the driver is the
-  first point in the pipeline with access to `FlagsEnv`.
+  `-W`/`-Wno-<name>` suppression (`PLAN.md` §2) needs `FlagsEnv`, which the parser itself doesn't
+  have access to — the compiler driver does (`Driver/Modules.lean`'s `compileModule`, and
+  `Fugue.lean` before it existed), and filters/prints these once parsing returns.
 -/
 inductive ParserWarning : Type
   /-- `fair process`/`fair+`: parsed and round-tripped, but never acted on (`PLAN.md` §2, §5.1). -/
