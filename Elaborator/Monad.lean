@@ -1,5 +1,6 @@
 import Elaborator.Errors
 import Core.TypedTLAPlus.Syntax
+import Common.Fresh
 
 /-!
   The effects the type checker needs (§5.3), following `Desugarer/Monad.lean`'s
@@ -7,9 +8,12 @@ import Core.TypedTLAPlus.Syntax
   lookup semantics per the usual `Γ,x:τ` reading — the most recently `withReader`-inserted
   binding for a name wins, i.e. the rightmost one shadows), a metavariable context (this
   project's own `MonadMetavarContext`, adapted below from prior art's clean, already-generic
-  design), and error reporting (`MonadExceptOf TCError`). `MonadFresh` is **not** included here,
-  unlike the desugarer — the checker never invents fresh *names*, only fresh metavariables, which
-  `MonadMetavarContext.mkFreshMVar` already covers on its own counter.
+  design), error reporting (`MonadExceptOf TCError`), and `MonadFresh`. The last one reverses an
+  earlier draft of this doc, which claimed the checker never invents fresh *names* — it does now:
+  `Elaborator/Subtyping.lean`'s structural coercions for `Set`/`Function` (§5.3, thesis Fig. 3.1.8)
+  need a fresh bound variable to build the wrapping term (`{coerce(x) : x ∈ S}`, a `CHOOSE`-based
+  domain remap), and more than one coercion needs this, so it's a genuine, shared checker-wide
+  effect, not something to hand-roll locally in `Subtyping.lean` alone.
 -/
 
 /-- The local typing context `Γ` (§5.3's `Γ,x:τ` grammar). -/
@@ -27,7 +31,7 @@ abbrev Context := Std.HashMap String TypedTLAPlus.Typ
 
   Tracks only *resolved-or-not*, same as prior art. The pending-upper-bounds bookkeeping the
   direction-aware solving algorithm needs on top of this (`PLAN.md` §5.3's lower-bound/
-  upper-bound/mvar-mvar cases) is `Elaborator/Convertibility.lean`'s job to layer over this
+  upper-bound/mvar-mvar cases) is `Elaborator/Subtyping.lean`'s job to layer over this
   class, not this file's concern.
 -/
 class MonadMetavarContext (α : outParam Type) (m : Type → Type) where
@@ -59,15 +63,16 @@ instance {α m} [Monad m] [Inhabited α] [MonadStateOf (MetavarContext α) m] : 
 /--
   The effect bundle `Elaborator/Expressions.lean`/`Elaborator/Declarations.lean`/
   `Elaborator/PlusCal.lean` actually check against — see the module doc for why each piece is
-  here (and why `MonadFresh` isn't). The module cache `Ξ` (`MonadModuleCache`) is **not** part of
-  this bundle, and isn't defined in this file at all: it's not a type-*checking* effect, it's a
-  module-*resolution* one — expression/declaration-level checking rules never touch `Ξ` directly,
-  only `Elaborator/Modules.lean`'s resolution driver does, and only *before* a module's own
-  checking rules start (`Γ` is fully assembled from already-resolved dependencies by then). See
+  here. The module cache `Ξ` (`MonadModuleCache`) is **not** part of this bundle, and isn't
+  defined in this file at all: it's not a type-*checking* effect, it's a module-*resolution*
+  one — expression/declaration-level checking rules never touch `Ξ` directly, only
+  `Elaborator/Modules.lean`'s resolution driver does, and only *before* a module's own checking
+  rules start (`Γ` is fully assembled from already-resolved dependencies by then). See
   `Elaborator/Modules.lean` for `MonadModuleCache`/`CacheEntry`.
 -/
 class abbrev MonadElaborator (m : Type → Type) :=
   MonadReaderOf Context m,
   MonadWithReaderOf Context m,
   MonadMetavarContext TypedTLAPlus.Typ m,
-  MonadExceptOf TCError m
+  MonadExceptOf TCError m,
+  MonadFresh m

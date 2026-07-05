@@ -82,6 +82,7 @@ ask before overturning).
 | Pipeline order: well-formedness checking (§5.2a) vs. type checking (§5.3) | **Type checking runs first — inverted from an earlier draft of this plan, which had well-formedness immediately after desugaring.** The project owner's observation: type checking already forces variable well-scopedness as a side effect of succeeding (an out-of-scope or undeclared reference is a `Γ`/`Σ`/`Δ`-lookup failure, i.e. a type error on its own, independent of any dedicated check), so running a separate well-scopedness pre-pass before type checking re-derives a fact type checking would catch anyway. Well-formedness's other two checks (well-labelledness, no-bare-temporal-operators) have no dependency on typing in either direction, so nothing is lost by deferring them. **Consequence, not a further decision:** the well-scopedness sub-check itself doesn't disappear — its "every reference resolves" half becomes redundant defense-in-depth, but its "no shadowing / no duplicate names in a scope" half is not implied by ordinary bidirectional type checking (shadowing still type-checks against *something*) and remains this pass's real, load-bearing job. See §5.2a, §7 (phases 6–7). |
 | Polymorphism-instantiation / metavariable resolution mechanics | **Direction-aware solving, not naive eager unification** — since the subtyping axioms here are asymmetric coercions, not an equivalence. Lower-bound constraints (`T <: ?n`) solve eagerly, because coercions only ever run narrow→wide; upper-bound constraints (`?n <: T`) only ever get recorded as pending, never solved from directly, since doing so would foreclose a narrower solution arriving later. Metavariable-vs-metavariable constraints (`?m <: ?n`, both unresolved) must **not** be resolved by merging/unioning the two variables into one — that's unsound in general, since it conflates two independently-constrained unknowns and forces equality where `<:` only ever demanded a directional relationship; instead, record the link on the lower side and propagate once one side resolves from a real ground bound. A metavariable left with no bounds at the end of checking — including one whose only recorded bound is another metavariable that itself never resolved — is a hard type error, not a silent default. Full algorithm, with the counterexamples motivating each rule, in §5.3. |
 | Coercion realization: where do coercions live, and how does a *pending* one get resolved? | `Coercion := Expr → Expr` — applied by ordinary function application to the elaborated expression in hand once `subtype` yields a **successful** coercion. When it yields **pending** instead (an upper-bound check against an unresolved `?n`), the expression is wrapped in a new `mvar : MVarId → Expr → Expr` node added to `TypedTLAPlus`/`TypedPlusCal`'s grammar; the checker's context keeps, per unresolved `?n`, its pending upper bounds and the `mvar` sites created alongside them in lockstep (same length, by construction). The moment `?n` resolves, every one of its `mvar` sites is substituted with the now-computable coercion applied to the wrapped expression — this happens as part of the metavariable-resolution algorithm itself, not a separate pass, so `mvar` is fully eliminated before the checker's output reaches `Typed2Guarded`; downstream passes and both backends never see it. See §5.3. |
+| `[Receive]`'s channel/reference coercion — where does it live, given there's no expression to apply it to? | **Stored on the `receive` statement node itself, discharged only at `Guarded2Network`.** Unlike `[Send]`'s payload (a real sub-expression `Coercion.apply` can wrap immediately), a received value doesn't exist as an expression at check time — it arrives from the network at runtime. So the checker synthesizes both the channel's element type and the destination reference's type, `subtype`s them directly (independent of `Channel <: Channel`'s own structural check, which stays identity-only — no general term former exists to wrap an opaque channel value, and none is needed), and stores the resulting `Coercion` as a new field on the `TypedPlusCal`/`GuardedPlusCal` `receive` node. `Typed2Guarded` (§5.4) carries it through unapplied (none of its four subpasses touch `receive`'s shape); `Guarded2Network` (§5.5) is the first pass where a `receive` becomes a concrete buffered read with real generated code to splice the coercion into. See §5.3, §5.5, §9.15. |
 | Diagnostic/error-model shape | **Per-pass error types, unified by a common rendering interface** — not one shared diagnostic sum type. Warning suppression (`-W`/`-Wno-<name>`, §2) is handled either at the point a warning is emitted or by filtering after the fact, before rendering — either is fine, implementer's call. Per the project owner, this mechanism (per-pass errors, common rendering, some form of warning filtering) is expected to already exist in `Common/Errors.lean` (§4), just not necessarily well-documented — read that file before designing something new rather than assuming a gap that isn't there. It's explicitly fine to later refactor either the error style or the warning/error emission mechanism if either doesn't hold up in practice. **Known bug to watch for when porting:** the project owner has observed a rendering bug somewhere in this diagnostic-printing code where, in some circumstances not yet pinned down, one character in the offending source line gets duplicated in the printed output — worth tracking down and fixing during the port rather than carrying it forward silently. |
 | Generated-identifier hygiene | **Resolved by renaming; direction doesn't matter.** Whether a user-chosen name or a compiler-introduced one is the one that gets renamed on collision is irrelevant — the only hard requirement is that **no shadowing is ever introduced in the generated code, checked at every pass, not just the final pretty-printer.** This is the same class of problem as escaping target-language reserved words (a PlusCal variable literally named `type` or `def` colliding with a Go/Join-Calculus keyword), which prior art already partially handles: `Core/Go/Pretty.lean` has a `keywords : Std.HashSet String` table and a `sanitize` function (suffixes a colliding name with `__`) applied at every point an identifier gets printed. **Port and generalize this mechanism** — to cover compiler-introduced internal names (`recv`, `inbox`, lock variables, label atoms, §5.6/§5.7) and the Join Calculus's own reserved surface, not just Go keywords — rather than treating it as a Go-only concern. See §5.2a, §5.6, §5.7. |
 | Flags, and `Ξ` (§9.10, now resolved): how do these cross-cutting effects fit the monad-polymorphism convention? | **Unified effect stack, not a driver/pass split.** Every function — pass code and the CLI driver alike — is written against one abstract `{m : Type _ → Type _} [Monad m]`, with every effect (errors, flags, module cache) as a typeclass constraint on that same `m`, rather than confining `IO`-flavored effects to an outer driver layer. Concretely: (1) **Flags are a contextual (Reader) effect, not an opaque action.** A single `getFlag : String → m (Option String)` was tried and rejected — flags aren't uniformly `Option String` (boolean `-f`/`-W` flags vs. valued `-d<name>=<value>` options vs. `-o`/`-t`/`-I`'s own typed values each need their real type, not a stringly-typed lookup every caller re-parses), and separately, this project's proofs run on `Std.Do.WP`, which cannot be instantiated at `IO` at all — an opaque, unconstrained action gives that framework nothing to reason about, whereas Reader is exactly the transparent, structural effect it already handles. So: a concrete, typed `FlagsEnv` structure (covering the full settled flag surface above), populated once by the CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus small typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`, not new typeclasses per flag. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup, replacing prior art's ad hoc `DebugOptions.from` + closure-capture pattern. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), with an `IO` instance backed by an in-memory `IO.Ref` — **disk persistence is deferred** (§2, §9.11: the checker is still under active development, so a persisted cache would need a real invalidation story this project isn't ready to commit to yet; an in-memory cache sidesteps the question entirely rather than answering it, and can simply not survive past one compiler run for now) — a genuine mutable-store effect, unlike flags, but it only shows up in `Elaborator`, which isn't part of §6.2's committed proof surface, so it doesn't hit the `Std.Do.WP`-compatibility question flags did; revisit its shape if `Elaborator` itself ever becomes a proof target. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Guarded2Network.compile` stays generic (`{m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadExceptOf G2NError m]`, same shape as every other pass) rather than being special-cased monomorphic. The refinement theorem is proved against whichever concrete instantiation `Std.Do.WP` actually supports (e.g. `m := Id`, or a `ReaderT FlagsEnv (Except G2NError)` stack) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for actual CLI execution is a **separate, deliberately unverified step** — same source term, same typeclass contract, believed equivalent by construction but not formally connected to the proof; this gap is to be documented explicitly in `Guarded2Network`'s own module docs once written. (4) **Fresh-name generation gets the same treatment as `Ξ`**, resolved during Phase 4: `MonadFresh m` (`Common/Fresh.lean`), a monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transformations (§5.2) and expected to recur at `Typed2Guarded`'s `𝒞_par` (§5.4). Names are generated as `"<prefix>$<n>"` — `$` cannot appear in a TLA⁺ identifier, so no scope-tracking is needed to prove freshness, unlike a general capture-avoiding-substitution setup. |
@@ -1049,13 +1050,34 @@ below):
 - **Statement judgment** `Γ | Ξ ⊩ S ok` (no output type — statements are checked for
   effects, not typed). Notable asymmetric rules, worth preserving exactly as justified in
   the thesis (§3.1.5): `[Assign]` synthesizes the LHS type and *checks* the RHS against
-  it (not the reverse — enables upcasting the RHS via subtyping); `[Send]`/`[Receive]` are
-  deliberately asymmetric the same way (`send` synthesizes the channel type to allow
-  upcasting the payload; `receive` checks the channel type against the synthesized
-  reference type, exploiting `Channel`'s covariance); `[Print]` requires a `showable`
-  type (Fig. 3.1.14: everything except function/operator/channel types, recursively);
-  `[Goto]` performs no type check at all — label existence is checked separately, by the
-  well-formedness pass (§5.2a, now sequenced after this one, §7), not the type checker's job.
+  it (not the reverse — enables upcasting the RHS via subtyping); `[Send]` is asymmetric
+  the same way (synthesizes the channel type to allow upcasting the payload — the payload
+  is a genuine sub-expression, so any coercion `subtype` yields applies immediately, same
+  as `[Assign]`'s RHS); `[Print]` requires a `showable` type (Fig. 3.1.14: everything
+  except function/operator/channel types, recursively); `[Goto]` performs no type check at
+  all — label existence is checked separately, by the well-formedness pass (§5.2a, now
+  sequenced after this one, §7), not the type checker's job.
+- **`[Receive]` — channel/reference coercion, and why it can't apply eagerly (settled,
+  §9.15's discussion moved here).** `Channel` is covariant (`Elaborator/Subtyping.lean`),
+  but a channel-typed expression's own `Channel(τ) <: Channel(τ')` check only ever
+  produces `Coercion.id` in practice — `TypedTLAPlus.Expression` has no general term
+  former to wrap an opaque channel value with (`Elaborator/Subtyping.lean`'s own module
+  doc), and this project doesn't need one: channels never change runtime representation
+  between the checker and either backend the way, say, `Str`/`Seq(Int)` might. What
+  *does* need a real coercion is the **received value itself** — the incoming message's
+  element type `τ` may be narrower than the destination reference's own type `τ'`
+  (`τ <: τ'`), and unlike `[Send]`'s payload, there is no elaborated sub-expression to
+  hand that coercion to: `receive` produces a value at *runtime*, from the network, not
+  from any expression this checker ever elaborates. Synthesize both the channel's element
+  type and the reference's type, `subtype` them directly (independent of the `Channel`
+  vs. `Channel` structural check above, which stays identity-only), and **store the
+  resulting `Coercion` on the `TypedPlusCal`/`GuardedPlusCal` `receive` statement node
+  itself** (a new field, `Elaborator/PlusCal.lean`'s to add, §5.3 task list) — carried
+  through `Typed2Guarded` (§5.4) unchanged, since none of its four subpasses touch
+  `receive`'s own shape, and only actually *applied* (spliced into the generated
+  read-and-coerce code) by `Guarded2Network` (§5.5), the first pass where a receive
+  becomes a concrete buffered read (`await Len(inbox) > 0`) with real generated code to
+  coerce.
 - **`Ξ` is a global cache, not threaded state — in-memory only for now, no disk
   persistence (§2, §9.11).** On paper it's an input to the judgment like `Γ`, but in
   practice it's implemented as a `MonadModuleCache m` effect (`lookup`/`store` keyed by a
@@ -1143,6 +1165,13 @@ exists.
 process gets an opaque `T_rx(mailbox → inbox)` thread that buffers incoming messages into
 a process-local `inbox` sequence variable, turning `receive(c, r)` into ordinary
 `await Len(inbox) > 0`-guarded reads).
+
+**This is also where `[Receive]`'s stored channel/reference coercion (§5.3, §2) finally
+gets discharged** — the first pass where a `receive(c, r)` becomes a concrete buffered
+read (`await Len(inbox) > 0`) with actual generated code around it to splice the coercion
+into, rather than an abstract guard. Every earlier pass (the checker itself, all four of
+`Typed2Guarded`'s subpasses, §5.4) just carries the `Coercion` value through unapplied on
+the `receive` node.
 
 This is the one pass with a complete implementation *and* a completed refinement proof in
 prior art (`fugue` `main`: `PlusCalCompiler/Passes/GuardedToNetwork/{PlusCal,Lemmas}.lean`,
@@ -1797,4 +1826,83 @@ ParserWarning` instead of `Unexpected e ⊕ (Module × List ParserWarning)` — 
 project owner: filed as a longer-term issue, not fixed now.** A module whose source has
 both a warning-worthy construct and a later hard parse/desugar error in the same pass
 call will not show that warning until this is revisited.
+
+### 9.15 `[Receive]`'s channel/reference coercion — resolved, moved to §5.3/§2
+
+Surfaced while implementing `Elaborator/Subtyping.lean`: `Channel` is covariant, but
+channel-typed *expressions* only ever get an identity coercion in practice (no general
+term former exists to wrap one, and none is needed — channels never change runtime
+representation the way `Str`/`Seq(Int)` might). The real question was the **received
+value**: its type may be narrower than the destination reference's, and unlike
+`[Send]`'s payload, there's no elaborated expression at check time to hand a coercion to
+— `receive` produces its value at runtime, from the network, not from any sub-expression
+this checker elaborates. **Resolved:** synthesize both types, `subtype` them directly,
+and store the resulting `Coercion` on the `receive` statement node itself, carried
+unapplied through `Typed2Guarded` (§5.4, none of whose four subpasses touch `receive`'s
+shape) and only actually spliced into generated code by `Guarded2Network` (§5.5), the
+first pass where a `receive` becomes a concrete buffered read with real code around it.
+See §5.3, §5.5, §2.
+
+### 9.16 `LAMBDA` — designed, not implemented; filed here after being found only in scratch-plan form
+
+Surfaced while implementing `Elaborator/Expressions.lean` (§5.3): the thesis has typing
+rules for `LAMBDA` (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression` nor
+`CoreTLAPlus.Expression` has a constructor for it, and the lexer has no `LAMBDA` token
+(`Parser_/TLAPlus.lean` has only a dangling `-- LAMBDA` comment). A full design for this
+already exists — worked out during Phase-5 planning, in `/Users/ghilain/.claude/plans/
+fuzzy-drifting-karp.md`, but never migrated here nor implemented — recorded below so it
+isn't scratch-file-only. **Decision for now (confirmed with the project owner while
+implementing `Elaborator/Expressions.lean`): `LAMBDA` stays out of scope. `Expressions.lean`
+ships with no `LAMBDA` case** (there is no AST node to match on anyway); revisit as its
+own, separately-scoped addition if a program actually needs it — implementing it for real
+means touching `Parser_/TLAPlus.lean`, `Core/SurfaceTLAPlus/Syntax.lean`,
+`Core/CoreTLAPlus/Syntax.lean`, and `Desugarer/TLAPlus.lean`, all in phases §7 already
+marks done, not just the checker.
+
+The design, preserved for whenever this is picked up:
+- **Checking-only without an annotation** (matches the thesis, Fig. 3.1.4) — `Γ, x1:τ1,
+  ..., xn:τn ⊢ e ⇓ τ ⟹ Γ ⊢ LAMBDA x1,...,xn : e ⇓ (τ1,...,τn)⇒τ`, requiring the whole
+  `LAMBDA`'s expected type to already be known.
+- **Gains a synthesis form once every binder carries a `@type` annotation** — mirroring
+  unbounded quantification's own trick (an annotated binder is what unlocks synthesis,
+  not merely a hint): `(LAMBDA (* @type: Int; *) x : x + 2)(3)` should synthesize, even
+  though the thesis's own unannotated example (p. 10) still can't (rewritable via
+  `LET`-`IN` instead — except this project's AST has no `LET`-`IN` node either, confirmed
+  absent, so that specific rewrite-workaround doesn't apply here regardless).
+- **New AST work needed:** a `.lambda (binders : List (String × α)) (body : Expression α)`
+  constructor on both `SurfaceTLAPlus.Expression`/`CoreTLAPlus.Expression`, a per-binder
+  annotation slot so `tryParseAnnotations` can attach `@type` per binder (matching
+  `parseQuantifierBound`'s existing pattern), a new lexer token, a new parser rule, a
+  pass-through desugarer case, and both the checking and (conditional) synthesis rules in
+  `Elaborator/Expressions.lean`.
+
+Separately, this file's own `Operator`-vs-`Operator` structural subtyping rule
+(`Elaborator/Subtyping.lean`, Fig. 3.1.8) already only ever produces an identity coercion,
+precisely *because* there's no `LAMBDA`-equivalent (or any) way to eta-expand into a new
+first-class operator value — so this gap has already surfaced as a concrete limitation
+once, not just a hypothetical.
+
+### 9.17 Most temporal/action operators aren't parsed yet — `WF_`/`SF_` specifically need a lexer change
+
+Surfaced while implementing `Elaborator/Expressions.lean` (§5.3): confirmed that
+`UNCHANGED`/`ENABLED`/prime (`'`)/`~>`/`-+>`/`[]`/`<>` already have real surface syntax
+(`Core/SurfaceTLAPlus/Syntax.lean`'s `Prefix`/`Infix`/`PostfixOperator` enums) and desugar
+to plain `opCall`s onto builtin `var`s (`Desugarer/TLAPlus.lean`), so `Elaborator/
+Expressions.lean`'s generic `OPERATOR CALL` rule already covers them with no dedicated
+case. **But most temporal/action operators are not actually parsed yet** — per the
+project owner, weak/strong fairness (`WF_e(A)`/`SF_e(A)`, thesis Fig. 3.1.5) are the
+concrete example, and are a genuinely non-trivial lexing problem, not just an unwritten
+parser rule: `WF_e` needs to lex as **two** tokens (a fixed `WF_` keyword, then the
+identifier `e`), but ordinary maximal-munch identifier lexing would otherwise swallow
+`WF_e` whole as one identifier token.
+
+**Idea recorded here, not implemented (deferred, per the project owner):** modify the
+lexer's keyword checker so that, given an identifier-shaped token starting with `WF_` or
+`SF_`, if there are leftover characters after that prefix that don't themselves start
+with `_` or a digit (i.e. the leftover still looks like a valid identifier start), split
+it into the `WF_`/`SF_` keyword token followed by a separate identifier token for the
+remainder, rather than emitting one combined identifier token.
+
+Left as **future work, not started** — revisit whenever a program actually needs
+`WF_`/`SF_` (or the other still-unparsed temporal/action operators) checked.
 
