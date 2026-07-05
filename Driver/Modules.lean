@@ -236,9 +236,16 @@ mutual
   each stage, purely so `Fugue.lean` can hang its `-d dump-*` artifact dumps off of them without
   any of that CLI/UX plumbing living in this file — `resolveModule` recursing into a dependency
   passes none of these four, so a dependency's own dump artifacts stay silent by default (unlike
-  `onModuleEvent`/`logLine` below, which *do* get threaded down to every recursively-resolved
-  dependency, since "some module got built/replayed" and "a warning happened" are relevant no
-  matter how deep the `EXTENDS` chain).
+  `onModuleEvent`/`onModuleProgress`/`logLine` below, which *do* get threaded down to every
+  recursively-resolved dependency, since "some module is/was being worked on" and "a warning
+  happened" are relevant no matter how deep the `EXTENDS` chain).
+
+  `onModuleProgress name` fires twice for this exact module: once as soon as `name` is known
+  (right after parsing), and again right after its own `EXTENDS` dependencies are done resolving
+  — refocusing display back onto this module once its dependencies (which fire their own
+  `onModuleProgress` while *they* run) are no longer the "current" one. Firing it twice with the
+  same name is intentional, not a bug: `Fugue.lean` tracks a set of every name it's seen, so a
+  repeat is a no-op there, it just moves the displayed "current module" back to this one.
 -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath)
     (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
@@ -250,6 +257,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
         (Option SurfaceTLAPlus.Typ) → m Unit := fun _ ↦ pure ())
     (onTyped : TypedModule → m Unit := fun _ ↦ pure ())
     (onModuleEvent : String → Bool → m Unit := fun _ _ ↦ pure ())
+    (onModuleProgress : String → m Unit := fun _ ↦ pure ())
     (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m TypedModule := do
   let lines := source.split (· == '\n') |>.toList
   let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
@@ -262,6 +270,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     | .inr r => pure r
   reportWarnings lines colored ParserWarning.name logLine parserWarnings
   onParsed mod
+  onModuleProgress mod.name
   let mod ← match resolveAnnotations mod with
     | .error e => throw (.annotation e)
     | .ok mod => pure mod
@@ -282,7 +291,8 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   let mod := { mod with pcalAlgorithm := algo }
   onDesugared mod
   let _deps ← mod.extends.mapM λ dep ↦
-    withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent logLine)
+    withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
+  onModuleProgress mod.name
   let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
   let typed ← (throw (.typeCheck (.todo default "Type checking is not yet implemented.")) : m TypedModule)
   onTyped typed
@@ -300,38 +310,46 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   `onModuleEvent name wasRecomputed` fires right before every `.file`-case return (not for
   `.builtin` — a builtin is static, never meaningfully "built" or "replayed") — Lean-`lake
   build`-style: `Fugue.lean` turns this into a persisted `Built <name>`/`Replayed <name>` line
-  next to its spinner. `logLine` is just forwarded to whatever `compileModule` call this makes.
+  next to its spinner. `onModuleProgress name` fires once, right at the top of the `.file` case
+  (before even checking `Ξ`) — "we're now working on `name`", whether that turns out to be a
+  cache hit or a fresh recompute. `logLine` is just forwarded to whatever `compileModule` call
+  this makes.
 -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
     (onModuleEvent : String → Bool → m Unit := fun _ _ ↦ pure ())
+    (onModuleProgress : String → m Unit := fun _ ↦ pure ())
     (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m (Bool × TypedModule) := do
   if name ∈ (← readThe ResolutionStack) then
     throw (.cyclicExtends ((← readThe ResolutionStack).reverse ++ [name]))
   match ← locate name containingDir with
   | .builtin mod => return (false, mod)
   | .file path => do
+    onModuleProgress name
     let src ← IO.FS.readFile path
     let h := hash src
     match ← lookupModule name with
     | some entry =>
       if entry.sourceHash == h then
         let depResults ← entry.extends.mapM λ dep ↦
-          withReader (name :: ·) (resolveModule containingDir dep onModuleEvent logLine)
+          withReader (name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
         if depResults.all (¬ ·.1) then
           onModuleEvent name false
           return (false, entry.value)
         else
-          let recomputed ← compileModule src path.parent (onModuleEvent := onModuleEvent) (logLine := logLine)
+          let recomputed ← compileModule src path.parent
+            (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
           storeModule name { sourceHash := h, «extends» := entry.extends, value := recomputed }
           onModuleEvent name true
           return (true, recomputed)
       else
-        let recomputed ← compileModule src path.parent (onModuleEvent := onModuleEvent) (logLine := logLine)
+        let recomputed ← compileModule src path.parent
+          (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
         storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
         onModuleEvent name true
         return (true, recomputed)
     | none =>
-      let recomputed ← compileModule src path.parent (onModuleEvent := onModuleEvent) (logLine := logLine)
+      let recomputed ← compileModule src path.parent
+        (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
       storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
       onModuleEvent name true
       return (true, recomputed)

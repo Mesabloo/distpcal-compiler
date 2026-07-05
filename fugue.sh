@@ -22,6 +22,7 @@ DEBUG_OPTS=(
 
 FEATURE_OPTS=(
     # "no-color"
+    # "no-progress"
 )
 
 WARN_OPTS=(

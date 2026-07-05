@@ -78,7 +78,7 @@ private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "du
 private def defaultDumpDir : System.FilePath := ".fugue/debug"
 
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
-private def knownFeatures : Array String := #["no-color"]
+private def knownFeatures : Array String := #["no-color", "no-progress"]
 
 /-- `-W<name>` names recognized so far — matches every `ParserWarning.name`
 (`Parser_/Common.lean`) and `DesugarWarning.name` (`Desugarer/Errors.lean`), extend likewise. -/
@@ -114,12 +114,41 @@ private abbrev Spinner.fail (spinner : Spinner) (msg : String) : IO Unit :=
 private abbrev Spinner.success (spinner : Spinner) (msg : String) : IO Unit :=
   spinner.cancel (.persist "🎉" msg)
 
-private def withSpinner {α : Type} (msg : String) (act : Spinner → IO α) : IO α := do
-  let spinner ← Spinner.newOnStream Spinners.dotsCircle msg (← IO.getStderr)
-  let res ← act spinner
-  unless ← spinner.isCancelled do
-    spinner.cancel .erase
-  return res
+/-- A real animated `Spinner`, or a quiet stand-in when `-fno-progress` disables the animation
+(e.g. output being piped/logged, where a `\r`-redrawing spinner is just noise) — `runCli` calls
+`.log`/`.setTitle`/`.fail`/`.success` the same way either way. `.quiet` never spins up a `Spinner`
+at all (no background task), rather than merely hiding one's output. -/
+private inductive Progress : Type
+  | spinner (s : Spinner)
+  | quiet
+
+/-- Print `line` as its own line — matches `Spinner.log`, minus the animation. -/
+private def Progress.log : Progress → String → IO Unit
+  | .spinner s, line => s.log line
+  | .quiet, line => IO.eprintln line
+
+/-- Update the current status — a no-op when `.quiet`, since there's nothing ongoing to label. -/
+private def Progress.setTitle : Progress → String → IO Unit
+  | .spinner s, title => s.setTitle title
+  | .quiet, _ => pure ()
+
+private def Progress.fail : Progress → String → IO Unit
+  | .spinner s, msg => s.fail msg
+  | .quiet, msg => IO.eprintln s!"💥 {msg}"
+
+private def Progress.success : Progress → String → IO Unit
+  | .spinner s, msg => s.success msg
+  | .quiet, msg => IO.println s!"🎉 {msg}"
+
+private def withProgress {α : Type} (msg : String) (act : Progress → IO α) : IO α := do
+  if ← FlagsEnv.getFeatureFlag "no-progress" then
+    act .quiet
+  else
+    let spinner ← Spinner.newOnStream Spinners.dotsCircle msg (← IO.getStderr)
+    let res ← act (.spinner spinner)
+    unless ← spinner.isCancelled do
+      spinner.cancel .erase
+    return res
 
 /-- Output a compiler error on `stderr` and exit immediately with an exit code of `1`. -/
 @[noinline, specialize]
@@ -166,11 +195,14 @@ private def runCli (p : Parsed) : IO UInt32 := do
     | .path path => path.parent
     | .stdin => none
 
-  -- One spinner for the whole compile, Lean-`lake build`-style: its title tracks the current
-  -- stage (`Spinner.setTitle`) while completed steps — reading the input, each `EXTENDS`ed
-  -- module `Built`/`Replayed`, warnings — print as their own persisted lines via `Spinner.log`
-  -- without interrupting the animation, rather than a fresh spinner per pipeline phase.
-  let typedMod ← withSpinner "Reading input…" λ spinner ↦ do
+  -- One spinner for the whole compile, Lean-`lake build`-style: no per-pass titles
+  -- ("Lexing…"/"Parsing…"/…) — just `[<done>/<discovered>] Running on module '<name>'…`, `<done>`
+  -- and `<discovered>` tracked here (not in `Driver/Modules.lean` — it only reports raw
+  -- `onModuleProgress`/`onModuleEvent` facts, this is presentation), `<discovered>` growing as
+  -- `EXTENDS` pulls in modules not seen yet this run. Completed steps — reading the input, each
+  -- `EXTENDS`ed module `Built`/`Replayed`, warnings — print as their own persisted lines via
+  -- `Spinner.log` without interrupting the animation.
+  let typedMod ← withProgress "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
         unless ← path.pathExists do
@@ -178,28 +210,31 @@ private def runCli (p : Parsed) : IO UInt32 := do
           IO.Process.exit 1
         IO.FS.readFile path
       | .stdin => (← IO.getStdin).readToEnd
-    spinner.log s!"Read {source.utf8ByteSize} bytes from '{input}'."
-    spinner.setTitle "Lexing TLA⁺ file…"
+    -- spinner.log s!"Read {source.utf8ByteSize} bytes from '{input}'."
     let lines := source.split (· == '\n') |>.toList
+
+    let discovered ← IO.mkRef (∅ : Std.HashSet String)
+    let done ← IO.mkRef (0 : Nat)
 
     let result ← runM <| compileModule source containingDir
       (onTokens := λ tokens ↦ do
         if ← FlagsEnv.getDebugFlag "dump-tokens" then
-          dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens"
-        spinner.setTitle "Parsing TLA⁺ module…")
+          dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens")
       (onParsed := λ mod ↦ do
         if ← FlagsEnv.getDebugFlag "dump-cst" then
-          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-cst"
-        spinner.setTitle "Desugaring…")
+          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-cst")
       (onDesugared := λ mod ↦ do
         if ← FlagsEnv.getDebugFlag "dump-desugared" then
-          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-desugared"
-        spinner.setTitle "Resolving EXTENDS and type-checking…")
+          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-desugared")
       (onTyped := λ typed ↦ do
         if ← FlagsEnv.getDebugFlag "dump-typed" then
           dumpToFile (reprStr typed) dumpDir s!"{dumpName}-typed")
       (onModuleEvent := λ name recomputed ↦ do
+        done.modify (· + 1)
         spinner.log (if recomputed then s!"Built {name}" else s!"Replayed {name}"))
+      (onModuleProgress := λ name ↦ do
+        discovered.modify (·.insert name)
+        spinner.setTitle s!"[{← done.get}/{(← discovered.get).size}] Running on module '{name}'…")
       (logLine := λ line ↦ do spinner.log line)
     match result with
     | .error e =>
