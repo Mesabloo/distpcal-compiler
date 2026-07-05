@@ -162,8 +162,15 @@ private def runCli (p : Parsed) : IO UInt32 := do
   let dumpName := match input with
     | .path path => path.fileName.getD (toString path)
     | .stdin => "stdin"
+  let containingDir := match input with
+    | .path path => path.parent
+    | .stdin => none
 
-  let source ← withSpinner "Reading input…" λ spinner ↦ do
+  -- One spinner for the whole compile, Lean-`lake build`-style: its title tracks the current
+  -- stage (`Spinner.setTitle`) while completed steps — reading the input, each `EXTENDS`ed
+  -- module `Built`/`Replayed`, warnings — print as their own persisted lines via `Spinner.log`
+  -- without interrupting the animation, rather than a fresh spinner per pipeline phase.
+  let typedMod ← withSpinner "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
         unless ← path.pathExists do
@@ -171,15 +178,10 @@ private def runCli (p : Parsed) : IO UInt32 := do
           IO.Process.exit 1
         IO.FS.readFile path
       | .stdin => (← IO.getStdin).readToEnd
-    spinner.success s!"Read {source.utf8ByteSize} bytes from '{input}'."
-    return source
-  let lines := source.split (· == '\n') |>.toList
+    spinner.log s!"Read {source.utf8ByteSize} bytes from '{input}'."
+    spinner.setTitle "Lexing TLA⁺ file…"
+    let lines := source.split (· == '\n') |>.toList
 
-  let containingDir := match input with
-    | .path path => path.parent
-    | .stdin => none
-
-  let typedMod ← withSpinner "Lexing TLA⁺ file…" λ spinner ↦ do
     let result ← runM <| compileModule source containingDir
       (onTokens := λ tokens ↦ do
         if ← FlagsEnv.getDebugFlag "dump-tokens" then
@@ -196,6 +198,9 @@ private def runCli (p : Parsed) : IO UInt32 := do
       (onTyped := λ typed ↦ do
         if ← FlagsEnv.getDebugFlag "dump-typed" then
           dumpToFile (reprStr typed) dumpDir s!"{dumpName}-typed")
+      (onModuleEvent := λ name recomputed ↦ do
+        spinner.log (if recomputed then s!"Built {name}" else s!"Replayed {name}"))
+      (logLine := λ line ↦ do spinner.log line)
     match result with
     | .error e =>
       spinner.fail "Compilation failed."

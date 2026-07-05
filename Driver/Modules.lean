@@ -201,16 +201,20 @@ private def locate (name : String) (containingDir : Option System.FilePath) : m 
 /-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, `Parser_/Common.lean`'s
 `ParserWarning`/`Desugarer/Errors.lean`'s `DesugarWarning` convention. `-W` filtering only needs
 `FlagsEnv`, which this file already depends on (for `-I`'s search path) — no reason to bounce this
-back out to `Fugue.lean` via a hook the way `-d dump-*`/spinners still are (those are genuinely
-CLI presentation, this isn't). Applies uniformly to every `compileModule` call, main module and
-`EXTENDS`-ed dependency alike — a dependency's own parser/desugar warnings are just as real as the
-main module's, no reason to suppress them by default. -/
+back out to `Fugue.lean` for that part. Applies uniformly to every `compileModule` call, main
+module and `EXTENDS`-ed dependency alike — a dependency's own parser/desugar warnings are just as
+real as the main module's, no reason to suppress them by default.
+
+Where the rendered line actually *goes* (`logLine`) is pluggable, defaulting to plain `eprintln` —
+`Fugue.lean` overrides it to go through its spinner instead (`Spinner.log`), so a warning printed
+while the spinner is animating doesn't corrupt the display. -/
 private def reportWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
     {ε} [CompilerDiagnostic ε String]
-    (lines : List String.Slice) (colored : Bool) (name : ε → String) (warnings : List ε) : m Unit :=
+    (lines : List String.Slice) (colored : Bool) (name : ε → String)
+    (logLine : String → m Unit) (warnings : List ε) : m Unit :=
   warnings.forM λ warning ↦ do
     if ← FlagsEnv.isWarningEnabled (name warning) then
-      liftM (IO.eprintln <| CompilerDiagnostic.pretty warning lines colored : IO Unit)
+      logLine <| CompilerDiagnostic.pretty warning lines colored
 
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
@@ -229,11 +233,12 @@ mutual
   isn't a second copy of it for `EXTENDS`-triggered resolution.
 
   `onTokens`/`onParsed`/`onDesugared`/`onTyped` are optional hooks (default: no-op) fired after
-  each stage, purely so `Fugue.lean` can hang its `-d dump-*` artifact dumps and spinners off of
-  them without any of that CLI/UX plumbing living in this file — `resolveModule` recursing into a
-  dependency passes none, so nested resolution runs quietly on that front. Warning printing
-  (`reportWarnings` above) isn't a hook, unlike an earlier draft — it doesn't need anything
-  `Fugue.lean`-specific, so it just happens here directly, uniformly for every module compiled.
+  each stage, purely so `Fugue.lean` can hang its `-d dump-*` artifact dumps off of them without
+  any of that CLI/UX plumbing living in this file — `resolveModule` recursing into a dependency
+  passes none of these four, so a dependency's own dump artifacts stay silent by default (unlike
+  `onModuleEvent`/`logLine` below, which *do* get threaded down to every recursively-resolved
+  dependency, since "some module got built/replayed" and "a warning happened" are relevant no
+  matter how deep the `EXTENDS` chain).
 -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath)
     (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
@@ -243,7 +248,9 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     (onDesugared : CoreTLAPlus.Module
         (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)))
         (Option SurfaceTLAPlus.Typ) → m Unit := fun _ ↦ pure ())
-    (onTyped : TypedModule → m Unit := fun _ ↦ pure ()) : m TypedModule := do
+    (onTyped : TypedModule → m Unit := fun _ ↦ pure ())
+    (onModuleEvent : String → Bool → m Unit := fun _ _ ↦ pure ())
+    (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m TypedModule := do
   let lines := source.split (· == '\n') |>.toList
   let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
@@ -253,7 +260,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   let (mod, parserWarnings) ← match SurfaceTLAPlus.Parser.parseModule tokens with
     | .inl e => throw (.parse e)
     | .inr r => pure r
-  reportWarnings lines colored ParserWarning.name parserWarnings
+  reportWarnings lines colored ParserWarning.name logLine parserWarnings
   onParsed mod
   let mod ← match resolveAnnotations mod with
     | .error e => throw (.annotation e)
@@ -270,11 +277,12 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
       match algo.runDesugarer with
       | .error e => throw (.desugar e)
       | .ok (algo, desugarWarnings) => do
-        reportWarnings lines colored DesugarWarning.name desugarWarnings
+        reportWarnings lines colored DesugarWarning.name logLine desugarWarnings
         pure (some algo)
   let mod := { mod with pcalAlgorithm := algo }
   onDesugared mod
-  let _deps ← mod.extends.mapM λ dep ↦ withReader (mod.name :: ·) (resolveModule containingDir dep)
+  let _deps ← mod.extends.mapM λ dep ↦
+    withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent logLine)
   let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
   let typed ← (throw (.typeCheck (.todo default "Type checking is not yet implemented.")) : m TypedModule)
   onTyped typed
@@ -288,8 +296,15 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   is exactly this: "was this module actually recomputed just now," threaded up so *its* dependents
   can tell whether they need to recompute in turn. It's `resolveModule`'s own bookkeeping, not
   part of the public `MonadModuleCache` interface.
+
+  `onModuleEvent name wasRecomputed` fires right before every `.file`-case return (not for
+  `.builtin` — a builtin is static, never meaningfully "built" or "replayed") — Lean-`lake
+  build`-style: `Fugue.lean` turns this into a persisted `Built <name>`/`Replayed <name>` line
+  next to its spinner. `logLine` is just forwarded to whatever `compileModule` call this makes.
 -/
-partial def resolveModule (containingDir : Option System.FilePath) (name : String) : m (Bool × TypedModule) := do
+partial def resolveModule (containingDir : Option System.FilePath) (name : String)
+    (onModuleEvent : String → Bool → m Unit := fun _ _ ↦ pure ())
+    (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m (Bool × TypedModule) := do
   if name ∈ (← readThe ResolutionStack) then
     throw (.cyclicExtends ((← readThe ResolutionStack).reverse ++ [name]))
   match ← locate name containingDir with
@@ -300,19 +315,24 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
     match ← lookupModule name with
     | some entry =>
       if entry.sourceHash == h then
-        let depResults ← entry.extends.mapM λ dep ↦ withReader (name :: ·) (resolveModule containingDir dep)
+        let depResults ← entry.extends.mapM λ dep ↦
+          withReader (name :: ·) (resolveModule containingDir dep onModuleEvent logLine)
         if depResults.all (¬ ·.1) then
+          onModuleEvent name false
           return (false, entry.value)
         else
-          let recomputed ← compileModule src path.parent
+          let recomputed ← compileModule src path.parent (onModuleEvent := onModuleEvent) (logLine := logLine)
           storeModule name { sourceHash := h, «extends» := entry.extends, value := recomputed }
+          onModuleEvent name true
           return (true, recomputed)
       else
-        let recomputed ← compileModule src path.parent
+        let recomputed ← compileModule src path.parent (onModuleEvent := onModuleEvent) (logLine := logLine)
         storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
+        onModuleEvent name true
         return (true, recomputed)
     | none =>
-      let recomputed ← compileModule src path.parent
+      let recomputed ← compileModule src path.parent (onModuleEvent := onModuleEvent) (logLine := logLine)
       storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
+      onModuleEvent name true
       return (true, recomputed)
 end

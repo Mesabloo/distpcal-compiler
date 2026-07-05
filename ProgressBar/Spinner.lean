@@ -13,10 +13,18 @@ inductive CancelAction : Type
   /-- Print the given `msg` in place of the spinner. -/
   | replace (msg : String)
 
+/-- What can be sent to the spinner's background task over its channel: either update the
+title shown next to the animation (`setTitle`, replacing the previous `Option String` — an empty
+string clears it, same as before), or print a line above the animation *without* stopping it
+(`log` — unlike `Spinner.cancel`'s `.persist`, which stops the spinner for good). -/
+private inductive Spinner.Msg : Type
+  | setTitle (title : String)
+  | log (line : String)
+
 structure Spinner : Type where
   private mk ::
   /-- A way to transmit new messages to be shown next to the spinner. -/
-  private chan : Std.CloseableChannel (Option String)
+  private chan : Std.CloseableChannel Spinner.Msg
   /-- The inner task in charge of updating the spinner. -/
   private task : Task (Except IO.Error Unit)
   /-- On which stream to output the spinner? (usually `stdout` or `stderr`) -/
@@ -26,18 +34,26 @@ structure Spinner : Type where
 
 private def Spinner.newInner (spinner : SpinnerData) (message : Option String) (stream : Option IO.FS.Stream) : IO Spinner := do
   let stream ← match stream with | some s => pure s | none => IO.getStdout
-  let chan : Std.CloseableChannel (Option String) ← BaseIO.toIO Std.CloseableChannel.new
+  let chan : Std.CloseableChannel Spinner.Msg ← BaseIO.toIO Std.CloseableChannel.new
   let cancelAction : IO.Ref CancelAction ← IO.mkRef .erase
 
   let msg ← IO.mkRef (message.getD "")
   let currentFrame ← IO.mkRef ""
   let rcvTask ← IO.asTask do
-    for title in chan.sync do
-      msg.set (title.getD "")
-      -- This allows us to be reactive to title changes, without needing to update the spinner animation
-      -- Also, we erase the whole line because the new title may be of a different length
-      stream.write s!"\x1b[2K\r{← currentFrame.get} {title.getD ""}".toUTF8
-      stream.flush
+    for m in chan.sync do
+      match m with
+      | .setTitle title =>
+        msg.set title
+        -- This allows us to be reactive to title changes, without needing to update the spinner animation
+        -- Also, we erase the whole line because the new title may be of a different length
+        stream.write s!"\x1b[2K\r{← currentFrame.get} {title}".toUTF8
+        stream.flush
+      | .log line =>
+        -- Erase the current animation line, print `line` as its own persisted line, then
+        -- immediately redraw the current frame/title on the fresh line beneath it — so there's
+        -- no visible gap before the next animation tick refreshes it.
+        stream.write s!"\x1b[2K\r{line}\n{← currentFrame.get} {← msg.get}".toUTF8
+        stream.flush
 
   let task ← IO.asTask do
     let mut cont := true
@@ -72,7 +88,12 @@ private def Spinner.newInner (spinner : SpinnerData) (message : Option String) (
 
 /-- Change the title of the spinner. -/
 protected def Spinner.setTitle (spinner : Spinner) (title : String) : IO Unit := BaseIO.toIO do
-  let _ ← spinner.chan.send (if title.isEmpty then none else some title)
+  let _ ← spinner.chan.send (.setTitle title)
+
+/-- Print `line` as its own persisted line above the spinner, without stopping it — unlike
+`Spinner.cancel .persist`, which ends the spinner for good. -/
+protected def Spinner.log (spinner : Spinner) (line : String) : IO Unit := BaseIO.toIO do
+  let _ ← spinner.chan.send (.log line)
 
 /-- Stops the spinner, erasing the spinner and its message. -/
 protected def Spinner.cancel (spinner : Spinner) (act : CancelAction := .erase) : IO Unit := do
