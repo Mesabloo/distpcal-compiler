@@ -47,6 +47,16 @@ inductive TCError : Type
   /-- A `lub`-based synthesis rule (`ENUMERATION`, `CONDITIONAL`, `CONDITIONAL CHOICE`, thesis
   Fig. 3.1.8's addendum) found no common type across its branches/elements. -/
   | ambiguousType (pos : SourceSpan)
+  /-- A function type (`τ -> τ'`) was expected here (a function definition's own annotation,
+  `Elaborator/Declarations.lean`'s `FUNCTION DEFINITION` rule), but something else was found. -/
+  | notAFunctionType (pos : SourceSpan) (got : TypedTLAPlus.Typ)
+  /-- A tuple type was expected here (a multi-argument function definition's domain,
+  `Elaborator/Declarations.lean`), but something else was found. -/
+  | notATupleType (pos : SourceSpan) (got : TypedTLAPlus.Typ)
+  /-- A higher-order operator-definition parameter's declared arity (from `F(_,...,_)`'s `_`
+  count) didn't match its annotated type's own operator-arity (`Elaborator/Declarations.lean`'s
+  `checkParamArity`). -/
+  | paramArityMismatch (pos : SourceSpan) (param : String) (declared inferred : Nat)
   deriving Repr, Inhabited, BEq
 
 instance : CompilerDiagnostic TCError String where
@@ -65,6 +75,9 @@ instance : CompilerDiagnostic TCError String where
     | .notAnOperatorType pos _ => pos
     | .arityMismatch pos _ _ => pos
     | .ambiguousType pos => pos
+    | .notAFunctionType pos _ => pos
+    | .notATupleType pos _ => pos
+    | .paramArityMismatch pos _ _ _ => pos
   msgOf
     | .todo _ msg => msg
     | .unboundVariable _ name => s!"Unbound variable `{name}`."
@@ -83,6 +96,10 @@ instance : CompilerDiagnostic TCError String where
     | .notAnOperatorType _ got => s!"Expected an operator type, got `{got}`."
     | .arityMismatch _ expected got => s!"Expected {expected} argument(s), got {got}."
     | .ambiguousType _ => "Ambiguous type: the branches/elements here don't share a common type."
+    | .notAFunctionType _ got => s!"Expected a function type (`τ -> τ'`), got `{got}`."
+    | .notATupleType _ got => s!"Expected a tuple type, got `{got}`."
+    | .paramArityMismatch _ param declared inferred =>
+      s!"Parameter `{param}` was declared with arity {declared}, but its annotated type has arity {inferred}."
 
 /-- The type checker's non-fatal diagnostics (§5.3) — collected out-of-band, matching
 `Desugarer/Errors.lean`'s `DesugarWarning`. See the module doc — `todo` is a placeholder. -/

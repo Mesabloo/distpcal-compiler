@@ -239,7 +239,15 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
   treats a builtin hit and a real resolved dependency identically:
   `mod.declarations₁ ++ mod.declarations₂`, no special case. Still subject to the same ambiguity
   rule as any other candidate source (`locate` below) — a user's own module of the same name is
-  not silently shadowed by a builtin, or vice versa.
+  not silently shadowed by a builtin, or vice versa. A builtin `EXTENDS`ing another builtin (e.g.
+  `Sequences` should itself `EXTENDS Naturals`, matching real TLA⁺) needs no separate mechanism —
+  `resolveModule`'s existing recursion already generalizes to it (`PLAN.md` §9.19).
+
+  **Not yet where `Elaborator/Declarations.lean`'s `builtinContext` operators
+  (`+`/`-`/`Len`/`Head`/… ) actually live** — that prelude is a deliberate, flat, always-on
+  approximation of what *should* eventually be real per-module entries here (`Naturals`'s
+  arithmetic, `Sequences`'s sequence operators, …), tracked as future work rather than started now
+  (`PLAN.md` §9.19).
 -/
 def builtinModules : Std.HashMap String TypedModule := {}
 

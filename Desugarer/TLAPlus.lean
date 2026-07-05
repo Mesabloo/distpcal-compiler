@@ -9,7 +9,12 @@ namespace SurfaceTLAPlus
   Expression.var` — reachable only via `opCall`, per `Core/CoreTLAPlus/Syntax.lean`'s doc
   comment on why builtins don't need their own value constructors. -/
   def PrefixOperator.canonicalName : PrefixOperator → String
-    | .«-» => "-"
+    /- Unary minus gets its own canonical spelling, `"-."`, distinct from infix `-`'s
+    `InfixOperator.canonicalName` below — the same disambiguating trick "Specifying Systems"
+    itself uses (the concrete surface syntax stays plain `-x`, parsed exactly as before; only the
+    internal `Γ`-lookup name changes), so `Elaborator/Declarations.lean`'s `builtinContext` can
+    give the two arities of `-` their own, non-colliding `Γ` entries (`PLAN.md` §9.18). -/
+    | .«-» => "-."
     | .«\neg » _ => "\\neg"
     | .«[]» => "[]"
     | .«<>» => "<>"

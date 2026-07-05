@@ -1906,3 +1906,40 @@ remainder, rather than emitting one combined identifier token.
 Left as **future work, not started** — revisit whenever a program actually needs
 `WF_`/`SF_` (or the other still-unparsed temporal/action operators) checked.
 
+### 9.18 Unary minus and binary minus share one canonical spelling — resolved, moved to §5.3
+
+Surfaced while writing `Elaborator/Declarations.lean`'s builtin prelude (§5.3 task 7):
+`Desugarer/TLAPlus.lean`'s `PrefixOperator.canonicalName`/`InfixOperator.canonicalName`
+both collapsed to the identical string `"-"` for unary (`-x`) and binary (`x - y`) minus,
+and `Γ` maps a name to exactly *one* type, so `builtinContext` couldn't seed both arities
+at once. **Resolved per the project owner**: give unary minus its own canonical spelling,
+`"-."` — the same disambiguating trick "Specifying Systems" itself uses to tell the two
+apart. **Surface syntax is unchanged** — `-x` still parses exactly as it did before this
+fix (the project owner was explicit that the parser itself is not to change); only the
+*internal*, `Γ`-lookup-facing name `PrefixOperator.canonicalName` produces for it changed,
+from `"-"` to `"-."`. `Elaborator/Declarations.lean`'s `builtinContext` now carries both:
+`"-" : (Int, Int) ⇒ Int` (binary) and `"-." : (Int) ⇒ Int` (unary), no collision.
+
+### 9.19 `builtinContext`'s operators eventually belong in real `EXTENDS`-gated builtin modules
+
+Raised by the project owner right after `Elaborator/Declarations.lean`'s `builtinContext`
+landed (§5.3 task 7). That prelude is a deliberately flat, always-on approximation —
+`+`/`-`/`-.`/`*`/`..`/comparisons properly belong to TLA⁺'s `Naturals`/`Integers` modules,
+and `Len`/`Head`/`Tail`/`Append` properly belong to `Sequences`, both real `EXTENDS`-gated
+modules in the actual language rather than always-present primitives. At some point these
+should move out of the flat prelude and into `Driver/Modules.lean`'s own `builtinModules`
+table (`Sequences`/`Naturals`/`TLC`/`FiniteSets`/etc. as real, individually-`EXTENDS`-able
+entries), so a module that doesn't `EXTENDS Sequences` correctly can't see `Len`/`Head`/…
+either. **One sub-question the project owner already resolved when raising this**: yes,
+builtin modules can `EXTENDS` each other (e.g. `Sequences` should itself `EXTENDS
+Naturals`, matching real TLA⁺) — `builtinModules`'s own merge step can treat a builtin
+`EXTENDS`ing another builtin exactly like an ordinary module `EXTENDS`ing a dependency
+(`Driver/Modules.lean`'s existing recursive-resolution machinery already generalizes to
+this, `compileModule`/`resolveModule`'s own doc), no separate mechanism needed. Not
+started — `builtinModules` itself is still empty (`Driver/Modules.lean`'s own doc: "only
+populated as real test input needs a specific operator"), and this is a bigger lift than
+adding one more entry to that table, since it also means shrinking `builtinContext` back
+down once the real modules exist. Revisit once real `.tla` test input actually needs the
+`EXTENDS`-gating distinction to matter (e.g. a test asserting that a module *without*
+`EXTENDS Sequences` correctly fails to resolve `Len`).
+
