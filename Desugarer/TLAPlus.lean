@@ -178,6 +178,9 @@ namespace SurfaceTLAPlus
     | .var x, pos => return .var x @@ pos
     | .opCall e es, pos => (.opCall · · @@ pos) <$> e.desugar <*> traverse Expression.desugar es
     | .prefixCall op e, pos => (λ e ↦ .opCall (.var op.canonicalName) [e] @@ pos) <$> e.desugar
+    | .infixCall e₁ .«.» (.var x), pos =>
+      (.recordAccess · x @@ pos) <$> e₁.desugar
+    | .infixCall _ .«.» _, pos => throw (.invalidRecordFieldAccess pos)
     | .infixCall e₁ op e₂, pos =>
       (λ e₁ e₂ ↦ .opCall (.var op.canonicalName) [e₁, e₂] @@ pos) <$> e₁.desugar <*> e₂.desugar
     | .postfixCall e op, pos => (λ e ↦ .opCall (.var op.canonicalName) [e] @@ pos) <$> e.desugar

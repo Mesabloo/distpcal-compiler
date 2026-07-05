@@ -74,6 +74,13 @@ inductive DesugarError : Type
   at all — a real conflict there depends on whether the indices are equal, which isn't
   something this purely syntactic pass can (or should) decide. -/
   | conflictingAssignment (pos : SourceSpan) (name : String)
+  /-- The right-hand side of a record-access `.` is not a bare field-name identifier (e.g.
+  `r.1`, `r.(f)`). TLA+'s `.` is exclusively record projection ("Specifying Systems"); unlike
+  every other infix operator, its right-hand side is a field name, not an expression to
+  evaluate — so anything other than a bare identifier there is a syntax error, not a
+  legitimate expression to desugar generically (`Desugarer/TLAPlus.lean`'s `Expression.desugar`,
+  `.infixCall _ .«.» _` case). -/
+  | invalidRecordFieldAccess (pos : SourceSpan)
 
 instance : CompilerDiagnostic DesugarError String where
   isError := true
@@ -88,7 +95,8 @@ instance : CompilerDiagnostic DesugarError String where
     | .withBoundVarWritten pos _
     | .wrongAnnotationKindAtSite pos _ _
     | .duplicateAnnotation pos _
-    | .conflictingAssignment pos _ => pos
+    | .conflictingAssignment pos _
+    | .invalidRecordFieldAccess pos => pos
   msgOf
     | .misplacedAt _ => "Unexpected '@' outside 'EXCEPT' construct."
     | .gotoNotInTailPosition _ => "'goto' may not be followed by further unlabelled statements."
@@ -101,6 +109,7 @@ instance : CompilerDiagnostic DesugarError String where
     | .wrongAnnotationKindAtSite _ found expected => s!"'{found}' is not valid here; only '{expected}' is expected at this position."
     | .duplicateAnnotation _ kind => s!"Only one '{kind}' annotation is allowed per binder."
     | .conflictingAssignment _ name => s!"'{name}' is written to more than once within the same atomic step."
+    | .invalidRecordFieldAccess _ => "The right-hand side of '.' must be a field name."
 
 /-- Non-fatal issues found while desugaring — collected out-of-band (mirroring
 `Parser_/Common.lean`'s `ParserWarning`/`ParserWarningM`) rather than emitted immediately, since
