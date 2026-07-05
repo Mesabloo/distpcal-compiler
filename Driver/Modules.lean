@@ -37,14 +37,19 @@ abbrev TypedModule := TypedTLAPlus.Module TypedPlusCal.Algorithm TypedTLAPlus.Ty
   pipeline, without that type being a misnomer for everything that isn't actually type checking.
 -/
 inductive DriverError : Type
-  /-- A lexing failure. -/
-  | lex (e : Unexpected Char)
+  /-- A lexing failure. `moduleId` is the *offending module's own* key into the source registry
+  below — not necessarily the main module's: an error inside an `EXTENDS`-ed dependency must
+  render against that dependency's own lines, not whichever module `Fugue.lean` originally
+  started with. Every variant below carrying a real position carries its own `moduleId` for the
+  same reason — a key, not the source text itself, so `DriverError` values stay lightweight
+  rather than each one duplicating a (possibly large) source string. -/
+  | lex (moduleId : String) (e : Unexpected Char)
   /-- A parsing failure. -/
-  | parse (e : Unexpected (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token)))
+  | parse (moduleId : String) (e : Unexpected (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token)))
   /-- A `@type`/`@mailbox`/`@parameter` annotation-resolution failure. -/
-  | annotation (e : ResolverError)
+  | annotation (moduleId : String) (e : ResolverError)
   /-- A Surface→Core desugaring failure (TLA⁺ expressions or the embedded PlusCal algorithm). -/
-  | desugar (e : DesugarError)
+  | desugar (moduleId : String) (e : DesugarError)
   /-- `EXTENDS name` didn't resolve to any file (searched: the extending module's own directory,
   `-I`'s search path, and the builtin table). -/
   | moduleNotFound (name : String)
@@ -54,7 +59,7 @@ inductive DriverError : Type
   outermost first, with the repeated name appended at the end for a readable `A -> B -> A`. -/
   | cyclicExtends (chain : List String)
   /-- A real type-checking failure, once `Elaborator/Declarations.lean` exists to produce one. -/
-  | typeCheck (e : TCError)
+  | typeCheck (moduleId : String) (e : TCError)
 
 -- Needed for `DriverError.lex`'s wrapped `Unexpected Char` — no global `ToString Char` exists on
 -- purpose (`Fugue.lean` needs the identical local instance for the same reason).
@@ -63,31 +68,93 @@ private instance : ToString Char := ⟨λ c ↦ s!"'{c}'"⟩
 -- Needed for `DriverError.parse`'s wrapped `Unexpected (Token (Located' SurfacePlusCal.Token))`.
 private instance {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toString x.data⟩
 
+/-- A placeholder position for diagnostics with no real one to report (`moduleNotFound`/
+`ambiguousModule`/`cyclicExtends`, and `TCError.todo`'s own stub). **Not** `default`/`(0 :
+SourceSpan)` — both are `⟨⟨0,0⟩,⟨0,0⟩⟩`, but every *real* position in this codebase has 1-indexed
+lines (`Parser_/TLAPlus.lean`'s `lexModule` starts lexing at `⟨1,0⟩`, not `⟨0,0⟩`) — using line
+`0` here renders as an actual (wrong, off-by-one) line number, `"0 | <source line 1's text>"`
+(`CompilerDiagnostic.pretty`'s `source[n - 1]!` still happens to land on line 1's text either way,
+since `Nat` subtraction saturates at `0`, but the printed line *number* itself was still wrong).
+Line `1` here at least points at a real line, even though the span itself is still meaningless. -/
+private def noPos : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
+
 instance : CompilerDiagnostic DriverError String where
   isError := true
   posOf
-    | .lex e => CompilerDiagnostic.posOf e
-    | .parse e => CompilerDiagnostic.posOf e
-    | .annotation e => CompilerDiagnostic.posOf e
-    | .desugar e => CompilerDiagnostic.posOf e
-    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => default
-    | .typeCheck e => CompilerDiagnostic.posOf e
+    | .lex _ e => CompilerDiagnostic.posOf e
+    | .parse _ e => CompilerDiagnostic.posOf e
+    | .annotation _ e => CompilerDiagnostic.posOf e
+    | .desugar _ e => CompilerDiagnostic.posOf e
+    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => noPos
+    | .typeCheck _ e => CompilerDiagnostic.posOf e
   msgOf
-    | .lex e => CompilerDiagnostic.msgOf e
-    | .parse e => CompilerDiagnostic.msgOf e
-    | .annotation e => CompilerDiagnostic.msgOf e
-    | .desugar e => CompilerDiagnostic.msgOf e
+    | .lex _ e => CompilerDiagnostic.msgOf e
+    | .parse _ e => CompilerDiagnostic.msgOf e
+    | .annotation _ e => CompilerDiagnostic.msgOf e
+    | .desugar _ e => CompilerDiagnostic.msgOf e
     | .moduleNotFound name => s!"Could not find module '{name}'."
     | .ambiguousModule name foundAt =>
       s!"Module '{name}' is ambiguous: found at {String.intercalate ", " foundAt}."
     | .cyclicExtends chain => s!"Cyclic EXTENDS: {String.intercalate " -> " chain}."
-    | .typeCheck e => CompilerDiagnostic.msgOf e
+    | .typeCheck _ e => CompilerDiagnostic.msgOf e
+
+/--
+  Raw module source text by `moduleId`, so `DriverError` can carry just the lightweight key
+  (above) rather than duplicating a (possibly large) source string into every thrown error —
+  looked up again only once, at the point an error is finally rendered. Mirrors `Ξ`
+  (`MonadModuleCache`)'s own class-plus-generic-instance-plus-concrete-backing-ref shape.
+-/
+class MonadSourceRegistry (m : Type → Type) where
+  registerSource : String → String → m Unit
+  lookupSource : String → m (Option String)
+export MonadSourceRegistry (registerSource lookupSource)
+
+instance {m} [Monad m] [MonadStateOf (Std.HashMap String String) m] : MonadSourceRegistry m where
+  registerSource key source := modify (·.insert key source)
+  lookupSource key := (·.get? key) <$> get
+
+/-- Backing store for the source registry, mirroring `Common/Flags.lean`'s `flagsRef`/`Ξ`'s own
+`moduleCacheRef`. -/
+initialize sourceRegistryRef : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+
+instance : MonadStateOf (Std.HashMap String String) IO where
+  get := sourceRegistryRef.get
+  set := sourceRegistryRef.set
+  modifyGet := sourceRegistryRef.modifyGet
+
+/-- The source lines to render `err`'s snippet against — the offending module's own, looked up
+from the registry above by `moduleId`, not whichever module the caller started compiling from.
+`none` for the position-free structural errors (`moduleNotFound`/`ambiguousModule`/
+`cyclicExtends`, which carry no `moduleId` at all) — the caller should fall back to rendering
+against the main module's own lines (harmless: `posOf` for those is always `noPos`, so the exact
+lines passed barely matter). Hardcoded to `IO` rather than generic over `m`: this is only
+ever called once, in `Fugue.lean`, *after* `runM` has already unwrapped back down to plain `IO` —
+same registry either way, since its backing ref is process-global. -/
+def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)) := do
+  let moduleId? := match err with
+    | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ =>
+      some moduleId
+    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => none
+  match moduleId? with
+  | none => return none
+  | some moduleId => return (·.split (· == '\n') |>.toList) <$> (← lookupSource moduleId)
 
 /-- Names of modules currently being resolved, outermost first — pushed via `withReader (name ::
 ·)` before recursing into a dependency; Lean's Reader scoping unwinds this automatically on
 return, so no manual stack bookkeeping is needed. A module about to be resolved that's already in
 this list is a cyclic `EXTENDS`. -/
 abbrev ResolutionStack := List String
+
+/-- What happened when `compileModule`/`resolveModule` finished with a given module name — the
+payload `onModuleEvent` reports, Lean-`lake build`-style (`Fugue.lean` turns this into
+`Built`/`Replayed`/`Failed <name>`). `.failed` is reported (then the underlying `DriverError` is
+re-thrown unchanged) as soon as a module's own name is known but something past that point failed
+— lex/parse failures, which happen *before* a name is known, aren't attributed to any module this
+way and just surface as the overall compile failure. -/
+inductive ModuleOutcome : Type
+  | built
+  | replayed
+  | failed
 
 /--
   The module cache `Ξ`. Lives here, not in `Elaborator/Monad.lean`: it isn't a type-*checking*
@@ -177,8 +244,8 @@ private inductive Candidate : Type
   | builtin (mod : TypedModule)
 
 variable {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] [MonadReaderOf ResolutionStack m]
-  [MonadWithReaderOf ResolutionStack m] [MonadModuleCache TypedModule m] [MonadExceptOf DriverError m]
-  [MonadLiftT IO m] [MonadLiftT BaseIO m]
+  [MonadWithReaderOf ResolutionStack m] [MonadModuleCache TypedModule m] [MonadSourceRegistry m]
+  [MonadExceptOf DriverError m] [MonadLiftT IO m] [MonadLiftT BaseIO m]
 
 /-- Every directory searched for `EXTENDS name`, in order: the directory containing the
 extending module (if any — absent when read from stdin), then `-I`'s search path, per the
@@ -216,6 +283,19 @@ private def reportWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT 
     if ← FlagsEnv.isWarningEnabled (name warning) then
       logLine <| CompilerDiagnostic.pretty warning lines colored
 
+/-- Run `act`; if it throws, report `name` as `.failed` via `onModuleEvent` and re-throw the
+*same* error unchanged (this never swallows or replaces it — it's purely an extra report
+alongside the ordinary propagation). Factored out since `compileModule` needs this exact
+try/report/re-throw shape twice, at two points that must *not* share one `try` (see
+`compileModule`'s own doc for why). -/
+private def reportFailureOnThrow {m} [Monad m] [MonadExceptOf DriverError m] {α}
+    (onModuleEvent : String → ModuleOutcome → m Unit) (name : String) (act : m α) : m α := do
+  try
+    act
+  catch e =>
+    onModuleEvent name .failed
+    throw e
+
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
 -- miss/mismatch) — `mutual`, and `partial` since termination here depends on cyclic-`EXTENDS`
@@ -246,8 +326,27 @@ mutual
   `onModuleProgress` while *they* run) are no longer the "current" one. Firing it twice with the
   same name is intentional, not a bug: `Fugue.lean` tracks a set of every name it's seen, so a
   repeat is a no-op there, it just moves the displayed "current module" back to this one.
+
+  `onModuleEvent name .built` fires once this module is fully checked, and `.failed` if this
+  module's *own* processing throws — this is the *one* place `.built`/`.failed` get reported (not
+  `resolveModule`, which only ever reports `.replayed` itself and otherwise defers to whichever
+  `compileModule` call it made), so a module compiled directly as the main module and one reached
+  via `EXTENDS` are reported identically, without duplicating the event. **Deliberately does not
+  wrap the `_deps.mapM` step below in the same failure-reporting `try`**: a dependency that fails
+  already reports `.failed` for *itself*, inside its own recursive `compileModule` call — if this
+  module's own `try` also caught that (propagated) exception and reported `.failed` again under
+  *this* module's name, a single real failure deep in an `EXTENDS` chain would misleadingly show
+  every module on the path back to the main one as "failed" too, when only the one at the bottom
+  actually is.
+
+  `moduleId` is the registry key `DriverError`'s variants tag themselves with (see
+  `MonadSourceRegistry`) — registered against `source` right at the start, before lexing even
+  runs, so a lex/parse failure (before any real module name is known) still has something to key
+  its error against. For a dependency this is the `EXTENDS`-requested name (`resolveModule`
+  already has it before reading the file at all); for the main module it's whatever caller-chosen
+  identifier `Fugue.lean` passes (e.g. the input file's display name).
 -/
-partial def compileModule (source : String) (containingDir : Option System.FilePath)
+partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
     (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
     (onParsed : SurfaceTLAPlus.Module
         (SurfacePlusCal.Algorithm (List SurfaceTLAPlus.CommentAnnotation) (SurfaceTLAPlus.Expression (List SurfaceTLAPlus.CommentAnnotation)))
@@ -256,47 +355,52 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
         (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)))
         (Option SurfaceTLAPlus.Typ) → m Unit := fun _ ↦ pure ())
     (onTyped : TypedModule → m Unit := fun _ ↦ pure ())
-    (onModuleEvent : String → Bool → m Unit := fun _ _ ↦ pure ())
+    (onModuleEvent : String → ModuleOutcome → m Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → m Unit := fun _ ↦ pure ())
     (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m TypedModule := do
+  registerSource moduleId source
   let lines := source.split (· == '\n') |>.toList
   let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
-    | .inl e => throw (.lex e)
+    | .inl e => throw (.lex moduleId e)
     | .inr tokens => pure tokens
   onTokens tokens
   let (mod, parserWarnings) ← match SurfaceTLAPlus.Parser.parseModule tokens with
-    | .inl e => throw (.parse e)
+    | .inl e => throw (.parse moduleId e)
     | .inr r => pure r
   reportWarnings lines colored ParserWarning.name logLine parserWarnings
   onParsed mod
   onModuleProgress mod.name
-  let mod ← match resolveAnnotations mod with
-    | .error e => throw (.annotation e)
-    | .ok mod => pure mod
-  let mod ← match mod.runDesugarer with
-    | .error e => throw (.desugar e)
-    | .ok mod => pure mod
-  let mod ← match mod.stripTLAPlusAnnotations with
-    | .error e => throw (.desugar e)
-    | .ok mod => pure mod
-  let algo ← match mod.pcalAlgorithm with
-    | none => pure none
-    | some algo =>
-      match algo.runDesugarer with
-      | .error e => throw (.desugar e)
-      | .ok (algo, desugarWarnings) => do
-        reportWarnings lines colored DesugarWarning.name logLine desugarWarnings
-        pure (some algo)
-  let mod := { mod with pcalAlgorithm := algo }
-  onDesugared mod
+  let mod ← reportFailureOnThrow onModuleEvent mod.name do
+    let mod ← match resolveAnnotations mod with
+      | .error e => throw (.annotation moduleId e)
+      | .ok mod => pure mod
+    let mod ← match mod.runDesugarer with
+      | .error e => throw (.desugar moduleId e)
+      | .ok mod => pure mod
+    let mod ← match mod.stripTLAPlusAnnotations with
+      | .error e => throw (.desugar moduleId e)
+      | .ok mod => pure mod
+    let algo ← match mod.pcalAlgorithm with
+      | none => pure none
+      | some algo =>
+        match algo.runDesugarer with
+        | .error e => throw (.desugar moduleId e)
+        | .ok (algo, desugarWarnings) => do
+          reportWarnings lines colored DesugarWarning.name logLine desugarWarnings
+          pure (some algo)
+    let mod := { mod with pcalAlgorithm := algo }
+    onDesugared mod
+    pure mod
   let _deps ← mod.extends.mapM λ dep ↦
     withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
   onModuleProgress mod.name
-  let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
-  let typed ← (throw (.typeCheck (.todo default "Type checking is not yet implemented.")) : m TypedModule)
-  onTyped typed
-  return typed
+  reportFailureOnThrow onModuleEvent mod.name do
+    let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
+    let typed ← (throw (.typeCheck moduleId (.todo noPos "Type checking is not yet implemented.")) : m TypedModule)
+    onModuleEvent mod.name .built
+    onTyped typed
+    return typed
 
 /--
   The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
@@ -307,16 +411,16 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   can tell whether they need to recompute in turn. It's `resolveModule`'s own bookkeeping, not
   part of the public `MonadModuleCache` interface.
 
-  `onModuleEvent name wasRecomputed` fires right before every `.file`-case return (not for
-  `.builtin` — a builtin is static, never meaningfully "built" or "replayed") — Lean-`lake
-  build`-style: `Fugue.lean` turns this into a persisted `Built <name>`/`Replayed <name>` line
-  next to its spinner. `onModuleProgress name` fires once, right at the top of the `.file` case
-  (before even checking `Ξ`) — "we're now working on `name`", whether that turns out to be a
-  cache hit or a fresh recompute. `logLine` is just forwarded to whatever `compileModule` call
-  this makes.
+  Fires `onModuleEvent name .replayed` itself on the one path that never touches `compileModule`
+  at all (a cache hit with nothing changed) — every other outcome (`.built`/`.failed`) is reported
+  by whichever `compileModule` call `resolveModule` makes, not duplicated here. Not for `.builtin`
+  either — a builtin is static, never meaningfully built/replayed/failed. `onModuleProgress name`
+  fires once, right at the top of the `.file` case (before even checking `Ξ`) — "we're now working
+  on `name`", whether that turns out to be a cache hit or a fresh recompute. `logLine` is just
+  forwarded to whatever `compileModule` call this makes.
 -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
-    (onModuleEvent : String → Bool → m Unit := fun _ _ ↦ pure ())
+    (onModuleEvent : String → ModuleOutcome → m Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → m Unit := fun _ ↦ pure ())
     (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m (Bool × TypedModule) := do
   if name ∈ (← readThe ResolutionStack) then
@@ -333,24 +437,21 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
         let depResults ← entry.extends.mapM λ dep ↦
           withReader (name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
         if depResults.all (¬ ·.1) then
-          onModuleEvent name false
+          onModuleEvent name .replayed
           return (false, entry.value)
         else
-          let recomputed ← compileModule src path.parent
+          let recomputed ← compileModule src path.parent name
             (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
           storeModule name { sourceHash := h, «extends» := entry.extends, value := recomputed }
-          onModuleEvent name true
           return (true, recomputed)
       else
-        let recomputed ← compileModule src path.parent
+        let recomputed ← compileModule src path.parent name
           (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
         storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
-        onModuleEvent name true
         return (true, recomputed)
     | none =>
-      let recomputed ← compileModule src path.parent
+      let recomputed ← compileModule src path.parent name
         (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
       storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
-      onModuleEvent name true
       return (true, recomputed)
 end

@@ -150,12 +150,6 @@ private def withProgress {α : Type} (msg : String) (act : Progress → IO α) :
       spinner.cancel .erase
     return res
 
-/-- Output a compiler error on `stderr` and exit immediately with an exit code of `1`. -/
-@[noinline, specialize]
-private def printErrorAndExit {α β ε} [Colorized β] [ToString β] [CompilerDiagnostic ε β] (err : ε) (lines : List String.Slice) (colored : Bool) : IO α := do
-  IO.eprintln <| CompilerDiagnostic.pretty err lines colored
-  IO.Process.exit 1
-
 /-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. -/
 private def dumpToFile (content : String) (dir : System.FilePath) (name : String) : IO Unit := do
   IO.FS.createDirAll dir
@@ -214,9 +208,12 @@ private def runCli (p : Parsed) : IO UInt32 := do
     let lines := source.split (· == '\n') |>.toList
 
     let discovered ← IO.mkRef (∅ : Std.HashSet String)
-    let done ← IO.mkRef (0 : Nat)
+    -- A set, not a counter: `onModuleEvent` can fire more than once for the same name (e.g.
+    -- `.built` the first time, `.replayed` for every later cache-hit reference to it), and this
+    -- must still only ever count that module once done.
+    let done ← IO.mkRef (∅ : Std.HashSet String)
 
-    let result ← runM <| compileModule source containingDir
+    let result ← runM <| compileModule source containingDir dumpName
       (onTokens := λ tokens ↦ do
         if ← FlagsEnv.getDebugFlag "dump-tokens" then
           dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens")
@@ -229,19 +226,29 @@ private def runCli (p : Parsed) : IO UInt32 := do
       (onTyped := λ typed ↦ do
         if ← FlagsEnv.getDebugFlag "dump-typed" then
           dumpToFile (reprStr typed) dumpDir s!"{dumpName}-typed")
-      (onModuleEvent := λ name recomputed ↦ do
-        done.modify (· + 1)
-        spinner.log (if recomputed then s!"Built {name}" else s!"Replayed {name}"))
+      (onModuleEvent := λ name outcome ↦ do
+        done.modify (·.insert name)
+        let count := s!"[{(← done.get).size}/{(← discovered.get).size}]"
+        let (dingbat, color, label) : String × Colorized.Color × String := match outcome with
+          | .built => ("✔", .Green, "Built")
+          | .replayed => ("✔", .Cyan, "Replayed")
+          | .failed => ("✖", .Red, "Failed")
+        spinner.log <| styleIf colored .Bold <| colorizeIf colored color s!"{dingbat} {count} {label} {name}")
       (onModuleProgress := λ name ↦ do
         discovered.modify (·.insert name)
-        spinner.setTitle s!"[{← done.get}/{(← discovered.get).size}] Running on module '{name}'…")
+        spinner.setTitle s!"[{(← done.get).size}/{(← discovered.get).size}] Running on module '{name}'…")
       (logLine := λ line ↦ do spinner.log line)
     match result with
     | .error e =>
+      -- Print the actual error *before* ending the spinner — `Compilation failed.` is the final
+      -- word, not a banner ahead of the detail explaining it. `e` may have originated in an
+      -- `EXTENDS`-ed dependency, not the main module read into `lines` above — render against
+      -- the offending module's own source when it has one.
+      IO.eprintln <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
       spinner.fail "Compilation failed."
-      printErrorAndExit e lines colored
+      IO.Process.exit 1
     | .ok typedMod =>
-      spinner.success s!"Type-checked module '{typedMod.name}'."
+      spinner.success "Compilation succeeded."
       return typedMod
 
   IO.println s!"Fugue: type-checked module '{typedMod.name}' (extends {typedMod.extends.length} module(s), \

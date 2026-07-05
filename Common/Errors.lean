@@ -16,12 +16,14 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   msgOf : ε → α
   hintsOf : ε → List α := λ _ ↦ []
 
-/-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). -/
-private def colorizeIf {α} [Colorized α] (enabled : Bool) (c : Colorized.Color) (x : α) : α :=
+/-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). Not
+`private`: `Fugue.lean` reuses it for its `Built`/`Replayed` progress lines, not just here. -/
+def colorizeIf {α} [Colorized α] (enabled : Bool) (c : Colorized.Color) (x : α) : α :=
   if enabled then Colorized.color c x else x
 
-/-- `Colorized.style`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). -/
-private def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) : α :=
+/-- `Colorized.style`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). Not
+`private`: `Fugue.lean` reuses it too, for its `Built`/`Replayed`/`Failed` progress lines. -/
+def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) : α :=
   if enabled then Colorized.style s x else x
 
 /-- Pretty basic error pretty printing. `colored := false` (driven by `-fno-color`) disables ANSI styling. -/
