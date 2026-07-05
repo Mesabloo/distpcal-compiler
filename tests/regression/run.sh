@@ -10,6 +10,16 @@
 # expected, not a naming-scheme bug; such a file's purpose was always "exercises pass X,"
 # and a later, unrelated pass rejecting it doesn't retroactively make pass X's behavior wrong.
 # Revisit/split affected files if and when that happens, rather than assuming a regression.
+#
+# Fixtures run in parallel (one `fugue` invocation per file, backgrounded, then `wait`ed on) —
+# they're fully independent (each just reads its own file and exits), so there's no reason to
+# pay for them one at a time. Each job prints its own PASS/FAIL line the moment it finishes,
+# so output arrives as results come in rather than all at once at the end — meaning line order
+# is now whatever order the jobs happen to finish in, not the fixed glob order the sequential
+# version had. Each line is written with a single `echo` call (one `write()`, well under
+# PIPE_BUF), so concurrent jobs' output doesn't interleave/corrupt mid-line. The final tally is
+# still exact — each job also drops a one-word PASS/FAIL marker in a scratch directory, summed
+# up after `wait`, not recomputed by re-parsing printed output.
 set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,8 +43,10 @@ if [ ! -x "$fugue" ]; then
   exit 1
 fi
 
-pass_count=0
-fail_count=0
+results_dir="$(mktemp -d)"
+trap 'rm -rf "$results_dir"' EXIT
+
+names=()
 
 for f in "$script_dir"/*.tla; do
   name="$(basename "$f")"
@@ -47,15 +59,31 @@ for f in "$script_dir"/*.tla; do
       ;;
   esac
 
-  "$fugue" -fno-color "$f" >/dev/null 2>&1
-  got_exit=$?
+  names+=("$name")
 
-  if { [ "$want_exit" -eq 0 ] && [ "$got_exit" -eq 0 ]; } || \
-     { [ "$want_exit" -ne 0 ] && [ "$got_exit" -ne 0 ]; }; then
-    echo "${c_green}PASS${c_reset}  $name"
+  (
+    "$fugue" -fno-color "$f" >/dev/null 2>&1
+    got_exit=$?
+    if { [ "$want_exit" -eq 0 ] && [ "$got_exit" -eq 0 ]; } || \
+       { [ "$want_exit" -ne 0 ] && [ "$got_exit" -ne 0 ]; }; then
+      echo "PASS" > "$results_dir/$name.status"
+      echo "${c_green}PASS${c_reset}  $name"
+    else
+      echo "FAIL" > "$results_dir/$name.status"
+      echo "${c_red}FAIL${c_reset}  $name (expected exit $want_exit, got $got_exit)"
+    fi
+  ) &
+done
+
+wait
+
+pass_count=0
+fail_count=0
+
+for name in "${names[@]}"; do
+  if [ "$(cat "$results_dir/$name.status")" = PASS ]; then
     pass_count=$((pass_count + 1))
   else
-    echo "${c_red}FAIL${c_reset}  $name (expected exit $want_exit, got $got_exit)"
     fail_count=$((fail_count + 1))
   fi
 done

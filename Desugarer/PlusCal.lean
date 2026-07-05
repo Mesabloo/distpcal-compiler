@@ -138,6 +138,21 @@ namespace SurfacePlusCal
   matching label. -/
   def doneLabel : String := "Done"
 
+  /-- The one concrete expression type every function below that touches a `Ref`'s own indices
+  (`Statement.desugarLabelFree`, `desugarSegment`, `Thread.desugar`) is fixed at, same as
+  `Process.desugar`/`Algorithm.desugar` already are — needed to call `SurfaceTLAPlus.
+  wrapIndices` (`x[e₁, …, eₙ] := v` collapsing to `x[<<e₁, …, eₙ>>] := v`, `Ref.desugarRef`
+  below), which is itself only meaningful once `β` is concretely `CoreTLAPlus.Expression`. -/
+  private abbrev CoreExpr := CoreTLAPlus.Expression (List Annotation)
+
+  /-- `x[e₁, …, eₙ]`'s indices, per bracket group, collapsed to `CorePlusCal.Ref`'s own unary
+  shape (`Core/CorePlusCal/Syntax.lean`'s module doc) via `SurfaceTLAPlus.wrapIndices` — same
+  rule as `fnCall`/`except`. `pos` is the *enclosing statement*'s own position (matching
+  `withBoundVarWritten`'s existing precedent just below, rather than trying to recover a
+  `Ref`'s own position). -/
+  def Ref.desugarRef (pos : SourceSpan) (r : SurfacePlusCal.Ref CoreExpr) : CorePlusCal.Ref CoreExpr :=
+    { name := r.name, args := r.args.map (SurfaceTLAPlus.wrapIndices pos) }
+
   mutual
     /--
       Does this statement, anywhere within it (at any nesting depth), need the expensive,
@@ -193,6 +208,19 @@ namespace SurfacePlusCal
     | .inl l :: _ => throw (.nestedLabel (posOf l))
     | .inr s :: rest => (s :: ·) <$> rejectLabels rest
 
+  /-- Flatten a multi-binder `with (x = e, y ∈ S, …) { … }` into a nested chain of single-binder
+  `CorePlusCal.Statement.with`s (`with (x = e) { with (y ∈ S) { … } }`) — `CorePlusCal.Statement.
+  with` only ever binds one variable at a time (`Core/CorePlusCal/Syntax.lean`'s module doc), so
+  every binder past the first gets wrapped in its own label-free `Block` (`⟨[], ·⟩`, no leading
+  statements of its own) around the next binder in the chain, with `B` — the already-desugared
+  original body — as the innermost one's. -/
+  def buildWithChain (vars : List (String × α × Bool × β)) (B : CorePlusCal.Block α β false) :
+      CorePlusCal.Statement α β false :=
+    match vars with
+    | [] => unreachable! -- `with` always binds at least one variable, by construction of the parser (`sepBy1`)
+    | [(x, ann, eq, e)] => .with x ann eq e B
+    | (x, ann, eq, e) :: rest => .with x ann eq e ⟨[], buildWithChain rest B⟩
+
   mutual
     /--
       Desugar a statement known to *not* be the last of its enclosing sequence and known
@@ -212,7 +240,7 @@ namespace SurfacePlusCal
       — a `with`-bound name is a local binding to a fixed value, not a process variable with
       state to update, and `receive` writes into its target the same way `assign` does.
     -/
-    partial def Statement.desugarLabelFree (s : Statement α β) : m (CorePlusCal.Statement α β false) := match_source s with
+    partial def Statement.desugarLabelFree (s : Statement α CoreExpr) : m (CorePlusCal.Statement α CoreExpr false) := match_source s with
       | .goto _, pos => throw (.gotoNotInTailPosition pos)
       | .skip, _ => pure .skip
       | .print e, _ => pure (.print e)
@@ -220,12 +248,12 @@ namespace SurfacePlusCal
         let ctx ← readThe WithContext
         match a.find? (fun (r, _) => ctx.boundVars.contains r.name) with
         | some (r, _) => throw (.withBoundVarWritten pos r.name)
-        | none => pure (.assign a)
+        | none => pure (.assign (a.map λ (r, e) ↦ (Ref.desugarRef pos r, e)))
       | .if cond b1 b2, _ => .if cond <$> desugarLabelFreeBlock b1 <*> desugarLabelFreeBlock (b2.getD [])
       | .await e, _ => pure (.await e)
       | .with vars b, _ =>
         let newNames := vars.map (·.1)
-        .with vars <$> withTheReader WithContext ({ boundVars := newNames ++ ·.boundVars }) (desugarLabelFreeBlock b)
+        buildWithChain vars <$> withTheReader WithContext ({ boundVars := newNames ++ ·.boundVars }) (desugarLabelFreeBlock b)
       | .assert e, _ => pure (.assert e)
       | .either branches, _ => .either <$> Branches.desugarLabelFree branches
       | .while cond b, pos => do
@@ -235,18 +263,18 @@ namespace SurfacePlusCal
       | .receive c r, pos => do
         let ctx ← readThe WithContext
         if ctx.boundVars.contains r.name then throw (.withBoundVarWritten pos r.name)
-        else pure (.receive c r)
-      | .send c e, _ => pure (.send c e)
+        else pure (.receive (Ref.desugarRef pos c) (Ref.desugarRef pos r))
+      | .send c e, pos => pure (.send (Ref.desugarRef pos c) e)
       | .multicast c f, _ => pure (.multicast c f)
 
     /-- Desugar a statement-list known to be entirely label-free into a non-terminal block:
     every entry desugars via `Statement.desugarLabelFree`, except the last, whose own natural
     terminality (a bare `goto`, or an `if`/`either` that recursively is) is preserved. -/
-    partial def desugarLabelFreeBlock (stmts : List (String ⊕ Statement α β)) :
-        m (CorePlusCal.Block α β false) := do
+    partial def desugarLabelFreeBlock (stmts : List (String ⊕ Statement α CoreExpr)) :
+        m (CorePlusCal.Block α CoreExpr false) := do
       go (← rejectLabels stmts)
     where
-      go : List (Statement α β) → m (CorePlusCal.Block α β false)
+      go : List (Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr false)
         | [] => pure ⟨[], .skip⟩
         | [s] => match_source s with
           | .goto _, pos => throw (.gotoNotInTailPosition pos)
@@ -256,8 +284,8 @@ namespace SurfacePlusCal
           let block ← go rest
           pure ⟨s' :: block.begin, block.end⟩
 
-    partial def Branches.desugarLabelFree (branches : List (List (String ⊕ Statement α β))) :
-        m (CorePlusCal.Branches α β false) := match branches with
+    partial def Branches.desugarLabelFree (branches : List (List (String ⊕ Statement α CoreExpr))) :
+        m (CorePlusCal.Branches α CoreExpr false) := match branches with
       | [] => unreachable! -- `either` always has ≥2 branches, by construction of the parser
       | [b] => .either <$> desugarLabelFreeBlock b
       | b :: bs => .or <$> desugarLabelFreeBlock b <*> Branches.desugarLabelFree bs
@@ -281,8 +309,8 @@ namespace SurfacePlusCal
     `acc` accumulates this segment's own non-terminal statements so far, in order — kept as an
     explicit parameter rather than folded into the `Reader` context (this file's module doc).
   -/
-  partial def desugarSegment (acc : List (CorePlusCal.Statement α β false)) :
-      List (String ⊕ Statement α β) → m (CorePlusCal.Block α β true × List (String × CorePlusCal.Block α β true))
+  partial def desugarSegment (acc : List (CorePlusCal.Statement α CoreExpr false)) :
+      List (String ⊕ Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr true × List (String × CorePlusCal.Block α CoreExpr true))
     | [] => do
       let ctx ← readThe SegmentContext
       pure (⟨acc, .goto ctx.fallthrough⟩, [])
@@ -356,7 +384,7 @@ namespace SurfacePlusCal
     behavior for "an `if`/`either` containing a label or `goto` must be followed by a labelled
     statement" (§3.2.2/§3.2.3). -/
     desugarContinuation :
-        List (String ⊕ Statement α β) → m (String × List (String × CorePlusCal.Block α β true))
+        List (String ⊕ Statement α CoreExpr) → m (String × List (String × CorePlusCal.Block α CoreExpr true))
       | [] => do
         let ctx ← readThe SegmentContext
         pure (ctx.fallthrough, [])
@@ -369,7 +397,7 @@ namespace SurfacePlusCal
   /-- Desugar one parallel thread (`{...}` block) into its sequence of labelled, terminal
   `CorePlusCal.Block`s — the thread's own top-level labels plus everything extracted from
   nested labels within `if`/`while`/`either` bodies. -/
-  def Thread.desugar : List (String ⊕ Statement α β) → m (List (String × CorePlusCal.Block α β true))
+  def Thread.desugar : List (String ⊕ Statement α CoreExpr) → m (List (String × CorePlusCal.Block α CoreExpr true))
     | [] => pure []
     | .inr s :: _ => throw (.unlabelledStatement (posOf s))
     | .inl firstLabel :: rest => do
@@ -458,6 +486,76 @@ namespace SurfacePlusCal
 
 end SurfacePlusCal
 
+/-- If `r` is a *bare* reference (`r.args` empty — `x`, never `x[…]`), record it as a write
+against `seen`, throwing `DesugarError.conflictingAssignment` if it's already there; an indexed
+reference is never tracked at all (`DesugarError.conflictingAssignment`'s own doc comment). -/
+private def checkWrite {β} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+    (seen : List String) (r : CorePlusCal.Ref β) (pos : SourceSpan) : m (List String) :=
+  if r.args.isEmpty then
+    if seen.contains r.name then throw (.conflictingAssignment pos r.name)
+    else pure (r.name :: seen)
+  else pure seen
+
+/-!
+  `PLAN.md` §5.2a's well-labelledness bullet, "no two assignments to the same variable within
+  one atomic step, on the same control path" — checked early here (against `CorePlusCal`,
+  right after statement desugaring) rather than deferred to the eventual `WellFormedness`
+  pass, matching how the sibling `with`-bound-write-rejection check was already added ad hoc
+  during this same phase. Purely syntactic, only tracks *bare* variable writes (`checkWrite`
+  above) from `assign` (every entry of one `||`-list included) and `receive`'s *both* `Ref`s —
+  the channel `c` counts as a write too, not just the target `x` (per the project owner:
+  `receive(x, a); receive(x, b)` must error, same as re-receiving into, or re-assigning, the
+  same variable). `if`/`either`'s branches are separate control paths — checked independently,
+  starting from the same already-seen set, never against each other — but their writes are
+  unioned into what continues past them, so a write in either branch still conflicts with one
+  afterward in the same block (exactly the manual's "one branch and whatever both branches
+  converge to afterward" case). `while`/`with` bodies don't fork execution, so they're checked
+  sequentially, merged with everything around them.
+-/
+mutual
+  partial def CorePlusCal.Statement.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
+      [MonadExceptOf DesugarError m] (seen : List String) (s : CorePlusCal.Statement α β b) : m (List String) :=
+    match_source s with
+    | .assign asss, pos =>
+      asss.foldlM (init := seen) λ seen (r, _) ↦ checkWrite seen r pos
+    | .receive c r, pos => do
+      let seen ← checkWrite seen c pos
+      checkWrite seen r pos
+    | .if _ B₁ B₂, _ => do
+      let seen₁ ← CorePlusCal.Block.checkAssignConflicts seen B₁
+      let seen₂ ← CorePlusCal.Block.checkAssignConflicts seen B₂
+      pure (seen₁ ++ seen₂)
+    | .either branches, _ => CorePlusCal.Branches.checkAssignConflicts seen branches
+    | .while _ B, _ => CorePlusCal.Block.checkAssignConflicts seen B
+    | .with _ _ _ _ B, _ => CorePlusCal.Block.checkAssignConflicts seen B
+    | .skip, _ | .goto _, _ | .print _, _ | .await _, _ | .assert _, _
+    | .send _ _, _ | .multicast _ _, _ => pure seen
+
+  partial def CorePlusCal.Block.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
+      [MonadExceptOf DesugarError m] (seen : List String) (B : CorePlusCal.Block α β b) : m (List String) := do
+    let seen ← B.begin.foldlM (init := seen) λ seen s ↦ CorePlusCal.Statement.checkAssignConflicts seen s
+    CorePlusCal.Statement.checkAssignConflicts seen B.end
+
+  partial def CorePlusCal.Branches.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
+      [MonadExceptOf DesugarError m] (seen : List String) : CorePlusCal.Branches α β b → m (List String)
+    | .either B => CorePlusCal.Block.checkAssignConflicts seen B
+    | .or B rest => do
+      let seen₁ ← CorePlusCal.Block.checkAssignConflicts seen B
+      let seen₂ ← CorePlusCal.Branches.checkAssignConflicts seen rest
+      pure (seen₁ ++ seen₂)
+end
+
+/-- Run `checkAssignConflicts` over every atomic step (one top-level `(label, Block)` pair per
+thread) of a whole algorithm — each starts with a fresh, empty `seen` set, since crossing a
+label is exactly crossing an atomic-step boundary. -/
+def CorePlusCal.Algorithm.checkAssignConflicts {α β} (algo : CorePlusCal.Algorithm α β) :
+    Except DesugarError Unit := do
+  for p in algo.processes do
+    for thread in p.threads do
+      for (_, block) in thread do
+        let _ ← CorePlusCal.Block.checkAssignConflicts [] block
+  pure ()
+
 /--
   §5.1's annotation-placement prerequisite, residual PlusCal half — companion to
   `Desugarer/TLAPlus.lean`'s `CoreTLAPlus.Module.stripTLAPlusAnnotations`. `Process.mailbox` and
@@ -485,13 +583,15 @@ this compiler never invents a label the user didn't write (this file's module do
 `Reader`'s outer seed value is ever actually observed: `Thread.desugar` always establishes a
 real `SegmentContext` via `withTheReader` before `desugarSegment` reads one, and `WithContext`'s
 default (`boundVars := []`) is exactly the correct ambient value for everything outside of a
-`with` body anyway. Finishes by running `stripEmbeddedTypeAnnotations` above, so the returned
-`CorePlusCal.Algorithm` is always fully checked, with every annotation slot — declaration-level
-and expression-level alike — resolved to its actual content. -/
+`with` body anyway. Also runs `CorePlusCal.Algorithm.checkAssignConflicts` (no two assignments
+to the same variable within one atomic step) before `stripEmbeddedTypeAnnotations`, so the
+returned `CorePlusCal.Algorithm` is always fully checked, with every annotation slot —
+declaration-level and expression-level alike — resolved to its actual content. -/
 def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
     Except DesugarError (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)) × List DesugarWarning) := do
   let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (StateT (List DesugarWarning) (Except DesugarError))) _ :=
     a.desugar
   let (algo, warnings) ← ((desugar.run {}).run default).run []
+  algo.checkAssignConflicts
   let algo ← algo.stripEmbeddedTypeAnnotations
   return (algo, warnings)

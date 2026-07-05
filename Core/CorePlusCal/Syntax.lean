@@ -48,7 +48,25 @@ import Core.SurfacePlusCal.Syntax
   unambiguous two-parameter `Bifunctor`/`Bitraversable` instances.
 -/
 namespace CorePlusCal
-  open SurfacePlusCal (Ref MulticastFilter)
+  open SurfacePlusCal (MulticastFilter)
+
+  /-- `SurfacePlusCal.Ref`, but each bracket group's own index is unary — `x[e₁, …, eₙ]` (`n >
+  1`) desugars to `x[<<e₁, …, eₙ>>]`, exactly `CoreTLAPlus.Expression.fnCall`/`.except`'s own
+  rule (`Desugarer/TLAPlus.lean`'s `wrapIndices`), for the same reason: every downstream
+  consumer should be able to rely on "one index expression per bracket group" directly, not
+  re-derive it from a list. `x[e₁][e₂]` (two separate bracket groups) is unaffected either way
+  — `args`' *outer* list (one entry per bracket group) doesn't change shape, only each group's
+  own inner list collapses. -/
+  structure Ref (β : Type) : Type where
+    name : String
+    args : List β
+    deriving Repr
+
+  instance : Functor Ref where
+    map f r := { r with args := f <$> r.args }
+
+  instance : Traversable Ref where
+    traverse f r := (λ args ↦ { r with args }) <$> traverse f r.args
 
   mutual
     inductive Statement (α β : Type) : Bool → Type
@@ -58,7 +76,13 @@ namespace CorePlusCal
       | assign (_ : List (Ref β × β)) : Statement α β false
       | «if» {b} (cond : β) (B₁ B₂ : Block α β b) : Statement α β b
       | await (e : β) : Statement α β false
-      | «with» (vars : List (String × α × Bool × β)) (B : Block α β false) : Statement α β false
+      /-- Binds exactly one variable — unlike `SurfacePlusCal.Statement.with`'s `vars : List
+      (…)`, a genuine comma list at the surface syntax level (`with (x = 3, y ∈ S) {…}`),
+      statement desugaring (`Desugarer/PlusCal.lean`) always flattens a multi-binder `with`
+      into a nested chain of single-binder ones (`with (x = 3) { with (y ∈ S) {…} }`) — a
+      structural invariant enforced here at the type level, per this project's convention of
+      preferring that over a runtime check or a comment asserting it holds. -/
+      | «with» (var : String) (ann : α) («=|∈» : Bool) (val : β) (B : Block α β false) : Statement α β false
       | assert (e : β) : Statement α β false
       | either {b} (branches : Branches α β b) : Statement α β b
       /-- `while`'s own body may be either terminal or not: non-terminal in the common case
@@ -110,7 +134,7 @@ namespace CorePlusCal
       | .assign asss, pos => .assign (bimap (g <$> ·) g <$> asss) @@ pos
       | .if e B₁ B₂, pos => .if (g e) (Block.bimap f g B₁) (Block.bimap f g B₂) @@ pos
       | .await e, pos => .await (g e) @@ pos
-      | .with vars B, pos => .with (vars.map λ (x, ann, eq, e) ↦ (x, f ann, eq, g e)) (Block.bimap f g B) @@ pos
+      | .with x ann eq e B, pos => .with x (f ann) eq (g e) (Block.bimap f g B) @@ pos
       | .assert e, pos => .assert (g e) @@ pos
       | .either Bs, pos => .either (Branches.bimap f g Bs) @@ pos
       | .while e B, pos => .while (g e) (Block.bimap f g B) @@ pos
@@ -149,10 +173,8 @@ namespace CorePlusCal
           <*> Block.bitraverse f g B₁
           <*> Block.bitraverse f g B₂
       | .await e, pos => (.await · @@ pos) <$> g e
-      | .with vars B, pos =>
-        (.with · · @@ pos)
-          <$> traverse (λ (x, ann, eq, e) ↦ (x, ·, eq, ·) <$> f ann <*> g e) vars
-          <*> Block.bitraverse f g B
+      | .with x ann eq e B, pos =>
+        (.with x · eq · · @@ pos) <$> f ann <*> g e <*> Block.bitraverse f g B
       | .assert e, pos => (.assert · @@ pos) <$> g e
       | .either Bs, pos => (.either · @@ pos) <$> Branches.bitraverse f g Bs
       | .while e B, pos => (.while · · @@ pos) <$> g e <*> Block.bitraverse f g B

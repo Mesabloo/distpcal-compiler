@@ -45,9 +45,18 @@ namespace SurfacePlusCal.Lexer
   end
 
   section Tokens
+    /-- `.barbar` (`||`, the multi-assignment separator, `x := e1 || y := e2`) has to be tried
+    *before* falling through to the TLA⁺ sub-lexer (`lexToken`'s own `first [located symbol,
+    patchTLALexer lexTLAToken]` order) — otherwise the TLA⁺ lexer's own generic `||` infix-
+    operator token wins, and `parseAssign`'s `sepNoEndBy1 (token .barbar)` never actually sees
+    a separator to split on, silently swallowing everything after the first `||` into that
+    clause's own right-hand-side expression instead (a real, previously-latent bug: `.barbar`
+    was already declared in `Parser_/Tokens/PlusCal.lean` and referenced by `parseAssign`, but
+    nothing ever lexed it, so multi-assignment via `||` never actually parsed correctly). -/
     private def symbol : PlusCalLexer Token := first [
       .dashdash <$ chars "--",
       .semicolon <$ char ';',
+      .barbar <$ chars "||",
     ]
   end Tokens
 

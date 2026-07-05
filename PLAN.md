@@ -605,10 +605,78 @@ Two independent halves, both implemented:
     one sitting immediately after `with`'s opening `(`) all show genuinely concrete content —
     `mailbox := some ("ch", [])`, `fifos := [("ch", some (Typ.channel (Typ.str)), [])]`,
     `variables := [("x", some (Typ.str), true, some (false, …))]`,
-    `Statement.with [("x", some (Typ.int), false, …)] …` — no `Annotation`/`CommentAnnotation`
+    `Statement.with "x" (some (Typ.int)) false … …` — no `Annotation`/`CommentAnnotation`
     value anywhere in a `CorePlusCal` value any more. All 26 `tests/regression/` fixtures (25
     prior + 1 new, `accept_with_binder_type_annotation.tla`) and all four external fixtures
     still pass.
+  - **Seventh addition: a multi-binder `with` desugars to a chain of single-binder `with`s.**
+    `with (x = e1, y ∈ e2, …) { B }` (a genuine comma list at the surface syntax level,
+    unchanged in `SurfacePlusCal.Statement.with`) now desugars to `with (x = e1) { with (y ∈
+    e2) { … B } }` — per the project owner, since real PlusCal's own `with` binds exactly one
+    variable at a time and every downstream backend should be able to rely on that directly
+    rather than re-deriving it from a list. `CorePlusCal.Statement.with` changed from `(vars :
+    List (String × α × Bool × β))` to five separate fields (`var : String`, `ann : α`, `«=|∈» :
+    Bool`, `val : β`, plus the body `Block`) — this project's convention of encoding a
+    structural invariant at the type level rather than a runtime check or a comment (`CLAUDE.md`,
+    `Core/CorePlusCal/Syntax.lean`'s `Bool`-indexed terminal/non-terminal split is the
+    precedent) — one binder per `with`, full stop, no `List` to be non-empty or singleton by
+    convention. `Desugarer/PlusCal.lean`'s new `buildWithChain` (mirroring the existing
+    `buildBranches`'s "fold a list into a right-nested chain" shape) does the flattening: the
+    innermost binder wraps the already-desugared original body directly; every binder before it
+    wraps the next link in the chain inside a label-free `Block` of its own (`⟨[], ·⟩`, no
+    leading statements) — `Statement.desugarLabelFree`'s `.with` case calls it in place of the
+    old direct `.with vars` construction, with the `WithContext` reader's bound-name tracking
+    unchanged (still extends with *every* binder's name for the *whole* original body in one
+    step, since the write-rejection rule doesn't care how the final AST groups the bindings).
+    Verified: `-d dump-desugared` on a fixture with three binders (`x = 3, y ∈ {1,2}, z = 5`)
+    shows the exact nested shape; new regression fixture
+    `accept_multi_binder_with_desugars_to_chain.tla`; all 27 `tests/regression/` fixtures (26
+    prior + this one) pass.
+  - **Eighth addition: every function call/`EXCEPT` index is unary.** `CoreTLAPlus.Expression.
+    fnCall`/`.except` changed from `Expression α → List (Expression α) → …`/an `.inr`-case
+    carrying `List (Expression α)` to a single `Expression α` each — a surface multi-index call
+    `f[e₁, …, eₙ]` (`n > 1`, same for an `EXCEPT` path step `![e₁, …, eₙ]`) desugars to the
+    tuple-application `f[<<e₁, …, eₙ>>]`; a single-index call `f[e]` (`n = 1`) stays exactly
+    that — **never** `f[<<e>>]`, per the project owner's explicit correction (an earlier version
+    of this change wrapped every call, single-index included). `SurfaceTLAPlus.Expression.
+    fnCall`/`.except` are unchanged (still `List`, matching the genuine surface-syntax comma
+    list) — the collapse happens entirely in `Desugarer/TLAPlus.lean`'s `Expression.desugar`, via
+    a new `wrapIndices : List (Expression α) → Expression α` helper (`[e] => e`, `es => .tuple
+    es`) alongside the pre-existing `tupleProj`. Verified:
+    `-d dump-desugared` shows `f[1]` unchanged and `f[1, 2]` becoming `fnCall (var "f") (tuple
+    [nat "1", nat "2"])`, same for both `EXCEPT` forms; new regression fixture
+    `accept_multi_index_function_call_desugars_to_tuple.tla`; all 28 `tests/regression/`
+    fixtures (27 prior + this one) pass.
+  - **Ninth addition: `SurfacePlusCal`/`CorePlusCal.Ref` (a PlusCal assignment target,
+    `f[e₁, …, eₙ] := v`) gets the same unary treatment — corrects the previous bullet's
+    "untouched by this change," per the project owner.** `SurfaceTLAPlus.Expression.fnCall`/
+    `.except` and `SurfacePlusCal.Ref` were never actually the same representation — `Ref.args :
+    List (List β)` (one entry per *bracket group*, `x[i][j]` vs. `x[i, j]`), not `List β` — but
+    the same "always unary, `n > 1` wraps in a tuple" rule applies per bracket group: `f[e₁, …,
+    eₙ] := v` (`n > 1`, one group) desugars to `f[<<e₁, …, eₙ>>] := v`; `f[e₁][e₂] := v` (two
+    separate groups) is unaffected either way, each group still single-index; `f[e] := v` stays
+    exactly that. Unlike `fnCall`/`.except`, `Ref` was previously *shared verbatim* between
+    `SurfacePlusCal` and `CorePlusCal` (`open SurfacePlusCal (Ref …)`, no separate `CorePlusCal`
+    version at all) — introduced a genuine `CorePlusCal.Ref (β : Type)` (`args : List β`, unary
+    per group) distinct from `SurfacePlusCal.Ref (β : Type)` (`args : List (List β)`, unchanged,
+    matching real surface syntax), with its own `Functor`/`Traversable` instance (so `Statement`'s
+    existing generic `bimap`/`bitraverse` code over `Ref β` fields keeps working unchanged,
+    now resolving to the new instance). `CorePlusCal.Statement.assign`/`.receive`/`.send`
+    reference `CorePlusCal.Ref` (previously `SurfacePlusCal.Ref`, since it was the only one).
+    The actual conversion (`SurfacePlusCal.Ref → CorePlusCal.Ref`, `Desugarer/PlusCal.lean`'s new
+    `Ref.desugarRef`, reusing `SurfaceTLAPlus.wrapIndices` — made non-`private` for this) happens
+    inline in `Statement.desugarLabelFree`'s `.assign`/`.receive`/`.send` cases, which — since
+    `wrapIndices` is only meaningful once `β` is concretely `CoreTLAPlus.Expression` — required
+    fixing `β` concretely (a new `private abbrev CoreExpr`) throughout the whole goto-
+    explicitization chain that constructs or passes through these cases (`Statement.
+    desugarLabelFree`/`desugarLabelFreeBlock`/`Branches.desugarLabelFree`/`desugarSegment`/
+    `Thread.desugar`), mirroring how `Process.desugar`/`Algorithm.desugar` were already fixed —
+    these functions were never actually called at any other `β` in practice, so this drops
+    unused genericity rather than losing any. Verified: `-d dump-desugared` on a fixture with
+    `f[1] := 0`, `f[1, 2] := 9`, `f[1][2] := 3` (each its own labelled step) shows exactly
+    `args := [nat 1]`, `args := [tuple [nat 1, nat 2]]`, `args := [nat 1, nat 2]` respectively;
+    new regression fixture `accept_multi_index_ref_desugars_to_tuple.tla`; all 36
+    `tests/regression/` fixtures (35 prior + this one) pass.
 
 ### 5.2a Well-formedness checking (NEW)
 **Input/output:** `CoreTLAPlus`/`CorePlusCal` — this is a checking pass, not a
@@ -678,6 +746,57 @@ declarations, gotos, and operator shapes are all already resolved by the time
       same variable is fine; the same branch doing so, or one branch and whatever both
       branches converge to afterward, is not). Not previously listed in this plan at all;
       added from the same manual cross-check that caught the `while` fixes above.
+
+      **Implemented ahead of this pass's own Phase 7 slot, per the project owner** (`Desugarer/
+      PlusCal.lean`'s `CorePlusCal.{Statement,Block,Branches}.checkAssignConflicts`, mutually
+      recursive over the same three types, run from `SurfacePlusCal.Algorithm.runDesugarer`
+      right after goto-explicitization, before `stripEmbeddedTypeAnnotations`) — matching how
+      the sibling `with`-bound-write-rejection check (§5.2 above) was already added ad hoc
+      during statement-desugaring rather than deferred to `WellFormedness/`. Tracks only
+      *bare* variable writes (`Ref.args` empty) from `assign` (every entry of a `||`-list) and
+      `receive`'s — **both** `Ref`s, the channel `c` as well as the target `x`
+      (`receive(x, a); receive(x, b)` errors, same as re-assigning/re-receiving into `x`
+      itself — added per the project owner after the initial pass only tracked the target);
+      **explicitly does not track indexed writes at all** (`x[0] := …`
+      never conflicts with anything, per the project owner — deciding whether two indexed
+      writes actually conflict needs to compare the indices, out of scope for this purely
+      syntactic pass). `if`/`either` branches are checked independently (starting from the same
+      already-seen set) but their writes are unioned into what continues past them, so a write
+      in either branch still conflicts with one afterward in the same block; `while`/`with`
+      bodies don't fork execution, so they're checked sequentially, merged with everything
+      around them. New `DesugarError.conflictingAssignment (pos) (name)`.
+
+      **A second real, previously-latent parser bug found while testing this against the
+      project owner's own `x := 3 || x := 4` example:** it silently parsed as one assignment
+      with a garbled right-hand side (`(3 || x) := 4`-shaped) instead of two `||`-separated
+      clauses — `.barbar` (`Parser_/Tokens/PlusCal.lean`'s own token for `||`, "the multi-
+      assignment separator") was declared and referenced by `parseAssign`'s `sepNoEndBy1 (token
+      .barbar)`, but **nothing ever actually lexed it** — `SurfacePlusCal.Lexer.symbol` (the
+      PlusCal-specific lexer, tried before falling through to the general TLA⁺ lexer) had no
+      rule producing it, so `||` always fell through to TLA⁺'s own generic infix-operator
+      token instead, and `parseExpression` (parsing the first clause's right-hand side) happily
+      consumed `3 || x` as one ordinary TLA⁺ expression before `sepNoEndBy1` ever got a chance
+      to split on a `.barbar` that was never going to appear. Multi-assignment via `||`
+      essentially never worked at all, for any input, until this fix — not something introduced
+      this session. **Fixed** by adding `.barbar <$ chars "||"` to `symbol`, which — since
+      `SurfacePlusCal.Lexer.lexToken` already tries `located symbol` *before*
+      `patchTLALexer lexTLAToken` — now wins over the TLA⁺ lexer's own `||` unconditionally
+      within a PlusCal algorithm block (matching how PlusCal already reserves several
+      TLA⁺-lexed identifier keywords, e.g. `if`/`while`, exclusively for its own use there).
+
+      Verified: full `lake build` clean; all five of the project owner's own worked examples
+      (`x := 3 || x := 4` rejected; `x := 3; y := 4` accepted; `x := 4; x := 0` rejected;
+      `x[0] := 1; x[0] := 5` accepted; `x := 3; receive(c, x)` rejected) match exactly, plus two
+      more covering `if`-branch exclusivity (two different branches writing the same variable
+      accepted; one branch writing, then code after the `if` writing again, rejected), plus one
+      more (added with the channel-argument extension) covering `receive(x, a); receive(x, b)`
+      (same channel twice, rejected). New regression fixtures:
+      `reject_parallel_assign_same_variable.tla`,
+      `accept_assign_different_variables.tla`, `reject_sequential_assign_same_variable.tla`,
+      `accept_repeated_indexed_assign.tla`, `reject_assign_then_receive_same_variable.tla`,
+      `accept_if_branches_same_variable.tla`, `reject_if_branch_then_after_same_variable.tla`,
+      `reject_receive_same_channel_twice.tla` — all 37 `tests/regression/` fixtures (28 prior +
+      these 8, oldest-to-newest across both rounds) pass.
     - *The reserved label `"Done"` is never redefined as an actual, user-written label*
       (§3.7) — `"Error"`'s equivalent restriction doesn't apply here (no procedures exist in
       this language subset, §3.4/§8, so there's no implicit `Error` label to collide with).

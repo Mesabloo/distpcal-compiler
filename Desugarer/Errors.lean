@@ -64,6 +64,16 @@ inductive DesugarError : Type
   instead (`DesugarWarning.duplicateParameterAnnotation`), not this error, since there's
   nothing to actually disagree about. -/
   | duplicateAnnotation (pos : SourceSpan) (kind : String)
+  /-- The same *bare* variable (no index — `x`, not `x[…]`, `PLAN.md` §5.2a's well-labelledness
+  bullet, "no two assignments to the same variable within one atomic step, on the same control
+  path") is written to more than once within one atomic step (`assign`, including two entries
+  of the same `||`-list, or `receive`, whichever combination) — on the *same* control path:
+  two different `if`/`either` branches writing to the same variable is fine (only one of them
+  ever actually runs), but one branch doing so twice, or one branch and whatever both branches
+  converge to afterward, is not. Indexed writes (`x[0] := …`) are never tracked by this check
+  at all — a real conflict there depends on whether the indices are equal, which isn't
+  something this purely syntactic pass can (or should) decide. -/
+  | conflictingAssignment (pos : SourceSpan) (name : String)
 
 instance : CompilerDiagnostic DesugarError String where
   isError := true
@@ -77,7 +87,8 @@ instance : CompilerDiagnostic DesugarError String where
     | .notFollowedByLabel pos
     | .withBoundVarWritten pos _
     | .wrongAnnotationKindAtSite pos _ _
-    | .duplicateAnnotation pos _ => pos
+    | .duplicateAnnotation pos _
+    | .conflictingAssignment pos _ => pos
   msgOf
     | .misplacedAt _ => "Unexpected '@' outside 'EXCEPT' construct."
     | .gotoNotInTailPosition _ => "'goto' may not be followed by further unlabelled statements."
@@ -89,6 +100,7 @@ instance : CompilerDiagnostic DesugarError String where
     | .withBoundVarWritten _ name => s!"'{name}' is bound by an enclosing 'with' and cannot be written to."
     | .wrongAnnotationKindAtSite _ found expected => s!"'{found}' is not valid here; only '{expected}' is expected at this position."
     | .duplicateAnnotation _ kind => s!"Only one '{kind}' annotation is allowed per binder."
+    | .conflictingAssignment _ name => s!"'{name}' is written to more than once within the same atomic step."
 
 /-- Non-fatal issues found while desugaring — collected out-of-band (mirroring
 `Parser_/Common.lean`'s `ParserWarning`/`ParserWarningM`) rather than emitted immediately,

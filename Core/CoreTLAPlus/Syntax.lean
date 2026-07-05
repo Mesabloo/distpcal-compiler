@@ -72,8 +72,10 @@ inductive Expression (α : Type) : Type
   | collect : String → α → Expression α → Expression α → Expression α
   /-- The image of a function by a set `{e : x ∈ A}`. -/
   | map' : Expression α → String → α → Expression α → Expression α
-  /-- A function call `f[e₁, …, eₙ]`. -/
-  | fnCall : Expression α → List (Expression α) → Expression α
+  /-- A function call `f[e]` — always unary. A surface multi-index call `f[e₁, …, eₙ]` (`n > 1`)
+  desugars to `f[<<e₁, …, eₙ>>]` (`Desugarer/TLAPlus.lean`); a single-index call `f[e]` stays
+  exactly that, not `f[<<e>>]`. -/
+  | fnCall : Expression α → Expression α → Expression α
   /-- A function literal `[x ∈ A ↦ e]`. -/
   | fn : String → α → Expression α → Expression α → Expression α
   /-- The set of all functions from a domain to a codomain, `[A -> B]`. -/
@@ -82,8 +84,10 @@ inductive Expression (α : Type) : Type
   | record : List (α × String × Expression α) → Expression α
   /-- The set of all records whose fields are in the given sets, `[a : A, …, z : Z]`. -/
   | recordSet : List (α × String × Expression α) → Expression α
-  /-- Function update `[f EXCEPT ![e₁] = e₂]`. -/
-  | except : Expression α → List (List (String ⊕ List (Expression α)) × Expression α) → Expression α
+  /-- Function update `[f EXCEPT ![e] = e₂]` — each path step's index (`.inr`) is unary, same
+  as `fnCall` and for the same reason (a multi-index step `![e₁, …, eₙ]`, `n > 1`, desugars to
+  `![<<e₁, …, eₙ>>]`, `Desugarer/TLAPlus.lean`). -/
+  | except : Expression α → List (List (String ⊕ Expression α) × Expression α) → Expression α
   /-- Record access `r.x`. -/
   | recordAccess : Expression α → String → Expression α
   /-- A literal tuple `<<e₁, …, eₙ>>` — also TLA⁺'s only literal sequence former (`Seq(S)`,
@@ -120,12 +124,14 @@ protected partial def Expression.map {α β} (f : α → β) (e : Expression α)
   | .set es, pos => .set (Expression.map f <$> es) @@ pos
   | .collect x ann dom e, pos => .collect x (f ann) (Expression.map f dom) (Expression.map f e) @@ pos
   | .map' e x ann dom, pos => .map' (Expression.map f e) x (f ann) (Expression.map f dom) @@ pos
-  | .fnCall e es, pos => .fnCall (Expression.map f e) (Expression.map f <$> es) @@ pos
+  | .fnCall e e', pos => .fnCall (Expression.map f e) (Expression.map f e') @@ pos
   | .fn x ann dom e, pos => .fn x (f ann) (Expression.map f dom) (Expression.map f e) @@ pos
   | .fnSet e₁ e₂, pos => .fnSet (Expression.map f e₁) (Expression.map f e₂) @@ pos
   | .record fs, pos => .record (Prod.map₃ f id (Expression.map f) <$> fs) @@ pos
   | .recordSet fs, pos => .recordSet (Prod.map₃ f id (Expression.map f) <$> fs) @@ pos
-  | .except e upds, pos => .except (Expression.map f e) (Bifunctor.bimap (Bifunctor.snd (Expression.map f <$> ·) <$> ·) (Expression.map f) <$> upds) @@ pos
+  | .except e upds, pos =>
+    .except (Expression.map f e)
+      (Bifunctor.bimap (·.map (Sum.map id (Expression.map f))) (Expression.map f) <$> upds) @@ pos
   | .recordAccess e v, pos => .recordAccess (Expression.map f e) v @@ pos
   | .tuple es, pos => .tuple (Expression.map f <$> es) @@ pos
   | .if e₁ e₂ e₃, pos => .if (Expression.map f e₁) (Expression.map f e₂) (Expression.map f e₃) @@ pos
@@ -156,7 +162,7 @@ protected partial def Expression.traverse {F : Type → Type} [Applicative F] {�
     (.collect x · · · @@ pos) <$> f ann <*> Expression.traverse f dom <*> Expression.traverse f e
   | .map' e x ann dom, pos =>
     (.map' · x · · @@ pos) <$> Expression.traverse f e <*> f ann <*> Expression.traverse f dom
-  | .fnCall e es, pos => (.fnCall · · @@ pos) <$> Expression.traverse f e <*> traverse (Expression.traverse f) es
+  | .fnCall e e', pos => (.fnCall · · @@ pos) <$> Expression.traverse f e <*> Expression.traverse f e'
   | .fn x ann dom e, pos =>
     (.fn x · · · @@ pos) <$> f ann <*> Expression.traverse f dom <*> Expression.traverse f e
   | .fnSet e₁ e₂, pos => (.fnSet · · @@ pos) <$> Expression.traverse f e₁ <*> Expression.traverse f e₂
@@ -164,7 +170,7 @@ protected partial def Expression.traverse {F : Type → Type} [Applicative F] {�
   | .recordSet fs, pos => (.recordSet · @@ pos) <$> traverse (Prod.traverse₃ f pure (Expression.traverse f)) fs
   | .except e upds, pos =>
     (.except · · @@ pos) <$> Expression.traverse f e
-      <*> traverse (bitraverse (traverse (bitraverse pure (traverse (Expression.traverse f)))) (Expression.traverse f)) upds
+      <*> traverse (bitraverse (traverse (bitraverse pure (Expression.traverse f))) (Expression.traverse f)) upds
   | .recordAccess e v, pos => (.recordAccess · v @@ pos) <$> Expression.traverse f e
   | .tuple es, pos => (.tuple · @@ pos) <$> traverse (Expression.traverse f) es
   | .if e₁ e₂ e₃, pos => (.if · · · @@ pos) <$> Expression.traverse f e₁ <*> Expression.traverse f e₂ <*> Expression.traverse f e₃

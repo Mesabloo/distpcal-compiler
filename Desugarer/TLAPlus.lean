@@ -86,12 +86,12 @@ namespace SurfaceTLAPlus
     | .set es => .set (subst x e <$> es)
     | .collect y ann dom pred => .collect y ann (subst x e dom) (if y == x then pred else subst x e pred)
     | .map' body y ann dom => .map' (if y == x then body else subst x e body) y ann (subst x e dom)
-    | .fnCall f es => .fnCall (subst x e f) (subst x e <$> es)
+    | .fnCall f e' => .fnCall (subst x e f) (subst x e e')
     | .fn y ann dom body => .fn y ann (subst x e dom) (if y == x then body else subst x e body)
     | .fnSet e₁ e₂ => .fnSet (subst x e e₁) (subst x e e₂)
     | .record fs => .record (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v))
     | .recordSet fs => .recordSet (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v))
-    | .except f upds => .except (subst x e f) (upds.map λ (idx, v) ↦ (idx.map (Sum.map id (subst x e <$> ·)), subst x e v))
+    | .except f upds => .except (subst x e f) (upds.map λ (idx, v) ↦ (idx.map (Sum.map id (subst x e)), subst x e v))
     | .recordAccess f name => .recordAccess (subst x e f) name
     | .tuple es => .tuple (subst x e <$> es)
     | .if e₁ e₂ e₃ => .if (subst x e e₁) (subst x e e₂) (subst x e e₃)
@@ -102,9 +102,21 @@ namespace SurfaceTLAPlus
     | .false => .false
     | .stutter e₁ e₂ => .stutter (subst x e e₁) (subst x e e₂)
 
-  /-- The `z[i]` (1-based, TLA⁺-style) tuple projection. -/
+  /-- The `z[i]` (1-based, TLA⁺-style) tuple projection — a single index, so no `<<…>>`
+  wrapping (`wrapIndices` below) is needed. -/
   private def tupleProj {α} (z : String) (i : Nat) : CoreTLAPlus.Expression α :=
-    .fnCall (.var z) [.nat (toString (i + 1))]
+    .fnCall (.var z) (.nat (toString (i + 1)))
+
+  /-- `f[e₁, …, eₙ]`'s/`![e₁, …, eₙ]`'s indices, collapsed to the single `CoreTLAPlus.Expression`
+  `fnCall`/`except` now always take: a lone index (`n = 1`) stays exactly that, `f[e]`; strictly
+  more than one (`n > 1`) becomes the tuple `f[<<e₁, …, eₙ>>]` — never the reverse (`n = 1`
+  never becomes `f[<<e>>]`), per the project owner. `es` is always non-empty by construction of
+  the parser (`sepBy1` inside `f[...]`/`![...]`, `Parser_/TLAPlus.lean`). Not `private`: reused
+  by `Desugarer/PlusCal.lean` for `SurfacePlusCal.Ref`'s own indices (`x[e₁, …, eₙ] := v`),
+  same rule. -/
+  def wrapIndices {α} (pos : SourceSpan) : List (CoreTLAPlus.Expression α) → CoreTLAPlus.Expression α
+    | [e] => e
+    | es => .tuple es @@ pos
 
   /--
     Flatten one already-desugared `QuantifierBound` into a list of single-variable
@@ -211,7 +223,7 @@ namespace SurfaceTLAPlus
         return (bs ++ bindings, e)
       let (x, ann, dom, e) ← collapseToSingleBinder bindings e
       return .map' e x ann dom @@ pos
-    | .fnCall e es, pos => (.fnCall · · @@ pos) <$> e.desugar <*> traverse Expression.desugar es
+    | .fnCall e es, pos => (.fnCall · · @@ pos) <$> e.desugar <*> (wrapIndices pos <$> traverse Expression.desugar es)
     | .fn qs e, pos => do
       let e ← e.desugar
       let (bindings, e) ← qs.foldrM (init := ([], e)) λ qb (bindings, e) ↦ do
@@ -229,9 +241,9 @@ namespace SurfaceTLAPlus
       let upds ← upds.traverse λ ⟨idx, e'⟩ ↦ do
         let idx ← traverse (bitraverse pure (traverse Expression.desugar)) idx
         let e := idx.foldl (init := e) λ | e, .inl x => .recordAccess e x
-                                         | e, .inr es => .fnCall e es
+                                         | e, .inr es => .fnCall e (wrapIndices pos es)
         let e' ← withReader (Function.const _ (.some e)) e'.desugar
-        return ⟨idx, e'⟩
+        return ⟨idx.map (Sum.map id (wrapIndices pos)), e'⟩
       return .except e upds @@ pos
     | .recordAccess e x, pos => (.recordAccess · x @@ pos) <$> e.desugar
     | .tuple es, pos => (.tuple · @@ pos) <$> traverse Expression.desugar es
