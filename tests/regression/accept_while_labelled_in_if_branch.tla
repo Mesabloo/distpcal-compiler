@@ -3,9 +3,13 @@
 \* label (`p2`), and the continuation after the `if` is also explicitly labelled (`p3`) —
 \* the fully-labelled counterpart to reject_while_not_labelled_in_if_branch.tla.
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptWhileLabelledInIfBranch {
     variable x = 3;
-    process (P = 0) {
+    process (P = PID) {
     p1: if (x > 0) {
     p2:     while (x > 0) {
                 x := x - 1;

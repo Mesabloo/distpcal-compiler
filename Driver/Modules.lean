@@ -1,5 +1,4 @@
-import Elaborator.Monad
-import Core.TypedPlusCal.Syntax
+import Elaborator.Elaborator
 import Parser_.TLAPlus
 import Parser_.Annotations
 import Desugarer.TLAPlus
@@ -21,10 +20,6 @@ open Colorized (Colorized)
   `resolveModule` calls it again, recursively, for every `EXTENDS`-ed dependency — there is
   exactly one implementation of "lex → parse → desugar → resolve deps → check", not two.
 -/
-
-/-- The checker's own cached-module representation — kept as an abbrev rather than repeating the
-full applied type everywhere. -/
-abbrev TypedModule := TypedTLAPlus.Module TypedPlusCal.Algorithm TypedTLAPlus.Typ
 
 /--
   This file's own errors — **not** `TCError`: nothing here is a type-checking-rule violation
@@ -247,9 +242,26 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
   (`+`/`-`/`Len`/`Head`/… ) actually live** — that prelude is a deliberate, flat, always-on
   approximation of what *should* eventually be real per-module entries here (`Naturals`'s
   arithmetic, `Sequences`'s sequence operators, …), tracked as future work rather than started now
-  (`PLAN.md` §9.19).
+  (`PLAN.md` §9.19). **Consequence:** each stub below is genuinely *empty* (no declarations, no
+  algorithm) — it exists only so `EXTENDS Sequences`/`Naturals`/`Bags`/`TLC` resolves *a* module at
+  all; every operator a real spec actually uses from one of these (`Len`, `Head`, `Tail`, `Append`,
+  `+`, `-`, …) is already available unconditionally via `builtinContext`, `EXTENDS` or not.
+
+  **Populated now, not left empty** — the four hand-verification fixtures (`.claude/tasklist.md`'s
+  own "Verification" section: `PingPong.tla`/`PingPongs.tla`/`TPC2.tla`/`LamportMutex3.tla`)
+  between them `EXTENDS` exactly `Sequences`, `Naturals`, `Bags`, and `TLC` — precisely the "real
+  test input needs a specific standard-module name" moment this table's own doc has been waiting
+  for since Phase 5 started.
 -/
-def builtinModules : Std.HashMap String TypedModule := {}
+def builtinModules : Std.HashMap String TypedModule := Std.HashMap.ofList <|
+  #["Sequences", "Naturals", "Bags", "TLC", "FiniteSets"].toList.map λ name ↦
+    (name, ({
+      name := name
+      «extends» := []
+      declarations₁ := []
+      pcalAlgorithm := none
+      declarations₂ := []
+    } : TypedModule))
 
 /-
   The effects `compileModule`/`resolveModule` need beyond ordinary IO: `Γ`'s enclosing `FlagsEnv`
@@ -348,6 +360,20 @@ private def dumpToFile {m} [Monad m] [MonadLiftT IO m] (content : String) (dir :
 
 /-- Default value of `-d dump-dir=<path>`. -/
 private def defaultDumpDir : System.FilePath := ".fugue/debug"
+
+/-- Every name/type binding a checked declaration introduces, mirroring `Elaborator/
+Declarations.lean`'s own `checkDeclaration`'s second return component — but computed from an
+already-checked `Decl`, not by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
+declarations into a fresh `Γ₀` (thesis Fig. 3.1.12's `Extend` rule: all of a dependency's own
+`params`/`defs` come into scope, not just its exported operators — PlusCal-internal declarations
+are *not* included, `Elaborator/Elaborator.lean`'s own note: they never leak into a module's `Γ`
+in the first place, so a dependency's checked `pcalAlgorithm` is never consulted here at all). -/
+private def Decl.bindings : Decl → List (String × TypedTLAPlus.Typ)
+  | .constants xs => xs
+  | .variables xs => xs
+  | .assume _ => []
+  | .operator τ f _ _ => [(f, τ)]
+  | .function τ f _ _ => [(f, τ)]
 
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
@@ -466,14 +492,18 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
       dumpToFile (reprStr mod) dumpDir s!"{moduleId}-desugared"
 
     pure (mod, warnings)
-  let _deps ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings <|
+  let deps ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings <|
     mod.extends.mapM λ dep ↦
       withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
   onModuleProgress mod.name
 
   let typed ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
-    let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
-    let typed ← (throw (.typeCheck moduleId (.todo noPos "Type checking is not yet implemented.")) : m TypedModule)
+    let importedBindings := deps.flatMap λ (_, depMod) ↦
+      (depMod.declarations₁ ++ depMod.declarations₂).flatMap Decl.bindings
+    let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, τ) ↦ ctx.insert x τ
+    let typed ← match mod.runChecker Γ₀ with
+      | .error e => throw (.typeCheck moduleId e)
+      | .ok typed => pure typed
 
     if ← FlagsEnv.getDebugFlag "dump-typed" then
       dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"

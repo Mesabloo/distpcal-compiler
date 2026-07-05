@@ -5,8 +5,12 @@
 \* swallowed by the `(` token's own trailing-whitespace skip (the same class of bug `parseFilter`
 \* already works around for `multicast`, `Parser_/PlusCal.lean`).
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptWithBinderTypeAnnotation {
-    process (P = 0) {
+    process (P = PID) {
     p1: with ((* @type: Int; *) x = 3, y = 4) {
           print x + y;
         };

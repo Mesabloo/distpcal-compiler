@@ -57,6 +57,18 @@ inductive TCError : Type
   count) didn't match its annotated type's own operator-arity (`Elaborator/Declarations.lean`'s
   `checkParamArity`). -/
   | paramArityMismatch (pos : SourceSpan) (param : String) (declared inferred : Nat)
+  /-- A `receive`/`send`/`multicast` statement's channel reference didn't synthesize a
+  `Channel(τ)`-shaped type (thesis Fig. 3.1.13's `[Receive]`/`[Send]`/`[Multicast]`,
+  `Elaborator/PlusCal.lean`). -/
+  | notAChannelType (pos : SourceSpan) (got : TypedTLAPlus.Typ)
+  /-- A `print` statement's argument didn't synthesize a `showable` type (thesis Fig. 3.1.14,
+  `Elaborator/PlusCal.lean`'s `[Print]`). -/
+  | notShowable (pos : SourceSpan) (got : TypedTLAPlus.Typ)
+  /-- A metavariable left over at the end of a declaration's checking (`PLAN.md` §5.3's
+  single end-of-check defaulting point, `Elaborator/Expressions.lean`'s `resolveMVars`) had no
+  pending upper bound recorded on it at all — it was never actually constrained by anything
+  during checking, not a case to silently default away. -/
+  | unconstrainedMetavariable (pos : SourceSpan)
   deriving Repr, Inhabited, BEq
 
 instance : CompilerDiagnostic TCError String where
@@ -78,6 +90,9 @@ instance : CompilerDiagnostic TCError String where
     | .notAFunctionType pos _ => pos
     | .notATupleType pos _ => pos
     | .paramArityMismatch pos _ _ _ => pos
+    | .notAChannelType pos _ => pos
+    | .notShowable pos _ => pos
+    | .unconstrainedMetavariable pos => pos
   msgOf
     | .todo _ msg => msg
     | .unboundVariable _ name => s!"Unbound variable `{name}`."
@@ -100,6 +115,10 @@ instance : CompilerDiagnostic TCError String where
     | .notATupleType _ got => s!"Expected a tuple type, got `{got}`."
     | .paramArityMismatch _ param declared inferred =>
       s!"Parameter `{param}` was declared with arity {declared}, but its annotated type has arity {inferred}."
+    | .notAChannelType _ got => s!"Expected a `Channel(_)` type, got `{got}`."
+    | .notShowable _ got => s!"`{got}` is not a showable type — it cannot be passed to `print`."
+    | .unconstrainedMetavariable _ =>
+      "A metavariable was left unconstrained at the end of checking — an explicit type annotation is needed here."
 
 /-- The type checker's non-fatal diagnostics (§5.3) — collected out-of-band, matching
 `Desugarer/Errors.lean`'s `DesugarWarning`. See the module doc — `todo` is a placeholder. -/

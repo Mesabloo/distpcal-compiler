@@ -62,7 +62,7 @@ for f in "$script_dir"/*.tla; do
   names+=("$name")
 
   (
-    "$fugue" -fno-color -fno-progress "$f" >/dev/null 2>&1
+    "$fugue" -f no-color,no-progress "$f" >/dev/null 2>&1
     got_exit=$?
     if { [ "$want_exit" -eq 0 ] && [ "$got_exit" -eq 0 ]; } || \
        { [ "$want_exit" -ne 0 ] && [ "$got_exit" -ne 0 ]; }; then

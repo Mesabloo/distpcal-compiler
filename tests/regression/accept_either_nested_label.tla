@@ -4,9 +4,13 @@
 \* The continuation label `p3` is required in the source (not synthesized) — this compiler
 \* never invents one.
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptEitherNestedLabel {
     variable x = 0;
-    process (P = 0) {
+    process (P = PID) {
     p1: either {
     p2:     x := 1;
         } or {

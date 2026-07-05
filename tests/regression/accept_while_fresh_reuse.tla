@@ -4,9 +4,13 @@
 \* directly as the loop's own loop-back target instead of synthesizing a fresh label.
 \* Regression check for the fix in accept_while_nonfresh_extraction.tla.
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptWhileFreshReuse {
     variable x = 3;
-    process (P = 0) {
+    process (P = PID) {
     p1: while (x > 0) {
             x := x - 1;
         };

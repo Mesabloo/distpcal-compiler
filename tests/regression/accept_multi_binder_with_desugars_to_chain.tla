@@ -4,8 +4,12 @@
 \* `CorePlusCal.Statement.with` only ever binds one variable at a time, by construction
 \* (`Core/CorePlusCal/Syntax.lean`'s module doc).
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptMultiBinderWithDesugarsToChain {
-    process (P = 0) {
+    process (P = PID) {
     p1: with (x = 3, y \in {1, 2}, z = 5) {
           print x + y + z;
         };

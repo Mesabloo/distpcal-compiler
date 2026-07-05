@@ -4,8 +4,12 @@
 \* the same variable doesn't create any real ambiguity (unlike a repeated `@type`/`@mailbox`,
 \* which are hard errors) -- it's just redundant.
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptDuplicateParameterWarns {
-    process (P = 0)
+    process (P = PID)
         variable
             \* @parameter
             \* @parameter

@@ -10,6 +10,14 @@ import Elaborator.Expressions
   deferring it entirely (unlike `Driver/Modules.lean`'s `builtinModules`, which stays genuinely
   empty until real test input needs a specific `EXTENDS`-gated standard-module operator).
 
+  **Every declaration's own expressions are closed out via `Elaborator/Expressions.lean`'s
+  `resolveMVars` before `checkDeclaration` returns** (`PLAN.md` §5.3's single end-of-check
+  defaulting point — flagged by the project owner as missing from the checker entirely until this
+  session's own fix): a metavariable `specializeOperator` freshens during one declaration's
+  checking must not leak into the next declaration's `Γ` still unresolved, so `ASSUME`'s
+  expression, an operator definition's body, and a function definition's domain expressions and
+  body each get `resolveMVars`-ed individually, right where they're produced.
+
   **`THEOREM`/`RECURSIVE` — both out of scope, for different reasons.** `THEOREM` isn't a
   violation to special-case around: it has no `CoreTLAPlus.Declaration` constructor at all (surface
   parser doesn't recognize it either), so there's nothing here to match on. `RECURSIVE` is a real
@@ -116,6 +124,11 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("Head", .operator [.seq (.var "a")] (.var "a")),
   ("Tail", .operator [.seq (.var "a")] (.seq (.var "a"))),
   ("Append", .operator [.seq (.var "a"), .var "a"] (.seq (.var "a"))),
+  -- `Naturals`-module-only in real TLA⁺, same "unconditionally here anyway" reasoning as the
+  -- sequence operators above — a *value* (`Set(Int)`), not to be confused with the grammar's own
+  -- `Int` *type*. Found missing via hand-verification against `LamportMutex3.tla`'s `ASSUME N \in
+  -- Nat`.
+  ("Nat", .set .int),
 ]
 
 /-- A placeholder position for the declaration-shape errors below that have no expression to hang
@@ -192,6 +205,7 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
   -/
   | .assume e => do
     let e' ← checkExpr e .bool
+    let e' ← resolveMVars e'
     return (.assume e', [])
   /-
      f ∉ Γ       Γ, x₁ : τ₁, …, xₙ : τₙ ⊢ e ⇓ τ
@@ -200,19 +214,31 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
 
     (No `f : τ' ∈ Δ` reconciliation premise — `Δ` is always empty here, module doc; no `f` in the
     context used to check `e` either, for the same reason: no `RECURSIVE` to have put it there.)
+
+    **Zero-argument definitions (`f == e`, no parens at all) are checked against the annotation
+    directly as the bare result type, not `() => τ`.** Found via hand-verification against
+    `LamportMutex3.tla`'s `(* @type: Set(Int); *) Nodes == 1 .. N` — a real 0-ary definition is
+    always referenced by bare name (`Nodes`, via `[Var]`), never called like `Nodes()`, so `f`'s
+    own Γ binding is the plain value type, matching how every existing fixture actually writes
+    these annotations (never an operator-shaped one for a 0-ary definition).
   -/
   | .operator ann f args body => do
     let τ ← requireAnnotation (posOf body) s!"operator `{f}`" ann
-    match τ with
-    | .operator paramTys retTy =>
+    match args, τ with
+    | [], retTy => do
+      let body' ← checkExpr body retTy
+      let body' ← resolveMVars body'
+      return (.operator retTy f args body', [(f, retTy)])
+    | _, .operator paramTys retTy =>
       if paramTys.length ≠ args.length then
         throw (.arityMismatch (posOf body) paramTys.length args.length)
       else do
         (args.zip paramTys).forM λ ((x, arity), τᵢ) ↦ checkParamArity (posOf body) x arity τᵢ
         let bindings := args.map Prod.fst |>.zip paramTys
         let body' ← extendAll bindings (checkExpr body retTy)
+        let body' ← resolveMVars body'
         return (.operator τ f args body', [(f, τ)])
-    | _ => throw (.notAnOperatorType (posOf body) τ)
+    | _, _ => throw (.notAnOperatorType (posOf body) τ)
   /-
      f ∉ Γ       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇓ Set(τᵢ)       Γ, f : ⟨τ₁, …, τₙ⟩ → τ, x₁ : τ₁, …, xₙ : τₙ ⊢ e ⇓ τ
     ──────────────────────────────────────────────────────────────────────────────────────────────── [Function definition]
@@ -230,21 +256,24 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
         | 1, τ₁ => pure [τ₁]
         | n, .tuple τs => if τs.length = n then pure τs else throw (.arityMismatch (posOf body) τs.length n)
         | _, got => throw (.notATupleType (posOf body) got)
-      let args' ← (args.zip τs).mapM λ ((x, e), τᵢ) ↦ return (x, ← checkExpr e (.set τᵢ))
+      let args' ← (args.zip τs).mapM λ ((x, e), τᵢ) ↦ do
+        return (x, ← resolveMVars (← checkExpr e (.set τᵢ)))
       let bindings := (f, τ) :: (args.map Prod.fst |>.zip τs)
       let body' ← extendAll bindings (checkExpr body retTy)
+      let body' ← resolveMVars body'
       return (.function τ f args' body', [(f, τ)])
     | _ => throw (.notAFunctionType (posOf body) τ)
 
 /-- `Γ ⊢ D₁, …, Dₙ ⊣ Γ'` — the accumulation half of thesis Fig. 3.1.10 (module typing threads its
-declarations through exactly this, on both sides of the embedded PlusCal algorithm; assembling the
-two flanking `declarations₁`/`declarations₂` lists together with the (separately checked,
-`Elaborator/PlusCal.lean`, §5.3 task 9) algorithm itself is `Elaborator/Elaborator.lean`'s job,
-§5.3 task 10, not this file's). Structurally recursive on the list — no `partial` needed, unlike
-`Elaborator/Expressions.lean`'s mutual group. -/
-def checkDeclarations : List SrcDecl → m (List Decl)
-  | [] => return []
+declarations through exactly this, on both sides of the embedded PlusCal algorithm). Returns the
+accumulated `Γ' \ Γ` bindings alongside the checked declarations — `Elaborator/Elaborator.lean`
+(§5.3 task 10) needs them to keep extending `Γ` into the embedded PlusCal algorithm and the
+second `declarations₂` list, the same way `Elaborator/PlusCal.lean`'s own `checkVariables`/
+`checkPlusCalDeclarations` already expose theirs for exactly this reason. Structurally recursive
+on the list — no `partial` needed, unlike `Elaborator/Expressions.lean`'s mutual group. -/
+def checkDeclarations : List SrcDecl → m (List Decl × List (String × Typ))
+  | [] => return ([], [])
   | d :: ds => do
     let (d', bindings) ← checkDeclaration d
-    let ds' ← extendAll bindings (checkDeclarations ds)
-    return d' :: ds'
+    let (ds', restBindings) ← extendAll bindings (checkDeclarations ds)
+    return (d' :: ds', bindings ++ restBindings)

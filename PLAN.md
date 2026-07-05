@@ -1031,22 +1031,31 @@ below):
     waiting on, not by a fixed coercion — worth keeping as a distinct, nameable node
     rather than folding it into `Coercion` itself, since other future uses of
     "elaboration waiting on a not-yet-resolved metavariable" can reuse the same
-    constructor). The checker's context records, per unresolved metavariable `?n`,
-    **two lists kept in lockstep**: the pending upper bounds already tracked (the
-    "Upper-bound constraint" rule above), and the `mvar` sites created at each such check
-    — one new pending upper bound recorded always means exactly one new `mvar`-wrapped
-    expression recorded alongside it, so the two lists never drift apart in length.
-  - **Resolving the placeholders**: the moment `?n` resolves to a concrete `S` (whether
-    from a lower bound arriving, per the existing rules, or at the final defaulting
-    point), walk `?n`'s two lists together — for each `(T, mvar site)` pair, compute the
-    real coercion `coerce(S <: T)` (or fail, if `S <: T` doesn't hold) and substitute that
-    `mvar` node with the result of applying the coercion to its wrapped expression. This
-    substitution is part of the metavariable-resolution algorithm itself, not a separate
-    pass: by the time type-checking finishes (defaulting included), every `mvar` node
-    introduced during elaboration has been eliminated, so the checker's actual output —
-    what `Typed2Guarded` and the backends (§5.6, §5.7) see — is still `mvar`-free. The
-    node exists only transiently, inside the checker, while a metavariable it's tagged
-    with remains unresolved.
+    constructor).
+  - **Resolving the placeholders — implemented against the *existing* `pendingUpperBounds`
+    context directly, not a separate lockstep site-tracking table (an earlier draft of
+    this section proposed one; dropped once actually implemented, `Elaborator/
+    Expressions.lean`'s `resolveMVars`, after the project owner flagged this whole piece
+    as missing).** `mvar n e`'s wrapped `e`'s *true* type is exactly `?n`, and — given
+    `specializeOperator` mints a fresh metavariable per operator-call *use* and each one
+    is only ever the *source* of the one `subtype` call that builds its own `mvar`
+    wrapper — in every case reachable from the checker's own code, `?n`'s
+    `pendingUpperBounds` list has *exactly one* entry: the type that one call was checked
+    against. So resolution doesn't need a second table at all: at the single end-of-check
+    point (now: the end of each declaration, `Elaborator/Declarations.lean`, not deferred
+    all the way to whole-module completion), for every `mvar n e` actually found in that
+    declaration's own elaborated expressions, look up `?n`'s existing `pendingUpperBounds`
+    — `[]` is the genuine "never constrained by anything" error; a single entry `b`
+    assigns `?n := b` and substitutes `coerce(b <: b) = id` (trivially — `?n`'s value *is*
+    its own sole bound); **more than one entry is a loud, named gap, not a guess** (`.todo`,
+    not a silent pick) — real per-site tracking would be needed to substitute soundly in
+    that case, and no concrete program has produced one yet. This is a deliberate,
+    reviewed simplification over "keep a lockstep list of every `mvar` site," not an
+    oversight — revisit if a real program ever hits the multi-bound `.todo`. By the time
+    one declaration's checking finishes, every `mvar` node it introduced is eliminated
+    (or checking has already failed with a real error), so no `mvar` node survives past a
+    single declaration's own boundary — what `Typed2Guarded` and the backends (§5.6, §5.7)
+    eventually see is still `mvar`-free.
 - **Statement judgment** `Γ | Ξ ⊩ S ok` (no output type — statements are checked for
   effects, not typed). Notable asymmetric rules, worth preserving exactly as justified in
   the thesis (§3.1.5): `[Assign]` synthesizes the LHS type and *checks* the RHS against
@@ -1935,11 +1944,13 @@ builtin modules can `EXTENDS` each other (e.g. `Sequences` should itself `EXTEND
 Naturals`, matching real TLA⁺) — `builtinModules`'s own merge step can treat a builtin
 `EXTENDS`ing another builtin exactly like an ordinary module `EXTENDS`ing a dependency
 (`Driver/Modules.lean`'s existing recursive-resolution machinery already generalizes to
-this, `compileModule`/`resolveModule`'s own doc), no separate mechanism needed. Not
-started — `builtinModules` itself is still empty (`Driver/Modules.lean`'s own doc: "only
-populated as real test input needs a specific operator"), and this is a bigger lift than
-adding one more entry to that table, since it also means shrinking `builtinContext` back
-down once the real modules exist. Revisit once real `.tla` test input actually needs the
-`EXTENDS`-gating distinction to matter (e.g. a test asserting that a module *without*
-`EXTENDS Sequences` correctly fails to resolve `Len`).
+this, `compileModule`/`resolveModule`'s own doc), no separate mechanism needed. **Partially
+started, §5.3 tasks 9/10's own hand-verification**: `builtinModules` now has genuinely empty
+stub entries for `Sequences`/`Naturals`/`Bags`/`TLC`/`FiniteSets` (real test input —
+`PingPong.tla`/`PingPongs.tla`/`TPC2.tla`/`LamportMutex3.tla` — needed the bare *name* to
+resolve at all), but none of `builtinContext`'s operators have actually moved into them yet —
+`EXTENDS`-gating still doesn't matter operationally (a module can still see `Len`/`Head`/…
+whether or not it `EXTENDS Sequences`). Revisit moving the operators themselves once real
+`.tla` test input needs the `EXTENDS`-gating distinction to matter (e.g. a test asserting that
+a module *without* `EXTENDS Sequences` correctly fails to resolve `Len`).
 

@@ -6,10 +6,12 @@
 CONSTANTS
     \* @type: Int;
     \* @type: Int;
-    Foo
+    Foo,
+    \* @type: Address;
+    PID
 
 (*--algorithm AcceptRedundantTypeAnnotation {
-    process (P = 0) {
+    process (P = PID) {
     p1: skip;
     }
 }*)

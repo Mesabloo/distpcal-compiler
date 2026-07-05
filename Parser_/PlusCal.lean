@@ -310,7 +310,7 @@ namespace SurfacePlusCal.Parser
       let vars ← sepBy1 (semicolon <|> comma) do
         let annotations ← patchTLAParser tryParseAnnotations
         let var ← parseIdentifier
-        let «=|∈» ← located <| false <$ equals <|> true <$ token (.tla (.infix .«\in»))
+        let «=|∈» ← located <| true <$ equals <|> false <$ token (.tla (.infix .«\in»))
         let e ← patchTLAParser parseExpression
         return ⟨var, annotations, «=|∈», e⟩
       let _ ← token (.tla .rparen)

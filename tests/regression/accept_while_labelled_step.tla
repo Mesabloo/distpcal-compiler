@@ -4,9 +4,13 @@
 \* and falling out of the loop continues to `l3`. This is the project owner's own worked
 \* example from the basic-block-extraction correction (`PLAN.md` §5.2).
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptWhileLabelledStep {
     variable x = 3;
-    process (P = 0) {
+    process (P = PID) {
     l1: while (x > 0) {
             print 1;
             await x > 0;

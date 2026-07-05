@@ -71,7 +71,7 @@ import Core.CoreTLAPlus.Syntax
   direction-aware solving, not through a separate substitution guess at the call site.
 -/
 
-open TypedTLAPlus (Typ MVarId)
+open TypedTLAPlus (Typ MVarId Expr)
 
 /-- The checker's actual input: `CoreTLAPlus.Expression` at `α := Option Typ`, every binder's
 annotation still the optional, user-written one (`@type` comments, already parsed) rather than a
@@ -531,3 +531,84 @@ mutual
       throw (.cannotInferType pos
         "an empty set literal has no element type to synthesize — check it against an expected `Set(τ)` instead")
 end
+
+/--
+  `PLAN.md` §5.3's single end-of-check defaulting point, applied to one already-elaborated
+  expression: eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` is
+  resolved before an outer one that might wrap it. Every metavariable `n` a `mvar` node names
+  reached `[Subtype]`'s `.pending` case (module doc of `Elaborator/Subtyping.lean`'s `subtype`),
+  which fires only when `n` is still unresolved *and* is the check's own *source* type — given
+  `Elaborator/Expressions.lean`'s `specializeOperator` mints a fresh metavariable per operator-call
+  use and each one is only ever the source of exactly the one `subtype` call that builds its own
+  `mvar` wrapper, `n`'s `pendingUpperBounds` (`Elaborator/Subtyping.lean`) holds, in every case
+  reachable from this checker's own code today, exactly the one bound recorded at that call —
+  there is no separate site-tracking table to consult (per the project owner's own review of this
+  gap), just this existing context. Guarded rather than silently assumed: a metavariable with
+  more than one recorded bound would need genuine per-site tracking to substitute soundly (no
+  concrete program has been found that produces one — the theoretical route is a metavariable
+  used as *both* an unresolved source in one place and a lower/upper bound relative to a
+  *different*, also-unresolved metavariable elsewhere), so that case is a loud `todo`, not a
+  guess. A metavariable with *no* recorded bound at all is a real, named error — it was never
+  constrained by anything during checking.
+
+  `partial`: same structural-recursion caveat as `Expression.map`/`.traverse`/`checkExpr`'s own
+  mutual group above (nested `List`/`Option` occurrences of `Expression`).
+-/
+partial def resolveMVars (e : Expr) : m Expr := match_source e with
+  | .var v τ, pos => return .var v τ @@ pos
+  | .nat n, pos => return .nat n @@ pos
+  | .str s, pos => return .str s @@ pos
+  | .true, pos => return .true @@ pos
+  | .false, pos => return .false @@ pos
+  | .opCall f args, pos => return .opCall (← resolveMVars f) (← args.mapM resolveMVars) @@ pos
+  | .forall x τ dom body, pos =>
+    return .forall x τ (← dom.mapM resolveMVars) (← resolveMVars body) @@ pos
+  | .exists x τ dom body, pos =>
+    return .exists x τ (← dom.mapM resolveMVars) (← resolveMVars body) @@ pos
+  | .fforall x τ body, pos => return .fforall x τ (← resolveMVars body) @@ pos
+  | .eexists x τ body, pos => return .eexists x τ (← resolveMVars body) @@ pos
+  | .choose x τ dom body, pos =>
+    return .choose x τ (← dom.mapM resolveMVars) (← resolveMVars body) @@ pos
+  | .set es τ, pos => return .set (← es.mapM resolveMVars) τ @@ pos
+  | .collect x τ dom pred, pos =>
+    return .collect x τ (← resolveMVars dom) (← resolveMVars pred) @@ pos
+  | .map' body x τ dom, pos => return .map' (← resolveMVars body) x τ (← resolveMVars dom) @@ pos
+  | .fnCall f idx, pos => return .fnCall (← resolveMVars f) (← resolveMVars idx) @@ pos
+  | .fn x τ dom body, pos => return .fn x τ (← resolveMVars dom) (← resolveMVars body) @@ pos
+  | .fnSet dom cod, pos => return .fnSet (← resolveMVars dom) (← resolveMVars cod) @@ pos
+  | .record fields, pos =>
+    return .record (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveMVars e)) @@ pos
+  | .recordSet fields, pos =>
+    return .recordSet (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveMVars e)) @@ pos
+  | .except e upds, pos => do
+    let e' ← resolveMVars e
+    let upds' ← upds.mapM λ (path, newVal) ↦ do
+      let path' ← path.mapM λ
+        | .inl field => return (Sum.inl field : String ⊕ Expr)
+        | .inr idx => return .inr (← resolveMVars idx)
+      return (path', ← resolveMVars newVal)
+    return .except e' upds' @@ pos
+  | .recordAccess e x, pos => return .recordAccess (← resolveMVars e) x @@ pos
+  | .tuple es, pos => return .tuple (← es.mapM λ (τ, e) ↦ return (τ, ← resolveMVars e)) @@ pos
+  | .seq es τ, pos => return .seq (← es.mapM resolveMVars) τ @@ pos
+  | .if c t f, pos => return .if (← resolveMVars c) (← resolveMVars t) (← resolveMVars f) @@ pos
+  | .case branches other, pos => do
+    let branches' ← branches.mapM λ (p, e) ↦ return (← resolveMVars p, ← resolveMVars e)
+    return .case branches' (← other.mapM resolveMVars) @@ pos
+  | .stutter e a, pos => return .stutter (← resolveMVars e) (← resolveMVars a) @@ pos
+  | .mvar n e, pos => do
+    let e' ← resolveMVars e
+    match ← assigned? n with
+    -- Shouldn't happen per the doc above — defensive fallback: `n`'s value is already known,
+    -- nothing further to resolve at this site.
+    | some _ => return e'
+    | none => match ← pendingUpperBounds n with
+      | [] => throw (.unconstrainedMetavariable pos)
+      | [b] => do
+        assignMVar n b
+        match ← subtype b b with
+        | .success coe => return coe.apply e'
+        | .pending _ | .failure => return e' -- unreachable: `b <: b` always succeeds reflexively
+      | _ :: _ :: _ =>
+        throw (.todo pos
+          "metavariable with more than one recorded upper bound — needs per-site tracking, not seen in practice yet")

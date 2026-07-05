@@ -4,9 +4,13 @@
 \* deciding whether two indexed writes actually conflict depends on whether the indices are
 \* equal, which is out of scope for this purely syntactic check (`PLAN.md` §5.2a).
 
+CONSTANTS
+    \* @type: Address;
+    PID
+
 (*--algorithm AcceptRepeatedIndexedAssign {
     variables x = [n \in {0} |-> 0];
-    process (P = 0) {
+    process (P = PID) {
     p1: x[0] := 1;
         x[0] := 5;
         goto Done;

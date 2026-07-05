@@ -1,4 +1,5 @@
 import Elaborator.Monad
+import Core.TypedTLAPlus.Coercion
 
 /-!
   `<:`, `lub`, `glb`, and term-level coercion (§5.3, thesis Fig. 3.1.7's `SUBTYPE` rule and Fig.
@@ -46,30 +47,7 @@ import Elaborator.Monad
     needs to hold — and only ever *should* hold — for `τ = τ'`.
 -/
 
-open TypedTLAPlus (Typ MVarId Expression)
-
-/-- Checked TLA⁺ expressions at the checker's own output type — what a `Coercion` transforms. -/
-abbrev Expr := Expression Typ
-
-/--
-  A coercion (see the module doc for why this is this project's own addition over the thesis).
-  `.id` is its own constructor rather than folding identity into `.fn (λ e ↦ e)` so structural
-  rules can cheaply detect "nothing to wrap" by pattern matching alone — both to skip fresh-name
-  generation in the common (reflexive-substructure) case, and because `Seq`/`Operator`/`Channel`'s
-  rules (module doc) only ever succeed in exactly that case.
--/
-inductive Coercion : Type
-  /-- No wrapping needed — the source expression is already of the target type as-is. -/
-  | id
-  /-- A genuine wrapping transformation, turning an expression of the source type into one of the
-  target type. -/
-  | fn (f : Expr → Expr)
-
-/-- Apply a coercion to an already-elaborated expression — "applying it at a use site is just
-ordinary function application," `PLAN.md` §5.3. -/
-def Coercion.apply : Coercion → Expr → Expr
-  | .id, e => e
-  | .fn f, e => f e
+open TypedTLAPlus (Typ MVarId Expression Coercion Expr)
 
 /--
   The three outcomes of a subtyping check (`PLAN.md` §5.3) — not a plain success/failure, since an
