@@ -99,6 +99,41 @@ instance : CompilerDiagnostic DriverError String where
     | .typeCheck _ e => CompilerDiagnostic.msgOf e
 
 /--
+  This file's own warnings — `DriverError`'s non-fatal counterpart, for the identical reason:
+  a parser/desugarer/type-checker warning isn't itself a driver-level condition, but something
+  has to carry it (plus its owning `moduleId`, same convention as `DriverError`) through this
+  file's accumulate-then-flush machinery below (`MonadWarningAccumulator`), uniformly regardless
+  of which pass produced it.
+-/
+inductive DriverWarning : Type
+  | parser (moduleId : String) (w : ParserWarning)
+  | desugar (moduleId : String) (w : DesugarWarning)
+  | typeCheck (moduleId : String) (w : TCWarning)
+
+/-- The `-W<name>`/`-Wno-<name>` name a given warning is filtered under — forwards to whichever
+wrapped warning's own `.name`. -/
+def DriverWarning.name : DriverWarning → String
+  | .parser _ w => ParserWarning.name w
+  | .desugar _ w => DesugarWarning.name w
+  | .typeCheck _ w => TCWarning.name w
+
+/-- The `moduleId` a given warning is tagged with — every variant carries one, unlike
+`DriverError` (whose `moduleNotFound`/`ambiguousModule`/`cyclicExtends` carry none). -/
+def DriverWarning.moduleId : DriverWarning → String
+  | .parser moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ => moduleId
+
+instance : CompilerDiagnostic DriverWarning String where
+  isError := false
+  posOf
+    | .parser _ w => CompilerDiagnostic.posOf w
+    | .desugar _ w => CompilerDiagnostic.posOf w
+    | .typeCheck _ w => CompilerDiagnostic.posOf w
+  msgOf
+    | .parser _ w => CompilerDiagnostic.msgOf w
+    | .desugar _ w => CompilerDiagnostic.msgOf w
+    | .typeCheck _ w => CompilerDiagnostic.msgOf w
+
+/--
   Raw module source text by `moduleId`, so `DriverError` can carry just the lightweight key
   (above) rather than duplicating a (possibly large) source string into every thrown error —
   looked up again only once, at the point an error is finally rendered. Mirrors `Ξ`
@@ -265,34 +300,36 @@ private def locate (name : String) (containingDir : Option System.FilePath) : m 
   | [(_, candidate)] => return candidate
   | multiple => throw (.ambiguousModule name (multiple.map Prod.fst))
 
-/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, `Parser_/Common.lean`'s
-`ParserWarning`/`Desugarer/Errors.lean`'s `DesugarWarning` convention. `-W` filtering only needs
-`FlagsEnv`, which this file already depends on (for `-I`'s search path) — no reason to bounce this
-back out to `Fugue.lean` for that part. Applies uniformly to every `compileModule` call, main
-module and `EXTENDS`-ed dependency alike — a dependency's own parser/desugar warnings are just as
-real as the main module's, no reason to suppress them by default.
+/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch — never as
+they're produced. Matches `lake build`'s own behaviour: a module's warnings only ever appear once
+its outcome (`Built`/`Replayed`/`Failed`, `onModuleEvent`) is known, not interleaved before it.
+Every call site passes only warnings collected for *this* module's own `compileModule` call — a
+dependency's warnings are flushed by its own recursive call, under its own name, never merged into
+a dependent's batch (see `compileModule`'s own doc). `-W` filtering only needs `FlagsEnv`, which
+this file already depends on (for `-I`'s search path).
 
 Where the rendered line actually *goes* (`logLine`) is pluggable, defaulting to plain `eprintln` —
 `Fugue.lean` overrides it to go through its spinner instead (`Spinner.log`), so a warning printed
 while the spinner is animating doesn't corrupt the display. -/
-private def reportWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
-    {ε} [CompilerDiagnostic ε String]
-    (lines : List String.Slice) (colored : Bool) (name : ε → String)
-    (logLine : String → m Unit) (warnings : List ε) : m Unit :=
+private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
+    (lines : List String.Slice) (colored : Bool)
+    (logLine : String → m Unit) (warnings : List DriverWarning) : m Unit :=
   warnings.forM λ warning ↦ do
-    if ← FlagsEnv.isWarningEnabled (name warning) then
+    if ← FlagsEnv.isWarningEnabled warning.name then
       logLine <| CompilerDiagnostic.pretty warning lines colored
 
-/-- Run `act`; if it throws, report `name` as `.failed` via `onModuleEvent` and re-throw the
-*same* error unchanged (this never swallows or replaces it — it's purely an extra report
-alongside the ordinary propagation). Factored out since `compileModule` needs this exact
-try/report/re-throw shape twice, at two points that must *not* share one `try` (see
-`compileModule`'s own doc for why). -/
-private def reportFailureOnThrow {m} [Monad m] [MonadExceptOf DriverError m] {α}
-    (onModuleEvent : String → ModuleOutcome → m Unit) (name : String) (act : m α) : m α := do
+/-- Run `act`; if it throws, flush `warnings` (collected so far for this module), report `name` as
+`.failed` via `onModuleEvent`, and re-throw the *same* error unchanged (this never swallows or
+replaces it — it's purely an extra report alongside the ordinary propagation). Factored out since
+`compileModule` needs this exact flush/report/re-throw shape three times, at points that must
+*not* share one `try` (see `compileModule`'s own doc for why). -/
+private def reportFailureOnThrow {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m] [MonadExceptOf DriverError m] {α}
+    (lines : List String.Slice) (colored : Bool) (logLine : String → m Unit)
+    (onModuleEvent : String → ModuleOutcome → m Unit) (name : String) (warnings : List DriverWarning) (act : m α) : m α := do
   try
     act
   catch e =>
+    flushWarnings lines colored logLine warnings
     onModuleEvent name .failed
     throw e
 
@@ -392,13 +429,13 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   let (mod, parserWarnings) ← match SurfaceTLAPlus.Parser.parseModule tokens with
     | .inl e => throw (.parse moduleId e)
     | .inr r => pure r
-  reportWarnings lines colored ParserWarning.name logLine parserWarnings
+  let warnings : List DriverWarning := parserWarnings.map (.parser moduleId)
 
   if ← FlagsEnv.getDebugFlag "dump-cst" then
     dumpToFile (reprStr mod) dumpDir s!"{moduleId}-cst"
 
   onModuleProgress mod.name
-  let mod ← reportFailureOnThrow onModuleEvent mod.name do
+  let (mod, warnings) ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
     let mod ← match resolveAnnotations mod with
       | .error e => throw (.annotation moduleId e)
       | .ok mod => pure mod
@@ -408,26 +445,25 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     let mod ← match mod.stripTLAPlusAnnotations with
       | .error e => throw (.desugar moduleId e)
       | .ok mod => pure mod
-    let algo ← match mod.pcalAlgorithm with
-      | none => pure none
+    let (algo, warnings) ← match mod.pcalAlgorithm with
+      | none => pure (none, warnings)
       | some algo =>
         match algo.runDesugarer with
         | .error e => throw (.desugar moduleId e)
-        | .ok (algo, desugarWarnings) => do
-          reportWarnings lines colored DesugarWarning.name logLine desugarWarnings
-          pure (some algo)
+        | .ok (algo, desugarWarnings) =>
+          pure (some algo, warnings ++ desugarWarnings.map (.desugar moduleId))
     let mod := { mod with pcalAlgorithm := algo }
 
     if ← FlagsEnv.getDebugFlag "dump-desugared" then
       dumpToFile (reprStr mod) dumpDir s!"{moduleId}-desugared"
 
-    pure mod
-  let _deps ← reportFailureOnThrow onModuleEvent mod.name <|
+    pure (mod, warnings)
+  let _deps ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings <|
     mod.extends.mapM λ dep ↦
       withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
   onModuleProgress mod.name
 
-  let typed ← reportFailureOnThrow onModuleEvent mod.name do
+  let typed ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
     let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
     let typed ← (throw (.typeCheck moduleId (.todo noPos "Type checking is not yet implemented.")) : m TypedModule)
 
@@ -436,6 +472,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
 
     return typed
 
+  flushWarnings lines colored logLine warnings
   onModuleEvent mod.name .built
   return typed
 

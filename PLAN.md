@@ -1768,3 +1768,33 @@ quantifier binder — which runs on the already-successfully-parsed AST and has 
 this problem, §2/§5.1) — the "nothing consumes this at all" half is out of scope until
 `first`/`orElse`'s backtracking semantics are revisited.
 
+### 9.14 Warnings that precede a hard error within the same pass call are lost
+
+`Driver/Modules.lean`'s `compileModule` now accumulates every stage's warnings into one
+local list and flushes them all at once, at the point a module's outcome
+(`Built`/`Replayed`/`Failed`) becomes known — matching `lake build`'s own timing instead
+of printing warnings as they're produced, interleaved before that point.
+
+This only fixes ordering *across* stages/modules: warnings from an already-finished stage
+correctly survive a *later* stage's failure (or a dependency's failure) and still get
+shown. It does **not** fix loss *within* a single stage: `parseModule`
+(`Parser_/TLAPlus.lean`) and `algo.runDesugarer` (the PlusCal desugarer,
+`Desugarer/PlusCal.lean`) both return `Error ⊕ (Value × List Warning)` — the error
+branch carries no warnings at all, so any warnings that same call accumulated
+(internally, via `ParserWarningM`/the desugarer's own `StateT (List DesugarWarning)`)
+before hitting a fatal error in the *same* call are structurally unreachable from the
+driver, no matter how `compileModule` threads its own local list around the call. This is
+visible directly from the shape of the match arms in `compileModule` itself (`.inl e =>
+throw ...` binds nothing but `e`; `.inr (v, ws) => ...` is the only branch with access to
+`ws`) — confirmed, not just suspected, by reading `parseModule`'s own definition, which
+does compute `warnings` unconditionally (the `StateT` always runs to completion) but
+discards it on the `.inl` branch rather than pairing it with the error.
+
+Fixing this for real needs `parseModule`/`algo.runDesugarer`'s own signatures changed so
+warnings ride alongside *both* outcomes — e.g. `(Unexpected e ⊕ Module) × List
+ParserWarning` instead of `Unexpected e ⊕ (Module × List ParserWarning)` — plus updating
+`compileModule`'s match arms to pull warnings out of both branches. **Deferred, per the
+project owner: filed as a longer-term issue, not fixed now.** A module whose source has
+both a warning-worthy construct and a later hard parse/desugar error in the same pass
+call will not show that warning until this is revisited.
+
