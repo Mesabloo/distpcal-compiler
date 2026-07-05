@@ -39,7 +39,7 @@ namespace SurfacePlusCal
     | tla (tk : SurfaceTLAPlus.Token SurfacePlusCal.Token)
     deriving Repr, Inhabited, BEq
 
-  protected partial def Token.toString : Token → String := fun
+  protected partial def Token.toString : Token → String := λ
     | .fair => "keyword 'fair'"
     | .algorithm => "keyword 'algorithm'"
     | .variable => "keyword 'variable'"

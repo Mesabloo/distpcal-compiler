@@ -2,7 +2,8 @@
 
 Working notes for whoever (human or Claude) implements this project. Read `PLAN.md`
 first — it has the architecture, the pipeline stage-by-stage, the decisions already made,
-and the open questions. This file is about *how* to work, not *what* to build.
+and the open questions. This file is about *how* to work, not *what* to build. See
+`STRUCTURE.md` for a directory-by-directory map of the repo.
 
 ## The one rule that matters most
 
@@ -112,7 +113,7 @@ unless there's a reason not to (raise it as a §9 item if so):
   actually wanted before sinking more time into it — it may well be wanted, but it's a
   scope expansion from what was agreed, and per the one rule above, that's worth a
   check-in. The one standing exception: the well-scopedness preservation lemma over
-  `Checker`/`Typed2Guarded` (`PLAN.md` §2, §5.2a, §6.3) *is* expected and in scope — it's
+  `Elaborator`/`Typed2Guarded` (`PLAN.md` §2, §5.2a, §6.3) *is* expected and in scope — it's
   a narrow syntactic fact needed as a precondition for Guarded→Network's proof, not a
   detour into `Typed2Guarded`'s full behavioral correctness (which stays deferred, §6.3).
 - `VerifiedCompiler/{Trace,Relation}.lean` and `VerifiedCompiler/Denotational/*.lean` are

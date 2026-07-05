@@ -246,7 +246,7 @@ namespace SurfacePlusCal
       | .print e, _ => pure (.print e)
       | .assign a, pos => do
         let ctx ← readThe WithContext
-        match a.find? (fun (r, _) => ctx.boundVars.contains r.name) with
+        match a.find? (λ (r, _) ↦ ctx.boundVars.contains r.name) with
         | some (r, _) => throw (.withBoundVarWritten pos r.name)
         | none => pure (.assign (a.map λ (r, e) ↦ (Ref.desugarRef pos r, e)))
       | .if cond b1 b2, _ => .if cond <$> desugarLabelFreeBlock b1 <*> desugarLabelFreeBlock (b2.getD [])
@@ -317,7 +317,7 @@ namespace SurfacePlusCal
     | .inl nextLabel :: rest => do
       let ctx ← readThe SegmentContext
       let (nextBlock, extracted) ←
-        withTheReader SegmentContext (fun _ => { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest)
+        withTheReader SegmentContext (λ _ ↦ { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest)
       pure (⟨acc, .goto nextLabel⟩, (nextLabel, nextBlock) :: extracted)
     | .inr s :: rest => match_source s with
       | .goto l, _ => match rest with
@@ -325,7 +325,7 @@ namespace SurfacePlusCal
         | .inl nextLabel :: rest' => do
           let ctx ← readThe SegmentContext
           let (nextBlock, extracted) ←
-            withTheReader SegmentContext (fun _ => { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest')
+            withTheReader SegmentContext (λ _ ↦ { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest')
           pure (⟨acc, .goto l⟩, (nextLabel, nextBlock) :: extracted)
         | .inr s' :: _ => throw (.gotoNotInTailPosition (posOf s'))
       -- A `while` must always be immediately preceded by a real, user-written label —
@@ -346,7 +346,7 @@ namespace SurfacePlusCal
             desugarSegment [.while cond bodyBlock] rest
           else do
             let (bodyBlock, ex) ←
-              withTheReader SegmentContext (fun _ => { ownLabel := some loopLabel, fallthrough := loopLabel })
+              withTheReader SegmentContext (λ _ ↦ { ownLabel := some loopLabel, fallthrough := loopLabel })
                 (desugarSegment [] body)
             let (result, ex') ← desugarSegment [.while cond bodyBlock] rest
             pure (result, ex ++ ex')
@@ -360,8 +360,8 @@ namespace SurfacePlusCal
         else do
           let (cont, contResult) ← desugarContinuation rest
           let branchCtx : SegmentContext := { ownLabel := none, fallthrough := cont }
-          let (block1, ex1) ← withTheReader SegmentContext (fun _ => branchCtx) (desugarSegment [] b1)
-          let (block2, ex2) ← withTheReader SegmentContext (fun _ => branchCtx) (desugarSegment [] b2)
+          let (block1, ex1) ← withTheReader SegmentContext (λ _ ↦ branchCtx) (desugarSegment [] b1)
+          let (block2, ex2) ← withTheReader SegmentContext (λ _ ↦ branchCtx) (desugarSegment [] b2)
           pure (⟨acc, .if cond block1 block2⟩, ex1 ++ ex2 ++ contResult)
       | .either branches, _ =>
         if !branches.any (·.needsExtraction) then do
@@ -370,7 +370,7 @@ namespace SurfacePlusCal
         else do
           let (cont, contResult) ← desugarContinuation rest
           let branchCtx : SegmentContext := { ownLabel := none, fallthrough := cont }
-          let results ← branches.mapM (withTheReader SegmentContext (fun _ => branchCtx) <| desugarSegment [] ·)
+          let results ← branches.mapM (withTheReader SegmentContext (λ _ ↦ branchCtx) <| desugarSegment [] ·)
           pure (⟨acc, .either (buildBranches (results.map Prod.fst))⟩, results.flatMap Prod.snd ++ contResult)
       | _, _ => do
         let s' ← Statement.desugarLabelFree s
@@ -402,7 +402,7 @@ namespace SurfacePlusCal
     | .inr s :: _ => throw (.unlabelledStatement (posOf s))
     | .inl firstLabel :: rest => do
       let (block, extracted) ←
-        withTheReader SegmentContext (fun _ => { ownLabel := some firstLabel, fallthrough := doneLabel }) (desugarSegment [] rest)
+        withTheReader SegmentContext (λ _ ↦ { ownLabel := some firstLabel, fallthrough := doneLabel }) (desugarSegment [] rest)
       pure ((firstLabel, block) :: extracted)
 
   /-- Run `SurfaceTLAPlus.Expression.desugar` against a single, self-contained expression,

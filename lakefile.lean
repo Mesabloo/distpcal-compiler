@@ -74,8 +74,8 @@ lean_lib Fugue.Desugarer where
 lean_lib Fugue.WF where
   roots := #[`WellFormedness]
 /-- The bidirectional type checker, Core to Typed. -/
-lean_lib Fugue.Checker where
-  roots := #[`Checker]
+lean_lib Fugue.Elaborator where
+  roots := #[`Elaborator]
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
 lean_lib Fugue.T2G where
   roots := #[`Typed2Guarded]
