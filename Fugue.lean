@@ -74,9 +74,6 @@ instance : ParseableType Target where
 /-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
 private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-dir"]
 
-/-- Default value of `-d dump-dir=<path>`. -/
-private def defaultDumpDir : System.FilePath := ".fugue/debug"
-
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
 private def knownFeatures : Array String := #["no-color", "no-progress"]
 
@@ -150,11 +147,6 @@ private def withProgress {α : Type} (msg : String) (act : Progress → IO α) :
       spinner.cancel .erase
     return res
 
-/-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. -/
-private def dumpToFile (content : String) (dir : System.FilePath) (name : String) : IO Unit := do
-  IO.FS.createDirAll dir
-  IO.FS.writeFile (dir / name) content
-
 /--
   Parses every flag out of `p` (rejecting unknown/duplicate `-d`/`-f`/`-W` names and a
   valueless `-d dump-dir`, per `NamedOption.toMap`/`WarningToggle.toMap` above) and
@@ -179,7 +171,6 @@ private def runCli (p : Parsed) : IO UInt32 := do
   validateAndSetFlags p
 
   let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
-  let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim defaultDumpDir (↑·)
 
   let input := p.positionalArg! "input" |>.as! Input
   let dumpName := match input with
@@ -214,18 +205,6 @@ private def runCli (p : Parsed) : IO UInt32 := do
     let done ← IO.mkRef (∅ : Std.HashSet String)
 
     let result ← runM <| compileModule source containingDir dumpName
-      (onTokens := λ tokens ↦ do
-        if ← FlagsEnv.getDebugFlag "dump-tokens" then
-          dumpToFile (reprStr tokens) dumpDir s!"{dumpName}-tokens")
-      (onParsed := λ mod ↦ do
-        if ← FlagsEnv.getDebugFlag "dump-cst" then
-          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-cst")
-      (onDesugared := λ mod ↦ do
-        if ← FlagsEnv.getDebugFlag "dump-desugared" then
-          dumpToFile (reprStr mod) dumpDir s!"{dumpName}-desugared")
-      (onTyped := λ typed ↦ do
-        if ← FlagsEnv.getDebugFlag "dump-typed" then
-          dumpToFile (reprStr typed) dumpDir s!"{dumpName}-typed")
       (onModuleEvent := λ name outcome ↦ do
         done.modify (·.insert name)
         let count := s!"[{(← done.get).size}/{(← discovered.get).size}]"
@@ -244,7 +223,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
       -- word, not a banner ahead of the detail explaining it. `e` may have originated in an
       -- `EXTENDS`-ed dependency, not the main module read into `lines` above — render against
       -- the offending module's own source when it has one.
-      IO.eprintln <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
+      spinner.log <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
       spinner.fail "Compilation failed."
       IO.Process.exit 1
     | .ok typedMod =>

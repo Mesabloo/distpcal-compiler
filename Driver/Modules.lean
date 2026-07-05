@@ -245,7 +245,7 @@ private inductive Candidate : Type
 
 variable {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] [MonadReaderOf ResolutionStack m]
   [MonadWithReaderOf ResolutionStack m] [MonadModuleCache TypedModule m] [MonadSourceRegistry m]
-  [MonadExceptOf DriverError m] [MonadLiftT IO m] [MonadLiftT BaseIO m]
+  [MonadExceptOf DriverError m] [MonadLiftT IO m]
 
 /-- Every directory searched for `EXTENDS name`, in order: the directory containing the
 extending module (if any — absent when read from stdin), then `-I`'s search path, per the
@@ -258,7 +258,7 @@ private def locate (name : String) (containingDir : Option System.FilePath) : m 
     found := found ++ [("<builtin>", .builtin mod)]
   for dir in containingDir.toList ++ (← readThe FlagsEnv).searchPath do
     let path := dir / s!"{name}.tla"
-    if ← liftM path.pathExists then
+    if ← liftM path.pathExists.toIO then
       found := found ++ [(toString path, .file path)]
   match found with
   | [] => throw (.moduleNotFound name)
@@ -295,6 +295,14 @@ private def reportFailureOnThrow {m} [Monad m] [MonadExceptOf DriverError m] {α
   catch e =>
     onModuleEvent name .failed
     throw e
+
+/-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. -/
+private def dumpToFile {m} [Monad m] [MonadLiftT IO m] (content : String) (dir : System.FilePath) (name : String) : m Unit := do
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir / name) content
+
+/-- Default value of `-d dump-dir=<path>`. -/
+private def defaultDumpDir : System.FilePath := ".fugue/debug"
 
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
@@ -347,29 +355,48 @@ mutual
   identifier `Fugue.lean` passes (e.g. the input file's display name).
 -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
-    (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
-    (onParsed : SurfaceTLAPlus.Module
-        (SurfacePlusCal.Algorithm (List SurfaceTLAPlus.CommentAnnotation) (SurfaceTLAPlus.Expression (List SurfaceTLAPlus.CommentAnnotation)))
-        (List SurfaceTLAPlus.CommentAnnotation) → m Unit := fun _ ↦ pure ())
-    (onDesugared : CoreTLAPlus.Module
-        (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)))
-        (Option SurfaceTLAPlus.Typ) → m Unit := fun _ ↦ pure ())
-    (onTyped : TypedModule → m Unit := fun _ ↦ pure ())
+    -- (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
+    -- (onParsed : SurfaceTLAPlus.Module
+    --     (SurfacePlusCal.Algorithm (List SurfaceTLAPlus.CommentAnnotation) (SurfaceTLAPlus.Expression (List SurfaceTLAPlus.CommentAnnotation)))
+    --     (List SurfaceTLAPlus.CommentAnnotation) → m Unit := fun _ ↦ pure ())
+    -- (onDesugared : CoreTLAPlus.Module
+    --     (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)))
+    --     (Option SurfaceTLAPlus.Typ) → m Unit := fun _ ↦ pure ())
+    -- (onTyped : TypedModule → m Unit := fun _ ↦ pure ())
     (onModuleEvent : String → ModuleOutcome → m Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → m Unit := fun _ ↦ pure ())
     (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m TypedModule := do
+  let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim defaultDumpDir (↑·)
+
   registerSource moduleId source
   let lines := source.split (· == '\n') |>.toList
   let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
     | .inl e => throw (.lex moduleId e)
     | .inr tokens => pure tokens
-  onTokens tokens
+
+/-
+      (onTokens := λ tokens ↦ do
+
+      (onParsed := λ mod ↦ do
+
+      (onDesugared := λ mod ↦ do
+        )
+      (onTyped := λ typed ↦ do
+        )
+-/
+
+  if ← FlagsEnv.getDebugFlag "dump-tokens" then
+    dumpToFile (reprStr tokens) dumpDir s!"{moduleId}-tokens"
+
   let (mod, parserWarnings) ← match SurfaceTLAPlus.Parser.parseModule tokens with
     | .inl e => throw (.parse moduleId e)
     | .inr r => pure r
   reportWarnings lines colored ParserWarning.name logLine parserWarnings
-  onParsed mod
+
+  if ← FlagsEnv.getDebugFlag "dump-cst" then
+    dumpToFile (reprStr mod) dumpDir s!"{moduleId}-cst"
+
   onModuleProgress mod.name
   let mod ← reportFailureOnThrow onModuleEvent mod.name do
     let mod ← match resolveAnnotations mod with
@@ -390,17 +417,27 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
           reportWarnings lines colored DesugarWarning.name logLine desugarWarnings
           pure (some algo)
     let mod := { mod with pcalAlgorithm := algo }
-    onDesugared mod
+
+    if ← FlagsEnv.getDebugFlag "dump-desugared" then
+      dumpToFile (reprStr mod) dumpDir s!"{moduleId}-desugared"
+
     pure mod
-  let _deps ← mod.extends.mapM λ dep ↦
-    withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
+  let _deps ← reportFailureOnThrow onModuleEvent mod.name <|
+    mod.extends.mapM λ dep ↦
+      withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
   onModuleProgress mod.name
-  reportFailureOnThrow onModuleEvent mod.name do
+
+  let typed ← reportFailureOnThrow onModuleEvent mod.name do
     let _Γ₀ : Context := {} -- TODO(Elaborator/Declarations.lean): merge `_deps`' declarations in
     let typed ← (throw (.typeCheck moduleId (.todo noPos "Type checking is not yet implemented.")) : m TypedModule)
-    onModuleEvent mod.name .built
-    onTyped typed
+
+    if ← FlagsEnv.getDebugFlag "dump-typed" then
+      dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"
+
     return typed
+
+  onModuleEvent mod.name .built
+  return typed
 
 /--
   The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
