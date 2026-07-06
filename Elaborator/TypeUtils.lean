@@ -35,8 +35,8 @@ private partial def substTypeVars (σ : List (String × MVarId)) : Typ → Typ
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m]
 
-/-- `SPECIALIZE` (thesis Fig. 3.1.7): freshen every distinct `Typ.var` in an operator's
-parameter/return types into its own metavariable. -/
+/-- Freshen every distinct `Typ.var` in an operator's parameter/return types into its own
+metavariable. -/
 def specializeOperator (params : List Typ) (ret : Typ) : m (List Typ × Typ) := do
   let vars := ((ret :: params).flatMap typeFreeVars).eraseDups
   let σ ← vars.mapM λ v ↦ return (v, ← mkFreshMVar)

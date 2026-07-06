@@ -9,23 +9,15 @@ known nonempty). -/
 local instance : Inhabited (m Expr) := ⟨pure default⟩
 
 /--
-  `PLAN.md` §5.3's single end-of-check defaulting point, applied to one already-elaborated
-  expression: eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` is
-  resolved before an outer one that might wrap it. Every metavariable `n` a `mvar` node names
-  reached `[Subtype]`'s `.pending` case, which fires only when `n` is still unresolved *and* is
-  the check's own *source* type — given `specializeOperator` mints a fresh metavariable per
-  operator-call use and each one is only ever the source of exactly the one `subtype` call that
-  builds its own `mvar` wrapper, `n`'s `pendingUpperBounds` holds, in every case reachable from
-  this checker's own code today, exactly the one bound recorded at that call — there is no
-  separate site-tracking table to consult, just this existing context. Guarded rather than
-  silently assumed: a metavariable with more than one recorded bound would need genuine per-site
-  tracking to substitute soundly (no concrete program has been found that produces one), so that
-  case is a loud `todo`, not a guess. A metavariable with *no* recorded bound at all is a real,
-  named error — it was never constrained by anything during checking.
+  Eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` is resolved
+  before an outer one that might wrap it. Each metavariable is resolved by defaulting it to its
+  recorded upper bound, if there's exactly one; a metavariable with no recorded bound is an
+  unconstrained-metavariable error, and one with more than one recorded bound is not yet
+  supported (would need genuine per-site tracking to substitute soundly).
 
-  **Only eliminates `Expression.mvar` wrapper nodes — doesn't itself touch `Typ.mvar`
-  occurrences embedded *inside* a node's own stored type field.** Those are resolved by
-  `resolveMVars` below, as a second pass over this pass's output.
+  Only eliminates `Expression.mvar` wrapper nodes — doesn't itself touch `Typ.mvar` occurrences
+  embedded inside a node's own stored type field. Those are resolved by `resolveMVars` below, as
+  a second pass over this pass's output.
 -/
 partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
   | .var v τ, pos => return .var v τ @@ pos
@@ -72,8 +64,7 @@ partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
   | .mvar n e, pos => do
     let e' ← resolveExprMVars e
     match ← assigned? n with
-    -- Shouldn't happen per the doc above — defensive fallback: `n`'s value is already known,
-    -- nothing further to resolve at this site.
+    -- Defensive fallback: `n` is already resolved, nothing further to do at this site.
     | some _ => return e'
     | none => match ← pendingUpperBounds n with
       | [] => throw (.unconstrainedMetavariable pos)
@@ -84,7 +75,7 @@ partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
         | .pending _ | .failure => return e' -- unreachable: `b <: b` always succeeds reflexively
       | _ :: _ :: _ =>
         throw (.todo pos
-          "metavariable with more than one recorded upper bound — needs per-site tracking, not seen in practice yet")
+          "metavariable with more than one recorded upper bound — not yet supported")
 
 private partial def resolveTypeMVars (pos : SourceSpan) : Typ → m Typ
   | .mvar n => do
@@ -105,13 +96,10 @@ private partial def resolveTypeMVars (pos : SourceSpan) : Typ → m Typ
   | .operator τs τ => return .operator (← τs.mapM (resolveTypeMVars pos)) (← resolveTypeMVars pos τ)
   | .record fs => return .record (← fs.mapM λ (x, τ) ↦ return (x, ← resolveTypeMVars pos τ))
 
-/-- `PLAN.md` §5.3's single end-of-check defaulting point, as actually exposed to callers:
-`resolveExprMVars` above eliminates every `Expression.mvar` wrapper node (assigning whatever
-metavariables it names along the way), then this second pass walks the result once more
-resolving any `Typ.mvar` left behind in a stored type field. Reuses `Expression.traverse`
-rather than hand-rolling a second full walk, at the cost of every occurrence sharing one
-position (`e`'s own, for the rare unconstrained-metavariable error) instead of a precise
-per-occurrence one. -/
+/-- Closes out an elaborated expression: `resolveExprMVars` above eliminates every
+`Expression.mvar` wrapper node (assigning whatever metavariables it names along the way), then
+this second pass walks the result once more resolving any `Typ.mvar` left behind in a stored
+type field. -/
 partial def resolveMVars (e : Expr) : m Expr := do
   let e' ← resolveExprMVars e
   TypedTLAPlus.Expression.traverse (resolveTypeMVars (posOf e')) e'

@@ -120,22 +120,16 @@ instance {α} [ToString α] : CompilerDiagnostic (Unexpected α) String where
 
 /--
   Warnings raised by the parser itself (as opposed to hard errors, `Unexpected`). Collected
-  out-of-band during parsing (`ParserWarningM`, below) rather than emitted immediately, since
-  `-W`/`-Wno-<name>` suppression (`PLAN.md` §2) needs `FlagsEnv`, which the parser itself doesn't
-  have access to — the compiler driver does (`Driver/Modules.lean`'s `compileModule`, and
-  `Fugue.lean` before it existed), and filters/prints these once parsing returns.
+  out-of-band during parsing (`ParserWarningM`, below) rather than emitted immediately, and
+  filtered/printed by the compiler driver once parsing returns.
 -/
 inductive ParserWarning : Type
-  /-- `fair process`/`fair+`: parsed and round-tripped, but never acted on (`PLAN.md` §2, §5.1). -/
+  /-- `fair process`/`fair+` was parsed and round-tripped, but is never acted on. -/
   | fairIgnored (pos : SourceSpan)
   /-- A comment parses as a well-formed annotation (`@type`/`@mailbox`/`@parameter`), but sits
-  somewhere no designated call site (`parseConstants`/`parseVariables`/`parseOperator`/
-  `parseQuantifierBound`/`parseRecordLiteral`, and `Parser_/PlusCal.lean`'s own equivalents)
-  ever gets a chance to consume it — it will be silently ignored. Emitted by `ws` itself, the
-  one place every otherwise-unclaimed comment ends up (§5.1's annotation-placement
-  prerequisite). Distinct from a *misplaced* annotation (one a real call site does capture,
-  but attached to the wrong specific role there), which is a separate, later hard error, not
-  a warning. -/
+  somewhere no call site ever consumes it, so it is silently ignored. Distinct from a
+  *misplaced* annotation (captured, but attached to the wrong role), which is a hard error,
+  not a warning. -/
   | unusedAnnotation (pos : SourceSpan)
   deriving Repr, Inhabited, BEq
 
@@ -153,16 +147,8 @@ instance : CompilerDiagnostic ParserWarning String where
     | .fairIgnored pos
     | .unusedAnnotation pos => pos
 
-/--
-  The base monad every parser in `Parser_` runs against (`TLAPlusLexer`/`TLAPlusParser`/
-  `PlusCalLexer`/`PlusCalParser`, `Parser_/Monad.lean`): plain `Id` plus a `List ParserWarning`
-  accumulator. Per the project owner, the underlying `ParserT`/`SimpleParserT` combinators are
-  already monad-polymorphic (that's `fgdorais/Parser`'s own design, `MonadLift m (ParserT ε σ τ m)`
-  in particular) — this is simply the one concrete instantiation the compiler ever runs them at,
-  not a new abstraction. Only the outer entry points (`SurfaceTLAPlus.Parser.parseModule`, etc.)
-  need to actually run this state and expose the collected warnings; every internal parser
-  function stays written exactly as it would against any other base monad.
--/
+/-- The base monad every parser in `Parser_` runs against: plain `Id` plus a
+`List ParserWarning` accumulator. -/
 abbrev ParserWarningM := StateT (List ParserWarning) Id
 
 

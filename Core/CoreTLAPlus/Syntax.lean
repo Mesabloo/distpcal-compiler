@@ -7,64 +7,44 @@ import Mathlib.Control.Bitraversable.Instances
 import Extra.Prod
 
 /-!
-  The desugared core syntax of TLA⁺ expressions (§5.2) — the output of
-  `SurfaceTLAPlus.Expression.desugar` (`Desugarer/TLAPlus.lean`), and the language the type
-  checker (§5.3) and everything downstream actually works against.
+  The desugared core syntax of TLA⁺ expressions — the output of desugaring, and the language the
+  type checker and everything downstream actually works against.
 
-  Written fresh against the four confirmed desugaring transformations (`PLAN.md` §5.2), not
-  ported from prior art's `Core/CoreTLAPlus/Syntax.lean` — that file predates the confirmed
-  transformation list and still carries `prefixCall`/`infixCall`/`postfixCall` as their own
-  constructors, separate `bforall`/`forall` pairs, and an `@`-referencing `.at` case, none of
-  which survive here:
-
-  - `@` is eliminated entirely (substituted away during desugaring, `Desugarer/TLAPlus.lean`).
-  - Conjunction/disjunction lists are already binary `infixCall`s by the time `SurfaceTLAPlus`
-    reaches here (`Expression.conj`/`.disj` don't exist in `CoreTLAPlus` at all).
-  - Every prefix/infix/postfix operator application becomes an ordinary (prefix-style)
-    `opCall`, with the operator itself referenced by its canonical spelling through the
-    *same* `var` constructor used for ordinary identifiers — no separate operator-enum types
-    or value constructors are needed at all, since (thesis §3.1.3, verbatim) "1 + 2 is treated
-    as (+) 1 2 … we may assume that `+ : (Int, Int) ⇒ Int` is present in the typing context Γ":
-    the thesis's own formalization treats builtin operators as pre-populated *names* in Γ, the
-    same way `Var` looks up any other identifier — not a distinct syntactic category. This is
-    sound because no TLA⁺ identifier can ever be spelled like an operator symbol (the lexer's
-    `identifierOrKeyword` and `symbol` productions are disjoint, `Parser_/TLAPlus.lean`), so a
-    canonical spelling such as `"+"` or `"\\in"` can never collide with a user-written name.
+  Relative to `SurfaceTLAPlus.Expression`:
+  - `@` is eliminated entirely (substituted away during desugaring).
+  - Conjunction/disjunction lists become binary `infixCall`s (`.conj`/`.disj` don't exist here).
+  - Every prefix/infix/postfix operator application becomes an ordinary (prefix-style) `opCall`,
+    with the operator referenced by its canonical spelling through the same `var` constructor
+    used for ordinary identifiers — no separate operator-enum or value constructors.
   - Every quantifier-like binder (`\A`/`\E`/`\AA`/`\EE`/`CHOOSE`/set-map/set-filter/function
-    literals) binds exactly one variable over at most one domain, confirmed against the
-    thesis's own formal typing rules (Figures 3.1.2/3.1.3/3.1.5/3.1.6), every one of which is
-    single-variable — multi-variable and tuple-pattern binders are surface sugar that
-    `Desugarer/TLAPlus.lean` eliminates before producing this type, not something this AST
-    needs to represent.
+    literals) binds exactly one variable over at most one domain; multi-variable and
+    tuple-pattern binders are surface sugar eliminated before reaching this type.
 -/
 
 namespace CoreTLAPlus
 
 /--
-  TLA⁺ expressions after desugaring (§5.2). `α` carries whatever comment-annotation payload the
-  binders (quantifiers, `LET` in the future, record fields, …) need — plain `List Annotation`
-  once `resolveAnnotations` (`Parser_/Annotations.lean`) has run.
+  TLA⁺ expressions after desugaring. `α` carries whatever comment-annotation payload the binders
+  (quantifiers, `LET` in the future, record fields, …) need.
 -/
 inductive Expression (α : Type) : Type
   /-- An unqualified identifier: a variable, a user-defined 0-ary operator, or (by canonical
   spelling, e.g. `"+"`, `"\\in"`, `"DOMAIN"`) a builtin operator referenced as a value. -/
   | var : String → Expression α
-  /-- An operator application `f(e₁, …, eₙ)` — the *only* form of application in `CoreTLAPlus`,
-  used uniformly for user-defined operators and (applying a builtin `var`) builtins alike. -/
+  /-- An operator application `f(e₁, …, eₙ)` — the only form of application here, used uniformly
+  for user-defined operators and (applying a builtin `var`) builtins alike. -/
   | opCall : Expression α → List (Expression α) → Expression α
-  /-- Bounded (`\A x ∈ A : P`, `domain = some A`) or unbounded (`\A x : P`, `domain = none`,
-  the annotation `α` on `x` carrying the required explicit type, thesis Fig. 3.1.6) universal
-  quantification. -/
+  /-- Bounded (`\A x ∈ A : P`, `domain = some A`) or unbounded (`\A x : P`, `domain = none`, the
+  annotation `α` on `x` carrying the required explicit type) universal quantification. -/
   | «forall» : String → α → Option (Expression α) → Expression α → Expression α
   /-- Bounded or unbounded existential quantification, dual to `forall`. -/
   | «exists» : String → α → Option (Expression α) → Expression α → Expression α
-  /-- Temporal universal quantification `\AA x : P` — always unbounded (thesis Fig. 3.1.5 has no
-  bounded form), `α` carrying `x`'s required explicit type. -/
+  /-- Temporal universal quantification `\AA x : P` — always unbounded. -/
   | fforall : String → α → Expression α → Expression α
   /-- Temporal existential quantification, dual to `fforall`. -/
   | eexists : String → α → Expression α → Expression α
   /-- Hilbert's epsilon operator: bounded (`CHOOSE x ∈ A : P`) or unbounded (`CHOOSE x : P`,
-  checked against the expected type rather than annotated, thesis Fig. 3.1.6). -/
+  checked against the expected type rather than annotated). -/
   | choose : String → α → Option (Expression α) → Expression α → Expression α
   /-- A literal set `{e₁, …, eₙ}`. -/
   | set : List (Expression α) → Expression α
@@ -72,9 +52,8 @@ inductive Expression (α : Type) : Type
   | collect : String → α → Expression α → Expression α → Expression α
   /-- The image of a function by a set `{e : x ∈ A}`. -/
   | map' : Expression α → String → α → Expression α → Expression α
-  /-- A function call `f[e]` — always unary. A surface multi-index call `f[e₁, …, eₙ]` (`n > 1`)
-  desugars to `f[<<e₁, …, eₙ>>]` (`Desugarer/TLAPlus.lean`); a single-index call `f[e]` stays
-  exactly that, not `f[<<e>>]`. -/
+  /-- A function call `f[e]` — always unary; a surface multi-index call `f[e₁, …, eₙ]` (`n > 1`)
+  desugars to `f[<<e₁, …, eₙ>>]`. -/
   | fnCall : Expression α → Expression α → Expression α
   /-- A function literal `[x ∈ A ↦ e]`. -/
   | fn : String → α → Expression α → Expression α → Expression α
@@ -84,16 +63,13 @@ inductive Expression (α : Type) : Type
   | record : List (α × String × Expression α) → Expression α
   /-- The set of all records whose fields are in the given sets, `[a : A, …, z : Z]`. -/
   | recordSet : List (α × String × Expression α) → Expression α
-  /-- Function update `[f EXCEPT ![e] = e₂]` — each path step's index (`.inr`) is unary, same
-  as `fnCall` and for the same reason (a multi-index step `![e₁, …, eₙ]`, `n > 1`, desugars to
-  `![<<e₁, …, eₙ>>]`, `Desugarer/TLAPlus.lean`). -/
+  /-- Function update `[f EXCEPT ![e] = e₂]` — each path step's index (`.inr`) is unary, same as
+  `fnCall`. -/
   | except : Expression α → List (List (String ⊕ Expression α) × Expression α) → Expression α
   /-- Record access `r.x`. -/
   | recordAccess : Expression α → String → Expression α
-  /-- A literal tuple `<<e₁, …, eₙ>>` — also TLA⁺'s only literal sequence former (`Seq(S)`,
-  the builtin "set of all finite sequences over `S`", is an ordinary `opCall`, not a literal;
-  distinguishing a tuple *value* from a sequence *value* is the type checker's job, §5.3, not
-  something this AST needs its own constructor for). -/
+  /-- A literal tuple `<<e₁, …, eₙ>>` — also TLA⁺'s only literal sequence former (`Seq(S)` is an
+  ordinary `opCall`, not a literal). -/
   | tuple : List (Expression α) → Expression α
   /-- Conditional `IF e₁ THEN e₂ ELSE e₃`. -/
   | «if» : Expression α → Expression α → Expression α → Expression α
@@ -108,7 +84,7 @@ inductive Expression (α : Type) : Type
   deriving Repr, Inhabited, BEq
 
 -- Structural recursion isn't visibly decreasing to Lean here (nested `List`/`Option` occurrences
--- of `Expression`, same caveat as `SurfaceTLAPlus.Expression.map`) — `partial` until revisited.
+-- of `Expression`) — `partial` until revisited.
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
   | .var v, pos => .var v @@ pos
   | .nat n, pos => .nat n @@ pos
@@ -180,11 +156,7 @@ protected partial def Expression.traverse {F : Type → Type} [Applicative F] {�
 instance : Traversable Expression where
   traverse := Expression.traverse
 
-/--
-  A top-level TLA⁺ declaration. `RECURSIVE` (§9.9) and module `INSTANCE` (§9.8) are not yet
-  represented, matching `SurfaceTLAPlus.Declaration` — both are open questions, not omissions to
-  silently work around.
--/
+/-- A top-level TLA⁺ declaration. `RECURSIVE` and module `INSTANCE` are not represented. -/
 inductive Declaration (α : Type) : Type
   | constants : List (String × α) → Declaration α
   | «variables» : List (String × α) → Declaration α
@@ -214,8 +186,8 @@ instance : Traversable Declaration where
 
 /--
   A desugared TLA⁺ module, wrapping the embedded (still-Surface, not-yet-desugared-at-the-
-  statement-level) PlusCal algorithm at whatever `α` the caller instantiates it at — kept fully
-  abstract here to avoid a cyclic import, matching `SurfaceTLAPlus.Module`.
+  statement-level) PlusCal algorithm at whatever `α` the caller instantiates it at — kept abstract
+  to avoid a cyclic import.
 -/
 structure Module (α β : Type) : Type where
   name : String

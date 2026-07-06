@@ -45,14 +45,9 @@ namespace SurfacePlusCal.Lexer
   end
 
   section Tokens
-    /-- `.barbar` (`||`, the multi-assignment separator, `x := e1 || y := e2`) has to be tried
-    *before* falling through to the TLA⁺ sub-lexer (`lexToken`'s own `first [located symbol,
-    patchTLALexer lexTLAToken]` order) — otherwise the TLA⁺ lexer's own generic `||` infix-
-    operator token wins, and `parseAssign`'s `sepNoEndBy1 (token .barbar)` never actually sees
-    a separator to split on, silently swallowing everything after the first `||` into that
-    clause's own right-hand-side expression instead (a real, previously-latent bug: `.barbar`
-    was already declared in `Parser_/Tokens/PlusCal.lean` and referenced by `parseAssign`, but
-    nothing ever lexed it, so multi-assignment via `||` never actually parsed correctly). -/
+    /-- `.barbar` (`||`, the multi-assignment separator in `x := e1 || y := e2`) must be tried
+    before falling through to the TLA⁺ sub-lexer, otherwise the TLA⁺ lexer's generic `||`
+    infix-operator token wins and multi-assignment never parses correctly. -/
     private def symbol : PlusCalLexer Token := first [
       .dashdash <$ chars "--",
       .semicolon <$ char ';',
@@ -186,11 +181,8 @@ namespace SurfacePlusCal.Parser
   private def patchTLAParser {α} (p : SimpleParserT (Stream.OfList (Located' (SurfaceTLAPlus.Token (Located' Token)))) (Located' (SurfaceTLAPlus.Token (Located' Token))) ParserWarningM α) : PlusCalParser α :=
     p.mapStream (λ | ⟨pos, .tla tk⟩ => some ⟨pos, Located'.mk pos <$> tk⟩ | _ => none) (λ ⟨pos, tk⟩ ↦ ⟨pos, .tla <| Located'.data <$> tk⟩)
 
-  /--
-    `fair process`/`fair+` is parsed for round-tripping but never acted on downstream
-    (`PLAN.md` §2, §5.1) — records a `ParserWarning.fairIgnored` for the CLI driver to
-    render (subject to `-W`/`-Wno-fair-ignored`) once parsing completes.
-  -/
+  /-- `fair process`/`fair+` is parsed for round-tripping but never acted on downstream;
+  records a `ParserWarning.fairIgnored` for the CLI driver to render once parsing completes. -/
   private def warnIfFair (isFair : Bool) : PlusCalParser Unit :=
     if isFair then
       (modify (ParserWarning.fairIgnored (posOf isFair) :: ·) : ParserWarningM Unit)

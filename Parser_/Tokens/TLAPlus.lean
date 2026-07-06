@@ -4,8 +4,7 @@ import Core.SurfaceTLAPlus.Syntax
 
 namespace SurfaceTLAPlus
   /--
-    The type of all syntactical tokens of the TLA⁺ language.
-    This contains all unicode variations as well as LaTeX-like codes.
+    Syntactic tokens of the TLA⁺ language, including unicode and LaTeX-like variants.
 
     `α` abstracts away the type of PlusCal tokens.
   -/

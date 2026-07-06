@@ -34,14 +34,10 @@ section
 
   /--
     A subset of general annotations, as understood by our tool. Every constructor carries its
-    own `pos : SourceSpan` explicitly, rather than relying on `Common/Position.lean`'s
-    `@@`/`posOf` out-of-band mechanism (keyed by `ptrAddrUnsafe`, i.e. pointer identity) — that
-    mechanism is unsound for a genuinely nullary constructor like `«@parameter»` was: Lean
-    represents a zero-field constructor of a mixed inductive as a small tagged scalar shared
-    across every construction site, so `ptrAddrUnsafe` can't tell separate source occurrences
-    apart (confirmed empirically: two `.«@parameter»`-shaped values built at different call
-    sites report the *same* `ptrAddrUnsafe`, and the second `@@`-registration silently
-    overwrites the first). Storing `pos` as a real field sidesteps the problem entirely.
+    own `pos : SourceSpan` explicitly rather than using `Common/Position.lean`'s `@@`/`posOf`
+    mechanism, which is unsound for nullary constructors such as `«@parameter»` (they share a
+    single tagged scalar representation, so pointer-identity-based position lookup cannot
+    distinguish separate occurrences).
   -/
   inductive Annotation
     /-- Type information for variables. -/
@@ -57,9 +53,7 @@ section
     | .«@mailbox» _ _ _ => "@mailbox"
     | .«@parameter» _ => "@parameter"
 
-  /-- The position of the comment (group) this annotation was parsed from — a dedicated
-  accessor, *not* the generic `posOf`/`match_source` convention (see the module doc above for
-  why that's unreliable for this specific type). -/
+  /-- The position of the comment (group) this annotation was parsed from. -/
   def Annotation.posOf : Annotation → SourceSpan
     | .«@type» pos _ => pos
     | .«@mailbox» pos _ _ => pos

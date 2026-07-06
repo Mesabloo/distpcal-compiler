@@ -8,66 +8,37 @@ import Mathlib.Control.Bitraversable.Instances
 import Extra.Prod
 
 /-!
-  The output of the type checker (§5.3) — `CoreTLAPlus.Expression`/`Declaration`/`Module`, every
-  binder's annotation now a required `Typ` rather than an optional user-written one, plus two new
+  The output of the type checker — `CoreTLAPlus.Expression`/`Declaration`/`Module`, every binder's
+  annotation now a required `Typ` rather than an optional user-written one, plus two new
   constructors with no `CoreTLAPlus` counterpart: `mvar` (a pending-coercion placeholder, resolved
-  before the checker's own output is ever handed to a caller) and `seq` (the *checking-mode*
-  sequence-constructor rule, kept genuinely distinct from `tuple`'s synthesis rule — thesis p. 13,
-  `PLAN.md` §5.3).
+  before the checker's own output is ever handed to a caller) and `seq` (the checking-mode
+  sequence-constructor rule, kept distinct from `tuple`'s synthesis rule).
 
-  **Deliberately does *not* give every node its own trailing "whole node's type" field.** A first
-  draft did exactly that, uniformly — but almost every one of those fields turned out to be
-  "meaningless": either a compile-time constant regardless of context (`forall`/`exists`/
-  `fforall`/`eexists` are always `Bool`; `nat`/`str` always `Int`/`Str`), or mechanically
-  recoverable from a field/subexpression *already* being stored (`opCall`'s result type is
-  whatever the callee's own operator type says; `choose`'s own type is literally its existing
-  binder-type field; `mvar`'s is just `Typ.mvar` applied to the id it already carries) — storing
-  it again alongside is pure, riskier-than-useless duplication (two copies that could drift
-  apart), not real information. `Expression.typeOf`-style reconstruction for these belongs in the
-  actual checker (`Elaborator/`, once its typing rules — `lub`, operator-type extraction, etc. —
-  actually exist), not guessed at here as a bare field.
-
-  The genuine exceptions, kept — the same cases prior art's own `Core/TypedTLAPlus/Syntax.lean`
-  already singled out for this (`var`/`set`/`seq`/`tuple` all carried their own type there too,
-  and `record`'s per-field types were always there regardless): `var` (the `Γ`-lookup result —
-  nothing else to derive it from); `set`/`seq`'s element type (the empty-literal case, `{}`/
-  checking-mode `<<>>`, has no element to derive a type from at all, thesis Fig. 3.1.2's `Empty
-  set` rule); `tuple`'s per-component types (each component can be an arbitrary expression, not
-  just a `var`/constant, so recovering it isn't a cheap pattern-match the way `opCall`'s result
-  is — it would need a full re-inference); `record`/`recordSet`'s per-field types (already
-  present in `CoreTLAPlus.Expression`'s own shape, untouched here).
-
-  Not ported from prior art's own `Core/TypedTLAPlus/Syntax.lean` — that file predates
-  `CoreTLAPlus`'s confirmed desugaring transformations (still has separate `bforall`/`bexists`
-  from unbounded `forall`/`exists`, list-based `fnCall`/`except`) and has no `mvar` at all.
+  Most nodes don't carry a redundant "own type" field — it's recoverable from context — except
+  where checking would otherwise need to re-synthesize it: `var` (the `Γ`-lookup result);
+  `set`/`seq`'s element type (the empty-literal case has no element to derive a type from);
+  `tuple`'s per-component types (each component can be an arbitrary expression, not a cheap
+  pattern-match); `record`/`recordSet`'s per-field types (already present in
+  `CoreTLAPlus.Expression`'s own shape).
 -/
 
 namespace TypedTLAPlus
 
-/--
-  The type grammar (§5.3), reusing `SurfaceTLAPlus.Typ` rather than defining a second copy: that
-  grammar (`Bool|Int|Str|τ→τ|Set(τ)|Seq(τ)|⟨τ,...⟩|(τ,...)⇒τ|Const|a|[x:τ,...]`, plus
-  `Address`/`Channel(τ)`/`?n` metavariables) is *exactly* §5.3's, already written for `@type`
-  annotation parsing (`Parser_/Annotations.lean`) — the checker's job is to *populate* every
-  binder with a real value of this type, not to invent a new one.
--/
+/-- The type grammar, reusing `SurfaceTLAPlus.Typ` rather than defining a second copy: the
+checker's job is to populate every binder with a real value of this type, not invent a new one. -/
 abbrev Typ := SurfaceTLAPlus.Typ
 
-/-- The type used to identify a not-yet-resolved metavariable `?n` (§5.3's polymorphism-
-instantiation deviation from the thesis's literal `Specialize` rule). -/
+/-- The type used to identify a not-yet-resolved metavariable `?n`. -/
 abbrev MVarId := Nat
 
 /--
-  TLA⁺ expressions after type checking (§5.3). `α` is always instantiated at `Typ` by the
-  checker's actual output — kept generic to match this project's own `Bifunctor`/`Bitraversable`
-  convention (`CLAUDE.md`) and `CoreTLAPlus.Expression`'s own shape, not because any other
-  instantiation is meaningful. Identical to `CoreTLAPlus.Expression` node-for-node except: `var`
-  gains a trailing type (the `Γ`-lookup result — everything else's type is either a constant or
-  reconstructible from its own fields, module doc); `mvar`/`seq` are new.
+  TLA⁺ expressions after type checking. `α` is always instantiated at `Typ` by the checker's
+  actual output — kept generic to match `CoreTLAPlus.Expression`'s own shape. Identical to
+  `CoreTLAPlus.Expression` node-for-node except: `var` gains a trailing type (the `Γ`-lookup
+  result); `mvar`/`seq` are new.
 -/
 inductive Expression (α : Type) : Type
-  /-- An unqualified identifier, now with its type resolved via `Γ` (module doc — the one
-  genuinely new field over `CoreTLAPlus.Expression.var`, which carries none at all). -/
+  /-- An unqualified identifier, now with its type resolved via `Γ`. -/
   | var : String → α → Expression α
   /-- An operator application `f(e₁, …, eₙ)`. -/
   | opCall : Expression α → List (Expression α) → Expression α
@@ -81,15 +52,14 @@ inductive Expression (α : Type) : Type
   | eexists : String → α → Expression α → Expression α
   /-- Hilbert's epsilon operator. -/
   | choose : String → α → Option (Expression α) → Expression α → Expression α
-  /-- A literal set `{e₁, …, eₙ}`, `α` its element type — kept (like `seq`, unlike most other
-  constructors) since an empty `{}` gives nothing to reconstruct it from (module doc, thesis
-  Fig. 3.1.2's `Empty set` rule). -/
+  /-- A literal set `{e₁, …, eₙ}`, `α` its element type — kept since an empty `{}` gives nothing
+  to reconstruct it from. -/
   | set : List (Expression α) → α → Expression α
   /-- Set filtering `{x ∈ A : P}`. -/
   | collect : String → α → Expression α → Expression α → Expression α
   /-- The image of a function by a set `{e : x ∈ A}`. -/
   | map' : Expression α → String → α → Expression α → Expression α
-  /-- A function call `f[e]` — always unary (`CoreTLAPlus.Expression.fnCall`'s doc). -/
+  /-- A function call `f[e]` — always unary. -/
   | fnCall : Expression α → Expression α → Expression α
   /-- A function literal `[x ∈ A ↦ e]`. -/
   | fn : String → α → Expression α → Expression α → Expression α
@@ -105,21 +75,13 @@ inductive Expression (α : Type) : Type
   | except : Expression α → List (List (String ⊕ Expression α) × Expression α) → Expression α
   /-- Record access `r.x`. -/
   | recordAccess : Expression α → String → Expression α
-  /-- A literal tuple `<<e₁, …, eₙ>>`, synthesis-mode (thesis Fig. 3.1.3's `Tuple constructor`).
-  Each component pairs its own type with itself directly — unlike most other constructors, a
-  component's type isn't a cheap pattern-match away in general (it can be any expression, not
-  just a `var`/constant), so it's cached here the same way `var`/`seq`/`set` cache theirs, rather
-  than requiring a full re-inference to recover it. Kept genuinely distinct from `seq` below —
-  the same surface syntax, but a different elaboration rule, per the thesis's own deliberate
-  non-conversion (`PLAN.md` §5.3, p. 13). -/
+  /-- A literal tuple `<<e₁, …, eₙ>>`, synthesis-mode. Each component pairs its own type with
+  itself directly, since a component's type isn't a cheap pattern-match away in general. Kept
+  distinct from `seq` below — the same surface syntax, but a different elaboration rule. -/
   | tuple : List (α × Expression α) → Expression α
-  /-- A literal sequence `<<e₁, …, eₙ>>`, checking-mode only (thesis Fig. 3.1.6's `Sequence
-  constructor`, fired only when checking against an expected `Seq(τ)`) — has no `CoreTLAPlus`
-  counterpart (`Seq(...)` there is always an ordinary `opCall`, and a bare tuple literal is
-  always `CoreTLAPlus.Expression.tuple`; disambiguating between this and `tuple` above is exactly
-  the type checker's job the `CoreTLAPlus` module doc defers to it). `α` the element type `τ`
-  every `eᵢ` was checked against — kept (unlike every other constructor's own type) because an
-  empty `<<>>` gives nothing to reconstruct it from (module doc). -/
+  /-- A literal sequence `<<e₁, …, eₙ>>`, checking-mode only (fired when checking against an
+  expected `Seq(τ)`) — has no `CoreTLAPlus` counterpart. `α` the element type `τ` every `eᵢ` was
+  checked against — kept because an empty `<<>>` gives nothing to reconstruct it from. -/
   | seq : List (Expression α) → α → Expression α
   /-- Conditional `IF e₁ THEN e₂ ELSE e₃`. -/
   | «if» : Expression α → Expression α → Expression α → Expression α
@@ -131,21 +93,16 @@ inductive Expression (α : Type) : Type
   | «false» : Expression α
   /-- The stuttering-allowed action `[A]_e`. -/
   | stutter : Expression α → Expression α → Expression α
-  /--
-    An expression-level placeholder for a *pending* coercion (§5.3's metavariable-solving
-    deviation from the thesis's literal `Specialize` rule): wraps an already-elaborated
-    expression whose true type still depends on an unresolved metavariable `?n`. Carries no type
-    field of its own — `?n`'s value is just `Typ.mvar n`, reconstructible from the id alone. Has
-    no `CoreTLAPlus` counterpart — introduced fresh during checking, and eliminated again before
-    the checker's own output (this type) is ever handed to a caller: by the time checking (and
-    its single end-of-check defaulting point) finishes, every `mvar` node has been substituted
-    away, so no consumer of this type outside the checker itself should ever pattern-match on it.
-  -/
+  /-- An expression-level placeholder for a *pending* coercion: wraps an already-elaborated
+  expression whose true type still depends on an unresolved metavariable `?n`. Has no
+  `CoreTLAPlus` counterpart — every `mvar` node is substituted away before the checker's output
+  is ever handed to a caller, so no consumer outside the checker itself should pattern-match on
+  it. -/
   | mvar : MVarId → Expression α → Expression α
   deriving Repr, Inhabited, BEq
 
 -- Structural recursion isn't visibly decreasing to Lean here (nested `List`/`Option` occurrences
--- of `Expression`, same caveat as `CoreTLAPlus.Expression.map`) — `partial` until revisited.
+-- of `Expression`) — `partial` until revisited.
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
   | .var v τ, pos => .var v (f τ) @@ pos
   | .nat n, pos => .nat n @@ pos
@@ -221,10 +178,8 @@ protected partial def Expression.traverse {F : Type → Type} [Applicative F] {�
 instance : Traversable Expression where
   traverse := Expression.traverse
 
-/--
-  A top-level, type-checked TLA⁺ declaration. `RECURSIVE` (§9.9) and module `INSTANCE` (§9.8)
-  are out of scope, matching `CoreTLAPlus.Declaration`.
--/
+/-- A top-level, type-checked TLA⁺ declaration. `RECURSIVE` and module `INSTANCE` are out of
+scope. -/
 inductive Declaration (α : Type) : Type
   | constants : List (String × α) → Declaration α
   | «variables» : List (String × α) → Declaration α
@@ -253,9 +208,8 @@ instance : Traversable Declaration where
     | .function a x args e => (.function · x · ·) <$> f a <*> traverse (bitraverse pure (traverse f)) args <*> traverse f e
 
 /--
-  A type-checked TLA⁺ module, wrapping the (separately checked, §7 phase 6) typed PlusCal
-  algorithm at whatever `α` the caller instantiates it at — kept abstract to avoid a cyclic
-  import, matching `CoreTLAPlus.Module`.
+  A type-checked TLA⁺ module, wrapping the (separately checked) typed PlusCal algorithm at
+  whatever `α` the caller instantiates it at — kept abstract to avoid a cyclic import.
 -/
 structure Module (α β : Type) : Type where
   name : String

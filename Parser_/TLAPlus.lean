@@ -545,36 +545,10 @@ namespace SurfaceTLAPlus.Parser
 
   namespace Annotations
     /--
-      Parse annotations over a *flat* `String.Slice` — the same, already-correct string-stream
-      instance `Parser_/Annotations.lean`'s own `parseType'` already relies on (`Parser.Stream
-      String.Slice Char`, `.lake/packages/Parser/Parser/Stream.lean:73`: `Position :=
-      String.Pos.Raw`, `setPosition` just re-slices — no custom bookkeeping needed at all).
-
-      This replaces an earlier, genuinely broken design: a hand-rolled `Parser.Stream
-      (Stream.OfList Substring.Raw) Char` instance meant to let multiple adjacent
-      comment-tokens be parsed as one logical unit while still recovering which original
-      comment a given match fell in. Its `setPosition` (previously here, marked with a
-      `FIXME` acknowledging the doubt) rewound the `past`/`next` split by *element count*
-      only, without correctly reconstructing a partially-consumed element's own inner
-      position — so a failed lookahead that peeked past the end of one comment into the
-      next (exactly what happens after parsing a bare, argument-less annotation like
-      `@parameter`, which always probes for optional `(...)`/`: ...;` before giving up) could
-      leave the stream's position corrupted, silently swallowing the next comment's own
-      leading text. Confirmed by hand (and independently, by the project owner reading the
-      same code): two adjacent bare `@parameter` comments collapsed into a single parsed
-      result instead of two, while every annotation kind with an explicit terminator
-      (`@type: ...;`, `@mailbox(...)`) was unaffected, since its own parse always ends at a
-      definite delimiter rather than via a failed, boundary-crossing lookahead.
-
-      New design: concatenate every comment's raw content into one flat `String` up front
-      (no per-comment stream elements at all, so there is no "crossing a boundary" for
-      `setPosition` to get wrong), parse annotations out of it with the ordinary,
-      already-trusted `String.Slice` machinery, then map each match's flat
-      `String.Pos.Raw` back to *which original comment* it fell in via `commentIndexOf`
-      below (a plain lookup over cumulative byte lengths — no parser-level bookkeeping
-      involved) purely to recover that comment's own `SourceSpan` for `@@`-tagging, exactly
-      matching what the old code did with its `comments[start.fst]!`/`comments[«end».fst]!`
-      indexing.
+      Parses annotations out of a run of adjacent comments by concatenating their raw content
+      into one flat `String` and parsing over that with the ordinary `String.Slice` stream.
+      Each match's flat position is mapped back to the original comment it fell in (via
+      `commentIndexOf` below) to recover that comment's own `SourceSpan`.
     -/
     private abbrev TypeParser := SimpleParser String.Slice Char
 
@@ -645,8 +619,7 @@ namespace SurfaceTLAPlus.Parser
       return anns.toList.filterMap Sum.getRight?
 
     /-- Cumulative `[start, end)` byte-offset ranges, one per comment, within the flat string
-    `String.join contents` (in the same order). Purely arithmetic — no parser/stream
-    involvement, so there's nothing here for `setPosition`-style bugs to corrupt. -/
+    `String.join contents` (in the same order). -/
     private def commentBoundaries (contents : List String) : Array (String.Pos.Raw × String.Pos.Raw) :=
       (contents.foldl (init := (#[], 0)) λ (acc, off) c ↦
         let endOff := off + c.utf8ByteSize
@@ -1149,12 +1122,8 @@ namespace SurfaceTLAPlus.Parser
       declarations₂ := decls₂.toList.filterMap λ x ↦ (λ y ↦ y @@ posOf x) <$> x
     }
 
-  /--
-    Parse a full module, returning `List ParserWarning` alongside a successful parse — currently
-    only ever `fair process`/`fair+` occurrences (`Parser_/PlusCal.lean`), collected via
-    `ParserWarningM` rather than emitted immediately, since suppression (`-W`/`-Wno-<name>`) is
-    decided by the CLI driver, the first point in the pipeline with `FlagsEnv` access.
-  -/
+  /-- Parse a full module, returning any collected `ParserWarning`s alongside a successful
+  parse. -/
   def parseModule (tokens : Array (Located' (Token (Located' SurfacePlusCal.Token)))) :
     Unexpected (Token (Located' SurfacePlusCal.Token)) ⊕ (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation) × List ParserWarning) :=
       let (res, warnings) := (parseModule'.run (Stream.mkOfList tokens.toList)).run []

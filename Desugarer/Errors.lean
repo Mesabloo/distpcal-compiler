@@ -3,83 +3,42 @@ import Common.Errors
 
 /-- Errors produced while desugaring `SurfaceTLAPlus`/`SurfacePlusCal` into `CoreTLAPlus`/`CorePlusCal`. -/
 inductive DesugarError : Type
-  /-- `@` used outside of an `EXCEPT` update (`Desugarer/TLAPlus.lean`). -/
+  /-- `@` used outside of an `EXCEPT` update. -/
   | misplacedAt (pos : SourceSpan)
-  /-- A `goto` is immediately followed by more, unlabelled statements — unreachable dead code,
-  not something to route around (`goto` immediately followed by a *label* is the ordinary
-  "this block ends here" case and is not an error, `Desugarer/PlusCal.lean`'s module doc). -/
+  /-- A `goto` is immediately followed by more, unlabelled statements — unreachable dead code
+  (`goto` immediately followed by a *label* is fine). -/
   | gotoNotInTailPosition (pos : SourceSpan)
   /-- A statement appears before the first label of its enclosing thread — there is no label to
-  attach it (or the block it starts) to. Well-labelledness itself (every `goto` targets a real
-  label) is checked later (§5.2a); this is a narrower, purely structural precondition for
-  desugaring to even produce a `List (String × Block …)` at all. -/
+  attach it (or the block it starts) to. -/
   | unlabelledStatement (pos : SourceSpan)
-  /-- A label appears inside a `with` body. Real PlusCal never allows this — `with` introduces a
-  binding that only makes sense within one atomic step, so execution can never pause/reschedule
-  in its middle (`Desugarer/PlusCal.lean`'s module doc; unlike `if`/`while`/`either`, which *do*
-  allow nested labels, extracted into their own blocks). -/
+  /-- A label appears inside a `with` body — never allowed, since a `with` binding only makes
+  sense within one atomic step. -/
   | nestedLabel (pos : SourceSpan)
-  /-- A `while` statement appears inside a `with` body, at any nesting depth. The PlusCal manual
-  (§3.2.6) lists this as its own, unconditional restriction, independent of `nestedLabel` above:
-  a `while` is illegal inside `with` even with no label of its own anywhere near it — `with`'s
-  one-atomic-step semantics never allows resuming mid-loop, and (per §3.2.4) a `while` always
-  needs a label to loop back to, which `with` can never provide. -/
+  /-- A `while` statement appears inside a `with` body, at any nesting depth. -/
   | whileInWith (pos : SourceSpan)
-  /-- A `while` statement is not immediately preceded by a real, user-written label. The PlusCal
-  manual (§3.2.4/§3.7) states "a while statement must be labeled" unconditionally — this compiler
-  does **not** auto-insert a label the way real PlusCal's opt-in `-label` translator flag would;
-  matching real PlusCal's *default* (no-flag) behavior, an unlabelled `while` is rejected outright
-  rather than silently fixed, confirmed with the project owner after an earlier draft of this
-  desugarer auto-synthesized a fresh label here instead. -/
+  /-- A `while` statement is not immediately preceded by a real, user-written label; none is
+  auto-inserted. -/
   | whileNotLabelled (pos : SourceSpan)
   /-- A statement following an `if`/`either` that contains a labelled statement or a `goto`
-  anywhere within it is not itself labelled. The PlusCal manual (§3.2.2/§3.2.3) requires this
-  unconditionally — real PlusCal's own default (no `-label`) behavior rejects a program that
-  omits it rather than silently inserting one, and this compiler matches that rather than
-  auto-synthesizing a continuation label (a correction from an earlier draft, alongside
-  `whileNotLabelled` above — both found by the same deliberate cross-check against the manual). -/
+  anywhere within it is not itself labelled. -/
   | notFollowedByLabel (pos : SourceSpan)
-  /-- A statement writes into a variable that is currently bound by an enclosing `with` (at any
-  nesting depth) — either an `assign` targeting it directly (`with x = e { x := 9 }`) or a
-  `receive` whose target `Ref` is it (`with x = e { receive(c, x) }`, which writes the received
-  value into `x` the same way `assign` writes into its target). A `with`-bound name is a local
-  binding to a fixed value for the duration of its body, not a process variable — it was never
-  declared in `variables` and has no state to update, so writing to it is meaningless the same
-  way assigning to a TLA⁺ `LET`-bound name would be, regardless of whether the `with` used `=`
-  or `∈`. -/
+  /-- A statement writes into a variable currently bound by an enclosing `with` — either an
+  `assign` targeting it directly or a `receive` whose target `Ref` is it. A `with`-bound name is
+  a local binding to a fixed value, not a process variable, so writing to it is meaningless. -/
   | withBoundVarWritten (pos : SourceSpan) (name : String)
-  /-- An annotation-carrying slot only accepts specific kinds of annotation (`@type` at
-  `CONSTANTS`/`VARIABLES`/`channels`/`fifos` entries, operator/function signatures,
-  quantifier/`CHOOSE` binders, and record-literal field values; `@mailbox` only immediately
-  before a `process`; `@parameter` only on a `∈`-initialized process-local `variable`), but a
-  different kind was found there — a real annotation, correctly captured at a real call site,
-  just attached to the wrong specific role within it (§5.1's annotation-placement
-  prerequisite; distinct from a merely-superfluous annotation with no consuming site nearby
-  at all, which is out of scope, `PLAN.md` §9.13). -/
+  /-- An annotation-carrying slot only accepts specific kinds of annotation, but a different kind
+  was found there. -/
   | wrongAnnotationKindAtSite (pos : SourceSpan) (found : String) (expected : String)
-  /-- Two or more annotations of the same kind found at one slot, for a kind whose *content*
-  can actually differ between instances (`@type`: two different types would be genuinely
-  ambiguous, which one applies?; `@mailbox`: two different channels on one process, same
-  problem) — not merely redundant. Content-*free* markers (`@parameter`) get a warning
-  instead (`DesugarWarning.duplicateParameterAnnotation`), not this error, since there's
-  nothing to actually disagree about. -/
+  /-- Two or more annotations of the same kind found at one slot, for a kind whose content can
+  actually differ between instances (`@type`, `@mailbox`). Content-free markers (`@parameter`)
+  get a warning instead (`DesugarWarning.duplicateParameterAnnotation`). -/
   | duplicateAnnotation (pos : SourceSpan) (kind : String)
-  /-- The same *bare* variable (no index — `x`, not `x[…]`, `PLAN.md` §5.2a's well-labelledness
-  bullet, "no two assignments to the same variable within one atomic step, on the same control
-  path") is written to more than once within one atomic step (`assign`, including two entries
-  of the same `||`-list, or `receive`, whichever combination) — on the *same* control path:
-  two different `if`/`either` branches writing to the same variable is fine (only one of them
-  ever actually runs), but one branch doing so twice, or one branch and whatever both branches
-  converge to afterward, is not. Indexed writes (`x[0] := …`) are never tracked by this check
-  at all — a real conflict there depends on whether the indices are equal, which isn't
-  something this purely syntactic pass can (or should) decide. -/
+  /-- The same bare variable (no index — `x`, not `x[…]`) is written to more than once within one
+  atomic step (`assign`/`receive`, any combination), on the same control path. Indexed writes
+  (`x[0] := …`) are never tracked by this check. -/
   | conflictingAssignment (pos : SourceSpan) (name : String)
-  /-- The right-hand side of a record-access `.` is not a bare field-name identifier (e.g.
-  `r.1`, `r.(f)`). TLA+'s `.` is exclusively record projection ("Specifying Systems"); unlike
-  every other infix operator, its right-hand side is a field name, not an expression to
-  evaluate — so anything other than a bare identifier there is a syntax error, not a
-  legitimate expression to desugar generically (`Desugarer/TLAPlus.lean`'s `Expression.desugar`,
-  `.infixCall _ .«.» _` case). -/
+  /-- The right-hand side of a record-access `.` is not a bare field-name identifier (e.g. `r.1`,
+  `r.(f)`). -/
   | invalidRecordFieldAccess (pos : SourceSpan)
 
 instance : CompilerDiagnostic DesugarError String where
@@ -111,15 +70,11 @@ instance : CompilerDiagnostic DesugarError String where
     | .conflictingAssignment _ name => s!"'{name}' is written to more than once within the same atomic step."
     | .invalidRecordFieldAccess _ => "The right-hand side of '.' must be a field name."
 
-/-- Non-fatal issues found while desugaring — collected out-of-band (mirroring
-`Parser_/Common.lean`'s `ParserWarning`/`ParserWarningM`) rather than emitted immediately, since
-`-W`/`-Wno-<name>` suppression needs `FlagsEnv`, which the desugarer itself doesn't have access
-to — the compiler driver does (`Driver/Modules.lean`'s `compileModule`), and filters/prints these
-once desugaring returns. -/
+/-- Non-fatal issues found while desugaring — collected out-of-band and filtered/printed once
+desugaring returns (`Driver/Modules.lean`'s `compileModule`). -/
 inductive DesugarWarning : Type
-  /-- A `@parameter` marker repeated on the same variable. Unlike `@type`/`@mailbox`,
-  `@parameter` carries no content of its own to disagree about — a second one changes
-  nothing, so it's a warning, not `DesugarError.duplicateAnnotation`. -/
+  /-- A `@parameter` marker repeated on the same variable — content-free, so a warning rather
+  than `DesugarError.duplicateAnnotation`. -/
   | duplicateParameterAnnotation (pos : SourceSpan)
   deriving Repr, Inhabited, BEq
 

@@ -5,87 +5,49 @@ import Elaborator.Context
 import Core.CoreTLAPlus.Syntax
 
 /-!
-  Bidirectional expression checking (§5.3, thesis §3.1.1–3.1.3.7, Figs. 3.1.1–3.1.6): `checkExpr`
-  (`Γ ⊢ e ⇓ τ`) and `inferExpr` (`Γ ⊢ e ⇑ τ`), turning a `CoreTLAPlus.Expression (Option
-  TypedTLAPlus.Typ)` (the checker's actual input — every binder's annotation still the optional,
-  user-written one) into a `TypedTLAPlus.Expression TypedTLAPlus.Typ` (every binder now a real,
-  resolved type). Each case below carries the thesis rule it implements, rendered the same way
-  `~/Documents/distpcal-compiler/Checker/Typechecker/Expressions.lean` renders its own (a plain
-  comment: premises over a bar over the conclusion, `[Rule Name]` tag) — but using the thesis's
-  own notation (`Bool`/`Int`/`Str`/`Set(τ)`/…) rather than that file's alternate `𝔹`/`ℤ`/`𝕊`/`𝒫`
-  shorthand, since the thesis is this project's authoritative spec (`CLAUDE.md`), not that sketch.
+  Bidirectional expression checking: `checkExpr` (`Γ ⊢ e ⇓ τ`) and `inferExpr` (`Γ ⊢ e ⇑ τ`),
+  turning a `CoreTLAPlus.Expression (Option TypedTLAPlus.Typ)` (every binder's annotation still
+  the optional, user-written one) into a `TypedTLAPlus.Expression TypedTLAPlus.Typ` (every binder
+  now a real, resolved type). Each case below carries the rule it implements as a comment:
+  premises over a bar over the conclusion, tagged `[Rule Name]`.
 
-  **The checking/synthesis split is precise, not a mechanical pass over every figure** — several
-  thesis rules are checking-only *until* `<:`/`lub` exist (§3.1.3.7, p. 13), at which point the
-  thesis itself *replaces* the checking rule with a synthesis one, and *only* the final, replaced
-  form is implemented here (checking-mode use of the construct still works through the generic
-  `[Subtype]` fallback below, so nothing is lost):
-  - **`ENUMERATION`/`Empty set`** — `∅` stays checking-only (`lub` over zero elements is
-    undefined), but a nonempty `{e1,...,en}` now *synthesizes* `Set(lub(τ1,...,τn))`.
-  - **`CONDITIONAL`/`CONDITIONAL CHOICE`** — both now synthesize `lub` over their branches
-    (`IF`'s two, `CASE`'s `n` cases plus `OTHER` if present) rather than only checking.
-  - **`Sequence constructor` vs. `Tuple constructor` — a genuine, deliberate non-conversion, not
-    an oversight.** `⟨e1,...,en⟩` is one surface/`CoreTLAPlus` AST node (`.tuple`) serving two
-    thesis rules: `Tuple constructor` (Fig. 3.1.3, synthesis) and `Sequence constructor` (Fig.
-    3.1.6, checking-only *by the thesis's own explicit choice*, p. 13 — converting it to
-    synthesis "would conflict with... Tuple constructor, where it would not be immediate and
-    local what type to synthesize"). Dispatched by mode here: `checkExpr` against an expected
-    `Seq(τ)` uses `Sequence constructor` (each element only needs to *check* against `τ`, more
-    permissive than synthesizing one first); everywhere else uses `Tuple constructor`'s
-    synthesis, producing `TypedTLAPlus.Expression.tuple`. The *elaborated* term keeps the
-    distinction the two rules discovered (`.tuple` vs. the genuinely separate `.seq`,
-    `Core/TypedTLAPlus/Syntax.lean`) rather than collapsing back to one shared shape.
-  - **Unbounded `\A`/`\E` vs. unbounded `CHOOSE` — two different resolutions to the same
-    can't-synthesize-the-bound-variable's-type problem, not the same treatment twice.** Unbounded
-    quantification stays a *synthesis* rule requiring an explicit `x : τ` annotation (`@type`,
-    already-parsed surface syntax) — checked for presence here, not newly invented. Unbounded
-    `CHOOSE` instead stays **checking-only** always (no synthesis form the thesis ever
-    introduces for it, precisely to *avoid* needing a binder annotation there) — hitting it in a
-    synthesis position is a real error (`TCError.cannotInferType`), not a missing-annotation one.
-  - Bounded quantification/choice (`x ∈ S`) never has this problem (`x`'s type synthesizes from
-    `S`) and stays a plain synthesis rule throughout.
+  A few constructs synthesize a type only in certain cases:
+  - `∅` is checking-only (`lub` over zero elements is undefined), but a nonempty `{e1,...,en}`
+    synthesizes `Set(lub(τ1,...,τn))`.
+  - `IF`/`CASE` both synthesize `lub` over their branches.
+  - `⟨e1,...,en⟩` dispatches by mode: checked against an expected `Seq(τ)` it uses the sequence
+    constructor (each element only needs to check against `τ`); everywhere else it synthesizes as
+    a tuple. The elaborated term keeps the distinction (`.tuple` vs. `.seq`).
+  - Unbounded `\A`/`\E` synthesize only when annotated with an explicit `x : τ`. Unbounded
+    `CHOOSE` is checking-only always — hitting it in synthesis position is a real error
+    (`TCError.cannotInferType`), not a missing-annotation one. Bounded quantification/choice
+    (`x ∈ S`) always synthesizes, since `x`'s type comes from `S`.
 
-  **Genuinely out of scope, confirmed absent from `CoreTLAPlus.Expression` rather than merely
-  unhandled here:** `LAMBDA` (designed but unimplemented, `PLAN.md` §9.16 — no AST constructor
-  exists to match on); `LET-IN` (no constructor either — TLA⁺'s `LET`/`IN` doesn't survive
-  desugaring as its own node); weak/strong fairness (`WF_`/`SF_`), non-stuttering `⟨A⟩_e`, and
-  temporal operators generally have no surface syntax at all in this project *except* the ones
-  that reduce to plain builtin-operator application during desugaring (`UNCHANGED`, `ENABLED`,
-  prime `'`, `~>`, `-+>`, `[]`, `<>` all desugar to `opCall (.var "<name>") […]`,
-  `Desugarer/TLAPlus.lean`) — those need **no dedicated case here at all**, the generic
-  `OPERATOR CALL` rule below already covers them once the builtin table (§5.3 task 7,
-  `Elaborator/Declarations.lean`) gives each one a real `Γ` entry. Only `stutter` (`[A]_e`) is a
-  genuine `CoreTLAPlus.Expression` constructor and gets its own case.
+  Out of scope, with no `CoreTLAPlus.Expression` constructor to match on: `LAMBDA`, `LET-IN`,
+  weak/strong fairness (`WF_`/`SF_`), non-stuttering `⟨A⟩_e`, and temporal operators generally.
+  `UNCHANGED`/`ENABLED`/prime `'`/`~>`/`-+>`/`[]`/`<>` desugar to plain operator calls and need no
+  dedicated case — the generic `OPERATOR CALL` rule covers them once the builtin table gives each
+  one a `Γ` entry. Only `stutter` (`[A]_e`) is a real constructor with its own case.
 
-  **`EXCEPT` is more general here than any single thesis figure rule.** `CoreTLAPlus.Expression
-  .except`/`TypedTLAPlus.Expression.except` allow an arbitrary-length path of record-field/
-  index steps per update (`[f EXCEPT ![1].x[2] = v]`), where the thesis only ever shows one-step
-  paths (`RECORD OVERLOADING`/`TUPLE OVERLOADING`/`SEQUENCE OVERLOADING`/`FUNCTION OVERLOADING`,
-  Fig. 3.1.3, each a single step). Implemented as one general recursive walk (`stepInto`/
-  `checkExceptPath` below) applying whichever single-step rule fits at each step, rather than
-  four separate one-step cases — the thesis's rules are the base cases of that walk, not
-  something to special-case around.
+  `EXCEPT` supports an arbitrary-length path of record-field/index steps per update (`[f EXCEPT
+  ![1].x[2] = v]`), implemented as one general recursive walk (`stepInto`/`checkExceptPath`
+  below) rather than one case per path length.
 
-  **Polymorphism instantiation (`SPECIALIZE`, Fig. 3.1.7) — implemented per `PLAN.md` §5.3/§2's
-  deliberate deviation, not the thesis's literal rule.** `OPERATOR CALL` collects every `Typ.var`
-  appearing in the callee's operator type, allocates one fresh metavariable per *distinct* name
-  (`specializeOperator` below), and substitutes throughout before checking arguments — argument
-  checking then resolves those metavariables incrementally through `Elaborator/Subtyping.lean`'s
-  direction-aware solving, not through a separate substitution guess at the call site.
+  Polymorphism instantiation: `OPERATOR CALL` collects every `Typ.var` appearing in the callee's
+  operator type, allocates one fresh metavariable per distinct name (`specializeOperator`
+  below), and substitutes throughout before checking arguments — argument checking then resolves
+  those metavariables incrementally through `Elaborator/Subtyping.lean`'s direction-aware solving.
 -/
 
 open TypedTLAPlus (Typ MVarId Expr)
 
 /-- The checker's actual input: `CoreTLAPlus.Expression` at `α := Option Typ`, every binder's
-annotation still the optional, user-written one (`@type` comments, already parsed) rather than a
-resolved type. -/
+annotation still the optional, user-written one rather than a resolved type. -/
 abbrev SrcExpr := CoreTLAPlus.Expression (Option Typ)
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
 
-/-- `lub` folded across a nonempty list of types, erroring at `pos` the moment two of them turn
-out incomparable (`ENUMERATION`/`CONDITIONAL`/`CONDITIONAL CHOICE`'s shared synthesis pattern,
-module doc). -/
+/-- `lub` folded across a nonempty list of types, erroring at `pos` on the first incomparable pair. -/
 private def lubAll (pos : SourceSpan) : List Typ → m Typ
   | [] => throw (.ambiguousType pos)
   | τ :: τs => τs.foldlM (init := τ) λ acc τ' ↦ do
@@ -94,7 +56,7 @@ private def lubAll (pos : SourceSpan) : List Typ → m Typ
     | none => throw (.ambiguousType pos)
 
 /-- Needed for the `partial def`s below to type-check at all (an arbitrary `m` isn't otherwise
-known nonempty) — same fix `Elaborator/Subtyping.lean` already uses for the same reason. -/
+known nonempty). -/
 local instance : Inhabited (m Expr) := ⟨pure default⟩
 private local instance : Inhabited (m (Typ × Expr)) := ⟨pure default⟩
 private local instance : Inhabited (m (Typ × (String ⊕ Expr))) := ⟨pure default⟩
@@ -102,11 +64,9 @@ private local instance : Inhabited (m (Typ × List (String ⊕ Expr))) := ⟨pur
 
 mutual
   /--
-    Indexing `e[e']` where `e`'s own type `τ` is already known — the shared core of `FUNCTION
-    CALL`/`SEQUENCE ACCESS`/`TUPLE ACCESS` (thesis Fig. 3.1.3): `CoreTLAPlus.Expression.fnCall`
-    is a single constructor covering all three (records/tuples/sequences are encoded as
-    functions, module doc of `Core/CoreTLAPlus/Syntax.lean`), so which rule actually applies is a
-    runtime dispatch on `τ`'s own shape, not something the AST distinguishes structurally.
+    Indexing `e[e']` where `e`'s own type `τ` is already known — the shared core of function
+    call/sequence access/tuple access. `CoreTLAPlus.Expression.fnCall` is a single constructor
+    covering all three, so which rule applies is a runtime dispatch on `τ`'s own shape.
   -/
   partial def indexInto (pos : SourceSpan) (τ : Typ) (idx : SrcExpr) : m (Typ × Expr) := do
     match τ with
@@ -137,10 +97,8 @@ mutual
       | _ => throw (.invalidTupleIndex pos "a non-literal expression" τs.length)
     | _ => throw (.notIndexable pos τ)
 
-  /-- One `EXCEPT` path step (module doc: a path is a `List (String ⊕ SrcExpr)`, `.inl` a record
-  field, `.inr` an index) applied to an already-known type `τ` — `.inl`'s own rule below is
-  `RECORD OVERLOADING`'s field-lookup half; `.inr` reuses `indexInto` (`FUNCTION`/`SEQUENCE`/
-  `TUPLE OVERLOADING`'s shared index-lookup half). -/
+  /-- One `EXCEPT` path step (a path is a `List (String ⊕ SrcExpr)`: `.inl` a record field,
+  `.inr` an index) applied to an already-known type `τ`. -/
   partial def stepInto (pos : SourceSpan) (τ : Typ) : (String ⊕ SrcExpr) → m (Typ × (String ⊕ Expr))
     | .inl field => match τ with
       /-
@@ -156,11 +114,9 @@ mutual
       let (τ', idx') ← indexInto pos τ idx
       return (τ', .inr idx')
 
-  /-- The general `EXCEPT` path walk (module doc) — recurses on the path, threading the type
-  through each step via `stepInto`, and returns the type the final new value must be checked
-  against alongside the elaborated (unchanged-shape) path. Structurally recursive on the list on
-  its own, but stuck with `partial` anyway — every definition in one `mutual` block must agree on
-  it, and the rest of this group already needs it (`indexInto`'s own doc). -/
+  /-- The general `EXCEPT` path walk — recurses on the path, threading the type through each step
+  via `stepInto`, and returns the type the final new value must be checked against alongside the
+  elaborated (unchanged-shape) path. -/
   partial def checkExceptPath (pos : SourceSpan) (τ : Typ) :
       List (String ⊕ SrcExpr) → m (Typ × List (String ⊕ Expr))
     | [] => return (τ, [])
@@ -169,10 +125,9 @@ mutual
       let (final, rest') ← checkExceptPath pos τ' rest
       return (final, step' :: rest')
 
-  /-- `Γ ⊢ e ⇓ τ` (thesis §3.1.1, Figs. 3.1.1–3.1.6) — see the module doc for exactly which
-  constructs get a dedicated checking rule here versus falling to the generic `[Subtype]`
-  fallback (everything else, including checking-mode use of every purely-synthesis rule
-  `inferExpr` implements). -/
+  /-- `Γ ⊢ e ⇓ τ` — see the module doc for exactly which constructs get a dedicated checking rule
+  here versus falling to the generic `[Subtype]` fallback (everything else, including
+  checking-mode use of every purely-synthesis rule `inferExpr` implements). -/
   partial def checkExpr (e : SrcExpr) (τ : Typ) : m Expr := match_source (indices := [1]) e, τ with
     /-
       ─────────────── [Empty set]
@@ -207,8 +162,7 @@ mutual
       | .pending n => return .mvar n e' @@ pos
       | .failure => throw (.failedToConvertTypes pos τ τ')
 
-  /-- `Γ ⊢ e ⇑ τ` (thesis §3.1.1, Figs. 3.1.1–3.1.6) — see the module doc for the precise
-  checking/synthesis split. -/
+  /-- `Γ ⊢ e ⇑ τ` — see the module doc for the precise checking/synthesis split. -/
   partial def inferExpr (e : SrcExpr) : m (Typ × Expr) := match_source e with
     /-
        x : τ ∈ Γ
@@ -252,10 +206,8 @@ mutual
         else do
           let (params', ret') ← specializeOperator params ret
           let args' ← (params'.zip args).mapM λ (τᵢ, argᵢ) ↦ checkExpr argᵢ τᵢ
-          -- `e'` still carries the polymorphic operator type it had in `Γ` (only `.var` stores
-          -- one at all, module doc of `Core/TypedTLAPlus/Syntax.lean`) — retag it with the
-          -- specialized one so the callee's own type agrees with `ret'`/`args'` rather than
-          -- silently keeping the un-instantiated `Typ.var`s around in the elaborated term.
+          -- `e'` still carries the un-instantiated polymorphic operator type — retag it with the
+          -- specialized one so the callee's type agrees with `ret'`/`args'`.
           let e'' := match e' with
             | .var x _ => .var x (.operator params' ret') @@ posOf e'
             | _ => e'
@@ -344,7 +296,7 @@ mutual
         | _ => throw (.notASetType pos τ)
       return (.set (.record (fields'.map λ (τ, x, _) ↦ (x, τ))), .recordSet fields' @@ pos)
     /-
-       Γ ⊢ e ⇑ τ       (general `EXCEPT` path walk, module doc)
+       Γ ⊢ e ⇑ τ       (general `EXCEPT` path walk)
       ─────────────────────────────────────────────────────────── [Overloading]
                               Γ ⊢ e ⇑ τ
     -/
@@ -474,7 +426,7 @@ mutual
         return (τ, .choose x τ (some domE') body' @@ pos)
       | _ => throw (.notASetType pos domTy)
     /-
-       (no synthesis rule — thesis deliberately keeps unbounded `CHOOSE` checking-only, module doc)
+       (no synthesis rule — unbounded `CHOOSE` is checking-only)
     -/
     | .choose _ _ none _, pos =>
       throw (.cannotInferType pos
@@ -489,7 +441,7 @@ mutual
       let τ ← lubAll pos (pairs.map Prod.fst)
       return (.set τ, .set (pairs.map Prod.snd) τ @@ pos)
     /-
-       (no synthesis rule — `lub` over zero elements is undefined, thesis p. 13)
+       (no synthesis rule — `lub` over zero elements is undefined)
     -/
     | .set [], pos =>
       throw (.cannotInferType pos

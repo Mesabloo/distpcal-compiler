@@ -5,15 +5,12 @@ import Core.SurfacePlusCal.Syntax
 import Parser_.Annotations
 
 namespace SurfaceTLAPlus
-  /-- The canonical (single-spelling) name a builtin prefix operator becomes as a `CoreTLAPlus.
-  Expression.var` — reachable only via `opCall`, per `Core/CoreTLAPlus/Syntax.lean`'s doc
-  comment on why builtins don't need their own value constructors. -/
+  /-- The canonical (single-spelling) name a builtin prefix operator becomes as a
+  `CoreTLAPlus.Expression.var`, reachable via `opCall`. -/
   def PrefixOperator.canonicalName : PrefixOperator → String
-    /- Unary minus gets its own canonical spelling, `"-."`, distinct from infix `-`'s
-    `InfixOperator.canonicalName` below — the same disambiguating trick "Specifying Systems"
-    itself uses (the concrete surface syntax stays plain `-x`, parsed exactly as before; only the
-    internal `Γ`-lookup name changes), so `Elaborator/Declarations.lean`'s `builtinContext` can
-    give the two arities of `-` their own, non-colliding `Γ` entries (`PLAN.md` §9.18). -/
+    -- Unary minus gets its own canonical spelling, `"-."`, distinct from infix `-`'s
+    -- `InfixOperator.canonicalName` below, so the two arities of `-` get non-colliding `Γ`
+    -- entries; the surface syntax stays plain `-x`.
     | .«-» => "-."
     | .«\neg » _ => "\\neg"
     | .«[]» => "[]"
@@ -66,20 +63,13 @@ namespace SurfaceTLAPlus
   fresh tuple binder (see `flattenBound`/`collapseToSingleBinder` below). -/
   private def cartesianProduct : InfixOperator := .«\X » 0
 
-  -- `[Inhabited α]`: needed wherever a synthesized binder (fresh tuple/product variables, and
-  -- unbounded `\A x, y : P`-style binders that `SurfaceTLAPlus.Expression.forall`/`exists`/
-  -- `fforall`/`eexists` don't carry a per-variable annotation for at all, §9 -- see the note on
-  -- `Expression.forall`/`.exists` below) needs *some* annotation value and there is no real one
-  -- to reuse. In practice `α` is always `List Annotation`, which is trivially `Inhabited ([])`.
+  -- `[Inhabited α]`: needed wherever a synthesized binder (fresh tuple/product variables, or an
+  -- unbounded binder with no per-variable annotation) needs some annotation value to use.
   variable {α} [Inhabited α] {m : Type → Type} [MonadDesugarerExpr α m] [Monad m]
 
-  /--
-    Substitute every free occurrence of `CoreTLAPlus.Expression.var x` with `e`, stopping at any
-    binder that rebinds `x` — sufficient for well-scoped programs (§5.2a rejects shadowing
-    outright, so there is no well-formed input where a genuine capture could occur). Used to
-    reconstruct tuple-pattern/multi-binder variables as projections off a single fresh binder
-    (`flattenBound`, `collapseToSingleBinder`) without needing full capture-avoiding substitution.
-  -/
+  /-- Substitute every free occurrence of `CoreTLAPlus.Expression.var x` with `e`, stopping at any
+  binder that rebinds `x`. Used to reconstruct tuple-pattern/multi-binder variables as
+  projections off a single fresh binder (`flattenBound`, `collapseToSingleBinder`). -/
   partial def CoreTLAPlus.Expression.subst {α} (x : String) (e : CoreTLAPlus.Expression α) : CoreTLAPlus.Expression α → CoreTLAPlus.Expression α
     | .var y => if y == x then e else .var y
     | .opCall f es => .opCall (subst x e f) (subst x e <$> es)
@@ -113,12 +103,9 @@ namespace SurfaceTLAPlus
     .fnCall (.var z) (.nat (toString (i + 1)))
 
   /-- `f[e₁, …, eₙ]`'s/`![e₁, …, eₙ]`'s indices, collapsed to the single `CoreTLAPlus.Expression`
-  `fnCall`/`except` now always take: a lone index (`n = 1`) stays exactly that, `f[e]`; strictly
-  more than one (`n > 1`) becomes the tuple `f[<<e₁, …, eₙ>>]` — never the reverse (`n = 1`
-  never becomes `f[<<e>>]`), per the project owner. `es` is always non-empty by construction of
-  the parser (`sepBy1` inside `f[...]`/`![...]`, `Parser_/TLAPlus.lean`). Not `private`: reused
-  by `Desugarer/PlusCal.lean` for `SurfacePlusCal.Ref`'s own indices (`x[e₁, …, eₙ] := v`),
-  same rule. -/
+  `fnCall`/`except` take: a lone index (`n = 1`) stays exactly that, `f[e]`; more than one becomes
+  the tuple `f[<<e₁, …, eₙ>>]`. `es` is always non-empty by construction of the parser. Reused by
+  `Desugarer/PlusCal.lean` for `SurfacePlusCal.Ref`'s own indices. -/
   def wrapIndices {α} (pos : SourceSpan) : List (CoreTLAPlus.Expression α) → CoreTLAPlus.Expression α
     | [e] => e
     | es => .tuple es @@ pos
@@ -129,11 +116,10 @@ namespace SurfaceTLAPlus
     terms of those flattened names:
     - `.var ann x dom` is already single-variable: one binding, no rewriting needed.
     - `.vars [(ann₁,x),(ann₂,y),…] dom` (`\A x, y ∈ S : …`) shares one domain across several
-      *separate* names: expands to one binding per name, still no rewriting needed (there is no
-      tuple to reconstruct).
-    - `.varTuple [(ann₁,x),(ann₂,y),…] dom` (`\A ⟨x,y⟩ ∈ S : …`) is a genuine tuple pattern:
-      collapses to *one* fresh binding over `dom`, rewriting `body` to substitute each `x`/`y`
-      with the corresponding projection out of the fresh variable.
+      separate names: expands to one binding per name, no rewriting needed.
+    - `.varTuple [(ann₁,x),(ann₂,y),…] dom` (`\A ⟨x,y⟩ ∈ S : …`) is a tuple pattern: collapses to
+      one fresh binding over `dom`, rewriting `body` to substitute each `x`/`y` with the
+      corresponding projection out of the fresh variable.
   -/
   def flattenBound (qb : QuantifierBound α (CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) :
       m (List (String × α × CoreTLAPlus.Expression α) × CoreTLAPlus.Expression α) :=
@@ -147,14 +133,12 @@ namespace SurfaceTLAPlus
       pure ([(z, ann, dom)], body)
 
   /--
-    Collapse a *list* of already-flattened single-variable bindings (from `flattenBound`, one
-    list per original `QuantifierBound`, concatenated) into exactly one binding, as required by
-    `CoreTLAPlus`'s single-binder function literals/set-maps (thesis Fig. 3.1.2/3.1.3, `Core/
-    CoreTLAPlus/Syntax.lean`'s module doc). A single binding needs no change; multiple bindings
-    `x ∈ A, y ∈ B, …` collapse to one fresh variable over the Cartesian product `A × B × …`,
-    rewriting `body` to project each original name back out — this is *not* the same
-    transformation as `\A x, y : P`'s sequential nesting (`nestQuantifier` below): `[x ∈ A, y ∈ B
-    ↦ e]` denotes one function over pairs, not a function of functions.
+    Collapse a list of already-flattened single-variable bindings into exactly one binding, as
+    required by `CoreTLAPlus`'s single-binder function literals/set-maps. A single binding needs
+    no change; multiple bindings `x ∈ A, y ∈ B, …` collapse to one fresh variable over the
+    Cartesian product `A × B × …`, rewriting `body` to project each original name back out. Not
+    the same transformation as `\A x, y : P`'s sequential nesting (`nestQuantifier` below): `[x ∈
+    A, y ∈ B ↦ e]` denotes one function over pairs, not a function of functions.
   -/
   def collapseToSingleBinder (bindings : List (String × α × CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) :
       m (String × α × CoreTLAPlus.Expression α × CoreTLAPlus.Expression α) :=
@@ -168,8 +152,8 @@ namespace SurfaceTLAPlus
     | [] => unreachable!
 
   /-- Sequentially nest a list of `(name, annotation, domain)` bindings into repeated
-  single-variable quantification: `x ∈ A, y ∈ B` becomes `∫ x ∈ A : ∫ y ∈ B : body` (thesis Fig.
-  3.1.2/3.1.6 — a genuine, true nesting, unlike `collapseToSingleBinder`'s product collapse). -/
+  single-variable quantification: `x ∈ A, y ∈ B` becomes `∫ x ∈ A : ∫ y ∈ B : body` (a true
+  nesting, unlike `collapseToSingleBinder`'s product collapse). -/
   def nestQuantifier (mk : String → α → Option (CoreTLAPlus.Expression α) → CoreTLAPlus.Expression α → CoreTLAPlus.Expression α)
       (bindings : List (String × α × CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) : CoreTLAPlus.Expression α :=
     bindings.foldr (init := body) λ (x, ann, dom) body ↦ mk x ann (some dom) body
@@ -294,25 +278,16 @@ namespace SurfaceTLAPlus
       <*> traverse Declaration.desugar mod.declarations₂
 end SurfaceTLAPlus
 
-/-- Run expression desugaring against the one concrete monad it's ever needed at: `@`'s Reader
-context, fresh-name generation, and error reporting — discarding the final fresh-name counter. -/
+/-- Run expression desugaring against the concrete monad it needs: `@`'s Reader context,
+fresh-name generation, and error reporting — discarding the final fresh-name counter. -/
 def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] (mod : SurfaceTLAPlus.Module (SurfacePlusCal.Algorithm α (SurfaceTLAPlus.Expression α)) α) :
     Except DesugarError (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
   let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (StateT Nat (Except DesugarError)) _ := mod.desugar
   (desugar.run none).run' 0
 
-/--
-  §5.1's annotation-placement prerequisite: an annotation slot known to be `@type`-only
-  (every one of `CoreTLAPlus`'s own annotation slots except `SurfacePlusCal.Process.mailbox`,
-  which is `@mailbox`-only, and a `∈`-initialized process-local `variable`, which additionally
-  allows `@parameter` — both handled separately in `Desugarer/PlusCal.lean`, since the right
-  check genuinely differs by *which* field a slot is, not just its type) must contain only
-  `@type`, and at most one — and, once validated, is worth nothing more to downstream passes
-  than the `Typ` it actually names (`Core/CorePlusCal/Syntax.lean`'s module doc: annotations
-  disappear from every `Core`-stage AST, only their content survives). Shared between the TLA⁺
-  half below (`stripTLAPlusAnnotations`) and `Desugarer/PlusCal.lean`'s own check of embedded
-  PlusCal-statement expressions, which have exactly the same rule.
--/
+/-- Validate an annotation slot known to be `@type`-only: must contain only `@type`, and at most
+one, then is replaced by the `Typ` it names. Shared between the TLA⁺ half below
+(`stripTLAPlusAnnotations`) and `Desugarer/PlusCal.lean`'s equivalent check. -/
 def extractType {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
     (anns : List Annotation) : m (Option SurfaceTLAPlus.Typ) := do
   let mut seenType : Option SurfaceTLAPlus.Typ := none
@@ -327,24 +302,12 @@ def extractType {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
     | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@type")
   return seenType
 
-/--
-  §5.1's annotation-placement prerequisite, TLA⁺ half: every `List Annotation` slot reachable
-  from a module's own declarations/expressions — excluding the embedded PlusCal algorithm,
-  left untouched here; `Desugarer/PlusCal.lean`'s `SurfacePlusCal.Algorithm.desugar` covers
-  that separately, fused into statement desugaring itself — must contain only `@type`, and at
-  most one (`extractType` above), and is replaced by the `Option Typ` it names. Every such slot
-  exists *only* because `tryParseAnnotations` (`Parser_/TLAPlus.lean`) was deliberately called
-  there during parsing (`CONSTANTS`/`VARIABLES` entries, operator/function signatures,
-  quantifier/`CHOOSE` binders, record-literal field values — confirmed by reading
-  `Expression.traverse`, which visits exactly these and no others), so anything found there
-  that isn't `@type` was captured at a real site but attached to the wrong role — a hard
-  error, not the separate, out-of-scope "floating annotation with no consuming site at all"
-  concern (`PLAN.md` §9.13).
-
-  Runs *after* `Module.desugar`/`runDesugarer`, not folded into them: those are polymorphic
-  over the annotation type `α`, but this check is only meaningful once `α` is concretely
-  `List Annotation`.
--/
+/-- Validate every `List Annotation` slot reachable from a module's own declarations/expressions
+— excluding the embedded PlusCal algorithm, which `Desugarer/PlusCal.lean`'s
+`SurfacePlusCal.Algorithm.desugar` covers separately — must contain only `@type`, and at most
+one (`extractType` above), and is replaced by the `Option Typ` it names. Runs after
+`Module.desugar`/`runDesugarer`, since this check is only meaningful once `α` is concretely
+`List Annotation`. -/
 def CoreTLAPlus.Module.stripTLAPlusAnnotations {γ} (mod : CoreTLAPlus.Module γ (List Annotation)) :
     Except DesugarError (CoreTLAPlus.Module γ (Option SurfaceTLAPlus.Typ)) :=
   bitraverse pure extractType mod

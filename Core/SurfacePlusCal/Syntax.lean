@@ -6,12 +6,11 @@ import Mathlib.Control.Bitraversable.Basic
 import Mathlib.Control.Bitraversable.Instances
 
 /-!
-  The surface syntax of Distributed PlusCal algorithms, as accepted by the parser (§5.1) — the
-  language subset in `PLAN.md` §8, not yet desugared into explicit-goto form (§5.2).
+  The surface syntax of Distributed PlusCal algorithms, as accepted by the parser — not yet
+  desugared into explicit-goto form.
 
-  Same position-tracking convention as `Core/SurfaceTLAPlus/Syntax.lean`: no `Located`
-  wrapper in the types themselves, positions attached out-of-band via `@@`/`posOf`/
-  `match_source` (`Common/Position.lean`).
+  Positions are attached out-of-band via `@@`/`posOf`/`match_source` (`Common/Position.lean`),
+  not stored structurally in these types.
 -/
 
 namespace SurfacePlusCal
@@ -30,12 +29,11 @@ instance : Traversable Ref where
   traverse f r := ({r with args := ·}) <$> traverse (traverse f) r.args
 
 /--
-  The second argument of `multicast` isn't necessarily a valid TLA⁺ function literal — e.g.
-  `[m = self, n \in Actors \ {self} |-> Hello(m, n)]` mixes an equality binder with a
-  membership one, which plain TLA⁺ function syntax can't express.
+  The filter/value expression of a `multicast`, e.g.
+  `[m = self, n \in Actors \ {self} |-> Hello(m, n)]`.
 -/
 structure MulticastFilter (α β : Type) : Type where
-  /-- Each bind is `(name, annotation, isEquality, expr)` — `isEquality` is `true` for `=`, `false` for `\in`. -/
+  /-- Each bind is `(name, annotation, isEquality, expr)`; `isEquality` is `true` for `=`, `false` for `\in`. -/
   binds : List (String × α × Bool × β)
   val : β
   deriving Repr, Inhabited
@@ -53,11 +51,10 @@ instance : Bitraversable MulticastFilter where
       <*> g m.val
 
 /--
-  A PlusCal statement (§8). `α` carries comment annotations (as in `SurfaceTLAPlus`), `β` is
-  the embedded-expression type. A *block* (the body of `if`/`while`/`with`/`either`/…) is a
-  flat `List (String ⊕ Statement α β)` — the parser doesn't separate a leading label from
-  the statement it labels, so both are elements of the same list; that separation only
-  happens once statement desugaring (§5.2) turns implicit fall-through into explicit `goto`.
+  A PlusCal statement. `α` carries comment annotations (as in `SurfaceTLAPlus`), `β` is the
+  embedded-expression type. A *block* (the body of `if`/`while`/`with`/`either`/…) is a flat
+  `List (String ⊕ Statement α β)`: a leading label and the statement it labels are elements
+  of the same list, not yet separated into distinct fields.
 -/
 inductive Statement (α β : Type) : Type
   | skip
@@ -67,9 +64,7 @@ inductive Statement (α β : Type) : Type
   | «if» (cond : β) (B₁ : List (String ⊕ Statement α β)) (B₂ : Option (List (String ⊕ Statement α β)))
   | await (e : β)
   /-- `with (* @type: ... *) x = e do B` / `with (* @type: ... *) x ∈ e do B` -- the `Bool` is
-  `true` for `=`, `false` for `∈`. Each binder carries its own annotation slot (`α`), same as
-  a `variables`/`channels`/`fifos` entry -- a `with`-bound variable can be `@type`-annotated
-  too. -/
+  `true` for `=`, `false` for `∈`. -/
   | «with» (vars : List (String × α × Bool × β)) (B : List (String ⊕ Statement α β))
   | assert (e : β)
   | either (branches : List (List (String ⊕ Statement α β)))
@@ -79,8 +74,8 @@ inductive Statement (α β : Type) : Type
   | multicast (c : String) (filter : MulticastFilter α β)
   deriving Repr, Inhabited
 
--- `partial`: same structural-recursion caveat as `SurfaceTLAPlus.Expression.map` (nested
--- `List`/`Option` occurrences of `Statement`, not visibly decreasing to Lean).
+-- `partial`: structural recursion isn't visibly decreasing to Lean here (nested `List`/`Option`
+-- occurrences of `Statement`).
 protected partial def Statement.bimap {α β γ δ} (f : α → β) (g : γ → δ) (S : Statement α γ) : Statement β δ := match_source S with
   | .skip, pos => .skip @@ pos
   | .goto l, pos => .goto l @@ pos
@@ -125,7 +120,7 @@ instance : Bitraversable Statement where
 
 /-- The declarations at the top of an `algorithm` or `process` block. -/
 structure Declarations (α β : Type) : Type where
-  /-- `(* annotations *) v (("=" | "∈") expr)?` -- the `Bool` is `true` for `=`, `false` for `∈`. -/
+  /-- `(* annotations *) v (("=" | "∈") expr)?`; the `Bool` is `true` for `=`, `false` for `∈`. -/
   «variables» : List (String × α × Option (Bool × β))
   channels : List (String × α × List β)
   fifos : List (String × α × List β)
@@ -144,14 +139,10 @@ instance : Bitraversable Declarations where
     <*> traverse (λ (x, ann, es) ↦ (x, ·, ·) <$> f ann <*> traverse g es) decls.channels
     <*> traverse (λ (x, ann, es) ↦ (x, ·, ·) <$> f ann <*> traverse g es) decls.fifos
 
-/--
-  `process(x ∈ S) ⋆ …`. Per `PLAN.md` §8, a single-process `process(x = e)` is sugar for
-  `process(x ∈ {e})` -- desugared away during statement desugaring (§5.2), not represented
-  as its own case here.
--/
+/-- `process(x ∈ S) ⋆ …` / `process(x = e) ⋆ …`. -/
 structure Process (α β : Type) : Type where
   ann : α
-  /-- Carried through for round-tripping only (`PLAN.md` §2) -- this compiler never acts on it. -/
+  /-- Carried through for round-tripping only -- this compiler never acts on it. -/
   isFair : Bool
   name : String
   /-- `true` for `=`, `false` for `∈`. -/
@@ -177,7 +168,7 @@ instance : Bitraversable Process where
       <*> bitraverse f g p.localState
       <*> traverse (traverse (bitraverse pure (bitraverse f g))) p.threads
 
-/-- `fifos c₁ : τ₁, …; P₁ ∥ … ∥ Pₙ` (`PLAN.md` §8). -/
+/-- `fifos c₁ : τ₁, …; P₁ ∥ … ∥ Pₙ`. -/
 structure Algorithm (α β : Type) : Type where
   /-- Round-tripped only, per `Process.isFair`. -/
   isFair : Bool

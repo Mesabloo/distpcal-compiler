@@ -5,25 +5,17 @@ import Common.Flags
 open Colorized (Colorized)
 
 /-!
-  Recursive `EXTENDS` module resolution (`PLAN.md` §2/§5.3) — **not** type-checking rules, the
-  driver-level orchestration around invoking them. Lives outside `Elaborator/` on purpose: this
-  file locates, lexes, parses, desugars, and (eventually) checks a module, recursing on its own
-  `EXTENDS` list the same way for each dependency — it calls into the checker as one step, but
-  isn't itself part of the checker.
+  Recursive `EXTENDS` module resolution — the driver-level orchestration that locates, lexes,
+  parses, desugars, and checks a module, recursing on its own `EXTENDS` list for each dependency.
 
-  **Module resolution *is* recursive driver invocation, not a second copy of the driver.**
   `compileModule` below is the one function that runs a module's source all the way through to a
   checked module; `Fugue.lean`'s CLI entry point calls it directly for the main module, and
-  `resolveModule` calls it again, recursively, for every `EXTENDS`-ed dependency — there is
-  exactly one implementation of "lex → parse → desugar → resolve deps → check", not two.
+  `resolveModule` calls it again, recursively, for every `EXTENDS`-ed dependency.
 -/
 
-/--
-  Raw module source text by `moduleId`, so `DriverError` can carry just the lightweight key
-  (above) rather than duplicating a (possibly large) source string into every thrown error —
-  looked up again only once, at the point an error is finally rendered. Mirrors `Ξ`
-  (`MonadModuleCache`)'s own class-plus-generic-instance-plus-concrete-backing-ref shape.
--/
+/-- Raw module source text by `moduleId`, so `DriverError` can carry just the lightweight key
+rather than duplicating a (possibly large) source string into every thrown error — looked up
+again only once, at the point an error is finally rendered. -/
 class MonadSourceRegistry (m : Type → Type) where
   registerSource : String → String → m Unit
   lookupSource : String → m (Option String)
@@ -33,8 +25,7 @@ instance {m} [Monad m] [MonadStateOf (Std.HashMap String String) m] : MonadSourc
   registerSource key source := modify (·.insert key source)
   lookupSource key := (·.get? key) <$> get
 
-/-- Backing store for the source registry, mirroring `Common/Flags.lean`'s `flagsRef`/`Ξ`'s own
-`moduleCacheRef`. -/
+/-- Backing store for the source registry. -/
 initialize sourceRegistryRef : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
 instance : MonadStateOf (Std.HashMap String String) IO where
@@ -45,11 +36,8 @@ instance : MonadStateOf (Std.HashMap String String) IO where
 /-- The source lines to render `err`'s snippet against — the offending module's own, looked up
 from the registry above by `moduleId`, not whichever module the caller started compiling from.
 `none` for the position-free structural errors (`moduleNotFound`/`ambiguousModule`/
-`cyclicExtends`, which carry no `moduleId` at all) — the caller should fall back to rendering
-against the main module's own lines (harmless: `posOf` for those is always `SourceSpan.placeholder`, so the exact
-lines passed barely matter). Hardcoded to `IO` rather than generic over `m`: this is only
-ever called once, in `Fugue.lean`, *after* `runM` has already unwrapped back down to plain `IO` —
-same registry either way, since its backing ref is process-global. -/
+`cyclicExtends`, which carry no `moduleId` at all); the caller should fall back to rendering
+against the main module's own lines. -/
 def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)) := do
   let moduleId? := match err with
     | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ =>
@@ -60,40 +48,33 @@ def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)
   | some moduleId => return (·.split (· == '\n') |>.toList) <$> (← lookupSource moduleId)
 
 /-- Names of modules currently being resolved, outermost first — pushed via `withReader (name ::
-·)` before recursing into a dependency; Lean's Reader scoping unwinds this automatically on
-return, so no manual stack bookkeeping is needed. A module about to be resolved that's already in
-this list is a cyclic `EXTENDS`. -/
+·)` before recursing into a dependency. A module about to be resolved that's already in this
+list is a cyclic `EXTENDS`. -/
 abbrev ResolutionStack := List String
 
 /-- What happened when `compileModule`/`resolveModule` finished with a given module name — the
-payload `onModuleEvent` reports, Lean-`lake build`-style (`Fugue.lean` turns this into
-`Built`/`Replayed`/`Failed <name>`). `.failed` is reported (then the underlying `DriverError` is
-re-thrown unchanged) as soon as a module's own name is known but something past that point failed
-— lex/parse failures, which happen *before* a name is known, aren't attributed to any module this
-way and just surface as the overall compile failure. -/
+payload `onModuleEvent` reports (`Fugue.lean` turns this into `Built`/`Replayed`/`Failed <name>`).
+`.failed` is reported once a module's own name is known but something past that point failed;
+lex/parse failures, which happen before a name is known, just surface as the overall compile
+failure. -/
 inductive ModuleOutcome : Type
   | built
   | replayed
   | failed
 
 /--
-  The module cache `Ξ`. Lives here, not in `Elaborator/Monad.lean`: it isn't a type-*checking*
-  effect (expression/declaration-level checking rules never touch `Ξ`), it's this file's own
-  module-*resolution* effect — `Γ` is always fully assembled from already-resolved dependencies
-  before a module's own checking rules ever run.
-
-  Keyed by module name alone, **not** by name-plus-hash: the hash of a candidate file isn't known
-  until *after* it has already been located and read, so it can't be part of a lookup key —
+  The module cache `Ξ`. Keyed by module name alone, not by name-plus-hash: the hash of a
+  candidate file isn't known until after it has already been located and read, so
   `resolveModule` looks up by name first, then compares the returned `CacheEntry.sourceHash`
-  against the freshly-read file's own hash itself.
+  against the freshly-read file's own hash.
 -/
 structure CacheEntry (β : Type) : Type where
   /-- The hash of the source text that produced `value`. -/
   sourceHash : UInt64
   /-- The `EXTENDS` list recorded when this entry was written — trustworthy without re-parsing
-  exactly because a matching `sourceHash` means the file (and therefore its `EXTENDS` clause) is
-  byte-identical to what produced this entry. Lets `resolveModule` check whether any dependency
-  changed without re-lexing/parsing a module whose own text is unchanged. -/
+  since a matching `sourceHash` means the file is byte-identical to what produced this entry.
+  Lets `resolveModule` check whether any dependency changed without re-lexing/parsing an
+  unchanged module. -/
   «extends» : List String
   /-- The checked module itself. -/
   value : β
@@ -111,22 +92,16 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
   lookupModule n := (·.get? n) <$> get
   storeModule n entry := modify (·.insert n entry)
 
-/-
-  The effects `compileModule`/`resolveModule` need beyond ordinary IO: `Γ`'s enclosing `FlagsEnv`
-  (for `-I`'s search path), the resolution stack (cycle detection), the module cache, and error
-  reporting. **Not** a `class abbrev` bundle like `MonadElaborator`/`MonadDesugarerExpr` — two
-  different `MonadReaderOf`/`MonadWithReaderOf` instantiations (`FlagsEnv` and
-  `ResolutionStack`) as parents of the same abbrev collide (`class abbrev`'s `extends` treats
-  them as the same parent and silently drops one), so every constraint is listed explicitly on
-  each function instead.
--/
+-- The effects `compileModule`/`resolveModule` need beyond ordinary IO: `Γ`'s enclosing `FlagsEnv`
+-- (for `-I`'s search path), the resolution stack (cycle detection), the module cache, and error
+-- reporting. Not a `class abbrev` bundle: two different `MonadReaderOf`/`MonadWithReaderOf`
+-- instantiations as parents of the same abbrev collide, so every constraint is listed explicitly
+-- on each function instead.
 
-/-- The concrete monad `compileModule`/`resolveModule` run at when actually invoked (by
-`Fugue.lean`, or recursively by `resolveModule` itself). `FlagsEnv`/`Ξ` are both backed by a
-global `IO.Ref` (`flagsRef`/`moduleCacheRef` below) and reachable directly at `IO` via their own
-instances — `ResolutionStack` is the one piece here that's a genuinely *scoped* Reader
-(push-on-recurse, pop-on-return), which a global ref can't express, so it's the one transformer
-layer actually needed on top of `IO`. -/
+/-- The concrete monad `compileModule`/`resolveModule` run at when actually invoked.
+`FlagsEnv`/`Ξ` are both backed by a global `IO.Ref` and reachable directly at `IO`;
+`ResolutionStack` is the one genuinely scoped Reader (push-on-recurse, pop-on-return), so it's
+the one transformer layer needed on top of `IO`. -/
 abbrev M := ReaderT ResolutionStack (ExceptT DriverError IO)
 
 /-- Run an `M` action from the top, with an empty resolution stack. -/
@@ -151,10 +126,9 @@ variable {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] [MonadReaderOf
   [MonadExceptOf DriverError m] [MonadLiftT IO m]
 
 /-- Every directory searched for `EXTENDS name`, in order: the directory containing the
-extending module (if any — absent when read from stdin), then `-I`'s search path, per the
-project owner's review. The builtin table is checked as one more candidate *source*, not a
-filesystem-bypassing priority lookup — so a name present in both a searched directory and
-`builtinModules` is ambiguous, not silently resolved one way. -/
+extending module (if any — absent when read from stdin), then `-I`'s search path. The builtin
+table is checked as one more candidate source, so a name present in both a searched directory
+and `builtinModules` is ambiguous, not silently resolved one way. -/
 private def locate (name : String) (containingDir : Option System.FilePath) : m Candidate := do
   let mut found : List (String × Candidate) := []
   if let some mod := builtinModules[name]? then
@@ -168,17 +142,11 @@ private def locate (name : String) (containingDir : Option System.FilePath) : m 
   | [(_, candidate)] => return candidate
   | multiple => throw (.ambiguousModule name (multiple.map Prod.fst))
 
-/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch — never as
-they're produced. Matches `lake build`'s own behaviour: a module's warnings only ever appear once
-its outcome (`Built`/`Replayed`/`Failed`, `onModuleEvent`) is known, not interleaved before it.
-Every call site passes only warnings collected for *this* module's own `compileModule` call — a
-dependency's warnings are flushed by its own recursive call, under its own name, never merged into
-a dependent's batch (see `compileModule`'s own doc). `-W` filtering only needs `FlagsEnv`, which
-this file already depends on (for `-I`'s search path).
-
-Where the rendered line actually *goes* (`logLine`) is pluggable, defaulting to plain `eprintln` —
-`Fugue.lean` overrides it to go through its spinner instead (`Spinner.log`), so a warning printed
-while the spinner is animating doesn't corrupt the display. -/
+/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch, only once
+this module's outcome (`Built`/`Replayed`/`Failed`) is known — never interleaved before it. Each
+call site passes only warnings collected for that module's own `compileModule` call; a
+dependency's warnings are flushed separately by its own recursive call. `logLine` is pluggable
+(defaults to `eprintln`) so `Fugue.lean` can route it through its spinner instead. -/
 private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
     (lines : List String.Slice) (colored : Bool)
     (logLine : String → m Unit) (warnings : List DriverWarning) : m Unit :=
@@ -187,10 +155,8 @@ private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT I
       logLine <| CompilerDiagnostic.pretty warning lines colored
 
 /-- Run `act`; if it throws, flush `warnings` (collected so far for this module), report `name` as
-`.failed` via `onModuleEvent`, and re-throw the *same* error unchanged (this never swallows or
-replaces it — it's purely an extra report alongside the ordinary propagation). Factored out since
-`compileModule` needs this exact flush/report/re-throw shape three times, at points that must
-*not* share one `try` (see `compileModule`'s own doc for why). -/
+`.failed` via `onModuleEvent`, and re-throw the same error unchanged. Factored out since
+`compileModule` needs this exact flush/report/re-throw shape at three separate points. -/
 private def reportFailureOnThrow {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m] [MonadExceptOf DriverError m] {α}
     (lines : List String.Slice) (colored : Bool) (logLine : String → m Unit)
     (onModuleEvent : String → ModuleOutcome → m Unit) (name : String) (warnings : List DriverWarning) (act : m α) : m α := do
@@ -209,13 +175,11 @@ private def dumpToFile {m} [Monad m] [MonadLiftT IO m] (content : String) (dir :
 /-- Default value of `-d dump-dir=<path>`. -/
 private def defaultDumpDir : System.FilePath := ".fugue/debug"
 
-/-- Every name/type binding a checked declaration introduces, mirroring `Elaborator/
-Declarations.lean`'s own `checkDeclaration`'s second return component — but computed from an
-already-checked `Decl`, not by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
-declarations into a fresh `Γ₀` (thesis Fig. 3.1.12's `Extend` rule: all of a dependency's own
-`params`/`defs` come into scope, not just its exported operators — PlusCal-internal declarations
-are *not* included, `Elaborator/Elaborator.lean`'s own note: they never leak into a module's `Γ`
-in the first place, so a dependency's checked `pcalAlgorithm` is never consulted here at all). -/
+/-- Every name/type binding a checked declaration introduces, computed from an already-checked
+`Decl` rather than by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
+declarations into a fresh `Γ₀` — all of a dependency's own `params`/`defs` come into scope, not
+just its exported operators. PlusCal-internal declarations are never included, since they never
+leak into a module's `Γ` in the first place. -/
 private def Decl.bindings : Decl → List (String × TypedTLAPlus.Typ)
   | .constants xs => xs
   | .variables xs => xs
@@ -232,46 +196,23 @@ private instance {m} [Applicative m] {α} [Inhabited α] : Inhabited (m α) := �
 mutual
 /--
   Run a module's source all the way through to a checked module: lex, parse, resolve
-  annotations, desugar TLA⁺ expressions and the embedded PlusCal algorithm (reconciling
-  `mod.pcalAlgorithm` with the separately-desugared algorithm — the standing Phase-4 loose end),
-  resolve every `EXTENDS`-ed dependency (`resolveModule`, recursing into `compileModule` again for
-  anything not already satisfied by the cache or a builtin), merge their exported declarations
-  into an initial `Γ`, and check. The one shared pipeline — see the module doc for why there
-  isn't a second copy of it for `EXTENDS`-triggered resolution.
+  annotations, desugar TLA⁺ expressions and the embedded PlusCal algorithm, resolve every
+  `EXTENDS`-ed dependency (`resolveModule`, recursing into `compileModule` for anything not
+  already satisfied by the cache or a builtin), merge their exported declarations into an
+  initial `Γ`, and check.
 
-  `onTokens`/`onParsed`/`onDesugared`/`onTyped` are optional hooks (default: no-op) fired after
-  each stage, purely so `Fugue.lean` can hang its `-d dump-*` artifact dumps off of them without
-  any of that CLI/UX plumbing living in this file — `resolveModule` recursing into a dependency
-  passes none of these four, so a dependency's own dump artifacts stay silent by default (unlike
-  `onModuleEvent`/`onModuleProgress`/`logLine` below, which *do* get threaded down to every
-  recursively-resolved dependency, since "some module is/was being worked on" and "a warning
-  happened" are relevant no matter how deep the `EXTENDS` chain).
-
-  `onModuleProgress name` fires twice for this exact module: once as soon as `name` is known
-  (right after parsing), and again right after its own `EXTENDS` dependencies are done resolving
-  — refocusing display back onto this module once its dependencies (which fire their own
-  `onModuleProgress` while *they* run) are no longer the "current" one. Firing it twice with the
-  same name is intentional, not a bug: `Fugue.lean` tracks a set of every name it's seen, so a
-  repeat is a no-op there, it just moves the displayed "current module" back to this one.
+  `onModuleProgress name` fires twice for this module: once as soon as `name` is known (right
+  after parsing), and again right after its own `EXTENDS` dependencies finish resolving, to
+  refocus display back onto this module once its dependencies are no longer "current".
 
   `onModuleEvent name .built` fires once this module is fully checked, and `.failed` if this
-  module's *own* processing throws — this is the *one* place `.built`/`.failed` get reported (not
-  `resolveModule`, which only ever reports `.replayed` itself and otherwise defers to whichever
-  `compileModule` call it made), so a module compiled directly as the main module and one reached
-  via `EXTENDS` are reported identically, without duplicating the event. **Deliberately does not
-  wrap the `_deps.mapM` step below in the same failure-reporting `try`**: a dependency that fails
-  already reports `.failed` for *itself*, inside its own recursive `compileModule` call — if this
-  module's own `try` also caught that (propagated) exception and reported `.failed` again under
-  *this* module's name, a single real failure deep in an `EXTENDS` chain would misleadingly show
-  every module on the path back to the main one as "failed" too, when only the one at the bottom
-  actually is.
+  module's own processing throws — the one place `.built`/`.failed` are reported for this
+  module (a dependency's own outcome is reported inside its own recursive `compileModule` call,
+  never duplicated here).
 
-  `moduleId` is the registry key `DriverError`'s variants tag themselves with (see
-  `MonadSourceRegistry`) — registered against `source` right at the start, before lexing even
-  runs, so a lex/parse failure (before any real module name is known) still has something to key
-  its error against. For a dependency this is the `EXTENDS`-requested name (`resolveModule`
-  already has it before reading the file at all); for the main module it's whatever caller-chosen
-  identifier `Fugue.lean` passes (e.g. the input file's display name).
+  `moduleId` is the registry key `DriverError`'s variants tag themselves with, registered
+  against `source` before lexing runs. For a dependency this is the `EXTENDS`-requested name;
+  for the main module it's whatever caller-chosen identifier `Fugue.lean` passes.
 -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
     -- (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
@@ -364,20 +305,14 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
 
 /--
   The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
-  not-found/ambiguous), check `Ξ`, and — the review point this design started from — a cache hit
-  on `name`'s own unchanged source still isn't enough: if anything `name` (transitively) depends
-  on changed, `name` has to be rechecked too, even though its own text didn't. The returned `Bool`
-  is exactly this: "was this module actually recomputed just now," threaded up so *its* dependents
-  can tell whether they need to recompute in turn. It's `resolveModule`'s own bookkeeping, not
-  part of the public `MonadModuleCache` interface.
+  not-found/ambiguous), check `Ξ`, and recompute if `name`'s source changed or if anything it
+  transitively depends on changed. The returned `Bool` is "was this module actually recomputed
+  just now," threaded up so its dependents can tell whether they need to recompute in turn.
 
-  Fires `onModuleEvent name .replayed` itself on the one path that never touches `compileModule`
-  at all (a cache hit with nothing changed) — every other outcome (`.built`/`.failed`) is reported
-  by whichever `compileModule` call `resolveModule` makes, not duplicated here. Not for `.builtin`
-  either — a builtin is static, never meaningfully built/replayed/failed. `onModuleProgress name`
-  fires once, right at the top of the `.file` case (before even checking `Ξ`) — "we're now working
-  on `name`", whether that turns out to be a cache hit or a fresh recompute. `logLine` is just
-  forwarded to whatever `compileModule` call this makes.
+  Fires `onModuleEvent name .replayed` on the one path that never touches `compileModule` (a
+  cache hit with nothing changed); every other outcome is reported by whichever `compileModule`
+  call this makes. Not for `.builtin`, which is static. `onModuleProgress name` fires once, at
+  the top of the `.file` case.
 -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
     (onModuleEvent : String → ModuleOutcome → m Unit := fun _ _ ↦ pure ())

@@ -1,60 +1,26 @@
 import Elaborator.Monad
 import Core.TypedTLAPlus.Coercion
 
-/-!
-  `<:`, `lub`, `glb`, and term-level coercion (§5.3, thesis Fig. 3.1.7's `SUBTYPE` rule and Fig.
-  3.1.8's subtyping rules), plus the direction-aware metavariable-solving algorithm `PLAN.md`
-  §5.3/§2 commits to instead of the thesis's literal `Specialize` rule. Prior art's own
-  `Checker/Typechecker/Convertibility.lean` is a `sorry` stub (`CLAUDE.md`) — the algorithm here,
-  and every coercion term below, is new implementation work, not a port.
+/-! `<:`, `lub`, `glb`, and term-level coercion, plus the direction-aware metavariable-solving
+algorithm used in place of a literal `Specialize` rule.
 
-  **`Coercion` is this project's own addition, not the thesis's** — the thesis's `<:` is a purely
-  type-level relation with no accompanying term-level witness. Concretely realizing a coercion as
-  an `Expr → Expr` sometimes has no available term at all in `TypedTLAPlus.Expression`'s current
-  grammar, for structural reasons worth recording once here rather than re-discovering at every
-  call site:
-  - **`Set`** wraps generally, for *any* `Set(τ)`-typed expression (literal or opaque), via the
-    existing set-image node (`{coerce(x) : x ∈ S}`, `Expression.map'`).
-  - **`Function`** (covariant in *both* arguments here, unlike ordinary contravariant-domain
-    function subtyping — TLA⁺ functions behave like finite maps/hash tables, not closures, thesis
-    p. 13) also wraps generally, via a domain remap: the new domain is the image of the old one
-    under the domain coercion (`{coerceDom(x) : x ∈ DOMAIN(f)}`), and each new-domain element `y`
-    recovers the original argument via `CHOOSE x ∈ DOMAIN(f) : coerceDom(x) = y` to apply the
-    original function and the range coercion. (Resolves a domain-construction question the
-    project owner's own earlier Isabelle draft of this exact algorithm left an open `TODO` on.)
-  - **`Tuple`/`Record`** also wrap generally: arity/field-set is *static* (part of the type
-    itself), so a new literal can always be rebuilt by projecting each component/field out of the
-    original (possibly opaque) expression via `fnCall`/`recordAccess`.
-  - **`Seq`, `Operator` do not wrap in general.** `Seq`'s length is a *dynamic* property, not
-    part of the type, so (unlike `Tuple`) there is no static arity to project a fixed-size
-    literal rebuild over, and (unlike `Set`) `TypedTLAPlus.Expression` has no "generic map, stays
-    `Seq`-typed" node — its only `Seq`-typed literal former (`.seq`) takes an already-fixed
-    `List`. `Operator` would need to produce a new first-class operator *value* (an
-    eta-expansion/`LAMBDA`), which this grammar has no constructor for at all (thesis Fig. 3.1.4
-    has a `LAMBDA` typing rule, but no corresponding `CoreTLAPlus`/`TypedTLAPlus.Expression`
-    constructor exists — a gap in its own right, not this file's to fix). For these two, the
-    structural rule below still computes the correct `<:` *relation* recursively (useful
-    wherever only the boolean fact is needed), but only ever returns a `success` *coercion* when
-    the sub-coercion needed turns out to be `.id` — i.e. when nothing would actually need
-    wrapping in the first place.
-  - **`Channel` gets no subtyping at all beyond plain reflexivity** (`PLAN.md` §2/§9.15,
-    resolved after this file's first draft, which had it covariant with the same "`.id`-only"
-    treatment as `Seq`/`Operator` above). Not just because there's no literal former to wrap an
-    opaque channel value with — the actual need for it disappeared: `[Receive]`'s own channel-
-    element-vs-reference-type coercion is computed directly (`subtype` on the two element types,
-    stored on the `receive` statement node, discharged at `Guarded2Network`), never by routing
-    through a `Channel(τ) <: Channel(τ')` check here. So `Channel(τ) <: Channel(τ')` only ever
-    needs to hold — and only ever *should* hold — for `τ = τ'`.
--/
+Term-level coercions aren't always available: `Set`/`Function`/`Tuple`/`Record` can always be
+wrapped generally (a set-image, a domain remap via `CHOOSE`, or projecting components/fields out
+of the original expression, respectively). `Seq` and `Operator` cannot in general — `Seq` has no
+static arity to rebuild a literal over, and `Operator` would need a first-class operator value
+this grammar has no constructor for — so for these two the structural rule still computes the
+correct `<:` relation recursively, but only returns a coercion when the sub-coercion needed is
+`.id`. `Channel` only supports subtyping via plain reflexivity (`τ = τ'`); a `receive`'s
+element-vs-reference coercion is computed directly rather than through `Channel(τ) <: Channel(τ')`. -/
 
 open TypedTLAPlus (Typ MVarId Expression Coercion Expr)
 
 /--
-  The three outcomes of a subtyping check (`PLAN.md` §5.3) — not a plain success/failure, since an
-  unresolved metavariable hit from the upper-bound side can't yield a concrete coercion yet, only
-  a recorded pending bound. `pending` carries *which* metavariable the eventual coercion depends
-  on, so a caller (`Elaborator/Expressions.lean`, not yet written) can wrap its expression in
-  `TypedTLAPlus.Expression.mvar` tagged with that id, to be resolved once the metavariable is.
+  The three outcomes of a subtyping check — not a plain success/failure, since an unresolved
+  metavariable hit from the upper-bound side can't yield a concrete coercion yet, only a recorded
+  pending bound. `pending` carries *which* metavariable the eventual coercion depends on, so a
+  caller can wrap its expression in `TypedTLAPlus.Expression.mvar` tagged with that id, to be
+  resolved once the metavariable is.
 -/
 inductive SubtypeResult : Type
   /-- `τ <: τ'` holds, and `coe` witnesses it. -/
@@ -65,22 +31,18 @@ inductive SubtypeResult : Type
   | failure
 
 /--
-  Per-unresolved-metavariable pending upper bounds (`PLAN.md` §5.3's direction-aware solving) —
-  accumulated until `?n` resolves from a lower bound (`subtype` itself, below) or defaults at the
-  end of checking (`Elaborator/Elaborator.lean`, not yet written). A bound can itself be a
-  metavariable (`?m <: ?n`, both unresolved) — recorded here unchanged rather than merged with
-  `?n`'s own identity, per `PLAN.md` §5.3's own justification for why merging the two would be
-  unsound (`?m`'s and `?n`'s eventual solutions may legitimately diverge, only staying `<:`-related).
+  Per-unresolved-metavariable pending upper bounds — accumulated until `?n` resolves from a
+  lower bound (`subtype` itself, below) or defaults at the end of checking. A bound can itself be
+  a metavariable (`?m <: ?n`, both unresolved) — recorded here unchanged rather than merged with
+  `?n`'s own identity, since `?m`'s and `?n`'s eventual solutions may legitimately diverge, only
+  staying `<:`-related.
 -/
 structure PendingBounds : Type where
   private bounds : Std.HashMap MVarId (List Typ)
 
 instance : EmptyCollection PendingBounds := ⟨⟨{}⟩⟩
 
-/-- The pending-upper-bounds effect `subtype` needs on top of `MonadMetavarContext` — kept as its
-own class (`Elaborator/Monad.lean`'s doc on `MonadMetavarContext` already points here) rather than
-folded into that one, since it's tracking a different thing (bounds *not yet* resolved into a
-value, not the value itself). -/
+/-- The pending-upper-bounds effect `subtype` needs on top of `MonadMetavarContext`. -/
 class MonadPendingBounds (m : Type → Type) where
   /-- The upper bounds recorded so far on a metavariable, `[]` if none (including if it's already
   resolved — callers only consult this while a metavariable is still unresolved). -/
@@ -93,53 +55,43 @@ instance {m} [Monad m] [MonadStateOf PendingBounds m] : MonadPendingBounds m whe
   pendingUpperBounds n := return (← getThe PendingBounds).bounds.getD n []
   addPendingUpperBound n τ := modify λ ⟨bounds⟩ ↦ ⟨bounds.insert n (τ :: bounds.getD n [])⟩
 
-/-- `DOMAIN`/`Len`/`..`/`=`, referenced the same way every other builtin is in this project's
-ASTs — `CoreTLAPlus.Expression.var`'s own doc: "(by canonical spelling, e.g. `"+"`, `"\\in"`,
-`"DOMAIN"`) a builtin operator referenced as a value" — not invented for this file. -/
+/-- A builtin operator referenced as a value. -/
 private def builtin (name : String) (τ : Typ) : Expr := .var name τ
 
-/-- `Str <: Seq(Int)` (thesis Fig. 3.1.8's `STR-TO-SEQ`). The thesis has no term-level coercions
-at all (module doc), so there is no prior semantics to match here — `"Str2Seq"` is a placeholder
-builtin name pending `Elaborator/Declarations.lean`'s real bundled-stub operator table (§7, task
-7), the same "the real vocabulary doesn't exist yet" situation `Elaborator/Errors.lean`'s
-`TCError.todo` already documents for errors. -/
+/-- `Str <: Seq(Int)` — `"Str2Seq"` is a placeholder builtin name pending a real bundled-stub
+operator table. -/
 private def strToSeqCoercion (e : Expr) : Expr :=
   .opCall (builtin "Str2Seq" (.operator [.str] (.seq .int))) [e]
 
-/-- `Seq(τ) <: Int → τ` (thesis Fig. 3.1.8's `SEQ-TO-FUN`) — `[i ∈ 1..Len(e) ↦ e[i]]`. `i` must
-already be a fresh name (chosen by the caller, `Elaborator/Monad.lean`'s `MonadFresh`) — this
-helper stays a pure `Expr → Expr` once that choice is made, matching `Coercion.fn`'s own shape. -/
+/-- `Seq(τ) <: Int → τ` — `[i ∈ 1..Len(e) ↦ e[i]]`. `i` must already be a fresh name chosen by
+the caller. -/
 private def seqToFunCoercion (τ : Typ) (i : String) (e : Expr) : Expr :=
   let range : Expr := .opCall (builtin ".." (.operator [.int, .int] (.set .int)))
     [.nat "1", .opCall (builtin "Len" (.operator [.seq τ] .int)) [e]]
   .fn i .int range (.fnCall e (.var i .int))
 
-/-- `⟨τ,...,τ⟩ <: Seq(τ)` (thesis Fig. 3.1.8's `TUPLE-TO-SEQ`, uniform tuple only) — unlike the
-other two non-structural axioms, needs no fresh name at all: a tuple's arity `n` is static (part
-of its own type), so the result is just a literal `.seq` of the `n` projected, coerced
-components. -/
+/-- `⟨τ,...,τ⟩ <: Seq(τ)` (uniform tuple only) — a tuple's arity `n` is static, so the result is
+just a literal `.seq` of the `n` projected, coerced components. -/
 private def tupleToSeqCoercion (n : Nat) (τ : Typ) (e : Expr) : Expr :=
   .seq ((List.range n).map λ i ↦ .fnCall e (.nat (toString (i + 1)))) τ
 
-/-- `Set(τ) <: Set(τ')` (thesis Fig. 3.1.8's `SET`, module doc) — `{coerce(x) : x ∈ e}`. -/
+/-- `Set(τ) <: Set(τ')` — `{coerce(x) : x ∈ e}`. -/
 private def setCoercion (x : String) (τ : Typ) (c : Coercion) (e : Expr) : Expr :=
   .map' (c.apply (.var x τ)) x τ e
 
-/-- `⟨τ₁,...,τₙ⟩ <: ⟨τ₁',...,τₙ'⟩` (thesis Fig. 3.1.8's `TUPLE`, module doc) — a new literal tuple,
-each component projected out of `e` (via `fnCall`, tuples being encoded as unary functions from
-naturals, thesis p. 9) and coerced. -/
+/-- `⟨τ₁,...,τₙ⟩ <: ⟨τ₁',...,τₙ'⟩` — a new literal tuple, each component projected out of `e`
+(tuples being encoded as unary functions from naturals) and coerced. -/
 private def tupleCoercion (coes : List Coercion) (τs' : List Typ) (e : Expr) : Expr :=
   .tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
     (τ'ᵢ, c.apply (.fnCall e (.nat (toString (i + 1)))))
 
-/-- `[x₁:τ₁,...] <: [x₁:τ₁',...]` (thesis Fig. 3.1.8's `RECORD`, module doc) — a new literal
-record, each field projected out of `e` (via `recordAccess`) and coerced. -/
+/-- `[x₁:τ₁,...] <: [x₁:τ₁',...]` — a new literal record, each field projected out of `e` and
+coerced. -/
 private def recordCoercion (fields : List (String × Coercion × Typ)) (e : Expr) : Expr :=
   .record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.apply (.recordAccess e name))
 
-/-- `τ₁ → τ₂ <: τ₁' → τ₂'` (thesis Fig. 3.1.8's `FUNCTION`, module doc's own long explanation of
-why this needs the `CHOOSE`-based domain remap) — `[y ∈ {coerceDom(x) : x ∈ DOMAIN(f)} ↦
-coerceRng(f[CHOOSE x ∈ DOMAIN(f) : coerceDom(x) = y])]`. -/
+/-- `τ₁ → τ₂ <: τ₁' → τ₂'` via a `CHOOSE`-based domain remap — `[y ∈ {coerceDom(x) : x ∈
+DOMAIN(f)} ↦ coerceRng(f[CHOOSE x ∈ DOMAIN(f) : coerceDom(x) = y])]`. -/
 private def functionCoercion
     (x y : String) (dom rng dom' : Typ) (cDom cRng : Coercion) (f : Expr) : Expr :=
   let domainExpr : Expr := .opCall (builtin "DOMAIN" (.operator [.function dom rng] (.set dom))) [f]
@@ -154,14 +106,12 @@ variable {m : Type → Type} [Monad m] [MonadMetavarContext Typ m] [MonadPending
   [MonadFresh m]
 
 /-- Needed for `subtype`/`tryAxioms`'s own `partial def`s below to type-check at all (an arbitrary
-`m` isn't otherwise known nonempty) — same fix prior art already uses for the same reason
-(`TypedTLAPlus.Expression.traverse`'s own local `Inhabited (F (Expression α))` instance). -/
+`m` isn't otherwise known nonempty). -/
 local instance : Inhabited (m SubtypeResult) := ⟨pure .failure⟩
 
 /-- `subtype` applied pointwise across two equal-length lists (the `Tuple`/`Record`/`Operator`
 structural rules below), short-circuiting on the first `pending`/`failure` and otherwise
-collecting every component's coercion, in order. Structurally recursive on the list, so — unlike
-`subtype` itself — this needs no `partial`. -/
+collecting every component's coercion, in order. -/
 private def subtypeAll (go : Typ → Typ → m SubtypeResult) :
     List (Typ × Typ) → m (Except SubtypeResult (List Coercion))
   | [] => return .ok []
@@ -174,15 +124,13 @@ private def subtypeAll (go : Typ → Typ → m SubtypeResult) :
       | .error e => return .error e
       | .ok cs => return .ok (c :: cs)
 
-/-- The three non-structural coercions (thesis Fig. 3.1.8's `STR-TO-SEQ`/`SEQ-TO-FUN`/
-`TUPLE-TO-SEQ`) — tried once `subtype` itself finds no direct structural/reflexive match. Each
-produces an intermediate type and an axiom coercion, then recurses on `(intermediate, τ')` via
-`subtypeRec` (always `subtype` itself; passed in rather than called directly so this stays a
-plain, non-mutually-recursive `def`) and composes — this is what realizes `<:`'s transitivity
-(`PLAN.md` §5.3: "a genuine partial order... reflexive-transitive closure") without a separate
-closure step: e.g. `Str <: Seq(Int) <: Int → Int` falls out of `STR-TO-SEQ` finding `Seq(Int)`,
-recursing, and `SEQ-TO-FUN` firing in turn. Terminates because the three axioms are already known
-acyclic (`PLAN.md` §5.3's partial-order argument) and each only ever fires once per chain. -/
+/-- The three non-structural coercions (`STR-TO-SEQ`/`SEQ-TO-FUN`/`TUPLE-TO-SEQ`) — tried once
+`subtype` itself finds no direct structural/reflexive match. Each produces an intermediate type
+and an axiom coercion, then recurses on `(intermediate, τ')` via `subtypeRec` (always `subtype`
+itself, passed in so this stays a plain, non-mutually-recursive `def`) and composes — this
+realizes `<:`'s transitivity without a separate closure step: e.g. `Str <: Seq(Int) <: Int → Int`
+falls out of `STR-TO-SEQ` finding `Seq(Int)`, recursing, and `SEQ-TO-FUN` firing in turn.
+Terminates because the three axioms are acyclic and each only ever fires once per chain. -/
 private partial def tryAxioms (subtypeRec : Typ → Typ → m SubtypeResult) (τ τ' : Typ) :
     m SubtypeResult := do
   let chainWith (axiomCoe : Coercion) (mid : Typ) : m SubtypeResult := do
@@ -203,15 +151,13 @@ private partial def tryAxioms (subtypeRec : Typ → Typ → m SubtypeResult) (τ
   | _ => return .failure
 
 /--
-  The type checker's subtyping judgment (thesis Fig. 3.1.7's `SUBTYPE`/Fig. 3.1.8, `PLAN.md`
-  §5.3) — see the module doc for `Coercion`'s own scope/limitations, and `tryAxioms`/each
-  `*Coercion` helper above for the non-structural/structural cases respectively. Also implements
-  the direction-aware metavariable-solving algorithm (`PLAN.md` §5.3) in the three `mvar` cases
-  below, in place of the thesis's literal `Specialize` rule.
+  The type checker's subtyping judgment — see the module doc for `Coercion`'s own
+  scope/limitations, and `tryAxioms`/each `*Coercion` helper above for the non-structural/
+  structural cases respectively. Also implements the direction-aware metavariable-solving
+  algorithm in the three `mvar` cases below.
 
   `partial`: no structurally-decreasing measure across `tryAxioms`' recursive calls (its
-  intermediate types can be *larger* than the input, e.g. `Str` to `Seq(Int)`), matching this
-  project's existing convention for the same situation (`TypedTLAPlus.Expression.map`/`.traverse`).
+  intermediate types can be *larger* than the input, e.g. `Str` to `Seq(Int)`).
 -/
 partial def subtype (τ τ' : Typ) : m SubtypeResult := do
   match τ, τ' with
@@ -296,14 +242,12 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
           return .success <| .fn (functionCoercion x y dom rng dom' cDom cRng ·)
   | _, _ => tryAxioms subtype τ τ'
 
-/-- Whether `τ <: τ'` holds, ignoring the coercion payload — all `lub`/`glb` need (`PLAN.md`
-§5.3, thesis p. 13). -/
+/-- Whether `τ <: τ'` holds, ignoring the coercion payload — all `lub`/`glb` need. -/
 private def isSubtype (τ τ' : Typ) : m Bool := return (← subtype τ τ') matches .success _
 
-/-- The least upper bound of two types under `<:`, where it exists — `<:` here is a genuine
-partial order with no `⊤` (`PLAN.md` §5.3), so `lub` is a *partial* function: comparable types
-have one (the wider of the two), incomparable ones don't. Used by the `ENUMERATION`/`Empty set`
-checking rules (thesis Fig. 3.1.8's addendum, `Elaborator/Expressions.lean`, not yet written). -/
+/-- The least upper bound of two types under `<:`, where it exists — `<:` is a partial order with
+no `⊤`, so `lub` is a *partial* function: comparable types have one (the wider of the two),
+incomparable ones don't. -/
 def lub (τ τ' : Typ) : m (Option Typ) := do
   if ← isSubtype τ τ' then return some τ'
   else if ← isSubtype τ' τ then return some τ

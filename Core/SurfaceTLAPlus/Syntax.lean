@@ -7,15 +7,11 @@ import Mathlib.Control.Bitraversable.Instances
 import Extra.Prod
 
 /-!
-  The surface syntax of TLA⁺ modules, as accepted by the parser (§5.1) — a CST close to the
-  concrete grammar (<https://lamport.azurewebsites.net/tla/TLAPlus2Grammar.tla>, and page 268 of
-  "Specifying Systems"), not yet desugared (§5.2).
+  The surface syntax of TLA⁺ modules, as accepted by the parser — a CST close to the concrete
+  grammar (<https://lamport.azurewebsites.net/tla/TLAPlus2Grammar.tla>), not yet desugared.
 
-  Positions are *not* stored structurally in these types. Every constructor produced by the
-  parser is tagged via the `@@`/`posOf`/`match_source` mechanism in `Common/Position.lean`
-  (a side table keyed by object identity, defeq to the identity function at the logical level)
-  rather than by wrapping every node in a `Located` structure — this keeps every AST here
-  exactly as simple as its own grammar, with position-tracking bolted on separately.
+  Positions are not stored structurally in these types: every constructor produced by the parser
+  is tagged out-of-band via the `@@`/`posOf`/`match_source` mechanism in `Common/Position.lean`.
 -/
 
 namespace SurfaceTLAPlus
@@ -206,7 +202,7 @@ instance : ToString InfixOperator where
     | .«-+->» => "-+->" | .«--» => "--" | .«-|» => "-|" | .«-» => "-"
     | .«...» => "..." | .«..» => ".." | .«.» => "." | .«//» => "//"
     | .«/=» => "/=" | .«#» => "#"
-    | .«/\» => r"/\" | .«\land» => r"\land" | .«/» => "/"
+    | .«/\» => r"/\" | .«\land» => r"\land" | .«/» => "/" -- "
     | .«::=» => "::=" | .«:=» => ":=" | .«:>» => ":>" | .«<:» => "<:"
     | .«<=>» => "<=>" | .«\equiv» => r"\equiv"
     | .«=<» => "=<" | .«<=» => "<=" | .«\leq» => r"\leq"
@@ -227,7 +223,7 @@ instance : ToString InfixOperator where
     | .«\o» => r"\o" | .«\circ» => r"\circ" | .«\sqcup» => r"\sqcup" | .«\div» => r"\div"
     | .«\sqsubseteq» => r"\sqsubseteq" | .«\sqsubset» => r"\sqsubset" | .«\uplus» => r"\uplus"
     | .«\doteq» => r"\doteq" | .«\wr» => r"\wr" | .«\sqsupset» => r"\sqsupset"
-    | .«\notin» => r"\notin" | .«\» => r"\"
+    | .«\notin» => r"\notin" | .«\» => r"\" -- "
 
 /-- TLA⁺ types, in the [same format as Apalache](https://apalache-mc.org/docs/adr/002adr-types.html). -/
 inductive Typ : Type
@@ -246,21 +242,19 @@ inductive Typ : Type
   | operator (_ : List Typ) (_ : Typ)
   /-- A rigid, universally-quantified type variable `a`. -/
   | var (_ : String)
-  /-- `CONSTANT` -- a genuinely abstract type, resolved by nobody in this compiler (`PLAN.md` §2). -/
+  /-- `CONSTANT` -- an abstract type. -/
   | const (_ : String)
   | record (_ : List (String × Typ))
-  -- Distributed PlusCal-specific:
-  /-- `Channel(τ)`. Not modeled as `Seq(τ)` even though that's its encoding, so channel
-  operations stay restricted to `send`/`receive`/`multicast`. Covariant: `τ <: τ' → Channel(τ) <: Channel(τ')`. -/
+  /-- `Channel(τ)`. Covariant: `τ <: τ' → Channel(τ) <: Channel(τ')`. -/
   | channel (_ : Typ)
   /-- `Address`. -/
   | address
-  /-- A metavariable `?n`, resolved during type checking (§5.3); never appears in a
-  fully-elaborated `TypedTLAPlus` term. -/
+  /-- A metavariable `?n`, resolved during type checking; never appears in a fully-elaborated
+  `TypedTLAPlus` term. -/
   | mvar (_ : Nat)
   deriving Repr, Inhabited, BEq
 
--- `deriving DecidableEq` doesn't apply here (same as prior art) -- proved by hand instead.
+-- `deriving DecidableEq` doesn't apply here -- proved by hand instead.
 partial instance : DecidableEq Typ :=
   let rec go (τ τ' : Typ) : Decidable (τ = τ') := match τ, τ' with
     | .bool, .bool | .int, .int | .str, .str | .address, .address => isTrue rfl
@@ -394,10 +388,9 @@ instance : Traversable IdentifierOrTuple where
 abbrev CommentAnnotation := String × List (String ⊕ Int ⊕ Bool ⊕ String)
 
 /--
-  TLA⁺ expressions as accepted syntactically (before desugaring, §5.2). The `α` parameter
-  carries whatever comment-annotation payload the caller wants attached at binder sites
-  (e.g. `@type` annotations, once `Parser_`'s `resolveAnnotations` pass runs) — plain
-  `SurfaceTLAPlus.Expression` output straight from the grammar has no use for it yet.
+  TLA⁺ expressions as accepted syntactically, before desugaring. The `α` parameter carries
+  whatever comment-annotation payload the caller wants attached at binder sites (e.g. `@type`
+  annotations).
 -/
 inductive Expression (α : Type) : Type
   /-- An unqualified identifier. -/
@@ -454,7 +447,7 @@ inductive Expression (α : Type) : Type
   | disj : List (Expression α) → Expression α
   | nat : String → Expression α
   | str : String → Expression α
-  /-- `@`, TLA⁺'s self-reference inside `EXCEPT` (desugared away, §5.2). -/
+  /-- `@`, TLA⁺'s self-reference inside `EXCEPT`. -/
   | at : Expression α
   | «true» : Expression α
   | «false» : Expression α
@@ -463,7 +456,7 @@ inductive Expression (α : Type) : Type
   deriving Repr, Inhabited, BEq
 
 -- Structural recursion isn't visibly decreasing to Lean here (nested `List`/`QuantifierBound`
--- occurrences of `Expression`, same as prior art) — `partial` until that's revisited.
+-- occurrences of `Expression`) — `partial` until that's revisited.
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
   | .var v, pos => .var v @@ pos
   | .nat n, pos => .nat n @@ pos
@@ -548,10 +541,7 @@ instance : Traversable Expression where
 instance instTraversableProd {α : Type} : Traversable (Prod α) where
   traverse f x := ({x with snd := ·}) <$> f x.snd
 
-/--
-  A top-level TLA⁺ declaration. `RECURSIVE` (§9.9) and module `INSTANCE` (§9.8) are not yet
-  represented — both are open questions, not omissions to silently work around.
--/
+/-- A top-level TLA⁺ declaration. `RECURSIVE` and module `INSTANCE` are not represented. -/
 inductive Declaration (α : Type) : Type
   | constants : List (String × α) → Declaration α
   | «variables» : List (String × α) → Declaration α
@@ -583,9 +573,8 @@ instance : Traversable Declaration where
 
 /--
   A parsed TLA⁺ module, `EXTENDS`-list and all, wrapping the embedded (Distributed) PlusCal
-  algorithm at whatever `α` the caller instantiates it at (`SurfacePlusCal.Algorithm`'s
-  eventual type, once `Core/SurfacePlusCal` exists — kept fully abstract here to avoid a
-  cyclic import between the two Core ASTs).
+  algorithm at whatever `α` the caller instantiates it at — kept abstract to avoid a cyclic
+  import between the two Core ASTs.
 -/
 structure Module (α β : Type) : Type where
   name : String

@@ -5,12 +5,11 @@ import Desugarer.TLAPlus
 import Desugarer.PlusCal
 
 /-!
-  `Driver/Modules.lean`'s own errors/warnings — **not** `TCError`/`TCWarning`: nothing here is a
-  type-checking-rule violation, it's every way *driving* the pipeline up to and around the checker
-  can fail. Wraps each lower-level pass's own error type directly (`lex`/`parse`/`annotation`/
-  `desugar`) plus the resolution-specific conditions (`moduleNotFound`/`ambiguousModule`/
-  `cyclicExtends`), plus `typeCheck`, wrapping whatever `TCError` the checker itself raises — so
-  `Fugue.lean` only ever has to handle one error type across the whole pipeline.
+  `Driver/Modules.lean`'s own errors/warnings — every way driving the pipeline up to and around
+  the checker can fail. Wraps each lower-level pass's own error type (`lex`/`parse`/`annotation`/
+  `desugar`/`typeCheck`) plus the resolution-specific conditions (`moduleNotFound`/
+  `ambiguousModule`/`cyclicExtends`), so `Fugue.lean` only has to handle one error type across
+  the whole pipeline.
 -/
 
 /-- `moduleId` is the *offending module's own* key into the source registry
@@ -64,9 +63,8 @@ instance : CompilerDiagnostic DriverError String where
     | .cyclicExtends chain => s!"Cyclic EXTENDS: {String.intercalate " -> " chain}."
     | .typeCheck _ e => CompilerDiagnostic.msgOf e
 
-/-- `DriverError`'s non-fatal counterpart — carries a warning from any pass (plus its owning
-`moduleId`) through `Driver/Modules.lean`'s accumulate-then-flush machinery
-(`MonadWarningAccumulator`), uniformly regardless of which pass produced it. -/
+/-- `DriverError`'s non-fatal counterpart — carries a warning from any pass, plus its owning
+`moduleId`, through `Driver/Modules.lean`'s accumulate-then-flush machinery. -/
 inductive DriverWarning : Type
   | parser (moduleId : String) (w : ParserWarning)
   | desugar (moduleId : String) (w : DesugarWarning)

@@ -1,7 +1,7 @@
 import Core.SurfacePlusCal.Syntax
 import Common.Pretty
 
-/-! Pretty-printing for `SurfacePlusCal`, used by `-d`-style AST dumps (§7). -/
+/-! Pretty-printing for `SurfacePlusCal`, used by `-d`-style AST dumps. -/
 
 namespace SurfacePlusCal
 

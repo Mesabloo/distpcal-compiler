@@ -10,53 +10,29 @@ import Core.SurfaceTLAPlus.Syntax
 import Core.SurfacePlusCal.Syntax
 
 /-!
-  `SurfacePlusCal`, but with every `goto` explicit and at the end of a block (§5.2) — the output
-  of statement desugaring (`Desugarer/PlusCal.lean`).
+  `SurfacePlusCal`, but with every `goto` explicit and at the end of a block — the output of
+  statement desugaring.
 
-  Ported from prior art's `Core/CorePlusCal/Syntax.lean` — its `Statement`/`Block`/`Branches`
-  triple, indexed by a `Bool` tracking whether a statement/block is "terminal" (ends in `goto`)
-  at the *type* level, is a genuinely good design worth carrying forward verbatim (`CLAUDE.md`,
-  `PLAN.md` §2): "every block ends in exactly one terminal statement" becomes a structural
-  invariant instead of a side condition to maintain by hand.
+  `Statement`/`Block`/`Branches` are indexed by a `Bool` tracking whether a statement/block is
+  "terminal" (ends in `goto`) at the *type* level: "every block ends in exactly one terminal
+  statement" is a structural invariant rather than a side condition to maintain by hand.
 
-  **One fix relative to prior art, confirmed necessary by the thesis's own account of Network
-  PlusCal** ("Each thread of the process is a list of labelled atomic blocks", thesis §8.3):
-  prior art's `Process.threads : List (Block α β true)` has no way to attach a *label* to each
-  block at all, even though every block needs one (it's the target `goto` statements name). Fixed
-  here by pairing each block with its label: `threads : List (List (String × Block α β true))` —
-  the outer list is `SurfacePlusCal`'s parallel `{...} {...}` threads, the inner list is the
-  sequence of labelled atomic blocks *within* one thread.
+  `Process.threads : List (List (String × Block α β true))` pairs each atomic block with its
+  own label (the outer list is `SurfacePlusCal`'s parallel `{...} {...}` threads, the inner list
+  the sequence of labelled atomic blocks within one thread).
 
-  **`Process`/`Declarations`/`Algorithm` share the very same `α`/`β` that `Statement`/`Block`/
-  `Branches`/`MulticastFilter` do — not a separate type-of-types parameter, and not `Option`-
-  wrapped in `Declarations`' own fields.** `α` denotes "the declared-type annotation at
-  whatever stage of checking it currently is" everywhere it appears: `List Annotation` fresh
-  out of statement desugaring, `Option SurfaceTLAPlus.Typ` after the uniform, still-independent
-  `stripEmbeddedTypeAnnotations` pass (`Desugarer/PlusCal.lean`) — which, because `Declarations`
-  shares this one `α` rather than a second, independently-evolving parameter, strips
-  `Declarations`' `variables`/`channels`/`fifos` entries for free, via the exact same
-  `Bitraversable` walk that already covers `MulticastFilter`'s per-bind annotations and a
-  `with`-bound variable's own annotation — no special-casing needed. Content that genuinely
-  *can't* be expressed via this shared `α` — `@mailbox`'s channel name/index expressions,
-  `@parameter`'s presence-as-a-`Bool` — is instead extracted early, as its own concrete field
-  (`Process.mailbox`, `Declarations.variables`' `isParameter`), by bespoke validation fused
-  directly into statement desugaring (`Process.desugar`/`Declarations.desugarCheck`, per the
-  project owner, rather than keeping a second "raw, still-generic" `CorePlusCal`-shaped type
-  around purely to bridge the gap between structural desugaring and this bespoke validation) —
-  there is exactly one `CorePlusCal.Algorithm` shape throughout. Keeping everything else on one
-  shared `α` (rather than splitting it out) is what lets `Process`/`Algorithm` stay ordinary,
-  unambiguous two-parameter `Bifunctor`/`Bitraversable` instances.
+  `Process`/`Declarations`/`Algorithm` share the same `α`/`β` that `Statement`/`Block`/`Branches`/
+  `MulticastFilter` do: `α` is the declared-type annotation at whatever stage of checking it's
+  currently at. Content that can't be expressed via this shared `α` (`@mailbox`'s channel
+  name/index expressions, `@parameter`'s presence-as-a-`Bool`) is instead its own concrete field
+  (`Process.mailbox`, `Declarations.variables`' `isParameter`).
 -/
 namespace CorePlusCal
   open SurfacePlusCal (MulticastFilter)
 
-  /-- `SurfacePlusCal.Ref`, but each bracket group's own index is unary — `x[e₁, …, eₙ]` (`n >
-  1`) desugars to `x[<<e₁, …, eₙ>>]`, exactly `CoreTLAPlus.Expression.fnCall`/`.except`'s own
-  rule (`Desugarer/TLAPlus.lean`'s `wrapIndices`), for the same reason: every downstream
-  consumer should be able to rely on "one index expression per bracket group" directly, not
-  re-derive it from a list. `x[e₁][e₂]` (two separate bracket groups) is unaffected either way
-  — `args`' *outer* list (one entry per bracket group) doesn't change shape, only each group's
-  own inner list collapses. -/
+  /-- `SurfacePlusCal.Ref`, but each bracket group's own index is unary: `x[e₁, …, eₙ]` (`n > 1`)
+  desugars to `x[<<e₁, …, eₙ>>]`. `x[e₁][e₂]` (two separate bracket groups) is unaffected —
+  `args`' outer list (one entry per bracket group) doesn't change shape. -/
   structure Ref (β : Type) : Type where
     name : String
     args : List β
@@ -76,22 +52,16 @@ namespace CorePlusCal
       | assign (_ : List (Ref β × β)) : Statement α β false
       | «if» {b} (cond : β) (B₁ B₂ : Block α β b) : Statement α β b
       | await (e : β) : Statement α β false
-      /-- Binds exactly one variable — unlike `SurfacePlusCal.Statement.with`'s `vars : List
-      (…)`, a genuine comma list at the surface syntax level (`with (x = 3, y ∈ S) {…}`),
-      statement desugaring (`Desugarer/PlusCal.lean`) always flattens a multi-binder `with`
-      into a nested chain of single-binder ones (`with (x = 3) { with (y ∈ S) {…} }`) — a
-      structural invariant enforced here at the type level, per this project's convention of
-      preferring that over a runtime check or a comment asserting it holds. -/
+      /-- Binds exactly one variable — a multi-binder surface `with (x = 3, y ∈ S) {…}` is
+      flattened into a nested chain of single-binder ones (`with (x = 3) { with (y ∈ S) {…} }`)
+      before reaching this type. -/
       | «with» (var : String) (ann : α) («=|∈» : Bool) (val : β) (B : Block α β false) : Statement α β false
       | assert (e : β) : Statement α β false
       | either {b} (branches : Branches α β b) : Statement α β b
-      /-- `while`'s own body may be either terminal or not: non-terminal in the common case
-      (looping is implicit — one atomic step per full loop, however many iterations), but
-      terminal when statement desugaring (`Desugarer/PlusCal.lean`) has extracted a labelled
-      step out of the loop body, in which case the body ends in an explicit `goto` back to
-      whatever label re-enters the loop's own condition check. The `while` statement *itself*
-      stays non-terminal either way — falling out of the loop always continues normally to
-      whatever follows it in its own enclosing block. -/
+      /-- `while`'s own body may be either terminal or not (terminal when a labelled step was
+      extracted from the loop body, ending in a `goto` back to the condition check); the
+      `while` statement itself is always non-terminal, since falling out of the loop continues
+      normally to whatever follows it. -/
       | «while» {b} (cond : β) (B : Block α β b) : Statement α β false
       | receive (c : Ref β) (r : Ref β) : Statement α β false
       | send (c : Ref β) (e : β) : Statement α β false
@@ -202,22 +172,12 @@ namespace CorePlusCal
     bitraverse := Branches.bitraverse
 
   /-- The declarations at the top of an `algorithm` or `process` block — the annotation-carrying
-  counterpart is `SurfacePlusCal.Declarations`. Shares the *same* `α` as `Statement`/`Block`/
-  `Branches`/`MulticastFilter` (not a separate type-of-types parameter, and not `Option`-wrapped
-  in its own fields, matching how `MulticastFilter`'s/`with`'s own binder-annotation slots are
-  bare `α`, since `α` already denotes "the declared-type annotation" at whatever stage of
-  checking it's currently at — `List Annotation` fresh out of statement desugaring, `Option
-  SurfaceTLAPlus.Typ` after `stripEmbeddedTypeAnnotations`, `Desugarer/PlusCal.lean`). Keeping
-  one shared `α` (rather than a second, independently-evolving parameter) is what lets
-  `Process`/`Algorithm` stay ordinary two-parameter `Bifunctor`/`Bitraversable` instances, with
-  no currying/instance-resolution ambiguity. -/
+  counterpart is `SurfacePlusCal.Declarations`. Shares the same `α` as `Statement`/`Block`/
+  `Branches`/`MulticastFilter`. -/
   structure Declarations (α β : Type) : Type where
-    /-- `(name, declared-type annotation, isParameter — from `@parameter`, only ever `true` on
-    a `∈`-initialized entry — initializer)`; the initializer's own `Bool` is `true` for `=`,
-    `false` for `∈`, matching `SurfacePlusCal.Declarations`. `isParameter` is a genuinely
-    separate field, not folded into `α`, since it's populated by bespoke validation
-    (`Declarations.desugarCheck`, `Desugarer/PlusCal.lean`) rather than the uniform
-    `@type`-only rule `α` itself follows. -/
+    /-- `(name, declared-type annotation, isParameter, initializer)`; `isParameter` is `true`
+    only on a `@parameter`-annotated, `∈`-initialized entry. The initializer's own `Bool` is
+    `true` for `=`, `false` for `∈`. -/
     «variables» : List (String × α × Bool × Option (Bool × β))
     channels : List (String × α × List β)
     fifos : List (String × α × List β)
@@ -243,11 +203,8 @@ namespace CorePlusCal
     bitraverse := Declarations.bitraverse
 
   structure Process (α β : Type) : Type where
-    /-- `(channel name, filter/index args)`, from at most one `@mailbox` annotation
-    (`Desugarer/PlusCal.lean`); `none` if the process has no mailbox. Always concrete, unlike
-    every other annotation-carrying slot here — a mailbox's content (a channel name plus index
-    expressions) isn't expressible as "the same `α` as everywhere else", so it's extracted
-    early (`extractMailbox`) rather than participating in the generic `α` machinery at all. -/
+    /-- `(channel name, filter/index args)`, from at most one `@mailbox` annotation; `none` if
+    the process has no mailbox. -/
     mailbox : Option (String × List β)
     isFair : Bool
     name : String
@@ -256,7 +213,7 @@ namespace CorePlusCal
     id : β
     localState : Declarations α β
     /-- One entry per parallel `{...}` thread; each thread is its own sequence of labelled
-    atomic blocks (§8.3's "list of labelled atomic blocks"), in program order. -/
+    atomic blocks, in program order. -/
     threads : List (List (String × Block α β true))
     deriving Repr, Inhabited
 

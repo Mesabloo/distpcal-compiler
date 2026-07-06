@@ -1,7 +1,7 @@
 import Common.Pretty
 import Core.SurfaceTLAPlus.Syntax
 
-/-! Pretty-printing for `SurfaceTLAPlus`, used by `-d`-style AST dumps (§7). -/
+/-! Pretty-printing for `SurfaceTLAPlus`, used by `-d`-style AST dumps. -/
 
 namespace SurfaceTLAPlus
 

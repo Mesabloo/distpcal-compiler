@@ -31,11 +31,7 @@ namespace SurfacePlusCal
     | receive
     | multicast
     | send
-    /--
-      Embeds TLA⁺ tokens into PlusCal tokens, as we need them for parsing expressions in various places.
-
-      We are cheating a little bit here, as this seems like a dirty hack, but oh well as long as it works.
-    -/
+    /-- Embeds a TLA⁺ token, for parsing TLA⁺ expressions inside PlusCal. -/
     | tla (tk : SurfaceTLAPlus.Token SurfacePlusCal.Token)
     deriving Repr, Inhabited, BEq
 
