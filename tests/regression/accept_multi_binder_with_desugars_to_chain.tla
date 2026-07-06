@@ -4,6 +4,8 @@
 \* `CorePlusCal.Statement.with` only ever binds one variable at a time, by construction
 \* (`Core/CorePlusCal/Syntax.lean`'s module doc).
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID

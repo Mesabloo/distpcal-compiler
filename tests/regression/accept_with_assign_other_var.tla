@@ -3,6 +3,8 @@
 \* assigning to any other (non-with-bound) variable from within a `with` body is fine —
 \* only assigning to the `with`-bound name itself is rejected.
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID

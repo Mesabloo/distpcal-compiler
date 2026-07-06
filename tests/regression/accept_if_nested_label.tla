@@ -4,6 +4,8 @@
 \* source itself already provides, since this compiler never invents one (see
 \* reject_if_not_followed_by_label.tla for the same shape without that label).
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID

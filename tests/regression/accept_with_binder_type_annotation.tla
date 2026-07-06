@@ -5,6 +5,8 @@
 \* swallowed by the `(` token's own trailing-whitespace skip (the same class of bug `parseFilter`
 \* already works around for `multicast`, `Parser_/PlusCal.lean`).
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID

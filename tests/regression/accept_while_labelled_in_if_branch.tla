@@ -3,6 +3,8 @@
 \* label (`p2`), and the continuation after the `if` is also explicitly labelled (`p3`) —
 \* the fully-labelled counterpart to reject_while_not_labelled_in_if_branch.tla.
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID

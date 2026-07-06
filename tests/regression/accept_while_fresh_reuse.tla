@@ -4,6 +4,8 @@
 \* directly as the loop's own loop-back target instead of synthesizing a fresh label.
 \* Regression check for the fix in accept_while_nonfresh_extraction.tla.
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID

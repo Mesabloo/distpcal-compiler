@@ -7,6 +7,8 @@
 \* well-typed for all three access shapes at once (single-index, tuple-index, and curried
 \* access each imply a different domain), and the Phase 5 type checker now enforces that.
 
+EXTENDS Naturals
+
 CONSTANTS
     \* @type: Address;
     PID
