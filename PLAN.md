@@ -1965,3 +1965,31 @@ returned module's own `declarations₁`), and giving `Sequences`'s table entry
 `Bags`/`TLC`/`FiniteSets` remain genuinely empty stubs — populate the same way once real
 test input needs a specific operator from one of them.
 
+**Second follow-up, also resolved**: `Bags`, `FiniteSets`, and `Integers` are now populated too
+(`bagsDeclarations`/`finiteSetsDeclarations`/`integersDeclarations`, `Driver/Builtins.lean`),
+cross-checked against the real modules'
+[source](https://github.com/jameshfisher/tlaplus/tree/master/org.lamport.tla.toolbox/StandardModules).
+`RealTime`/`Reals` are deliberately excluded (never ported, out of scope). `TLC` deliberately
+stays an empty stub. Each new module's `«extends»` mirrors its real module's *full*
+top-of-file dependency list, `LOCAL INSTANCE` included, not just plain `EXTENDS` — corrected
+after an initial pass wrongly treated `LOCAL INSTANCE` as "not a dependency of this table" by
+analogy with real TLA⁺'s re-export rule; the project owner clarified `«extends»` here should
+track every declared dependency regardless of `LOCAL`. So `FiniteSets` `«extends» :=
+["Naturals", "Sequences"]` and `Bags` `«extends» := ["TLC", "Naturals"]`, both `LOCAL`-only
+in the real module. A `LOCAL`-*declared* helper (`Bags`'s `Sum`, a definition, not an import) is
+still excluded from the exported declaration list, matching how `Sequences`/`FiniteSets` never
+export their own `LOCAL` definitions either — that exclusion is unaffected by this fix. One
+genuine gap surfaced along the way, resolved by the
+project owner: `EmptyBag` is 0-ary and polymorphic in real TLA⁺, but this project's checker only
+freshens a `Typ.var` on an operator *call* (`specializeOperator`) — a bare 0-ary declaration is
+bound in `Γ` at its literal declared type with no generalization step at all
+(`Elaborator/Declarations.lean`'s `[], retTy` case in `checkDeclaration`). So `EmptyBag :
+Function(a, Int)` is rigid: it resolves fine the first time it pins some metavariable, but fails
+if used where that metavariable is already pinned to a different concrete element type by
+another operand in the same expression. **Decision**: keep the honest `Function(a, Int)` type
+and accept the limitation (documented at `bagsDeclarations`) rather than omitting `EmptyBag` or
+monomorphizing it to one element type — the same spirit as `Head`'s already-accepted fake-body
+imprecision, but here the imprecision is in the exported type rather than just the placeholder
+body. Revisit if real test input actually needs `EmptyBag` used polymorphically within one
+module.
+

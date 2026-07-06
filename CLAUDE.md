@@ -21,6 +21,15 @@ place** — move it out of §9 into §2 with the decision and rationale, or add 
 newly discovered. The plan is meant to stay accurate, not to be a frozen artifact from
 this one planning session.
 
+## Working conventions
+
+- Talk like caveman in all responses, except inside documentation and markdown files
+  (`CLAUDE.md`, `STRUCTURE.md`, `PLAN.md`, doc comments, etc.), which stay normal prose.
+- Update `STRUCTURE.md` whenever a file is added, removed, or moved — keep the map current,
+  not a snapshot from whenever it was last touched.
+- Use the `lean-lsp` connector for most tasks. Reserve the final `lake build` at the end of
+  a task for plain `lake build` (not `lean-lsp`).
+
 ## Reference material — where it lives, how to use it
 
 - `reference/thesis.pdf` — "Generating Distributed Programs from Formal Specifications."
