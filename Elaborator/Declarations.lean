@@ -56,23 +56,23 @@ import Elaborator.Expressions
   pre-tupled multi-index call site). Getting this wrong would make a real multi-arg function
   definition never callable through `CoreTLAPlus.Expression.fnCall`'s own single-index encoding.
 
-  **`builtinContext` is a pragmatic, incomplete prelude, not a model of `EXTENDS`.** It doesn't
-  gate anything behind whether a module actually `EXTENDS`s `Sequences`/`Naturals`/etc. — every name
-  below is simply always in `Γ₀`, including `Len`/`Head`/`Tail`/`Append` (properly `Sequences`-only
-  in real TLA⁺). Modeling per-module `EXTENDS` gating for these is `Driver/Modules.lean`'s
-  `builtinModules` table's job (still genuinely empty, populated only as real test input needs a
-  specific standard-module operator) — this file's own prelude only covers the operators the thesis
-  itself treats as pre-existing in `Γ` regardless of any `EXTENDS` (`Core/CoreTLAPlus/Syntax.lean`'s
-  own doc, quoting the thesis: "we may assume that `+ : (Int, Int) ⇒ Int` is present in the typing
-  context Γ"), plus the handful of sequence operators named explicitly in this session's own scoping
-  decision. **Not included**: `Str2Seq` (`Elaborator/Subtyping.lean`'s placeholder coercion helper)
+  **`builtinContext` now only carries what's genuinely `EXTENDS`-independent** (resolving `PLAN.md`
+  §9.19): equality, the boolean connectives, and core set theory (`\in`/`\subseteq`/`\cup`/`\cap`/
+  `\`/`DOMAIN`) — the operators the thesis itself treats as pre-existing in `Γ` with no `EXTENDS` of
+  any kind. Arithmetic (`+`/`-`/`-.`/`*`/`<`/`>`/`=<`/`>=`/`..`/`Nat`) and the sequence operators
+  (`Len`/`Head`/`Tail`/`Append`) — properly `Naturals`-only and `Sequences`-only (respectively) in
+  real TLA⁺ — now live as real declarations in `Driver/Modules.lean`'s `builtinModules["Naturals"]`/
+  `builtinModules["Sequences"]` entries instead, so a module only sees them via an actual `EXTENDS
+  Naturals`/`EXTENDS Sequences` (`Elaborator/Elaborator.lean`'s `Γ₀`-merge already threads a
+  dependency's own declarations in this way — `Driver/Modules.lean`'s `compileModule` doc). **Not
+  included**: `Str2Seq` (`Elaborator/Subtyping.lean`'s placeholder coercion helper)
   needs no entry here at all — every use of it is a term the coercion itself constructs directly
   (`.var "Str2Seq" (.operator [.str] (.seq .int))`, already fully typed at the construction site),
   never a name any checked *source* expression looks up through `Γ`. Unary minus (`-x`, parsed
   exactly as before — no surface-syntax change) gets its own canonical spelling, `"-."`
   (`Desugarer/TLAPlus.lean`'s `PrefixOperator.canonicalName`, resolving `PLAN.md` §9.18 — the same
-  disambiguating trick "Specifying Systems" itself uses), so it can carry its own `Γ` entry below,
-  distinct from binary `-`'s.
+  disambiguating trick "Specifying Systems" itself uses), so it can carry its own entry, distinct
+  from binary `-`'s, in `Driver/Modules.lean`'s `Naturals` declarations rather than here.
 -/
 
 open TypedTLAPlus (Typ)
@@ -100,16 +100,6 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("=>", .operator [.bool, .bool] .bool),
   ("<=>", .operator [.bool, .bool] .bool),
   ("\\neg", .operator [.bool] .bool),
-  -- Arithmetic. `-.` is unary minus (module doc, `PLAN.md` §9.18) — distinct from binary `-`.
-  ("+", .operator [.int, .int] .int),
-  ("-", .operator [.int, .int] .int),
-  ("-.", .operator [.int] .int),
-  ("*", .operator [.int, .int] .int),
-  ("<", .operator [.int, .int] .bool),
-  (">", .operator [.int, .int] .bool),
-  ("=<", .operator [.int, .int] .bool),
-  (">=", .operator [.int, .int] .bool),
-  ("..", .operator [.int, .int] (.set .int)),
   -- Sets.
   ("\\in", .operator [.var "a", .set (.var "a")] .bool),
   ("\\notin", .operator [.var "a", .set (.var "a")] .bool),
@@ -118,17 +108,6 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("\\cap", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
   ("\\", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
   ("DOMAIN", .operator [.function (.var "a") (.var "b")] (.set (.var "a"))),
-  -- Sequences (properly `Sequences`-module-only in real TLA⁺ — module doc on why they're here
-  -- unconditionally anyway).
-  ("Len", .operator [.seq (.var "a")] .int),
-  ("Head", .operator [.seq (.var "a")] (.var "a")),
-  ("Tail", .operator [.seq (.var "a")] (.seq (.var "a"))),
-  ("Append", .operator [.seq (.var "a"), .var "a"] (.seq (.var "a"))),
-  -- `Naturals`-module-only in real TLA⁺, same "unconditionally here anyway" reasoning as the
-  -- sequence operators above — a *value* (`Set(Int)`), not to be confused with the grammar's own
-  -- `Int` *type*. Found missing via hand-verification against `LamportMutex3.tla`'s `ASSUME N \in
-  -- Nat`.
-  ("Nat", .set .int),
 ]
 
 /-- A placeholder position for the declaration-shape errors below that have no expression to hang

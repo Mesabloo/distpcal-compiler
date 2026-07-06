@@ -16,6 +16,7 @@ DEBUG_OPTS=(
     "dump-tokens"
     "dump-cst"
     "dump-desugared"
+    "dump-typed"
     # "dump-guarded"
     # "dump-network"
 )

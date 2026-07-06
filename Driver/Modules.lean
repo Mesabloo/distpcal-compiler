@@ -221,7 +221,7 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
   lookupModule n := (·.get? n) <$> get
   storeModule n entry := modify (·.insert n entry)
 
-/--
+/-!
   Standard TLA⁺ modules (`Sequences`, `TLC`, `Naturals`, `FiniteSets`, …) — a hardcoded table of
   already-checked `Module`s, **not** bundled `.tla` stub files: the compiler would need to know
   their install location, and each one would still need processing like any other module, for no
@@ -238,27 +238,72 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
   `Sequences` should itself `EXTENDS Naturals`, matching real TLA⁺) needs no separate mechanism —
   `resolveModule`'s existing recursion already generalizes to it (`PLAN.md` §9.19).
 
-  **Not yet where `Elaborator/Declarations.lean`'s `builtinContext` operators
-  (`+`/`-`/`Len`/`Head`/… ) actually live** — that prelude is a deliberate, flat, always-on
-  approximation of what *should* eventually be real per-module entries here (`Naturals`'s
-  arithmetic, `Sequences`'s sequence operators, …), tracked as future work rather than started now
-  (`PLAN.md` §9.19). **Consequence:** each stub below is genuinely *empty* (no declarations, no
-  algorithm) — it exists only so `EXTENDS Sequences`/`Naturals`/`Bags`/`TLC` resolves *a* module at
-  all; every operator a real spec actually uses from one of these (`Len`, `Head`, `Tail`, `Append`,
-  `+`, `-`, …) is already available unconditionally via `builtinContext`, `EXTENDS` or not.
+  **Now where `Elaborator/Declarations.lean`'s former `builtinContext` arithmetic/sequence
+  operators actually live** (resolving `PLAN.md` §9.19): `Naturals`'s `declarations₁` carries
+  `+`/`-`/`-.`/`*`/`<`/`>`/`=<`/`>=`/`..`/`Nat`, `Sequences`'s carries `Len`/`Head`/`Tail`/`Append`
+  — real declarations now, not empty stubs, so `EXTENDS`-gating actually matters: a module that
+  doesn't `EXTENDS Naturals`/`EXTENDS Sequences` correctly can't see them. `Sequences` itself
+  `«extends» := ["Naturals"]` (matching real TLA⁺), so a module that only `EXTENDS Sequences`
+  still transitively sees `Naturals`'s operators too, the same way it would through an ordinary
+  `EXTENDS`-resolved dependency — `resolveModule`'s `.builtin` case below resolves a builtin's own
+  `extends` list exactly like a `.file`'s. `Bags`/`TLC`/`FiniteSets` stay genuinely empty (no real
+  test input needs a specific operator from them yet). Each entry's declarations only need to
+  carry a name/type binding, not a real body — `Decl.bindings` below (what the `Γ`-merge step
+  actually consults) never looks at a declaration's body, and standard-library operators get
+  replaced by backend-native implementations at code-generation time regardless of what their
+  "definition" says, so every entry's body is the same meaningless placeholder expression
+  (`naturalsAndSequencesPlaceholderBody`).
 
   **Populated now, not left empty** — the four hand-verification fixtures (`.claude/tasklist.md`'s
   own "Verification" section: `PingPong.tla`/`PingPongs.tla`/`TPC2.tla`/`LamportMutex3.tla`)
   between them `EXTENDS` exactly `Sequences`, `Naturals`, `Bags`, and `TLC` — precisely the "real
   test input needs a specific standard-module name" moment this table's own doc has been waiting
-  for since Phase 5 started.
+  for since Phase 5 started. `LamportMutex3.tla`/`TPC2.tla` both `EXTENDS Naturals, Sequences`
+  directly (alongside `TLC`/`Bags`), so gating these operators behind real `EXTENDS`-resolved
+  declarations rather than always-on `builtinContext` doesn't regress either fixture.
 -/
+
+/-- Every declaration below only needs to carry a name and a type into `Γ` (module doc) — this is
+that placeholder body, shared by all of them. -/
+private def naturalsAndSequencesPlaceholderBody : TypedTLAPlus.Expression TypedTLAPlus.Typ := .true
+
+/-- `Naturals`'s operators (module doc): arithmetic, comparisons, the `..` range constructor, and
+`Nat` itself (a *value* — `Set(Int)` — not the grammar's own `Int` *type*; a 0-ary "operator" the
+same way `Elaborator/Declarations.lean`'s own `checkDeclaration` binds a 0-ary definition's name
+directly to its plain result type, no `Typ.operator` wrapper). `-.` is unary minus, distinct from
+binary `-` (`Elaborator/Declarations.lean`'s module doc on `PrefixOperator.canonicalName`). -/
+private def naturalsDeclarations : List Decl :=
+  let body := naturalsAndSequencesPlaceholderBody
+  [ .operator (.operator [.int, .int] .int) "+" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int, .int] .int) "-" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int] .int) "-." [("x", 0)] body,
+    .operator (.operator [.int, .int] .int) "*" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int, .int] .bool) "<" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int, .int] .bool) ">" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int, .int] .bool) "=<" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int, .int] .bool) ">=" [("x", 0), ("y", 0)] body,
+    .operator (.operator [.int, .int] (.set .int)) ".." [("x", 0), ("y", 0)] body,
+    .operator (.set .int) "Nat" [] body ]
+
+/-- `Sequences`'s operators (module doc). -/
+private def sequencesDeclarations : List Decl :=
+  let body := naturalsAndSequencesPlaceholderBody
+  [ .operator (.operator [.seq (.var "a")] .int) "Len" [("s", 0)] body,
+    .operator (.operator [.seq (.var "a")] (.var "a")) "Head" [("s", 0)] body,
+    .operator (.operator [.seq (.var "a")] (.seq (.var "a"))) "Tail" [("s", 0)] body,
+    .operator (.operator [.seq (.var "a"), .var "a"] (.seq (.var "a"))) "Append" [("s", 0), ("e", 0)] body ]
+
+/-- The table itself (doc above). `Sequences` genuinely `«extends» := ["Naturals"]`, matching
+real TLA⁺ — `resolveModule`'s `.builtin` case (this file) resolves a builtin's own `extends`
+list the same way it does an ordinary module's, so a module that only `EXTENDS Sequences`
+(not separately `Naturals`) still transitively sees `Naturals`'s operators. -/
 def builtinModules : Std.HashMap String TypedModule := Std.HashMap.ofList <|
-  #["Sequences", "Naturals", "Bags", "TLC", "FiniteSets"].toList.map λ name ↦
+  #[("Sequences", sequencesDeclarations, ["Naturals"]), ("Naturals", naturalsDeclarations, []),
+      ("Bags", [], []), ("TLC", [], []), ("FiniteSets", [], [])].toList.map λ (name, decls, exts) ↦
     (name, ({
       name := name
-      «extends» := []
-      declarations₁ := []
+      «extends» := exts
+      declarations₁ := decls
       pcalAlgorithm := none
       declarations₂ := []
     } : TypedModule))
@@ -538,7 +583,11 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
   if name ∈ (← readThe ResolutionStack) then
     throw (.cyclicExtends ((← readThe ResolutionStack).reverse ++ [name]))
   match ← locate name containingDir with
-  | .builtin mod => return (false, mod)
+  | .builtin mod => do
+    let deps ← mod.extends.mapM λ dep ↦
+      withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
+    let importedDecls := deps.flatMap λ (_, depMod) ↦ depMod.declarations₁ ++ depMod.declarations₂
+    return (false, { mod with declarations₁ := importedDecls ++ mod.declarations₁ })
   | .file path => do
     onModuleProgress name
     let src ← IO.FS.readFile path

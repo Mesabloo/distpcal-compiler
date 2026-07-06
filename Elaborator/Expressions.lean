@@ -295,7 +295,14 @@ mutual
         else do
           let (params', ret') ← specializeOperator params ret
           let args' ← (params'.zip args).mapM λ (τᵢ, argᵢ) ↦ checkExpr argᵢ τᵢ
-          return (ret', .opCall e' args' @@ pos)
+          -- `e'` still carries the polymorphic operator type it had in `Γ` (only `.var` stores
+          -- one at all, module doc of `Core/TypedTLAPlus/Syntax.lean`) — retag it with the
+          -- specialized one so the callee's own type agrees with `ret'`/`args'` rather than
+          -- silently keeping the un-instantiated `Typ.var`s around in the elaborated term.
+          let e'' := match e' with
+            | .var x _ => .var x (.operator params' ret') @@ posOf e'
+            | _ => e'
+          return (ret', .opCall e'' args' @@ pos)
       | _ => throw (.notAnOperatorType pos τ)
     /-
        Γ ⊢ S ⇑ Set(τ)       Γ, x : τ ⊢ P ⇓ Bool
@@ -553,51 +560,57 @@ end
 
   `partial`: same structural-recursion caveat as `Expression.map`/`.traverse`/`checkExpr`'s own
   mutual group above (nested `List`/`Option` occurrences of `Expression`).
+
+  **Only eliminates `Expression.mvar` wrapper nodes — doesn't itself touch `Typ.mvar`
+  occurrences embedded *inside* a node's own stored type field** (e.g. `var`'s `α`, or the
+  operator type `opCall`'s case above retags onto its callee with `specializeOperator`'s fresh
+  metavariables). Those are resolved by `resolveMVars` below, as a second pass over this pass's
+  output — see that def's own doc for why a second pass rather than substituting inline here.
 -/
-partial def resolveMVars (e : Expr) : m Expr := match_source e with
+partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
   | .var v τ, pos => return .var v τ @@ pos
   | .nat n, pos => return .nat n @@ pos
   | .str s, pos => return .str s @@ pos
   | .true, pos => return .true @@ pos
   | .false, pos => return .false @@ pos
-  | .opCall f args, pos => return .opCall (← resolveMVars f) (← args.mapM resolveMVars) @@ pos
+  | .opCall f args, pos => return .opCall (← resolveExprMVars f) (← args.mapM resolveExprMVars) @@ pos
   | .forall x τ dom body, pos =>
-    return .forall x τ (← dom.mapM resolveMVars) (← resolveMVars body) @@ pos
+    return .forall x τ (← dom.mapM resolveExprMVars) (← resolveExprMVars body) @@ pos
   | .exists x τ dom body, pos =>
-    return .exists x τ (← dom.mapM resolveMVars) (← resolveMVars body) @@ pos
-  | .fforall x τ body, pos => return .fforall x τ (← resolveMVars body) @@ pos
-  | .eexists x τ body, pos => return .eexists x τ (← resolveMVars body) @@ pos
+    return .exists x τ (← dom.mapM resolveExprMVars) (← resolveExprMVars body) @@ pos
+  | .fforall x τ body, pos => return .fforall x τ (← resolveExprMVars body) @@ pos
+  | .eexists x τ body, pos => return .eexists x τ (← resolveExprMVars body) @@ pos
   | .choose x τ dom body, pos =>
-    return .choose x τ (← dom.mapM resolveMVars) (← resolveMVars body) @@ pos
-  | .set es τ, pos => return .set (← es.mapM resolveMVars) τ @@ pos
+    return .choose x τ (← dom.mapM resolveExprMVars) (← resolveExprMVars body) @@ pos
+  | .set es τ, pos => return .set (← es.mapM resolveExprMVars) τ @@ pos
   | .collect x τ dom pred, pos =>
-    return .collect x τ (← resolveMVars dom) (← resolveMVars pred) @@ pos
-  | .map' body x τ dom, pos => return .map' (← resolveMVars body) x τ (← resolveMVars dom) @@ pos
-  | .fnCall f idx, pos => return .fnCall (← resolveMVars f) (← resolveMVars idx) @@ pos
-  | .fn x τ dom body, pos => return .fn x τ (← resolveMVars dom) (← resolveMVars body) @@ pos
-  | .fnSet dom cod, pos => return .fnSet (← resolveMVars dom) (← resolveMVars cod) @@ pos
+    return .collect x τ (← resolveExprMVars dom) (← resolveExprMVars pred) @@ pos
+  | .map' body x τ dom, pos => return .map' (← resolveExprMVars body) x τ (← resolveExprMVars dom) @@ pos
+  | .fnCall f idx, pos => return .fnCall (← resolveExprMVars f) (← resolveExprMVars idx) @@ pos
+  | .fn x τ dom body, pos => return .fn x τ (← resolveExprMVars dom) (← resolveExprMVars body) @@ pos
+  | .fnSet dom cod, pos => return .fnSet (← resolveExprMVars dom) (← resolveExprMVars cod) @@ pos
   | .record fields, pos =>
-    return .record (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveMVars e)) @@ pos
+    return .record (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveExprMVars e)) @@ pos
   | .recordSet fields, pos =>
-    return .recordSet (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveMVars e)) @@ pos
+    return .recordSet (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveExprMVars e)) @@ pos
   | .except e upds, pos => do
-    let e' ← resolveMVars e
+    let e' ← resolveExprMVars e
     let upds' ← upds.mapM λ (path, newVal) ↦ do
       let path' ← path.mapM λ
         | .inl field => return (Sum.inl field : String ⊕ Expr)
-        | .inr idx => return .inr (← resolveMVars idx)
-      return (path', ← resolveMVars newVal)
+        | .inr idx => return .inr (← resolveExprMVars idx)
+      return (path', ← resolveExprMVars newVal)
     return .except e' upds' @@ pos
-  | .recordAccess e x, pos => return .recordAccess (← resolveMVars e) x @@ pos
-  | .tuple es, pos => return .tuple (← es.mapM λ (τ, e) ↦ return (τ, ← resolveMVars e)) @@ pos
-  | .seq es τ, pos => return .seq (← es.mapM resolveMVars) τ @@ pos
-  | .if c t f, pos => return .if (← resolveMVars c) (← resolveMVars t) (← resolveMVars f) @@ pos
+  | .recordAccess e x, pos => return .recordAccess (← resolveExprMVars e) x @@ pos
+  | .tuple es, pos => return .tuple (← es.mapM λ (τ, e) ↦ return (τ, ← resolveExprMVars e)) @@ pos
+  | .seq es τ, pos => return .seq (← es.mapM resolveExprMVars) τ @@ pos
+  | .if c t f, pos => return .if (← resolveExprMVars c) (← resolveExprMVars t) (← resolveExprMVars f) @@ pos
   | .case branches other, pos => do
-    let branches' ← branches.mapM λ (p, e) ↦ return (← resolveMVars p, ← resolveMVars e)
-    return .case branches' (← other.mapM resolveMVars) @@ pos
-  | .stutter e a, pos => return .stutter (← resolveMVars e) (← resolveMVars a) @@ pos
+    let branches' ← branches.mapM λ (p, e) ↦ return (← resolveExprMVars p, ← resolveExprMVars e)
+    return .case branches' (← other.mapM resolveExprMVars) @@ pos
+  | .stutter e a, pos => return .stutter (← resolveExprMVars e) (← resolveExprMVars a) @@ pos
   | .mvar n e, pos => do
-    let e' ← resolveMVars e
+    let e' ← resolveExprMVars e
     match ← assigned? n with
     -- Shouldn't happen per the doc above — defensive fallback: `n`'s value is already known,
     -- nothing further to resolve at this site.
@@ -612,3 +625,37 @@ partial def resolveMVars (e : Expr) : m Expr := match_source e with
       | _ :: _ :: _ =>
         throw (.todo pos
           "metavariable with more than one recorded upper bound — needs per-site tracking, not seen in practice yet")
+
+private partial def resolveTypeMVars (pos : SourceSpan) : Typ → m Typ
+  | .mvar n => do
+    match ← assigned? n with
+    | some τ' => resolveTypeMVars pos τ'
+    | none => throw (.unconstrainedMetavariable pos)
+  | .var a => return .var a
+  | .bool => return .bool
+  | .int => return .int
+  | .str => return .str
+  | .address => return .address
+  | .const c => return .const c
+  | .function dom rng => return .function (← resolveTypeMVars pos dom) (← resolveTypeMVars pos rng)
+  | .set τ => return .set (← resolveTypeMVars pos τ)
+  | .seq τ => return .seq (← resolveTypeMVars pos τ)
+  | .channel τ => return .channel (← resolveTypeMVars pos τ)
+  | .tuple τs => return .tuple (← τs.mapM (resolveTypeMVars pos))
+  | .operator τs τ => return .operator (← τs.mapM (resolveTypeMVars pos)) (← resolveTypeMVars pos τ)
+  | .record fs => return .record (← fs.mapM λ (x, τ) ↦ return (x, ← resolveTypeMVars pos τ))
+
+/-- `PLAN.md` §5.3's single end-of-check defaulting point, as actually exposed to callers
+(`Elaborator/Declarations.lean`, `Elaborator/PlusCal.lean`): `resolveExprMVars` above eliminates
+every `Expression.mvar` wrapper node (assigning whatever metavariables it names along the way),
+then this second pass walks the result once more resolving any `Typ.mvar` left behind in a stored
+type field — e.g. `opCall`'s callee, retagged with `specializeOperator`'s fresh metavariables,
+never itself gets a `mvar` *expression* wrapper, only `Typ.mvar`s buried in its own operator type,
+so `resolveExprMVars` alone would leave them unresolved. Reuses `Expression.traverse`
+(`Core/TypedTLAPlus/Syntax.lean`'s `Traversable` instance) rather than hand-rolling a second full
+walk, at the cost of every occurrence sharing one position (`e`'s own, for the rare
+unconstrained-metavariable error) instead of a precise per-occurrence one — acceptable for what
+the module doc already documents as a defensive, practically-unreached case. -/
+partial def resolveMVars (e : Expr) : m Expr := do
+  let e' ← resolveExprMVars e
+  TypedTLAPlus.Expression.traverse (resolveTypeMVars (posOf e')) e'

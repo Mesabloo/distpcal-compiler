@@ -1929,28 +1929,36 @@ fix (the project owner was explicit that the parser itself is not to change); on
 from `"-"` to `"-."`. `Elaborator/Declarations.lean`'s `builtinContext` now carries both:
 `"-" : (Int, Int) ⇒ Int` (binary) and `"-." : (Int) ⇒ Int` (unary), no collision.
 
-### 9.19 `builtinContext`'s operators eventually belong in real `EXTENDS`-gated builtin modules
+### 9.19 `builtinContext`'s operators eventually belong in real `EXTENDS`-gated builtin modules — resolved
 
 Raised by the project owner right after `Elaborator/Declarations.lean`'s `builtinContext`
-landed (§5.3 task 7). That prelude is a deliberately flat, always-on approximation —
-`+`/`-`/`-.`/`*`/`..`/comparisons properly belong to TLA⁺'s `Naturals`/`Integers` modules,
-and `Len`/`Head`/`Tail`/`Append` properly belong to `Sequences`, both real `EXTENDS`-gated
-modules in the actual language rather than always-present primitives. At some point these
-should move out of the flat prelude and into `Driver/Modules.lean`'s own `builtinModules`
-table (`Sequences`/`Naturals`/`TLC`/`FiniteSets`/etc. as real, individually-`EXTENDS`-able
-entries), so a module that doesn't `EXTENDS Sequences` correctly can't see `Len`/`Head`/…
-either. **One sub-question the project owner already resolved when raising this**: yes,
-builtin modules can `EXTENDS` each other (e.g. `Sequences` should itself `EXTENDS
-Naturals`, matching real TLA⁺) — `builtinModules`'s own merge step can treat a builtin
-`EXTENDS`ing another builtin exactly like an ordinary module `EXTENDS`ing a dependency
-(`Driver/Modules.lean`'s existing recursive-resolution machinery already generalizes to
-this, `compileModule`/`resolveModule`'s own doc), no separate mechanism needed. **Partially
-started, §5.3 tasks 9/10's own hand-verification**: `builtinModules` now has genuinely empty
-stub entries for `Sequences`/`Naturals`/`Bags`/`TLC`/`FiniteSets` (real test input —
-`PingPong.tla`/`PingPongs.tla`/`TPC2.tla`/`LamportMutex3.tla` — needed the bare *name* to
-resolve at all), but none of `builtinContext`'s operators have actually moved into them yet —
-`EXTENDS`-gating still doesn't matter operationally (a module can still see `Len`/`Head`/…
-whether or not it `EXTENDS Sequences`). Revisit moving the operators themselves once real
-`.tla` test input needs the `EXTENDS`-gating distinction to matter (e.g. a test asserting that
-a module *without* `EXTENDS Sequences` correctly fails to resolve `Len`).
+landed (§5.3 task 7). That prelude was a deliberately flat, always-on approximation —
+`+`/`-`/`-.`/`*`/`..`/comparisons/`Nat` properly belong to TLA⁺'s `Naturals` module, and
+`Len`/`Head`/`Tail`/`Append` properly belong to `Sequences`, both real `EXTENDS`-gated
+modules in the actual language rather than always-present primitives.
+
+**Resolved**: these operators now live as real declarations in `Driver/Modules.lean`'s
+`builtinModules["Naturals"]`/`builtinModules["Sequences"]` entries (`naturalsDeclarations`/
+`sequencesDeclarations`) instead of in `builtinContext`, which now only carries genuinely
+`EXTENDS`-independent operators (equality, boolean connectives, core set theory). A module
+only sees `+`/`Len`/… via an actual `EXTENDS Naturals`/`EXTENDS Sequences`, resolved through
+the same `Γ₀`-merge machinery `compileModule` already uses for ordinary dependencies.
+Verified against the four hand-verification fixtures (§5.3 tasks 9/10): `LamportMutex3.tla`/
+`TPC2.tla` both `EXTENDS Naturals, Sequences` directly, so gating didn't regress either.
+Each declaration only needs a name/type binding (`Decl.bindings`, what the `Γ`-merge step
+actually consults) — bodies are a shared meaningless placeholder, since standard-library
+operators get replaced by backend-native implementations at code-generation time regardless
+of what their "definition" says.
+
+**Follow-up, also resolved**: builtin-`EXTENDS`ing-builtin (`Sequences` itself `EXTENDS
+Naturals`, matching real TLA⁺). This section originally assumed `resolveModule`'s existing
+recursion "already generalizes" to this for free — false: its `.builtin` case returned a
+builtin candidate directly without ever resolving *its own* `extends` field. Fixed by making
+`.builtin` resolve `mod.extends` the same way `.file` does (recursing into `resolveModule`
+for each dependency, merging `depMod.declarations₁ ++ depMod.declarations₂` into the
+returned module's own `declarations₁`), and giving `Sequences`'s table entry
+`«extends» := ["Naturals"]`. A module that only `EXTENDS Sequences` (not separately
+`Naturals`) now correctly sees `Naturals`'s operators too, transitively.
+`Bags`/`TLC`/`FiniteSets` remain genuinely empty stubs — populate the same way once real
+test input needs a specific operator from one of them.
 
