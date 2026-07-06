@@ -1946,9 +1946,12 @@ the same `Γ₀`-merge machinery `compileModule` already uses for ordinary depen
 Verified against the four hand-verification fixtures (§5.3 tasks 9/10): `LamportMutex3.tla`/
 `TPC2.tla` both `EXTENDS Naturals, Sequences` directly, so gating didn't regress either.
 Each declaration only needs a name/type binding (`Decl.bindings`, what the `Γ`-merge step
-actually consults) — bodies are a shared meaningless placeholder, since standard-library
-operators get replaced by backend-native implementations at code-generation time regardless
-of what their "definition" says.
+actually consults) — bodies are never re-examined, since standard-library operators get
+replaced by backend-native implementations at code-generation time regardless of what their
+"definition" says. Still, each body is a genuinely well-typed value of its own operator's
+return type where one exists (`intZero`/`emptySetInt`/`emptySeqOfVarA`, `Driver/Modules.lean`),
+not an arbitrary placeholder — the one exception is `Head`'s bare `a` return, a rigid type
+variable with no witness value at all, so it keeps a (harmless, never-checked) fake `Int` body.
 
 **Follow-up, also resolved**: builtin-`EXTENDS`ing-builtin (`Sequences` itself `EXTENDS
 Naturals`, matching real TLA⁺). This section originally assumed `resolveModule`'s existing
