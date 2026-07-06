@@ -330,7 +330,9 @@ partial instance : ToString Typ where
       | .int => "Int"
       | .str => "Str"
       | .address => "Address"
-      | .function τ₁ τ₂ => s!"({go τ₁}) -> {go τ₂}"
+      | .function τ₁@(.function ..) τ₂
+      | .function τ₁@(.operator ..) τ₂ => s!"({go τ₁}) -> {go τ₂}"
+      | .function τ₁ τ₂ => s!"{go τ₁} -> {go τ₂}"
       | .set τ => s!"Set({go τ})"
       | .seq τ => s!"Seq({go τ})"
       | .tuple τs => s!"<<{String.intercalate ", " (τs.map go)}>>"

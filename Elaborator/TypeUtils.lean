@@ -35,9 +35,15 @@ private partial def substTypeVars (σ : List (String × MVarId)) : Typ → Typ
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m]
 
-/-- Freshen every distinct `Typ.var` in an operator's parameter/return types into its own
-metavariable. -/
-def specializeOperator (params : List Typ) (ret : Typ) : m (List Typ × Typ) := do
-  let vars := ((ret :: params).flatMap typeFreeVars).eraseDups
+/-- Freshen every distinct `Typ.var` in `τ` into its own metavariable, one shared substitution
+across every occurrence — e.g. applied to an `.operator params ret`-shaped `τ`, `typeFreeVars`/
+`substTypeVars`'s existing structural recursion collects/substitutes across both `params` and
+`ret` together, so a single call here freshens a whole operator's signature consistently. Used at
+every `Γ`-reference to a *scheme* binding (`Elaborator/Monad.lean`'s `Binding.isScheme`,
+`Elaborator/Expressions.lean`'s `inferExpr`'s `.var` case) — this is the checker's one
+instantiation point; `.opCall` no longer needs a separate specialization step, since the
+callee's type is already specialized by the time it's looked up. -/
+def specializeType (τ : Typ) : m Typ := do
+  let vars := (typeFreeVars τ).eraseDups
   let σ ← vars.mapM λ v ↦ return (v, ← mkFreshMVar)
-  return (params.map (substTypeVars σ), substTypeVars σ ret)
+  return substTypeVars σ τ

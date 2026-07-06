@@ -29,27 +29,28 @@ abbrev SrcDecl := CoreTLAPlus.Declaration (Option Typ)
 /-- The checker's output for one declaration. -/
 abbrev Decl := TypedTLAPlus.Declaration Typ
 
-/-- `Γ₀` — the minimal builtin prelude. Every entry uses `Typ.var` for whatever's meant to be
-generic; `specializeOperator` freshens each distinct `Typ.var` into its own metavariable at each
-call site. -/
+/-- `Γ₀` — the minimal builtin prelude. Every entry is a scheme (`Binding.isScheme := true`):
+each is a genuine operator definition, so `Typ.var`s used for whatever's meant to be generic get
+freshened into their own metavariable at every reference (`specializeType`,
+`Elaborator/Expressions.lean`'s `inferExpr`). -/
 def builtinContext : Context := Std.HashMap.ofList [
   -- Equality.
-  ("=", .operator [.var "a", .var "a"] .bool),
-  ("/=", .operator [.var "a", .var "a"] .bool),
+  ("=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true }),
+  ("/=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true }),
   -- Boolean connectives.
-  ("/\\", .operator [.bool, .bool] .bool),
-  ("\\/", .operator [.bool, .bool] .bool),
-  ("=>", .operator [.bool, .bool] .bool),
-  ("<=>", .operator [.bool, .bool] .bool),
-  ("\\neg", .operator [.bool] .bool),
+  ("/\\", { type := .operator [.bool, .bool] .bool, isScheme := true }),
+  ("\\/", { type := .operator [.bool, .bool] .bool, isScheme := true }),
+  ("=>", { type := .operator [.bool, .bool] .bool, isScheme := true }),
+  ("<=>", { type := .operator [.bool, .bool] .bool, isScheme := true }),
+  ("\\neg", { type := .operator [.bool] .bool, isScheme := true }),
   -- Sets.
-  ("\\in", .operator [.var "a", .set (.var "a")] .bool),
-  ("\\notin", .operator [.var "a", .set (.var "a")] .bool),
-  ("\\subseteq", .operator [.set (.var "a"), .set (.var "a")] .bool),
-  ("\\cup", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
-  ("\\cap", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
-  ("\\", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
-  ("DOMAIN", .operator [.function (.var "a") (.var "b")] (.set (.var "a"))),
+  ("\\in", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true }),
+  ("\\notin", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true }),
+  ("\\subseteq", { type := .operator [.set (.var "a"), .set (.var "a")] .bool, isScheme := true }),
+  ("\\cup", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true }),
+  ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true }),
+  ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true }),
+  ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true }),
 ]
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
@@ -66,8 +67,12 @@ private def checkParamArity (pos : SourceSpan) (param : String) (arity : Nat) (�
     | _ => throw (.notAnOperatorType pos τ)
 
 /-- `Γ ⊢ D ⊣ Γ'` — checks one declaration, returning its elaborated form alongside the bindings
-`Γ'` adds over `Γ` (`[]` for `ASSUME`, which adds none). -/
-def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d with
+`Γ'` adds over `Γ` (`[]` for `ASSUME`, which adds none). A `CONSTANT`/`VARIABLE` binding is never
+a scheme (`Binding.isScheme := false`, even if its annotation happens to mention a `Typ.var`): a
+`CONSTANT` is one fixed, if abstract, value, not a family of them to instantiate fresh per
+reference. An `operator`/`function` definition's own returned binding *is* a scheme, any arity —
+see each case below. -/
+def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Binding)) := match d with
   /-
      ∀ 1 ≤ i ≤ n, xᵢ ∉ Γ
     ───────────────────────────────────────────────────── [Constants]
@@ -77,13 +82,13 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
   -/
   | .constants xs => do
     let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"CONSTANT `{x}`" ann)
-    return (.constants xs', xs')
+    return (.constants xs', xs'.map λ (x, τ) ↦ (x, { type := τ }))
   /-
     Same shape as [Constants].
   -/
   | .variables xs => do
     let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"VARIABLE `{x}`" ann)
-    return (.variables xs', xs')
+    return (.variables xs', xs'.map λ (x, τ) ↦ (x, { type := τ }))
   /-
      Γ ⊢ e ⇓ Bool
     ─────────────────── [Assumption]
@@ -112,7 +117,7 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
     | [], retTy => do
       let body' ← checkExpr body retTy
       let body' ← resolveMVars body'
-      return (.operator retTy f args body', [(f, retTy)])
+      return (.operator retTy f args body', [(f, { type := retTy, isScheme := true })])
     | _, .operator paramTys retTy =>
       if paramTys.length ≠ args.length then
         throw (.arityMismatch (posOf body) paramTys.length args.length)
@@ -121,7 +126,7 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
         let bindings := args.map Prod.fst |>.zip paramTys
         let body' ← extendAll bindings (checkExpr body retTy)
         let body' ← resolveMVars body'
-        return (.operator τ f args body', [(f, τ)])
+        return (.operator τ f args body', [(f, { type := τ, isScheme := true })])
     | _, _ => throw (.notAnOperatorType (posOf body) τ)
   /-
      f ∉ Γ       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇓ Set(τᵢ)       Γ, f : ⟨τ₁, …, τₙ⟩ → τ, x₁ : τ₁, …, xₙ : τₙ ⊢ e ⇓ τ
@@ -144,14 +149,14 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
       let bindings := (f, τ) :: (args.map Prod.fst |>.zip τs)
       let body' ← extendAll bindings (checkExpr body retTy)
       let body' ← resolveMVars body'
-      return (.function τ f args' body', [(f, τ)])
+      return (.function τ f args' body', [(f, { type := τ, isScheme := true })])
     | _ => throw (.notAFunctionType (posOf body) τ)
 
 /-- `Γ ⊢ D₁, …, Dₙ ⊣ Γ'` — checks a whole declaration list, threading `Γ` through each one.
 Returns the accumulated `Γ' \ Γ` bindings alongside the checked declarations. -/
-def checkDeclarations : List SrcDecl → m (List Decl × List (String × Typ))
+def checkDeclarations : List SrcDecl → m (List Decl × List (String × Binding))
   | [] => return ([], [])
   | d :: ds => do
     let (d', bindings) ← checkDeclaration d
-    let (ds', restBindings) ← extendAll bindings (checkDeclarations ds)
+    let (ds', restBindings) ← extendAllBindings bindings (checkDeclarations ds)
     return (d' :: ds', bindings ++ restBindings)

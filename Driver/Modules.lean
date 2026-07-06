@@ -179,13 +179,20 @@ private def defaultDumpDir : System.FilePath := ".fugue/debug"
 `Decl` rather than by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
 declarations into a fresh `Γ₀` — all of a dependency's own `params`/`defs` come into scope, not
 just its exported operators. PlusCal-internal declarations are never included, since they never
-leak into a module's `Γ` in the first place. -/
-private def Decl.bindings : Decl → List (String × TypedTLAPlus.Typ)
-  | .constants xs => xs
-  | .variables xs => xs
+leak into a module's `Γ` in the first place.
+
+A `constants`/`variables` binding is never a scheme (`Binding.isScheme := false`); an
+`operator`/`function` binding always is, any arity — matches `Elaborator/Declarations.lean`'s
+`checkDeclaration`, whose own returned bindings follow the identical rule. This is what lets a
+0-ary builtin like `Bags`'s `EmptyBag` (`Driver/Builtins.lean`) get freshened on every reference
+without `Driver/Builtins.lean` itself needing any change — arity alone (already present on every
+`Decl.operator`) decides `isScheme`. -/
+private def Decl.bindings : Decl → List (String × Binding)
+  | .constants xs => xs.map λ (x, τ) ↦ (x, { type := τ })
+  | .variables xs => xs.map λ (x, τ) ↦ (x, { type := τ })
   | .assume _ => []
-  | .operator τ f _ _ => [(f, τ)]
-  | .function τ f _ _ => [(f, τ)]
+  | .operator τ f _ _ => [(f, { type := τ, isScheme := true })]
+  | .function τ f _ _ => [(f, { type := τ, isScheme := true })]
 
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
@@ -289,7 +296,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   let typed ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
     let importedBindings := deps.flatMap λ (_, depMod) ↦
       (depMod.declarations₁ ++ depMod.declarations₂).flatMap Decl.bindings
-    let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, τ) ↦ ctx.insert x τ
+    let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
     let typed ← match mod.runChecker Γ₀ with
       | .error e => throw (.typeCheck moduleId e)
       | .ok typed => pure typed

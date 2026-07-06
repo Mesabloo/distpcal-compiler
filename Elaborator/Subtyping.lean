@@ -162,7 +162,17 @@ private partial def tryAxioms (subtypeRec : Typ → Typ → m SubtypeResult) (τ
 partial def subtype (τ τ' : Typ) : m SubtypeResult := do
   match τ, τ' with
   | .mvar a, .mvar b => do
-    match ← assigned? a, ← assigned? b with
+    -- The same metavariable is trivially its own subtype, resolved or not — checked before the
+    -- `assigned?` dispatch below, since two independent references to one *scheme* declaration
+    -- can both be checked against a third, shared metavariable (e.g. an operator call's own
+    -- freshened parameter type), each landing here comparing that same metavariable against
+    -- itself while still unassigned. Without this check, `none, none` below would (wrongly)
+    -- record a fresh, spurious, self-referential pending bound (`a`'s own upper bound becoming
+    -- `.mvar a`) instead of recognizing the comparison as vacuous — contradicting `Elaborator/
+    -- Resolution.lean`'s `resolveExprMVars`, whose `.mvar n e` case relies on exactly this `b
+    -- <: b` reflexivity always succeeding cleanly (see its own comment there).
+    if a == b then return .success .id
+    else match ← assigned? a, ← assigned? b with
     | some s, _ => subtype s τ'
     | none, some t => subtype τ t
     | none, none => addPendingUpperBound a (.mvar b) *> return .pending a

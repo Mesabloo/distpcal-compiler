@@ -79,15 +79,13 @@ edges here regardless of `LOCAL` (see `finiteSetsDeclarations`'s doc above for w
 `«extends» := ["TLC", "Naturals"]` — `TLC` itself is currently an empty stub so this has no
 effect yet.
 
-`EmptyBag`'s type is the one genuinely imprecise entry: real TLA⁺ has it polymorphic over any bag
-element type, but this project's checker only freshens a `Typ.var` on an operator *call*
-(`specializeOperator`) — a bare 0-ary declaration like `EmptyBag` is bound in `Γ` at its literal
-declared type with no generalization step (`Elaborator/Declarations.lean`'s `[], retTy` case).
-So `EmptyBag : Function(a, Int)` is rigid: it type-checks the first time it resolves a
-metavariable in some expression, but fails if used where that metavariable is already pinned to a
-different concrete element type by another operand in the same expression (e.g. `SetToBag(S) (+)
-EmptyBag` once `S`'s own element type is known). Accepted as a known limitation rather than
-omitting `EmptyBag` outright or monomorphizing it to one element type. -/
+`EmptyBag : Function(a, Int)` is genuinely polymorphic, matching real TLA⁺ — every reference to
+it gets its own fresh instantiation of `a`, since `Decl.bindings` (`Driver/Modules.lean`) marks
+every 0-ary `operator` declaration a *scheme* (`Elaborator/Monad.lean`'s `Binding.isScheme`),
+freshened at each `Γ`-reference by `Elaborator/Expressions.lean`'s `inferExpr`. This used to be a
+known limitation (a rigid, single-instantiation `Typ.var` that broke e.g. `SetToBag(S) (+)
+EmptyBag`) — resolved along with generalizing the same mechanism to every declaration, `PLAN.md`
+§9.19. -/
 private def bagsDeclarations : List Decl :=
   [ .operator (.operator [.function (.var "a") .int] .bool) "IsABag" [("B", 0)] .true,
     .operator (.operator [.function (.var "a") .int] (.set (.var "a"))) "BagToSet" [("B", 0)] emptySetOfVarA,

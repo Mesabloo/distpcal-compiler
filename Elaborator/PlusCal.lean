@@ -76,7 +76,7 @@ carries no position of its own. -/
 private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Ref) := do
   match (← readThe Context).get? r.name with
   | none => throw (.unboundVariable pos r.name)
-  | some τ₀ => do
+  | some { type := τ₀, .. } => do
     let (τ, args') ← r.args.foldlM (init := (τ₀, ([] : List TypedPlusCal.Expression)))
       λ (τ, acc) idx ↦ do
         let (τ', idx') ← indexInto pos τ idx
@@ -303,7 +303,7 @@ mutual
       | .channel elemTy => do
         let (refTy, r') ← inferRef pos r
         match ← subtype elemTy refTy with
-        | .failure => throw (.failedToConvertTypes pos refTy elemTy)
+        | .failure => throw (.failedToConvertTypes pos (← resolveTypeMVarsForDisplay refTy) (← resolveTypeMVarsForDisplay elemTy))
         | .success coe => return .receive c' r' coe @@ pos
         | .pending _ => throw (.todo pos
             "unreachable: a channel/reference's declared type can never contain an unresolved metavariable")
@@ -327,11 +327,11 @@ mutual
     | .multicast x filter, pos => do
       match (← readThe Context).get? x with
       | none => throw (.unboundVariable pos x)
-      | some (.function domTy (.channel elemTy)) => do
+      | some { type := .function domTy (.channel elemTy), .. } => do
         let (binds', bindings) ← checkMulticastBinds domTy filter.binds
         let val' ← extendAll bindings (checkExprR filter.val elemTy)
         return .multicast x { binds := binds', val := val' } @@ pos
-      | some got => throw (.notAChannelType pos got)
+      | some got => throw (.notAChannelType pos got.type)
 
   /-- `Γ|Ξ⊩B ok` for atomic blocks — check every non-terminal statement, then the terminal one. -/
   partial def checkBlock {b} (blk : SrcBlock b) : m (TypedPlusCal.Block b) := do

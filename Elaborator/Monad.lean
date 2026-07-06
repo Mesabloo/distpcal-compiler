@@ -5,8 +5,18 @@ import Common.Fresh
 /-! The effects the type checker needs: a local typing context `Γ`, a metavariable context,
 error reporting, and fresh-name generation. -/
 
+/-- One `Γ` binding: its type, and whether it's a *scheme* — a top-level `operator`/`function`
+definition, freshened into new metavariables on every `.var` reference (`Elaborator/
+Expressions.lean`'s `inferExpr`) — versus an ordinary monomorphic binding (`CONSTANT`/`VARIABLE`
+declarations, and every binder: operator/function parameters, quantifiers, `CHOOSE`, `EXCEPT`,
+PlusCal variables/channels), used exactly as declared. Only a declaration has a scheme to
+generalize in the first place; a binder is fixed for the scope of the one body it's bound in. -/
+structure Binding : Type where
+  type : TypedTLAPlus.Typ
+  isScheme : Bool := false
+
 /-- The local typing context `Γ` (`Γ,x:τ` grammar). -/
-abbrev Context := Std.HashMap String TypedTLAPlus.Typ
+abbrev Context := Std.HashMap String Binding
 
 /--
   The metavariable context: tracks only whether each metavariable is resolved, and to what.

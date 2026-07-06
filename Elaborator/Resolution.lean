@@ -77,24 +77,45 @@ partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
         throw (.todo pos
           "metavariable with more than one recorded upper bound — not yet supported")
 
-private partial def resolveTypeMVars (pos : SourceSpan) : Typ → m Typ
+/-- Substitutes every already-assigned metavariable inside `τ`, recursing into whatever
+`onUnassigned` returns for one that isn't assigned — shared by `resolveTypeMVars` (throws: every
+metavariable must be resolved by the time a declaration's checking finishes) and
+`resolveTypeMVarsForDisplay` below (best-effort: an unresolved one is left exactly as `Typ.mvar
+n`, since it's only ever used to make a *thrown* error's carried types as concrete as possible,
+not to enforce that the program is fully resolved). -/
+private partial def resolveTypeMVarsWith (onUnassigned : MVarId → m Typ) : Typ → m Typ
   | .mvar n => do
     match ← assigned? n with
-    | some τ' => resolveTypeMVars pos τ'
-    | none => throw (.unconstrainedMetavariable pos)
+    | some τ' => resolveTypeMVarsWith onUnassigned τ'
+    | none => onUnassigned n
   | .var a => return .var a
   | .bool => return .bool
   | .int => return .int
   | .str => return .str
   | .address => return .address
   | .const c => return .const c
-  | .function dom rng => return .function (← resolveTypeMVars pos dom) (← resolveTypeMVars pos rng)
-  | .set τ => return .set (← resolveTypeMVars pos τ)
-  | .seq τ => return .seq (← resolveTypeMVars pos τ)
-  | .channel τ => return .channel (← resolveTypeMVars pos τ)
-  | .tuple τs => return .tuple (← τs.mapM (resolveTypeMVars pos))
-  | .operator τs τ => return .operator (← τs.mapM (resolveTypeMVars pos)) (← resolveTypeMVars pos τ)
-  | .record fs => return .record (← fs.mapM λ (x, τ) ↦ return (x, ← resolveTypeMVars pos τ))
+  | .function dom rng =>
+    return .function (← resolveTypeMVarsWith onUnassigned dom) (← resolveTypeMVarsWith onUnassigned rng)
+  | .set τ => return .set (← resolveTypeMVarsWith onUnassigned τ)
+  | .seq τ => return .seq (← resolveTypeMVarsWith onUnassigned τ)
+  | .channel τ => return .channel (← resolveTypeMVarsWith onUnassigned τ)
+  | .tuple τs => return .tuple (← τs.mapM (resolveTypeMVarsWith onUnassigned))
+  | .operator τs τ =>
+    return .operator (← τs.mapM (resolveTypeMVarsWith onUnassigned)) (← resolveTypeMVarsWith onUnassigned τ)
+  | .record fs => return .record (← fs.mapM λ (x, τ) ↦ return (x, ← resolveTypeMVarsWith onUnassigned τ))
+
+private def resolveTypeMVars (pos : SourceSpan) : Typ → m Typ :=
+  resolveTypeMVarsWith λ _ ↦ throw (.unconstrainedMetavariable pos)
+
+/-- Best-effort metavariable substitution for a `Typ` about to be embedded in a *thrown*
+`TCError` — an already-resolved metavariable (e.g. one pinned by an earlier operand in the same
+call, as with two `Bags` operands compared against a shared, by-then-resolved element-type
+metavariable) is substituted so the error shows the real, concrete type instead of a raw,
+uninformative `?n`; one that's genuinely never been constrained by anything is left as `Typ.mvar
+n` (rendered `?n`) rather than erroring — this is for display only, not a checking-correctness
+concern, so there's nothing else sensible to do with a truly-unconstrained one here. -/
+def resolveTypeMVarsForDisplay : Typ → m Typ :=
+  resolveTypeMVarsWith (pure ∘ .mvar)
 
 /-- Closes out an elaborated expression: `resolveExprMVars` above eliminates every
 `Expression.mvar` wrapper node (assigning whatever metavariables it names along the way), then

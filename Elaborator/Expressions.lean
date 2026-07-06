@@ -33,10 +33,14 @@ import Core.CoreTLAPlus.Syntax
   ![1].x[2] = v]`), implemented as one general recursive walk (`stepInto`/`checkExceptPath`
   below) rather than one case per path length.
 
-  Polymorphism instantiation: `OPERATOR CALL` collects every `Typ.var` appearing in the callee's
-  operator type, allocates one fresh metavariable per distinct name (`specializeOperator`
-  below), and substitutes throughout before checking arguments — argument checking then resolves
-  those metavariables incrementally through `Elaborator/Subtyping.lean`'s direction-aware solving.
+  Polymorphism instantiation happens once, at `[Var]` below, not at `OPERATOR CALL`: a reference
+  to a *scheme* `Γ` binding (`Elaborator/Monad.lean`'s `Binding.isScheme` — every top-level
+  `operator`/`function` definition, as opposed to an ordinary binder) freshens every distinct
+  `Typ.var` in its type into its own metavariable (`specializeType`,
+  `Elaborator/TypeUtils.lean`) right there, whether or not that reference goes on to be called.
+  `OPERATOR CALL` then just checks arguments against whatever (already-specialized) type its
+  callee resolved to — argument checking resolves those metavariables incrementally through
+  `Elaborator/Subtyping.lean`'s direction-aware solving.
 -/
 
 open TypedTLAPlus (Typ MVarId Expr)
@@ -160,7 +164,7 @@ mutual
       match ← subtype τ' τ with
       | .success coe => return coe.apply e' @@ pos
       | .pending n => return .mvar n e' @@ pos
-      | .failure => throw (.failedToConvertTypes pos τ τ')
+      | .failure => throw (.failedToConvertTypes pos (← resolveTypeMVarsForDisplay τ) (← resolveTypeMVarsForDisplay τ'))
 
   /-- `Γ ⊢ e ⇑ τ` — see the module doc for the precise checking/synthesis split. -/
   partial def inferExpr (e : SrcExpr) : m (Typ × Expr) := match_source e with
@@ -171,8 +175,11 @@ mutual
     -/
     | .var x, pos => do
       match (← readThe Context).get? x with
-      | some τ => return (τ, .var x τ @@ pos)
       | none => throw (.unboundVariable pos x)
+      | some { type := τ, isScheme := true } => do
+        let τ' ← specializeType τ
+        return (τ', .var x τ' @@ pos)
+      | some { type := τ, isScheme := false } => return (τ, .var x τ @@ pos)
     /-
       ────────────── [Number]
        Γ ⊢ n ⇑ Int
@@ -204,14 +211,10 @@ mutual
       | .operator params ret =>
         if params.length ≠ args.length then throw (.arityMismatch pos params.length args.length)
         else do
-          let (params', ret') ← specializeOperator params ret
-          let args' ← (params'.zip args).mapM λ (τᵢ, argᵢ) ↦ checkExpr argᵢ τᵢ
-          -- `e'` still carries the un-instantiated polymorphic operator type — retag it with the
-          -- specialized one so the callee's type agrees with `ret'`/`args'`.
-          let e'' := match e' with
-            | .var x _ => .var x (.operator params' ret') @@ posOf e'
-            | _ => e'
-          return (ret', .opCall e'' args' @@ pos)
+          -- `τ` (hence `params`/`ret`) is already specialized fresh if the callee was a scheme
+          -- binding — `inferExpr`'s `.var` case does that once, at the reference itself.
+          let args' ← (params.zip args).mapM λ (τᵢ, argᵢ) ↦ checkExpr argᵢ τᵢ
+          return (ret, .opCall e' args' @@ pos)
       | _ => throw (.notAnOperatorType pos τ)
     /-
        Γ ⊢ S ⇑ Set(τ)       Γ, x : τ ⊢ P ⇓ Bool

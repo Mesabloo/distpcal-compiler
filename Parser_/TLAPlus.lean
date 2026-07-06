@@ -610,9 +610,12 @@ namespace SurfaceTLAPlus.Parser
         return (sign.elim' "" String.singleton ++ String.ofList digits.toList).toInt!
 
     /-- Try to parse annotations out of one flat string (the concatenation of every comment in
-    a run), ignoring any raw text in between. -/
+    a run), ignoring any raw text in between. `\@` is an escaped, literal `@` — it never starts
+    an annotation, so prose that needs to mention e.g. `@type` without triggering the annotation
+    grammar can write `\@type` instead. -/
     private def tryParseAnnotations' : TypeParser (List (String.Pos.Raw × String.Pos.Raw × CommentAnnotation)) := do
       let ⟨anns, _⟩ ← takeUntil endOfInput <| first [
+        .inl "@" <$ withBacktracking (chars "\\@"),
         .inr <$> located parseAnnotation,
         .inl <$> String.singleton <$> anyToken,
       ]
@@ -1036,7 +1039,7 @@ namespace SurfaceTLAPlus.Parser
 
   /-- Parse an `EXTENDS` clause. -/
   private def parseExtends : TLAPlusParser (List String) := do
-    let _ ← lexeme <| token .extends
+    let _ ← withBacktracking <| lexeme (pure ()) *> token .extends
     let mods ← sepBy1 (lexeme comma) parseIdentifier
     return mods.toList
 
@@ -1105,7 +1108,7 @@ namespace SurfaceTLAPlus.Parser
     let _ ← lexeme <| tokenFilter λ | ⟨_, .moduleStart _⟩ => true | _ => false
     let _ ← lexeme <| token .module
     let name ← lexeme parseIdentifier
-    let _ ← lexeme <| tokenFilter λ | ⟨_, .moduleStart _⟩ => true | _ => false
+    let _ ← tokenFilter λ | ⟨_, .moduleStart _⟩ => true | _ => false
     let exts ← eoption <| parseExtends
     let decls₁ ← lexeme <| takeMany parseDeclaration
     let alg ← eoption parsePlusCalAlgorithm

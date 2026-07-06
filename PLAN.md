@@ -332,6 +332,31 @@ warning) — that limitation is about the base parser combinators' own backtrack
 semantics; this one was a local bug in one hand-rolled stream instance built
 specifically for annotation-parsing.
 
+**Second real bug found and fixed:** a `@type` annotation on a module's very first
+declaration (no `EXTENDS` clause, no other declaration before it) failed to attach —
+its `ann` field resolved to `none` even though the comment was present and well-formed.
+Cause: `parseModule'` (`Parser_/TLAPlus.lean`) consumed the module header's closing
+`----` with a plain, non-backtracking `lexeme`, whose trailing `ws` unconditionally
+drops any immediately-following comment tokens as blank whitespace — discarding them
+before `parseExtends`/`parseDeclaration` ever got a chance to run `tryParseAnnotations`
+over them. This only bit when the annotation comment directly abutted the header with
+nothing between (no `EXTENDS`, no preceding declaration), because in every other case
+some earlier production's own comment-skip already consumed the gap harmlessly.
+**Fixed** by dropping that unconditional swallow and giving `parseExtends` the same
+backtrackable comment-skip `parseConstants`/`parseVariables` already used (`withBacktracking
+<| lexeme (pure ()) *> token .extends`) — so if no `EXTENDS` keyword follows, the
+comment-skip (and the comments themselves) fully reverts instead of committing.
+Regression fixture: `tests/regression/accept_type_annotation_on_first_declaration.tla`.
+
+**Follow-on gap found while writing that fixture, now fixed:** there was no way to
+write the literal substring `@type`/`@mailbox`/`@parameter` in a comment without it
+being parsed as a real (and, if malformed, hard-erroring) annotation attempt — existing
+fixtures' prose mentioning `@type` only worked by accident, relying on an intervening
+keyword (`CONSTANTS`, etc.) to swallow the prose comment separately from the real
+annotation comment run. Per project owner's decision, `\@` is now an escaped, literal
+`@` in comments (`tryParseAnnotations'` in `Parser_/TLAPlus.lean`) — it never starts an
+annotation, so prose can write e.g. `` \@type `` to mention the keyword inertly.
+
 ### 5.2 Desugaring — done (Phase 4)
 **Input:** `SurfaceTLAPlus`/`SurfacePlusCal`. **Output:** `CoreTLAPlus`/`CorePlusCal`.
 
@@ -1979,17 +2004,74 @@ track every declared dependency regardless of `LOCAL`. So `FiniteSets` `«extend
 in the real module. A `LOCAL`-*declared* helper (`Bags`'s `Sum`, a definition, not an import) is
 still excluded from the exported declaration list, matching how `Sequences`/`FiniteSets` never
 export their own `LOCAL` definitions either — that exclusion is unaffected by this fix. One
-genuine gap surfaced along the way, resolved by the
-project owner: `EmptyBag` is 0-ary and polymorphic in real TLA⁺, but this project's checker only
-freshens a `Typ.var` on an operator *call* (`specializeOperator`) — a bare 0-ary declaration is
-bound in `Γ` at its literal declared type with no generalization step at all
+genuine gap surfaced along the way, initially accepted as a known limitation, since resolved
+(third follow-up below): `EmptyBag` is 0-ary and polymorphic in real TLA⁺, but this project's
+checker only froze a `Typ.var` on an operator *call* (`specializeOperator`) — a bare 0-ary
+declaration was bound in `Γ` at its literal declared type with no generalization step at all
 (`Elaborator/Declarations.lean`'s `[], retTy` case in `checkDeclaration`). So `EmptyBag :
-Function(a, Int)` is rigid: it resolves fine the first time it pins some metavariable, but fails
-if used where that metavariable is already pinned to a different concrete element type by
-another operand in the same expression. **Decision**: keep the honest `Function(a, Int)` type
-and accept the limitation (documented at `bagsDeclarations`) rather than omitting `EmptyBag` or
-monomorphizing it to one element type — the same spirit as `Head`'s already-accepted fake-body
-imprecision, but here the imprecision is in the exported type rather than just the placeholder
-body. Revisit if real test input actually needs `EmptyBag` used polymorphically within one
-module.
+Function(a, Int)` was rigid: it resolved fine the first time it pinned some metavariable, but
+failed if used where that metavariable was already pinned to a different concrete element type
+by another operand in the same expression (e.g. `SetToBag(S) (+) EmptyBag`).
+
+**Third follow-up, also resolved**: the `EmptyBag` gap above, by unifying let-generalization at
+`Γ`-reference instead of at operator-call. `Elaborator/Monad.lean`'s `Context` now maps each name
+to a `Binding` (a `Typ` plus `isScheme : Bool`) rather than a bare `Typ`. A top-level
+`operator`/`function` *definition* — any arity, `EmptyBag` included, `builtinContext`'s entries
+included — is always a scheme; `CONSTANT`/`VARIABLE` declarations and every ordinary binder
+(operator/function parameters, quantifiers, `CHOOSE`, `EXCEPT`, PlusCal variables/channels,
+`extend`/`extendAll`) stay monomorphic, matching prior behavior exactly (`Elaborator/
+Context.lean`). `Elaborator/Expressions.lean`'s `inferExpr`'s `.var` case now does the one
+freshening step, for any scheme reference, called or not
+(`Elaborator/TypeUtils.lean`'s new `specializeType`, replacing `specializeOperator`); `.opCall`
+no longer needs its own specialization step, since the callee's type is already specialized by
+the time `inferExpr` returns it — a simplification, not just a fix, since the two mechanisms
+were doing the same freshening at two different points for two different subsets of
+declarations. `Driver/Modules.lean`'s `Decl.bindings` computes `isScheme` from a declaration's
+own arity (`true` for every `.operator`/`.function`), so `EmptyBag` becomes a scheme with zero
+changes needed to `Driver/Builtins.lean` itself. The key risk considered and traced by hand: an
+ordinary binder like `x` in `Id(x) == x` must never be marked a scheme (it's fixed for the scope
+of `Id`'s own body — conflating the two would risk mvar-to-mvar comparisons that could leave a
+metavariable stuck unconstrained) — `extend`/`extendAll` are hardcoded to always insert
+monomorphically, so this can't happen by construction.
+
+**Fourth follow-up, also resolved**: `EmptyBag (+) EmptyBag` (both operands *consistently*
+annotated at the same rigid type, e.g. `@type: a -> Int; x == EmptyBag (+) EmptyBag`) was still
+wrongly rejected right after the third follow-up landed, with `metavariable with more than one
+recorded upper bound — not yet supported` — caught by the project owner questioning why this
+case, which should trivially resolve (`a` is rigid and consistent across both operands), didn't.
+Root cause: a genuine bug in `Elaborator/Subtyping.lean`'s `subtype`, pre-existing but newly
+exposed by the third follow-up (every `.var` reference, not just an `opCall`'s callee, now
+independently freshens its own metavariable, so two now-distinct-but-equal-target metavariables
+being compared against a *third*, shared one — e.g. two separate `EmptyBag` references both
+checked against `(+)`'s own single freshened parameter type — became far more common). `subtype`
+'s `.mvar a, .mvar b` case never checked `a == b` before falling into its `none, none` branch, so
+comparing a metavariable against *itself* while still unresolved (which is exactly what happens
+resolving `Elaborator/Resolution.lean`'s `resolveExprMVars`'s `.mvar n e` reflexivity check,
+`subtype b b`, once `b` is itself an unresolved `.mvar`) spuriously recorded a fresh,
+self-referential pending bound instead of trivially succeeding — contradicting that very call
+site's own comment ("`b <: b` always succeeds reflexively... unreachable"), which assumed this
+case couldn't arise. Two such spurious self-bounds accumulating (one per `EmptyBag` reference)
+on top of the one genuine bound (the outer annotation's `a`) tripped the "more than one bound"
+guard. **Fix**: `subtype`'s `.mvar a, .mvar b` case now checks `a == b` first and returns
+`.success .id` immediately, before ever consulting `assigned?`/adding any bound. Verified this
+doesn't just paper over the case: a *genuine* element-type conflict (`SetToBag` over an `Int`
+set `(+)` a `SetToBag` over a `Bool` set) still correctly fails, with a clean `Expected type
+..., got ..., no coercion exists` error, not the "more than one bound" message — the fix only
+short-circuits the truly-reflexive case.
+
+Separately noticed while confirming the conflict case above still fails correctly: its error
+message read `Expected type (?0) -> Int, got (?2) -> Int`, showing raw metavariable ids instead
+of `Int`/`Bool` even though both were already resolved by the time the error was thrown (each
+pinned by its own `SetToBag` call before the conflicting comparison ran) — `TCError`'s
+`Typ`-carrying variants are never substituted against the metavariable context before being
+embedded, since `msgOf`'s pretty-printing is a pure function with no access to it.
+`Elaborator/Resolution.lean` gained `resolveTypeMVarsForDisplay` (a non-throwing sibling of the
+existing `resolveTypeMVars`, factored through a shared `resolveTypeMVarsWith`, that leaves a
+genuinely-unresolved metavariable as `?n` instead of erroring), applied at the two
+`.failedToConvertTypes` throw sites (`Elaborator/Expressions.lean`'s `[Subtype]` fallback,
+`Elaborator/PlusCal.lean`'s `.receive` case) — the conflict case above now correctly reads
+`Expected type Int -> Int, got Bool -> Int`. The same raw-metavariable-id risk exists in
+principle for every other `Typ`-carrying `TCError` variant (`notASetType`, `notAnOperatorType`,
+…), but none of those were actually observed to hit it, so they're left as-is for now rather
+than speculatively touched.
 
