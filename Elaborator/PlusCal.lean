@@ -93,25 +93,6 @@ partial def showable : Typ → Bool
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
 
-/-- A position-less-entry placeholder, matching `Elaborator/Declarations.lean`'s own `noPos` (and
-duplicated for the same reason — that one is file-private): `CorePlusCal.Declarations`' entries
-carry no position of their own either. -/
-private def noPos : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
-
-/-- Matches `Elaborator/Declarations.lean`'s own `requireAnnotation`, duplicated for the same
-file-privacy reason. -/
-private def requireAnnotation (pos : SourceSpan) (what : String) : Option Typ → m Typ
-  | some τ => return τ
-  | none => throw (.expectedTypeAnnotation pos what)
-
-/-- Matches `Elaborator/Expressions.lean`'s own single-binding `extend`. -/
-private def extend {α} (x : String) (τ : Typ) (act : m α) : m α :=
-  withTheReader Context (·.insert x τ) act
-
-/-- Matches `Elaborator/Declarations.lean`'s own `extendAll`. -/
-private def extendAll {α} (bindings : List (String × Typ)) (act : m α) : m α :=
-  withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, τ) ↦ ctx'.insert x τ) act
-
 /-- `Elaborator/Expressions.lean`'s `checkExpr`, closed out via `resolveMVars` immediately —
 matches `Elaborator/Declarations.lean`'s identical per-produced-expression discipline (`PLAN.md`
 §5.3's single end-of-check defaulting point: a metavariable `specializeOperator` freshens while
@@ -133,7 +114,7 @@ local instance {b} : Inhabited (m (TypedPlusCal.Branches b)) := ⟨pure default�
 /-- Synthesize a `Ref`'s type (module doc): a `Γ`-lookup on `name`, then `Elaborator/
 Expressions.lean`'s own `indexInto` once per bracket group. `pos` is borrowed from the enclosing
 statement — a `Ref` carries no position of its own (`Core/CorePlusCal/Syntax.lean`'s `Ref` has no
-`@@`-tagged field), matching `noPos`'s own reasoning for declaration entries. -/
+`@@`-tagged field), matching `SourceSpan.placeholder`'s own reasoning for declaration entries. -/
 private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Ref) := do
   match (← readThe Context).get? r.name with
   | none => throw (.unboundVariable pos r.name)
@@ -155,7 +136,7 @@ private def checkVariable (x : String) (ann : Option Typ) (isParam : Bool)
     m (Typ × (String × Typ × Bool × Option (Bool × TypedPlusCal.Expression))) := do
   match init with
   | none => do
-    let τ ← requireAnnotation noPos s!"variable `{x}`" ann
+    let τ ← requireAnnotation SourceSpan.placeholder s!"variable `{x}`" ann
     return (τ, x, τ, isParam, none)
   | some (true, e) => do
     let (τ, e') ← match ann with
@@ -169,7 +150,7 @@ private def checkVariable (x : String) (ann : Option Typ) (isParam : Bool)
         let (setTy, e') ← inferExprR e
         match setTy with
         | .set τ => pure (τ, e')
-        | _ => throw (.notASetType noPos setTy)
+        | _ => throw (.notASetType SourceSpan.placeholder setTy)
     return (τ, x, τ, isParam, some (false, e'))
 
 /-- `∀ 1≤i≤m, Γ,[self:Address]⊢eᵢ⇑τᵢ` (thesis Figs. 3.1.9/3.1.15) over a whole `variables` list —
@@ -206,11 +187,11 @@ instead of trusting the annotation directly, which double-wrapped every unindexe
 against `PingPongs.tla`/`TPC2.tla`. -/
 private def checkChannelDecl (x : String) (ann : Option Typ) (idxSets : List SrcExpr) :
     m (Typ × Typ × List TypedPlusCal.Expression) := do
-  let bindTy ← requireAnnotation noPos s!"channel `{x}`" ann
+  let bindTy ← requireAnnotation SourceSpan.placeholder s!"channel `{x}`" ann
   let elemTy ← match bindTy with
     | .channel τ => pure τ
     | .function _ (.channel τ) => pure τ
-    | _ => throw (.notAChannelType noPos bindTy)
+    | _ => throw (.notAChannelType SourceSpan.placeholder bindTy)
   let idxSets' ← idxSets.mapM (checkExprR · (.set .address))
   return (bindTy, elemTy, idxSets')
 

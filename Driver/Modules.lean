@@ -46,7 +46,7 @@ instance : MonadStateOf (Std.HashMap String String) IO where
 from the registry above by `moduleId`, not whichever module the caller started compiling from.
 `none` for the position-free structural errors (`moduleNotFound`/`ambiguousModule`/
 `cyclicExtends`, which carry no `moduleId` at all) — the caller should fall back to rendering
-against the main module's own lines (harmless: `posOf` for those is always `noPos`, so the exact
+against the main module's own lines (harmless: `posOf` for those is always `SourceSpan.placeholder`, so the exact
 lines passed barely matter). Hardcoded to `IO` rather than generic over `m`: this is only
 ever called once, in `Fugue.lean`, *after* `runM` has already unwrapped back down to plain `IO` —
 same registry either way, since its backing ref is process-global. -/

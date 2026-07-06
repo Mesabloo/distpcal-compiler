@@ -110,31 +110,7 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("DOMAIN", .operator [.function (.var "a") (.var "b")] (.set (.var "a"))),
 ]
 
-/-- A placeholder position for the declaration-shape errors below that have no expression to hang
-a real one off of (missing `CONSTANTS`/`VARIABLES` annotations — `CoreTLAPlus.Declaration` carries
-no position at all on its own `String × Option Typ` entries). Same value, and the same reasoning,
-as `Driver/Modules.lean`'s own `noPos` (line-1, not `(0,0)`, so a rendered diagnostic at least
-points at a real line even though the span itself is meaningless) — duplicated rather than shared
-since that one is file-private and this is a different file's own escape hatch for the same kind of
-position-less error. -/
-private def noPos : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
-
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
-
-/-- A declaration-level annotation is mandatory wherever the thesis's own grammar extension makes
-one required (`CONSTANTS`/`VARIABLES`/operator- and function-definitions, module doc on why the
-latter two never get to skip it) — callers pass `noPos` for the entries that have no real
-expression to report against. -/
-private def requireAnnotation (pos : SourceSpan) (what : String) : Option Typ → m Typ
-  | some τ => return τ
-  | none => throw (.expectedTypeAnnotation pos what)
-
-/-- Extend `Γ` with every binding in `bindings` for the scope of `act`, later entries shadowing
-earlier ones on conflict — matching `Elaborator/Expressions.lean`'s single-binding `extend`, just
-folded over a list (operator and function definitions bind more than one name at once: the
-parameters, and — for function definitions only, module doc — the function's own name too). -/
-private def extendAll {α} (bindings : List (String × Typ)) (act : m α) : m α :=
-  withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, τ) ↦ ctx'.insert x τ) act
 
 /-- A higher-order parameter's declared arity (`Nat`, from `List (String × Nat)` — `0` for `x`,
 `k` for `F(_,...,_)` with `k` `_`s) must match its annotated type's own operator-arity, once one
@@ -166,13 +142,13 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Typ)) := match d
     justification for why shadowing checks live there, not here.)
   -/
   | .constants xs => do
-    let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation noPos s!"CONSTANT `{x}`" ann)
+    let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"CONSTANT `{x}`" ann)
     return (.constants xs', xs')
   /-
     Same shape as [Constants].
   -/
   | .variables xs => do
-    let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation noPos s!"VARIABLE `{x}`" ann)
+    let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"VARIABLE `{x}`" ann)
     return (.variables xs', xs')
   /-
      Γ ⊢ e ⇓ Bool

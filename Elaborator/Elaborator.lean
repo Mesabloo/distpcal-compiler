@@ -34,11 +34,6 @@ namespace CoreTLAPlus
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
 
-/-- Matches `Elaborator/Declarations.lean`'s own `extendAll`, duplicated for the same
-file-privacy reason. -/
-private def extendAll {α} (bindings : List (String × Typ)) (act : m α) : m α :=
-  withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, τ) ↦ ctx'.insert x τ) act
-
 /--
   `Γ ⊢ M typeok` (thesis Fig. 3.1.10, extended per the module doc): `declarations₁`, then the
   embedded algorithm (if any, checked but *not* extending `Γ` any further — module doc), then

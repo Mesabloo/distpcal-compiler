@@ -1,6 +1,7 @@
 import Elaborator.Subtyping
 import Elaborator.TypeUtils
 import Elaborator.Resolution
+import Elaborator.Context
 import Core.CoreTLAPlus.Syntax
 
 /-!
@@ -91,11 +92,6 @@ private def lubAll (pos : SourceSpan) : List Typ → m Typ
     match ← lub acc τ' with
     | some τ'' => return τ''
     | none => throw (.ambiguousType pos)
-
-/-- Extend `Γ` with one more binding for the scope of `act` — the rightmost/most-recent
-`Std.HashMap.insert` wins on lookup, matching `Elaborator/Monad.lean`'s `Context` doc. -/
-private def extend {α} (x : String) (τ : Typ) (act : m α) : m α :=
-  withTheReader Context (·.insert x τ) act
 
 /-- Needed for the `partial def`s below to type-check at all (an arbitrary `m` isn't otherwise
 known nonempty) — same fix `Elaborator/Subtyping.lean` already uses for the same reason. -/

@@ -44,11 +44,6 @@ private instance : ToString Char := ⟨λ c ↦ s!"'{c}'"⟩
 -- Needed for `DriverError.parse`'s wrapped `Unexpected (Token (Located' SurfacePlusCal.Token))`.
 private instance {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toString x.data⟩
 
-/-- A placeholder position for diagnostics with no real one to report (`moduleNotFound`/
-`ambiguousModule`/`cyclicExtends`) — line `1`, not `(0, 0)`, since every real position in this
-codebase is 1-indexed and line `0` would render a wrong (off-by-one) line number. -/
-private def noPos : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
-
 instance : CompilerDiagnostic DriverError String where
   isError := true
   posOf
@@ -56,7 +51,7 @@ instance : CompilerDiagnostic DriverError String where
     | .parse _ e => CompilerDiagnostic.posOf e
     | .annotation _ e => CompilerDiagnostic.posOf e
     | .desugar _ e => CompilerDiagnostic.posOf e
-    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => noPos
+    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => SourceSpan.placeholder
     | .typeCheck _ e => CompilerDiagnostic.posOf e
   msgOf
     | .lex _ e => CompilerDiagnostic.msgOf e
