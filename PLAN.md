@@ -72,6 +72,7 @@ ask before overturning).
 | Build config format / toolchain version | **`lakefile.lean` (Lean DSL), not `lakefile.toml`** — same kind of config prior art uses. **Bump the Lean toolchain** rather than pinning to prior art's stale `v4.29.0-rc1`: start on the current stable release when implementation begins, updating `mathlib`/`batteries`/other pinned deps to match. **Expect real breakage from this, not just cosmetic fixes**, and not only in the three ported exceptions (§2) — `Extra/`'s vendored data-structure lemmas are exposed to the same API drift and should be expected to need real repair work too. This cuts both ways: some currently-broken `Extra/` theorems may become provable again once a partial API change elsewhere is fixed by the bump (e.g. string-related lemmas broken by a partial API change), not purely a one-directional cost. |
 | CLI flag surface | **Settled**, GCC/Clang-style flag naming on top of `leanprover/Cli` (still the underlying framework, as in prior art — `--help`/`--version` come free from it): `-d<name>[=<value>]` (debugging options generally — AST dumps, but also e.g. `-dtiming` for per-pass timing, not just dumps), `-f<name>[=<value>]` (feature/config toggles, e.g. `-fno-color` to disable ANSI-colored diagnostic output — implemented, `Common/Errors.lean`'s `CompilerDiagnostic.pretty` takes a `colored` flag threaded from this), `-W<name>`/`-Wno-<name>` (per-warning control — e.g. `-Wno-fair` suppresses the `fair process`/`fair+`-ignored warning, §5.1), `-o`/`--output`, `-t`/`--target go|join`, `-I <path>` (add a module search path, see §5.3). Two details still open — Join Calculus "flavors" and where the Go `-p` package name lives — see §9.3. **Concrete invocation syntax, pinned down during Phase 2 (CLI wiring):** `leanprover/Cli` rejects the same named flag being given more than once (`duplicateFlag`) and parses `Array α`-typed flags as a single comma-separated occurrence, not true repetition — so each of `-d`/`-f`/`-W`/`-I` is one Cli flag of an `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style (`-dfoo -dbar`). This is a mechanical consequence of the library, not a design choice, and doesn't change the settled semantics above. **`-d dump-dir=<path>`** (default `.fugue/debug`; prior art's own default was `.pcvc`, changed since this is a fresh project with its own name) sets where `-d dump-tokens`/`-d dump-cst` write their output — as in prior art, dumps go to `<dump-dir>/<input-file-name>-tokens`/`-cst` files, not stdout; `-d dump-dir` without a value is a hard error. **`-d`/`-f`/`-W` names are validated against a hardcoded allowlist** (`knownDebugOptions`/`knownFeatures`/`knownWarnings`, `Fugue.lean`) — an unrecognized name is a hard CLI error, not silently accepted (a misspelled `-d`/`-f`/`-W` option previously landed in `FlagsEnv`'s map unnoticed, since nothing ever looked it up). Extend these three arrays by hand as later phases add dump points/features/warnings — no registration mechanism beyond that, deliberately, since the current set is small enough not to warrant one. |
 | Go runtime library location | **Settled: `runtime/go/` in this repo**, versioned alongside the compiler that targets it, not a separate repo (unlike prior art's implicit `github.com/mesabloo/distpcal-compiler/lib`). See §5.7. |
+| `Int` representation dispatch: machine `int` vs. `math/big` (Go backend, §5.7/§9.7) | **A compiler flag, target-specific to the Go backend** — not a per-`CONSTANT`/per-declaration type annotation. Resolves §9.21: the flag picks one of the two Go encodings the thesis's second July 2026 revision commits to (default machine `int`, opt-in `math/big`) for the whole compiled output, rather than deciding per-value or per-module. **Exact flag name not yet chosen** — see §9.3's third bullet for the naming detail still open. |
 | Address visibility / deployment topology | **Accepted limitation, not fixed by this plan.** Distributed PlusCal lets any process know any other process's identity, so generated code can't principally avoid assuming worst-case full connectivity ("star" topology) between processes. A "minimal needed addresses" static analysis was considered but is **not planned work** — it's largely mooted by the nameserver-based addressing already settled for both backends (§5.6, §5.7). See §7's stretch list. |
 | Fairness (`isFair`, `fair process`/`fair+`) | **Largely ignored by the compiler** — there's no way to insert fairness into the target languages' runtimes (neither the generated Go's goroutine scheduler nor the Join Calculus's reaction-firing nondeterminism are made fairness-aware by this plan). `isFair` is still carried through the ASTs (parsing → both backends) for round-tripping/documentation purposes, but neither backend's compilation scheme (§5.6, §5.7) does anything with it. The parser emits a **warning** (§5.1) whenever a `fair process` / `fair+` annotation is encountered, telling the user it will be ignored. |
 | `CONSTANT` values, and process-set (`p ∈ S`) cardinality | **Left to the user of the compiled code, deliberately.** `CONSTANT`s are genuinely abstract entities (both their type and their value) as far as this compiler is concerned — they only get concretized when someone builds a real executable program out of the generated code, matching the existing "the compiler doesn't emit `main`" scope boundary (§5.7). No `ASSUME`-pinning requirement, no companion config file. Correspondingly, a process set `p ∈ S` does **not** compile to `S`-many spawned goroutines/definitions — each process definition compiles to a **single entry point** (a Go function, a Join Calculus process definition), parameterized over the process's own identity/address; the user is responsible for invoking that entry point once per concrete process they want running, with whatever address they choose. See §5.3, §5.6, §5.7. |
@@ -163,12 +164,13 @@ chapters and prior-art code as the only real guidance.
 | Thesis chapter | Pipeline stage | Status in thesis |
 |---|---|---|
 | 3.1 | Bidirectional type checker | Fully written (§5.3 below reproduces it) |
-| 3.2 | Distributed PlusCal → Guarded PlusCal | Fully written except §3.2.2.4 (guard reordering), which is a stub |
-| 4 | "Compiler verification, denotationally" | Stub (title only) |
-| 5 | Guarded PlusCal → Network PlusCal | Stub in the thesis — but *implemented and proved* in the `fugue` repo's `main` branch. Read the code, not the thesis, for this pass. |
-| 6 | Denotational account of Go | Fully written; heavy domain theory. See §6.4. |
-| 7 | Network PlusCal → Go, lock inference | Stub |
-| 8 | Network PlusCal → the Join Calculus | Fully written, including a worked Ping-Pong example. This is the primary spec for the new backend; §5.6 below is a condensed version. |
+| 3.2 | Distributed PlusCal → Guarded PlusCal | **Now fully written, including §3.2.2.4 (guard reordering)** — updated as of the July 2026 thesis revision. §5.4 below has been updated to match. |
+| 4 | "Compiler verification, denotationally" | Stub (title only) — unchanged |
+| 5 | Guarded PlusCal → Network PlusCal | Stub in the thesis — but *implemented and proved* in the `fugue` repo's `main` branch. Read the code, not the thesis, for this pass. Unchanged in the July 2026 revision. |
+| 6 | Denotational account of Go | Fully written; heavy domain theory. See §6.4. Unchanged. |
+| 7 | Network PlusCal → Go, lock inference | **Further filled in by a second July 2026 revision**: §7.1 (atomicity/lock inference) unchanged, still fully written (§9.20). §7.2.1.1 (Go representations of each TLA+ type) is now fully written — see §5.7 below for the new subsection, and §9.21 for the numeric-dispatch question it raises. §7.2.1.2 (compiling TLA+ *expressions*) and §7.2.2 (compiling Network PlusCal *statements*) remain mostly stub — framing prose only, with the boolean/set/function-operator subsections still bare placeholders. §7.3 (correctness sketch) is still a stub (header only). Notably the thesis itself flags `Channel(τ)`'s Go representation as an open task, same open question as §9.12 — this revision doesn't resolve that one. |
+| 8 | Network PlusCal → the Join Calculus | Fully written, including a worked Ping-Pong example. This is the primary spec for the new backend; §5.6 below is a condensed version. Unchanged in the July 2026 revision. |
+| 9 | Conclusion | Stub (title only) — unchanged |
 
 ---
 
@@ -1181,13 +1183,18 @@ four small, independently-testable passes composed in this order:
 4. **`𝒞_reord`** — float every `await` to the front of its branch by commuting it leftward
    past `skip`/`print`/`assert`/`send`/`multicast` (all of which are guard-independent),
    and past assignments via substitution (`𝒞_reord(r≔e; await e') = await e'[e\r]; r≔e`,
-   substituting `r` by `e` in `e'`, using `EXCEPT` when `r` has an index). The thesis
-   leaves the formal treatment of this step as a stub (§3.2.2.4 "Describe reordering of
-   guards" is marked incomplete even in the written-out chapters) — the substitution rule
-   itself is given and is enough to implement it, but the surrounding correctness
-   argument (does floating awaits past assignments always preserve the enabled-ness
-   pattern of the whole `either`?) needs to be worked out during implementation, not
-   assumed. `receive` is explicitly *not* handled by `𝒞_reord` (deferred to §5.5 — Network
+   substituting `r` by `e` in `e'`, using `EXCEPT` when `r` has an index). **Updated: §3.2.2.4
+   is no longer a stub as of the July 2026 thesis revision** — it's now fully written and
+   confirms the substitution rule exactly as already assumed above, plus gives the
+   correctness argument that was previously missing: `assert`/`print`/`skip` commute with
+   `await` trivially because they never affect the program state (variables are only read,
+   never written, so neither statement's truth value can be affected by reordering);
+   `send`/`multicast` commute because channels are explicitly forbidden from appearing in
+   any expression (so no guard can ever depend on one), which is exactly why `await` may be
+   freely floated above them. The assignment case is the one requiring genuine substitution,
+   since the assignment can influence `e'`'s valuation — worked through in the thesis via the
+   Two-Phase Commit `c2` example (Listings 3.2.1–3.2.4), matching this plan's own
+   description. `receive` is explicitly *not* handled by `𝒞_reord` (deferred to §5.5 — Network
    PlusCal is where receive-guards disappear entirely).
 
 Worked example available in thesis Listings 3.2.1–3.2.4 (the Two-Phase Commit `c2`
@@ -1302,8 +1309,13 @@ actual deliverable for this stage; what happens to that file afterwards is §9.1
 **Input:** `NetworkPlusCal`. **Output:** `Core/Go`, pretty-printed to `.go`, depending on
 a runtime library this project also owns (see below).
 
-Thesis ch. 7 is a stub (headers only, no content) and the `lock-inference` branch got no
-further than a FIXME comment — but that's the *written-up design*, not the actual code.
+**As of the July 2026 thesis revision, ch. 7.1 (atomicity/lock inference) is no longer a
+stub**, and per the project owner (resolving the former §9.20), this section now follows
+the thesis's [HFP06]-derived algorithm rather than the earlier connected-component scheme
+— see "Lock inference, concretely" below, updated accordingly. §7.2/§7.3 (the actual
+expression/statement compilation and correctness sketch) remain stubs. The
+`lock-inference` branch itself still got no further than a FIXME comment — that's the
+*written-up design*, not the actual code.
 `Network2Go/PlusCal.lean` itself is real, working code, and per the project owner it
 already gets essentially everything right — it compiles Network PlusCal processes/threads
 into genuinely concurrent Go (goroutines communicating over channels, using
@@ -1327,22 +1339,36 @@ But Distributed PlusCal's own `send(c, e)`, once `c` is addressed to a different
 actually describes that compilation scheme, and it is not confirmed to already be solved
 by the ported pass — see §9.12.
 
-**Lock inference, concretely (per the project owner):** one lock per atomic block, sized
-to block every other *concurrently-reachable* atomic block that touches a variable in
-common from executing at the same time. Mechanically: for each pair of atomic blocks
-that can run concurrently (i.e. blocks belonging to different threads of the same
-process — blocks within a single thread are already mutually exclusive by construction,
-since Network PlusCal only ever runs one block of a given thread at a time), compute
-whether their variable footprints (the process-local variables each block reads or
-writes) intersect; if they do, the two blocks conflict and must be prevented from
-executing concurrently, via that one lock. The raw conflict relation isn't itself transitive (A conflicting with B, and B with C,
-doesn't by itself mean A conflicts with C) — but each block is only allowed one lock, and
-B's single lock must simultaneously exclude both A (which conflicts with B) and C (which
-also conflicts with B). Since that's necessarily the *same* lock object, A and C end up
-sharing it too, transitively, even though they may not conflict directly. So: group
-blocks by *connected component* of the conflict graph, and every block in a component
-shares that component's one lock. This keeps the "at most one lock per atomic block"
-invariant while still making every conflict, direct or transitive, mutually exclusive.
+**Lock inference, concretely (resolved: follow thesis §7.1.2's [HFP06]-derived scheme,
+superseding the earlier connected-component design).** Unlike the earlier one-lock-per-block
+approach, locks are assigned **per process-local variable**, and a block may need to
+acquire *several* locks (one per variable in its footprint, after merging):
+
+1. For every atomic block `B` (not just cross-thread pairs — computed over *all* blocks of
+   the process), let `shared(B)` be the set of process-local variables read from or written
+   to in `B` (free variables in expression position, plus all indexed-assignment targets,
+   minus any `with`-bound temporaries).
+2. Define domination: `x ⪰ y` iff every block with `y ∈ shared(B)` also has `x ∈ shared(B)`;
+   `x ≻ y` (strict domination) when additionally `x ≠ y`.
+3. Lock selection (Definition 7.1.3): start with one fresh lock `ℓ_x` per variable `x`. Then
+   for each variable `x`, if some `y ≻ x` exists, merge — redirect every variable currently
+   assigned `ℓ_x` to `y`'s lock instead. This can only reduce the number of distinct locks
+   below one-per-variable, never increase it.
+4. Pick any total order `<` over the resulting set of locks (needed because a block may now
+   hold more than one lock at once — a fixed acquisition order across all blocks avoids
+   lock-ordering deadlocks). At the start of each block `B`, acquire the locks of
+   `shared(B)` in that order; release them (order doesn't matter) at the end.
+5. Final pruning pass: any lock that ends up used only within a single thread can be
+   dropped entirely — blocks within one thread are already mutually exclusive by
+   construction (Network PlusCal only ever runs one block of a given thread at a time), so
+   there's nothing left for that lock to protect against.
+
+This is a genuinely different design from the discarded connected-component scheme: this
+one holds potentially several locks per block (ordered to avoid deadlock) rather than
+exactly one, and groups by variable-level domination rather than by block-level graph
+connectivity. Implement steps 1–5 directly against Definition 7.1.3 and Examples
+7.1.1/7.1.4/7.1.5 in the thesis — they're worked examples good for hand-verifying the
+implementation.
 
 `isFair` is carried through unused: lock inference and Go's goroutine scheduler make no
 attempt at fairness, per §2's decision that fairness isn't acted on by this compiler.
@@ -1357,6 +1383,43 @@ every point an identifier gets printed (record fields, struct-literal keys, vari
 references, field access). Port this and extend its `keywords` table to also cover every
 name `Network2Go` itself introduces (lock variables and anything else added once lock
 inference lands), so the same one mechanism handles both directions of collision.
+
+**Go representations of TLA+ types, per thesis §7.2.1.1 (new as of the second July 2026
+revision).** The thesis now settles most of the type-representation question `lib/tlaplus.go`
+only gestured at:
+- `Bool`/`Int`/`Str` → `bool`/`int`/`string`. **This narrows, but doesn't fully close,
+  §9.7's open numeric-representation question**: the thesis's own default is to restrict
+  to a fragment of TLA+ where integers are refined to *machine* integers (Go's `int`,
+  32/64-bit per the Go spec), for efficiency — not `math/big` by default — while also
+  committing to *additionally* exposing the slower `math/big`-backed `Int` for specs that
+  actually need unbounded arithmetic. That's two representations, not one — **resolved
+  (§2/§9.21): a whole-program compiler flag, target-specific to the Go backend, picks
+  between them**, not a per-declaration annotation. Flag's exact name still undecided,
+  see §9.3.
+- Functions `τ → τ'` → lazy maps (wrapping `map[τ]τ'`, avoiding eagerly computing the
+  whole graph at declaration time — mirrors what TLC does).
+- `Set(τ)`/`Seq(τ)` → both `[]τ`; sets additionally carry a no-duplicates invariant (so
+  `τ` must be comparable) not tracked at the Go type level. Sequences keep TLA+'s
+  1-indexing by leaving slot 0 of the underlying slice unused/unobserved.
+- Records/tuples → `struct`; tuples use `proj1`..`projN` field names (a tuple is sugar for
+  a specific record shape).
+- Operators `(τ1,...,τn) ⇒ τ` → plain Go `func`.
+- Type variables → propagated to the nearest enclosing function definition (Go generics).
+- Uninterpreted constant types → left as-is (same name), expected to be supplied by the
+  user — consistent with the `CONSTANT` scope boundary above.
+- `Address` → an unspecified interface, decaying to a constrained generic argument in
+  generated code.
+- `Channel(τ)` → **explicitly still an open task in the thesis itself** ("What do we do of
+  `Channel(τ)`? [task]") — not something only this plan hasn't gotten to. Consistent with,
+  and no more resolved than, §9.12's open cross-process `send` question.
+
+§7.2.1.2 (compiling TLA+ *expressions*, as opposed to *types*) is still almost entirely
+unwritten — general framing prose only, with the boolean-operator, set-operator, and
+function-operator subsections each a bare placeholder. §7.2.2 (statement-level Network
+PlusCal → Go compilation) and §7.3 (correctness sketch) are likewise still stub headers.
+None of this changes anything already decided elsewhere in this plan — it narrows the
+type-representation half of §9.7 without resolving the numeric-dispatch question it
+raises (§9.21), and doesn't touch §9.12.
 
 **Runtime library.** `Core/Go`'s pretty-printer assumes a companion Go package (prior art:
 `github.com/mesabloo/distpcal-compiler/lib`, which will need to be furnished for this
@@ -1636,6 +1699,12 @@ still open:
   build this unless asked.
 - **`-p` (Go package name)** — whether this stays its own flag or gets folded into
   something like `-t go[package=...]`, or specified another way entirely, is still open.
+- **`Int` machine-`int`-vs-`math/big` flag name** (mechanism resolved, §2/§9.21) — the
+  project owner has settled that this is a compiler flag, target-specific to the Go
+  backend, not a per-declaration annotation, but hasn't picked a concrete name yet. Likely
+  fits the existing `-f<name>` (feature/config toggle) category alongside `-fno-color`,
+  but pin down the actual spelling (and whether it's a boolean toggle or takes a value)
+  before implementing — don't invent one silently.
 
 Also unresolved: whether `-o`/`--output` names a file or a directory — matters more once
 there are two backends with potentially different output shapes (Go may eventually emit
@@ -1679,6 +1748,14 @@ solvable, but as a real library-level decision to make and implement once, consi
 not something to leave implicit or default to native `int64` on. `lib/tlaplus.go` is
 described (§5.7) as a "working reference" for `Seq`/`Set`/function/record encodings, but
 doesn't settle what backs `Int`.
+
+**Partially narrowed by the second July 2026 thesis revision (§5.7's new "Go
+representations of TLA+ types" subsection):** the thesis itself now picks machine `int`
+as the *default* `Int` encoding (for efficiency), with `math/big`'s `Int` offered as an
+opt-in for specs that need genuine unbounded arithmetic. That settles that both
+representations are wanted; the dispatch mechanism itself is now resolved (§2/§9.21): a
+whole-program compiler flag, target-specific to the Go backend, not a per-declaration
+choice. Exact flag name still undecided (§9.3).
 
 The channel-capacity side is less clear-cut than an earlier draft of this plan made it
 sound, and is flagged by the project owner as an unverified hypothesis rather than a
@@ -2074,4 +2151,28 @@ genuinely-unresolved metavariable as `?n` instead of erroring), applied at the t
 principle for every other `Typ`-carrying `TCError` variant (`notASetType`, `notAnOperatorType`,
 …), but none of those were actually observed to hit it, so they're left as-is for now rather
 than speculatively touched.
+
+### 9.20 Lock inference (`Network2Go`, §5.7) — resolved, moved to §5.7
+
+Surfaced by cross-checking the July 2026 `reference/thesis.pdf` revision against this plan:
+thesis §7.1 (previously a stub) turned out to specify a materially different lock-inference
+algorithm ([HFP06]-derived, per-variable locks with domination-based merging) than the
+connected-component, one-lock-per-block scheme §5.7 had already committed to. Asked the
+project owner directly; **resolved: switch to the thesis's algorithm**, now that it's
+written up as the primary spec. §5.7 has been rewritten to describe it in full; this entry
+is kept only as a pointer to that decision.
+
+### 9.21 `Int` machine-int vs. `math/big` dispatch mechanism — resolved, moved to §2
+
+Surfaced by the second July 2026 `reference/thesis.pdf` revision (§7.2.1.1, folded into
+§5.7 above): the thesis commits to *two* Go encodings for TLA+ `Int` — machine `int` by
+default, `math/big`'s `Int` as an opt-in for specs needing genuine unbounded arithmetic —
+but didn't say what selects between them. Asked the project owner directly; **resolved: a
+compiler flag, target-specific to the Go backend** (whole-program, not per-declaration) —
+see §2's new row. The flag's concrete name is still undecided, tracked as the third bullet
+of §9.3 rather than as its own entry here. Still applies: this flag interacts with §9.7's
+channel-capacity discussion and with `lib/tlaplus.go`'s existing `Seq`/`Set`/function
+encodings, which would need to be generic over (or duplicated across) both numeric
+backings if a single spec is ever allowed to mix them — that composition question isn't
+resolved by picking the flag mechanism, only by-value-vs-by-flag was.
 
