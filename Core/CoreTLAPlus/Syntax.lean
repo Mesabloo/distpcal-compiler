@@ -1,4 +1,5 @@
 import Common.Position
+import Core.Declaration
 import Mathlib.Control.Bifunctor
 import Mathlib.Control.Traversable.Basic
 import Mathlib.Control.Traversable.Instances
@@ -157,58 +158,17 @@ instance : Traversable Expression where
   traverse := Expression.traverse
 
 /-- A top-level TLA⁺ declaration. `RECURSIVE` and module `INSTANCE` are not represented. -/
-inductive Declaration (α : Type) : Type
-  | constants : List (String × α) → Declaration α
-  | «variables» : List (String × α) → Declaration α
-  | assume : Expression α → Declaration α
-  /-- An operator definition, optionally with higher-order arguments (each parameter's `Nat` is
-  its own arity, `0` for `x`, `3` for `F(_, _, _)`, …). -/
-  | operator : α → String → List (String × Nat) → Expression α → Declaration α
-  /-- A function definition, with an explicit domain for every argument. -/
-  | function : α → String → List (String × Expression α) → Expression α → Declaration α
-  deriving Repr
-
-instance : Functor Declaration where
-  map f
-    | .constants xs => .constants (Bifunctor.snd f <$> xs)
-    | .variables xs => .variables (Bifunctor.snd f <$> xs)
-    | .assume e => .assume (f <$> e)
-    | .operator a x args e => .operator (f a) x args (f <$> e)
-    | .function a x args e => .function (f a) x (Bifunctor.snd (f <$> ·) <$> args) (f <$> e)
-
-instance : Traversable Declaration where
-  traverse f
-    | .constants xs => .constants <$> traverse (bitraverse pure f) xs
-    | .variables xs => .variables <$> traverse (bitraverse pure f) xs
-    | .assume e => .assume <$> traverse f e
-    | .operator a x args e => (.operator · x args ·) <$> f a <*> traverse f e
-    | .function a x args e => (.function · x · ·) <$> f a <*> traverse (bitraverse pure (traverse f)) args <*> traverse f e
+abbrev Declaration := _root_.Declaration Expression
 
 /--
   A desugared TLA⁺ module, wrapping the embedded (still-Surface, not-yet-desugared-at-the-
   statement-level) PlusCal algorithm at whatever `α` the caller instantiates it at — kept abstract
   to avoid a cyclic import.
 -/
-structure Module (α β : Type) : Type where
-  name : String
-  «extends» : List String
-  declarations₁ : List (Declaration β)
-  pcalAlgorithm : Option α
-  declarations₂ : List (Declaration β)
-  deriving Repr
+abbrev Module := _root_.Module Expression
 
-instance : Bifunctor Module where
-  bimap f g m := { m with
-    declarations₁ := (g <$> ·) <$> m.declarations₁
-    pcalAlgorithm := f <$> m.pcalAlgorithm
-    declarations₂ := (g <$> ·) <$> m.declarations₂
-  }
-
-instance : Bitraversable Module where
-  bitraverse f g m :=
-    ({m with declarations₁ := ·, pcalAlgorithm := ·, declarations₂ := ·})
-      <$> traverse (traverse g) m.declarations₁
-      <*> traverse f m.pcalAlgorithm
-      <*> traverse (traverse g) m.declarations₂
+namespace Module
+export _root_.Module (mk)
+end Module
 
 end CoreTLAPlus

@@ -893,14 +893,34 @@ declarations, gotos, and operator shapes are all already resolved by the time
   inside any expression embedded directly in a PlusCal statement (`assign`, `await`,
   `print`, `assert`, guard expressions, …) — Distributed PlusCal's own statement-level
   expressions have no business using temporal/action syntax, even though the surrounding
-  TLA+ module may, elsewhere. A purely syntactic tree-walk over `CoreTLAPlus.Expression`
-  (the six operators are already ordinary prefix/postfix nodes post-desugaring, §5.2).
-  This does **not** replace §5.3's later `TypedTLAPlus → TypedSetTheory` pass, which
-  performs the equivalent check (and strip) over the module's *typed* expressions more
-  broadly, including ones reachable through operators the algorithm calls but that aren't
-  themselves PlusCal statements; this early check exists so the common case (a stray `'`
-  or `ENABLED` typo'd directly into a statement) gets a fast, precise, pre-typing error
-  instead of surfacing three stages later.
+  TLA+ module may, elsewhere.
+
+  **Updated once this pass was actually implemented** (`WellFormedness/Restrictions.lean`,
+  task 8 of `.claude/plans/jolly-chasing-book.md`): the paragraph above described the
+  *original*, narrower scope of this check — direct-only, deferring the transitive case (an
+  operator the algorithm calls, whose own body is where the temporal/action content actually
+  lives) to §5.3's later `TypedTLAPlus → TypedSetTheory` pass. **That's no longer the
+  split.** The project owner asked for the transitive walk to land *here* instead, motivated
+  by the same no-shared-memory concern driving §5.2a's other two checks (2(c)/2(d)): an
+  operator called from the algorithm shouldn't be able to leak temporal/action content (or a
+  global `VARIABLE` reference, or a channel value) into the algorithm any more than writing
+  it directly would. Consequently:
+  - **Phase 8's `TypedSetTheory` pass, whenever built, should treat "every expression
+    reachable from the algorithm is already free of temporal/action operators" as an
+    already-established invariant**, not something it needs to re-derive by walking the same
+    call graph again — matching how well-scopedness's "resolves to a declared name" half is
+    already documented elsewhere in this plan as redundant post-reorder, for the same
+    underlying reason (a fact this earlier pass already guarantees).
+  - **Phase 8 will still need its own unbounded-quantifier handling** for content it
+    processes that this pass's own scope doesn't reach: this pass's unbounded-quantifier ban
+    (`WellFormednessError.unboundedQuantifier`, new relative to this section's original
+    text — not in the thesis, added per the project owner's own no-shared-memory reasoning)
+    is scoped identically to the temporal/action ban, i.e. only to what's reachable
+    *from the algorithm*; anything Phase 8 processes outside that reach (e.g. ordinary TLA⁺
+    operators the algorithm never calls, if `TypedSetTheory` ever covers those too) isn't
+    this pass's concern and needs its own check if Phase 8 wants the same restriction there.
+    This was flagged as a TODO in the implementing plan file and needed to land here, in
+    `PLAN.md` itself, per `CLAUDE.md`'s plan-sync rule — done.
 
 ### 5.3 Type checking
 **Input:** `CoreTLAPlus`/`CorePlusCal`. **Output:** `TypedTLAPlus`/`TypedPlusCal`.

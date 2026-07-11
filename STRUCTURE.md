@@ -32,6 +32,12 @@ Lexer/parser, ported from `distpcal-compiler`'s local `Parser_/` (`PLAN.md` §5.
 - `Tokens/PlusCal.lean`, `Tokens/TLAPlus.lean` — token definitions.
 - `Annotations.lean` — `@type`/`@parameter` annotation parsing.
 
+## `Core/`
+- `Declaration.lean` — `Declaration`/`Module`, the shape of a TLA⁺ declaration/module,
+  parametrized over the expression former `E` and shared by `SurfaceTLAPlus`/`CoreTLAPlus`/
+  `TypedTLAPlus` (each recovers its own via `abbrev`) — used to be duplicated verbatim
+  three times.
+
 ## `Core/SurfacePlusCal/`, `Core/SurfaceTLAPlus/`
 Surface AST — what parser produce, annotations still attached.
 - `Syntax.lean` (each) — the AST types.
@@ -57,8 +63,27 @@ Surface → Core lowering (`PLAN.md` §3.2).
 - `Monad.lean` — desugarer's monad stack.
 
 ## `WellFormedness/`
-Planned Phase 7 module (`PLAN.md` §5.2a) — not yet started; its checks currently live ad
-hoc inside `Desugarer/PlusCal.lean` instead.
+Phase 7 module (`PLAN.md` §5.2a) — well-labelledness, well-scopedness, and the
+no-shared-memory/no-bare-temporal restrictions, run against a `TypedModule`'s own
+`pcalAlgorithm` right after type checking succeeds (`Driver/Modules.lean`). Assignment-conflict
+checking (one of §5.2a's original three checks) still lives ad hoc in `Desugarer/PlusCal.lean`,
+ahead of its own phase slot, and isn't duplicated here.
+- `Errors.lean` — `WellFormednessError` variants.
+- `Monad.lean` — `MonadForeignLookup` (fetch a module's checked declarations by name; the one
+  seam into `Driver/`'s module cache), plus generic `StateT`/`ExceptT` lift instances for it.
+- `Labelling.lean` — every `goto` targets a label its process actually defines, or `"Done"`;
+  `"Done"` itself is never redefined.
+- `WellScoped.lean` — no duplicate/shadowed names in any scope (global, process-local,
+  block-local `with`); also `CorePlusCal.WellScoped`, a fresh `Prop` (not yet proved or used)
+  modeling the same discipline for a later `GuardedPlusCal` preservation lemma.
+- `Declarations.lean` — structural/type-shape checks: no Channel-typed `variables` entry, no
+  process-local `channels`/`fifos` (defense-in-depth), no algorithm-level `variables`.
+- `Restrictions.lean` — the expression walker: no channel value inside an ordinary expression
+  (or as `assign`'s/`receive`'s non-channel `Ref` positions), no reference to a module-level
+  `VARIABLE`, no bare/transitive temporal or action operator, no unbounded quantifier —
+  transitively, through every operator/function the algorithm calls.
+- `WellFormedness.lean` — ties the four checks together; `TypedTLAPlus.Module.checkWellFormed`
+  is the one entry point `Driver/Modules.lean` calls.
 
 ## `Elaborator/`
 Bidirectional type checker (`PLAN.md` §3.1, ch. 3.1 of thesis).

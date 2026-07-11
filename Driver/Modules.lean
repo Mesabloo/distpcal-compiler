@@ -311,11 +311,11 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     let importedBindings := deps.flatMap λ (_, depMod) ↦
       (depMod.declarations₁ ++ depMod.declarations₂).flatMap (Decl.bindings depMod.name)
     let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
-    let typed ← match mod.runChecker Γ₀ with
+    let typed ← match CoreTLAPlus.Module.runChecker Γ₀ mod with
       | .error e => throw (.typeCheck moduleId e)
       | .ok typed => pure typed
 
-    match ← (typed.checkWellFormed : ExceptT WellFormednessError m Unit).run with
+    match ← (TypedTLAPlus.Module.checkWellFormed typed : ExceptT WellFormednessError m Unit).run with
     | .error e => throw (.wellFormedness moduleId e)
     | .ok () => pure ()
 
