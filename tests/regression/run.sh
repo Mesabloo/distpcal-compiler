@@ -94,7 +94,12 @@ for f in "$script_dir"/*.tla; do
       echo "${c_green}PASS${c_reset}  $name (${elapsed}s)"
     else
       echo "FAIL" > "$results_dir/$name.status"
-      echo "${c_red}FAIL${c_reset}  $name (expected exit $want_exit, got $got_exit, ${elapsed}s) — log: $log"
+      # Built as one string and printed with a single `echo` (one `write()`) rather than piping
+      # through `sed` line-by-line — same interleaving concern as the PASS/FAIL line itself
+      # (see file header): two failing jobs' prefixed logs could otherwise interleave mid-line.
+      prefixed="$(sed 's/^/> /' "$log")"
+      echo "${c_red}FAIL${c_reset}  $name (expected exit $want_exit, got $got_exit, ${elapsed}s) — log: $log
+$prefixed"
     fi
   ) &
 done
