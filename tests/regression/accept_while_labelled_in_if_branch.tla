@@ -10,8 +10,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptWhileLabelledInIfBranch {
-    variable x = 3;
-    process (P = PID) {
+    process (P = PID)
+        variable x = 3;
+    {
     p1: if (x > 0) {
     p2:     while (x > 0) {
                 x := x - 1;

@@ -11,10 +11,11 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptMultiIndexFunctionCallDesugarsToTuple {
-    variables
-        f1 = [n \in {1, 2} |-> n],
-        f2 = [p \in {<<1, 2>>} |-> 0];
-    process (P = PID) {
+    process (P = PID)
+        variables
+            f1 = [n \in {1, 2} |-> n],
+            f2 = [p \in {<<1, 2>>} |-> 0];
+    {
     p1: print f1[1];
         print f2[1, 2];
         f1 := [f1 EXCEPT ![1] = 9];

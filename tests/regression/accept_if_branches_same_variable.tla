@@ -7,8 +7,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptIfBranchesSameVariable {
-    variables x = 0;
-    process (P = PID) {
+    process (P = PID)
+        variables x = 0;
+    {
     p1: if (TRUE) {
             x := 1;
         } else {

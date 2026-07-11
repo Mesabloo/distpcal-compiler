@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Runs every tests/regression/{accept,reject}_*.tla file through the `fugue` CLI and checks
 # the exit code matches what the filename promises (0 for accept_*, nonzero for reject_*).
+# A `skip_*.tla` file is never run at all — reported as a yellow SKIP and excluded from the
+# pass/fail tally — for a fixture that's known-broken or deferred right now (e.g. exercises a
+# parser/pass gap tracked elsewhere) without deleting it or miscounting it as a failure.
 #
 # Scope note: right now this only exercises the pipeline through desugaring (Phase 5 and
 # later aren't implemented yet), so an `accept_*.tla` passing here means "gets past
@@ -47,14 +50,21 @@ results_dir="$(mktemp -d)"
 trap 'rm -rf "$results_dir"' EXIT
 
 names=()
+skip_count=0
 
 for f in "$script_dir"/*.tla; do
   name="$(basename "$f")"
   case "$name" in
     accept_*) want_exit=0 ;;
     reject_*) want_exit=1 ;;
+    skip_*)
+      echo "${c_yellow}SKIP${c_reset}  $name"
+      skip_count=$((skip_count + 1))
+      continue
+      ;;
     *)
-      echo "${c_yellow}SKIP${c_reset}  $name (name doesn't start with accept_ or reject_)"
+      echo "${c_yellow}SKIP${c_reset}  $name (name doesn't start with accept_/reject_/skip_)"
+      skip_count=$((skip_count + 1))
       continue
       ;;
   esac
@@ -90,8 +100,8 @@ done
 
 echo
 if [ "$fail_count" -eq 0 ]; then
-  echo "${c_bold}${c_green}$pass_count passed, $fail_count failed${c_reset}"
+  echo "${c_bold}${c_green}$pass_count passed, $fail_count failed, $skip_count skipped${c_reset}"
 else
-  echo "${c_bold}${c_red}$pass_count passed, $fail_count failed${c_reset}"
+  echo "${c_bold}${c_red}$pass_count passed, $fail_count failed, $skip_count skipped${c_reset}"
 fi
 [ "$fail_count" -eq 0 ]

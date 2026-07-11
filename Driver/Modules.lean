@@ -1,6 +1,7 @@
 import Driver.Errors
 import Driver.Builtins
 import Common.Flags
+import WellFormedness.Monad
 
 open Colorized (Colorized)
 
@@ -40,7 +41,8 @@ from the registry above by `moduleId`, not whichever module the caller started c
 against the main module's own lines. -/
 def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)) := do
   let moduleId? := match err with
-    | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ =>
+    | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _
+    | .typeCheck moduleId _ | .wellFormedness moduleId _ =>
       some moduleId
     | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => none
   match moduleId? with
@@ -141,6 +143,17 @@ private def locate (name : String) (containingDir : Option System.FilePath) : m 
   | [] => throw (.moduleNotFound name)
   | [(_, candidate)] => return candidate
   | multiple => throw (.ambiguousModule name (multiple.map Prod.fst))
+
+/-- `MonadForeignLookup`'s concrete instance (`WellFormedness/Monad.lean`) — a module's checked
+declarations by name: a `.file` hit via the cache `Ξ` (reachable this way only once a dependency
+has actually been resolved and cached), falling back to `builtinModules[name]?` for a builtin.
+Mirrors `locate`'s own candidate search, minus the not-found/ambiguous error cases — a name
+reachable via a checked `Origin.module name` tag has, by construction, already type-checked. -/
+instance : MonadForeignLookup m where
+  lookupForeign name := do
+    match ← lookupModule name with
+    | some entry => return some entry.value
+    | none => return builtinModules[name]?
 
 /-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch, only once
 this module's outcome (`Built`/`Replayed`/`Failed`) is known — never interleaved before it. Each
@@ -301,6 +314,10 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     let typed ← match mod.runChecker Γ₀ with
       | .error e => throw (.typeCheck moduleId e)
       | .ok typed => pure typed
+
+    match ← (typed.checkWellFormed : ExceptT WellFormednessError m Unit).run with
+    | .error e => throw (.wellFormedness moduleId e)
+    | .ok () => pure ()
 
     if ← FlagsEnv.getDebugFlag "dump-typed" then
       dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"

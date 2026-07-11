@@ -9,8 +9,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptRepeatedIndexedAssign {
-    variables x = [n \in {0} |-> 0];
-    process (P = PID) {
+    process (P = PID)
+        variables x = [n \in {0} |-> 0];
+    {
     p1: x[0] := 1;
         x[0] := 5;
         goto Done;

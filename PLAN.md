@@ -1094,6 +1094,32 @@ below):
   except function/operator/channel types, recursively); `[Goto]` performs no type check at
   all — label existence is checked separately, by the well-formedness pass (§5.2a, now
   sequenced after this one, §7), not the type checker's job.
+- **A channel's declared element type must be `sendable` (new, not in the thesis — the
+  project owner's own addition, found missing while writing well-formedness fixtures,
+  §5.2a task 11).** Same restriction as `showable` (`Operator`/`Channel`/`Const`/rigid type
+  variables, and anything containing one, excluded; recurses through `Function`/`Set`/
+  `Seq`/`Tuple`/`Record` otherwise) — a genuinely separate predicate (`Elaborator/
+  PlusCal.lean`'s `sendable`, not a reuse of `showable` itself, since the two represent
+  distinct restrictions that only happen to coincide today — but literally identical in
+  shape, including excluding `Const`: the project owner's reasoning is that a `CONSTANT` is
+  substituted by the user *after* code generation, and an unsendable instantiation would
+  silently break the invariant if `Const` were allowed through. Checked once, in
+  `checkChannelDecl`, at channel-declaration time — covers `send`/`receive`/`multicast`
+  uniformly, rather than re-checking at every individual call site. New error variant
+  `TCError.notSendable`. Both `showable` and `sendable` are pure, non-monadic `Typ → Bool`
+  predicates — callers must resolve pending metavariables first (`resolveTypeMVarsForDisplay`)
+  so `.mvar` only means "genuinely still unresolved," not "already pinned to something that
+  happens to be showable/sendable"; `showable`'s own call site (`[Print]`, above) had this
+  exact latent gap until fixed alongside adding `sendable` — a `print`ed expression's
+  synthesized type isn't always resolved by the point it's tested (many expression shapes,
+  e.g. `.opCall`, don't store their own overall type anywhere `resolveMVars` would have
+  already walked). **One consequence worth flagging**: this makes a channel-of-channels
+  (`Channel(Channel(τ))`) declaration a hard error — combined with `Channel`'s
+  reflexivity-only subtyping (§9.15/above), this means well-formedness's own
+  `channelInExpression` check can no longer be exercised via `receive`'s destination `r`
+  resolving to a channel-shaped type (the only way to get a channel-shaped `r` past type
+  checking in the first place needed a channel-of-channels source) — see `PLAN.md` §9.25,
+  updated to note this alongside its other two now-unreachable checks.
 - **`[Receive]` — channel/reference coercion, and why it can't apply eagerly (settled,
   §9.15's discussion moved here).** `Channel` is covariant (`Elaborator/Subtyping.lean`),
   but a channel-typed expression's own `Channel(τ) <: Channel(τ')` check only ever
@@ -2275,4 +2301,92 @@ directly; **resolved: tag `Binding` with its origin at `Γ`-construction time an
 origin onto `TypedTLAPlus.Expression.var` itself**, so it survives past `Γ` (discarded after
 checking) into the checked AST — see §2's new row for the concrete shape. Superseded the
 `CacheEntry.provenance`/table-based design before any of it was implemented.
+
+### 9.23 Three regression fixtures parked as `skip_*`, pending parser/desugarer fixes — open
+
+Found while confirming `PLAN.md` §9.22's origin-tagging work didn't regress anything: running
+`tests/regression/run.sh` (its own `skip_*` convention — a file with that prefix is skipped and
+reported yellow, never run, excluded from the pass/fail tally) turned up three fixtures broken
+for reasons unrelated to origin-tagging (confirmed by failure category — parse-time and
+desugaring-stage errors, both entirely upstream of anything origin-tagging touches). Renamed
+from `accept_*` to `skip_*` rather than left failing or deleted, pending an actual fix:
+- `skip_function_definition_multi_arg_tuple_domain.tla` — parser rejects
+  `f[x \in S, y \in T] == ...`'s multi-arg function-literal domain syntax
+  (`unexpected identifier f`).
+- `skip_unbounded_choose_with_expected_type.tla` — parser rejects a bare
+  `CHOOSE m : m = m` used as a `with`/variable initializer (`unexpected keyword 'CHOOSE'`).
+- `skip_function_literal_cartesian_product_binder.tla` — `\X` (Cartesian product) is either
+  not desugared to its canonical operator name, or that name is missing from
+  `builtinContext`/`Naturals`'s declarations (`Unbound variable` \`\X\`).
+
+Not investigated further yet — first two look like `Parser_/TLAPlus.lean` gaps, third looks
+like a `Desugarer/TLAPlus.lean`/`Driver/Builtins.lean` gap, but neither confirmed by tracing the
+actual code. TODO: fix each at the root (parser/desugarer/builtins), rename back to `accept_*`,
+re-run the full suite once done — don't just patch the fixture unless it turns out to encode an
+unsupported/wrong construct (check against this plan's language subset first).
+
+### 9.24 `^+`/`^*`/`^#` (postfix action-closure operators) have no documented typing rule — open
+
+Surfaced while implementing `WellFormedness/Restrictions.lean` (§5.2a, task 8): giving
+`[]`/`<>`/`ENABLED`/`UNCHANGED`/`'` real `builtinContext` entries (so the no-bare-temporal check
+can actually fire, rather than these names just hitting `unboundVariable` first) needed their
+typing rules — found in `reference/thesis.pdf` §3.1.3.4/3.1.3.5 (Figures 3.1.4/3.1.5) for all
+five. `^+`/`^*`/`^#` (`Core/SurfaceTLAPlus/Syntax.lean`'s `PostfixOperator`) have **no typing
+rule anywhere** — not in the thesis, not standard TLA⁺ as far as traced. Asked the project
+owner directly; **resolved for now: leave them unbound in `builtinContext`** — referencing one
+still fails at `unboundVariable`, same as today, no regression. Their canonical names are still
+included in `WellFormedness/Restrictions.lean`'s check-3 name list for forward-compatibility,
+but that coverage is currently inert (unreachable) for the same reason check 3 itself was
+inert before this task added the other five bindings. Matches how `WF_`/`SF_` are already
+deferred, unlexed, per §9.17 — revisit alongside that whenever a program actually needs one of
+these three checked (or their real meaning is tracked down).
+
+### 9.25 Three well-formedness checks (well, two and a half) are currently unreachable — the *rule* is right, only the parser/type-checker can't produce the input yet
+
+Surfaced while writing `tests/regression/` fixtures for `WellFormedness/Restrictions.lean`/
+`WellScoped.lean` (§5.2a, task 11) — confirmed by reading the parser, not just guessing:
+- **Check 2(b)'s `nonEmptyLocalChannels`** (a process's own `localState.channels`/`.fifos` must
+  be empty): `Parser_/PlusCal.lean`'s `parseProcess` hardcodes `channels := []`/`fifos := []`
+  when building a process's `localState` — it never even attempts to parse `channels`/`fifos`
+  syntax at process level, only `variables`. No fixture can exercise the reject side of this
+  check; it stays defense-in-depth only, exactly as `PLAN.md` §5.2a's own task list anticipated
+  for this specific check ("first confirm whether the parser can even produce this shape").
+- **Check 3's `unboundedQuantifier`**: an unbounded `\A x : P`/`\E x : P` is parseable but its
+  bound variable's type can *never* reach an annotation under the current grammar
+  (`parseQuantifier`'s unbounded branch is bare `parseIdentifier`, no `tryParseAnnotations`
+  call) — confirmed by `reject_unbounded_forall_missing_annotation.tla`, an existing fixture
+  whose own comment already states this ("every unbounded `\A`/`\E` without a domain is a
+  guaranteed type error under the current grammar"). So it always fails at
+  `TCError.expectedTypeAnnotation`, before well-formedness ever runs, *except* unbounded
+  `CHOOSE x : P` in a checking position (`Elaborator/Expressions.lean:146`'s `[Unbounded
+  choice]` rule *does* succeed there, ignoring any annotation and using the expected type
+  instead) — but `CHOOSE` has **no parser rule constructing it at all** (confirmed: `CHOOSE` is
+  only ever a lexer token in `Parser_/TLAPlus.lean`, never consumed by any expression-parsing
+  rule), matching `skip_unbounded_choose_with_expected_type.tla`'s already-filed gap (§9.23) —
+  same root cause, not a new one. So `unboundedQuantifier` has no reachable trigger today at
+  all, on either quantifier form.
+- **Check 1's `channelInExpression`, specifically via `receive`'s destination `r`** (not the
+  check as a whole — `reject_channel_in_expression.tla`'s `assert ch = ch;` still exercises it
+  directly). Surfaced *after* this section was first written, once `sendable` landed (§5.3,
+  above): the only way to get `r` itself typed as Channel-shaped past type-checking at all was
+  a channel-of-channels source (`Channel(Channel(τ))`, needed for `Channel`'s reflexivity-only
+  subtyping to accept the `receive`), which `sendable` now rejects outright, at declaration
+  time, before a `receive` statement referencing it is ever reached. The original
+  `reject_receive_into_channel.tla` fixture was repurposed into
+  `reject_channel_element_channel.tla` (testing `sendable`'s channel-exclusion directly, no
+  `receive` needed) rather than kept pretending to exercise well-formedness.
+
+Not a bug in any of these three checks' own logic — all are exercised and confirmed correct via
+direct calls during testing, just not through a real `.tla` fixture end-to-end. No fixtures were
+written for the first two (`reject_local_process_channel.tla`, `reject_unbounded_quantifier.tla`,
+both skipped rather than force-fit); the third has no dedicated fixture of its own for the same
+reason, but the check itself remains exercised via other inputs. Revisit once: (a) the parser
+gains process-level `channels`/`fifos` parsing (probably never worth doing, given check 2(b) is
+explicitly "defense-in-depth" and the restriction is already unconditional), (b) `§9.23`'s
+`CHOOSE`-parsing gap is fixed (which would also make unbounded `CHOOSE` reachable) or unbounded
+`\A`/`\E` gains annotation support (a real grammar change, bigger than §9.23's fix), or (c) some
+other route to a channel-shaped `receive` destination `r` is found that doesn't require an
+unsendable channel-of-channels declaration (none currently known — `Channel`'s reflexivity-only
+subtyping and the lack of any other channel-shaped-type constructor make this look structurally
+unlikely, not just unimplemented, but not proven impossible).
 

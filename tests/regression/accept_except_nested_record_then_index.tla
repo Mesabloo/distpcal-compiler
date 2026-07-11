@@ -11,8 +11,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptExceptNestedRecordThenIndex {
-    variable r = [f |-> [n \in {1, 2} |-> 0]];
-    process (P = PID) {
+    process (P = PID)
+        variable r = [f |-> [n \in {1, 2} |-> 0]];
+    {
     p1: r := [r EXCEPT !.f[1] = 9];
         goto Done;
     }

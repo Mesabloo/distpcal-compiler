@@ -41,15 +41,34 @@ abbrev SrcMulticastFilter := SurfacePlusCal.MulticastFilter (Option Typ) SrcExpr
 
 /-- The `showable` predicate, used by `print`: `Int`/`Bool`/`Str`/`Address` atomic;
 `Function`/`Set`/`Seq`/`Tuple`/`Record` recursively (a `Function` is showable when both its
-domain and range are). `Operator`/`Channel`, and anything containing them, are not showable.
-`partial`: nested `List` recursion over `Tuple`/`Record`'s components/fields isn't visibly
-structurally decreasing to Lean. -/
+domain and range are). `Operator`/`Channel`/`Const`/rigid type variables, and anything containing
+them, are not showable. Pure and non-monadic — **callers must resolve `τ`'s metavariables first**
+(`resolveTypeMVarsForDisplay`, at the point of use, not here) so `.mvar _ => false` only ever
+fires on a genuinely still-unresolved metavariable, not one that's already been pinned to
+something showable. `partial`: nested `List` recursion over `Tuple`/`Record`'s components/fields
+isn't visibly structurally decreasing to Lean. -/
 partial def showable : Typ → Bool
   | .bool | .int | .str | .address => true
   | .function dom rng => showable dom && showable rng
   | .set τ | .seq τ => showable τ
   | .tuple τs => τs.all showable
   | .record fs => fs.all (showable ∘ Prod.snd)
+  | .operator .. | .channel .. | .var _ | .const _ | .mvar _ => false
+
+/-- The `sendable` predicate, used by a channel's own declared element type
+(`checkChannelDecl`): the same restriction as `showable` (a `CONSTANT` isn't sendable either,
+even though it's just an opaque value at this point — the project owner's own concern: a
+`CONSTANT` gets substituted by the user *after* code generation, and an unsendable
+instantiation would silently break this invariant once compiled), currently identical in shape
+but named and defined separately since the two represent distinct restrictions that only
+happen to coincide today, not the same rule reused. Same non-monadic, resolve-first contract as
+`showable`. -/
+partial def sendable : Typ → Bool
+  | .bool | .int | .str | .address => true
+  | .function dom rng => sendable dom && sendable rng
+  | .set τ | .seq τ => sendable τ
+  | .tuple τs => τs.all sendable
+  | .record fs => fs.all (sendable ∘ Prod.snd)
   | .operator .. | .channel .. | .var _ | .const _ | .mvar _ => false
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
@@ -82,7 +101,7 @@ private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Re
         let (τ', idx') ← indexInto pos τ idx
         let idx' ← resolveMVars idx'
         return (τ', acc ++ [idx'])
-    return (τ, { name := r.name, args := args' })
+    return (τ, { name := r.name, args := args', type := τ })
 
 /-- One `Declarations.variables` entry, checked: absent initializer, the annotation is mandatory
 (nothing else could pin the type down); `=`-initialized, infer/check the value directly;
@@ -137,6 +156,10 @@ private def checkChannelDecl (x : String) (ann : Option Typ) (idxSets : List Src
     | .channel τ => pure τ
     | .function _ (.channel τ) => pure τ
     | _ => throw (.notAChannelType SourceSpan.placeholder bindTy)
+  -- `elemTy` comes straight from the user's own `@type` annotation, never from unification, so
+  -- it can never contain a `Typ.mvar` — no resolution step needed before testing `sendable`,
+  -- unlike `showable`'s call site (`print`, above), which checks an *inferred* type.
+  unless sendable elemTy do throw (.notSendable SourceSpan.placeholder elemTy)
   let idxSets' ← idxSets.mapM (checkExprR · (.set .address))
   return (bindTy, elemTy, idxSets')
 
@@ -213,6 +236,11 @@ mutual
     -/
     | .print e, pos => do
       let (τ, e') ← inferExprR e
+      -- `τ` isn't necessarily stored anywhere inside `e'` (many expression shapes carry no own
+      -- type at all), so `resolveMVars e'`'s traversal above may not have touched it: resolve it
+      -- separately before testing `showable`, so an already-pinned metavariable is checked
+      -- against its real type instead of unconditionally failing as `.mvar _`.
+      let τ ← resolveTypeMVarsForDisplay τ
       if showable τ then return .print e' @@ pos
       else throw (.notShowable pos τ)
     /-

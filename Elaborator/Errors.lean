@@ -45,6 +45,9 @@ inductive TCError : Type
   | notAChannelType (pos : SourceSpan) (got : TypedTLAPlus.Typ)
   /-- A `print` statement's argument didn't synthesize a `showable` type. -/
   | notShowable (pos : SourceSpan) (got : TypedTLAPlus.Typ)
+  /-- A channel's declared element type isn't `sendable` — `Operator`/`Channel`/`Const`/rigid
+  type variables, or anything containing one, can't be sent over a channel. -/
+  | notSendable (pos : SourceSpan) (got : TypedTLAPlus.Typ)
   /-- A metavariable left over at the end of a declaration's checking had no pending upper bound
   recorded on it at all — it was never actually constrained by anything during checking. -/
   | unconstrainedMetavariable (pos : SourceSpan)
@@ -71,6 +74,7 @@ instance : CompilerDiagnostic TCError String where
     | .paramArityMismatch pos _ _ _ => pos
     | .notAChannelType pos _ => pos
     | .notShowable pos _ => pos
+    | .notSendable pos _ => pos
     | .unconstrainedMetavariable pos => pos
   msgOf
     | .todo _ msg => msg
@@ -96,6 +100,7 @@ instance : CompilerDiagnostic TCError String where
       s!"Parameter `{param}` was declared with arity {declared}, but its annotated type has arity {inferred}."
     | .notAChannelType _ got => s!"Expected a `Channel(_)` type, got `{got}`."
     | .notShowable _ got => s!"`{got}` is not a showable type — it cannot be passed to `print`."
+    | .notSendable _ got => s!"`{got}` is not a sendable type — it cannot be a channel's element type."
     | .unconstrainedMetavariable _ =>
       "A metavariable was left unconstrained at the end of checking — an explicit type annotation is needed here."
 

@@ -9,8 +9,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptRecordAndTupleAccess {
-    variable r = [a |-> 1, b |-> <<2, 3>>];
-    process (P = PID) {
+    process (P = PID)
+        variable r = [a |-> 1, b |-> <<2, 3>>];
+    {
     p1: print r.a;
         goto p2;
     p2: print r.b[1];

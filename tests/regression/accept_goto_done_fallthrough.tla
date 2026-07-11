@@ -8,8 +8,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptGotoDoneFallthrough {
-    variable x = 0;
-    process (P = PID) {
+    process (P = PID)
+        variable x = 0;
+    {
     p1: x := 1;
         print x;
     }

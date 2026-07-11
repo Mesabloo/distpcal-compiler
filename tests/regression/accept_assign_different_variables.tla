@@ -7,8 +7,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptAssignDifferentVariables {
-    variables x = 0, y = 0;
-    process (P = PID) {
+    process (P = PID)
+        variables x = 0, y = 0;
+    {
     p1: x := 3;
         y := 4;
         goto Done;

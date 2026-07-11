@@ -11,8 +11,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptWhileFreshReuse {
-    variable x = 3;
-    process (P = PID) {
+    process (P = PID)
+        variable x = 3;
+    {
     p1: while (x > 0) {
             x := x - 1;
         };

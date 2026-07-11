@@ -14,8 +14,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptExceptMultiIndexUpdate {
-    variable f = [p \in {<<1, 2>>} |-> 0];
-    process (P = PID) {
+    process (P = PID)
+        variable f = [p \in {<<1, 2>>} |-> 0];
+    {
     p1: f := [f EXCEPT ![1, 2] = 99];
         goto Done;
     }

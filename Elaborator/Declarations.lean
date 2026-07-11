@@ -51,6 +51,16 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
+  -- Temporal/action operators (`reference/thesis.pdf` §3.1.3.4/3.1.3.5, Figures 3.1.4/3.1.5;
+  -- `PLAN.md` §9.24). `^+`/`^*`/`^#` deliberately excluded — no typing rule documented anywhere,
+  -- left unbound (§9.24). `WellFormedness/Restrictions.lean` bans all eight names regardless of
+  -- whether they're bound here — this table only decides whether referencing one gets caught by
+  -- that check (with a precise message) or by plain `unboundVariable` first.
+  ("ENABLED", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("UNCHANGED", { type := .operator [.var "a"] .bool, isScheme := true, origin := .intrinsic }),
+  ("[]", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("<>", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("'", { type := .operator [.var "a"] (.var "a"), isScheme := true, origin := .intrinsic }),
 ]
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]

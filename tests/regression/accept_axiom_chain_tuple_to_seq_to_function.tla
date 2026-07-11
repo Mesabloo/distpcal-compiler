@@ -11,8 +11,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptAxiomChainTupleToSeqToFunction {
-    variable (* @type: Int -> Int; *) f = <<1, 2, 3>>;
-    process (P = PID) {
+    process (P = PID)
+        variable (* @type: Int -> Int; *) f = <<1, 2, 3>>;
+    {
     p1: skip;
     }
 }*)

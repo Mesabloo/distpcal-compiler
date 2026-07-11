@@ -11,8 +11,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptAxiomChainStringToFunction {
-    variable (* @type: Int -> Int; *) g = "abc";
-    process (P = PID) {
+    process (P = PID)
+        variable (* @type: Int -> Int; *) g = "abc";
+    {
     p1: skip;
     }
 }*)

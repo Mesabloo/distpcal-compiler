@@ -11,8 +11,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptWhileLabelledStep {
-    variable x = 3;
-    process (P = PID) {
+    process (P = PID)
+        variable x = 3;
+    {
     l1: while (x > 0) {
             print 1;
             await x > 0;

@@ -14,11 +14,12 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptMultiIndexRefDesugarsToTuple {
-    variables
-        f1 = [n \in {1, 2} |-> 0],
-        f2 = [p \in {<<1, 2>>} |-> 0],
-        f3 = [n \in {1, 2} |-> [m \in {1, 2} |-> n + m]];
-    process (P = PID) {
+    process (P = PID)
+        variables
+            f1 = [n \in {1, 2} |-> 0],
+            f2 = [p \in {<<1, 2>>} |-> 0],
+            f3 = [n \in {1, 2} |-> [m \in {1, 2} |-> n + m]];
+    {
     p1: f1[1] := 0;
         goto p2;
     p2: f2[1, 2] := 9;

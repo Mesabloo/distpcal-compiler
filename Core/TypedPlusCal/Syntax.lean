@@ -7,10 +7,15 @@ import Core.CorePlusCal.Syntax
   embedded expression checked (`CoreTLAPlus.Expression` → `TypedTLAPlus.Expression`) and every
   type parameter pinned at `Typ`/`Expression Typ`.
 
-  Only `Statement.receive` differs in shape from its `CorePlusCal` counterpart, carrying an
-  extra `Coercion` field for the channel-element-vs-reference-type upcast. Every other
-  constructor is a plain transcription at `α := Typ`, `β := Expression Typ`. `Ref`/
-  `MulticastFilter` are reused generically from `CorePlusCal`/`SurfacePlusCal`.
+  `Statement.receive` and `Ref` both differ in shape from their `CorePlusCal` counterparts:
+  `Statement.receive` carries an extra `Coercion` field for the channel-element-vs-reference-type
+  upcast, and `Ref` carries its own resolved `type` (`inferRef`'s `Γ`-lookup result,
+  `Elaborator/PlusCal.lean`) rather than being reused generically — needed so a later pass
+  (`WellFormedness/Restrictions.lean`'s check 1) can tell whether a bare Ref position (`assign`'s
+  LHS, `receive`'s destination) is itself Channel-shaped without needing `Γ`, which is gone by
+  then. Every other constructor is a plain transcription at `α := Typ`, `β := Expression Typ`.
+  `MulticastFilter` is reused generically from `SurfacePlusCal` (its target is a bare `String`,
+  not a `Ref`, so it has no type to carry either way).
 -/
 
 namespace TypedPlusCal
@@ -18,8 +23,13 @@ namespace TypedPlusCal
 /-- Checked PlusCal expressions — always `TypedTLAPlus.Expression` at the checker's own `Typ`. -/
 abbrev Expression := TypedTLAPlus.Expression TypedTLAPlus.Typ
 
-/-- `CorePlusCal.Ref`, checked — reused generically. -/
-abbrev Ref := CorePlusCal.Ref Expression
+/-- A checked `Ref` — unlike `CorePlusCal.Ref`, carries its own resolved `type` (see the module
+doc above). -/
+structure Ref : Type where
+  name : String
+  args : List Expression
+  type : TypedTLAPlus.Typ
+  deriving Repr
 
 /-- `SurfacePlusCal.MulticastFilter`, checked — reused generically. -/
 abbrev MulticastFilter := SurfacePlusCal.MulticastFilter TypedTLAPlus.Typ Expression

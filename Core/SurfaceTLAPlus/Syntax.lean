@@ -254,6 +254,16 @@ inductive Typ : Type
   | mvar (_ : Nat)
   deriving Repr, Inhabited, BEq
 
+/-- Whether `τ` is Channel-shaped: a bare `Channel(τ')`, or an indexed channel family `dom ->
+Channel(τ')` (`Elaborator/PlusCal.lean`'s `checkChannelDecl` encodes an indexed channel
+declaration's `Γ`-binding this way). Factored out of that same shape so `WellFormedness/
+Declarations.lean` (checks 2(a)/(d)) and `WellFormedness/Restrictions.lean` (check 1) share one
+source of truth for "is this a legal channel type" rather than each re-deriving it. -/
+def Typ.isChannelLike : Typ → Bool
+  | .channel _ => true
+  | .function _ (.channel _) => true
+  | _ => false
+
 -- `deriving DecidableEq` doesn't apply here -- proved by hand instead.
 partial instance : DecidableEq Typ :=
   let rec go (τ τ' : Typ) : Decidable (τ = τ') := match τ, τ' with

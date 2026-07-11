@@ -9,8 +9,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptEitherNestedLabel {
-    variable x = 0;
-    process (P = PID) {
+    process (P = PID)
+        variable x = 0;
+    {
     p1: either {
     p2:     x := 1;
         } or {

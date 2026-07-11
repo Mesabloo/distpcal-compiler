@@ -10,8 +10,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptWithAssignOtherVar {
-    variable y = 0;
-    process (P = PID) {
+    process (P = PID)
+        variable y = 0;
+    {
     p1: with (x = 3) {
             y := x + 1;
         };

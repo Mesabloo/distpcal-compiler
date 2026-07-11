@@ -11,8 +11,9 @@ CONSTANTS
     PID
 
 (*--algorithm AcceptIfNestedLabel {
-    variable x = 0;
-    process (P = PID) {
+    process (P = PID)
+        variable x = 0;
+    {
     p1: if (x > 0) {
     p2:     print 1;
         } else {
