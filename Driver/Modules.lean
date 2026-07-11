@@ -1,6 +1,7 @@
 import Driver.Errors
 import Driver.Builtins
 import Common.Flags
+import Extra.Monad
 import WellFormedness.Monad
 
 open Colorized (Colorized)
@@ -29,10 +30,7 @@ instance {m} [Monad m] [MonadStateOf (Std.HashMap String String) m] : MonadSourc
 /-- Backing store for the source registry. -/
 initialize sourceRegistryRef : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
-instance : MonadStateOf (Std.HashMap String String) IO where
-  get := sourceRegistryRef.get
-  set := sourceRegistryRef.set
-  modifyGet := sourceRegistryRef.modifyGet
+instance : MonadStateOf (Std.HashMap String String) IO := sourceRegistryRef.toMonadStateOf
 
 /-- The source lines to render `err`'s snippet against — the offending module's own, looked up
 from the registry above by `moduleId`, not whichever module the caller started compiling from.
@@ -113,10 +111,8 @@ def runM {α} (act : M α) : IO (Except DriverError α) :=
 /-- Backing store for `Ξ`, mirroring `Common/Flags.lean`'s `flagsRef` pattern. -/
 initialize moduleCacheRef : IO.Ref (Std.HashMap String (CacheEntry TypedModule)) ← IO.mkRef {}
 
-instance : MonadStateOf (Std.HashMap String (CacheEntry TypedModule)) IO where
-  get := moduleCacheRef.get
-  set := moduleCacheRef.set
-  modifyGet := moduleCacheRef.modifyGet
+instance : MonadStateOf (Std.HashMap String (CacheEntry TypedModule)) IO :=
+  moduleCacheRef.toMonadStateOf
 
 /-- Where a candidate module named `name` was found — a real file, or the builtin table. -/
 private inductive Candidate : Type

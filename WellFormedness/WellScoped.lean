@@ -61,35 +61,22 @@ private def checkNoShadow {m : Type → Type} [Monad m] [MonadExceptOf WellForme
   names.forM λ (n, pos) ↦ do
     if inScope.contains n then throw (.shadowedName pos n)
 
-mutual
-  /-- Walks every `with` binder reachable from `s`, checking it against `inScope` and extending
-  it for the sub-block. No other statement introduces a PlusCal-visible name. -/
-  partial def TypedPlusCal.Statement.checkWellScoped {b} {m : Type → Type} [Monad m]
-      [MonadExceptOf WellFormednessError m] (inScope : List String) (s : TypedPlusCal.Statement b) : m Unit :=
-    match_source s with
-    | .if _ B₁ B₂, _ => do
-      TypedPlusCal.Block.checkWellScoped inScope B₁
-      TypedPlusCal.Block.checkWellScoped inScope B₂
-    | .either branches, _ => TypedPlusCal.Branches.checkWellScoped inScope branches
-    | .while _ B, _ => TypedPlusCal.Block.checkWellScoped inScope B
-    | .with x _ _ _ B, pos => do
-      if inScope.contains x then throw (.shadowedName pos x)
-      TypedPlusCal.Block.checkWellScoped (x :: inScope) B
-    | .goto _, _ | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
-    | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
-
-  partial def TypedPlusCal.Block.checkWellScoped {b} {m : Type → Type} [Monad m]
-      [MonadExceptOf WellFormednessError m] (inScope : List String) (B : TypedPlusCal.Block b) : m Unit := do
-    B.begin.forM (TypedPlusCal.Statement.checkWellScoped inScope)
-    TypedPlusCal.Statement.checkWellScoped inScope B.end
-
-  partial def TypedPlusCal.Branches.checkWellScoped {b} {m : Type → Type} [Monad m]
-      [MonadExceptOf WellFormednessError m] (inScope : List String) : TypedPlusCal.Branches b → m Unit
-    | .either B => TypedPlusCal.Block.checkWellScoped inScope B
-    | .or B rest => do
-      TypedPlusCal.Block.checkWellScoped inScope B
-      TypedPlusCal.Branches.checkWellScoped inScope rest
-end
+/-- Walks every `with` binder reachable from `s`, checking it against `inScope` and extending
+it for the sub-block. No other statement introduces a PlusCal-visible name. -/
+partial def TypedPlusCal.Statement.checkWellScoped {b} {m : Type → Type} [Monad m]
+    [MonadExceptOf WellFormednessError m] (inScope : List String) (s : TypedPlusCal.Statement b) : m Unit :=
+  match_source s with
+  | .if _ B₁ B₂, _ => do
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₁
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₂
+  | .either branches, _ =>
+    TypedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) branches
+  | .while _ B, _ => TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B
+  | .with x _ _ _ B, pos => do
+    if inScope.contains x then throw (.shadowedName pos x)
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped (x :: inScope)) B
+  | .goto _, _ | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
+  | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
 
 /-- Well-scopedness over a whole algorithm: global declarations fresh among themselves; each
 process's own local declarations fresh among themselves and not shadowing a global one; every
@@ -106,7 +93,7 @@ def TypedPlusCal.Algorithm.checkWellScoped {m : Type → Type} [Monad m]
     let inScope := globalNames.map Prod.fst ++ localNames.map Prod.fst
     for thread in p.threads do
       for (_, blk) in thread do
-        TypedPlusCal.Block.checkWellScoped inScope blk
+        TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) blk
 
 /-! ## 2. `CorePlusCal.WellScoped`, a Prop — authored fresh, not executed -/
 

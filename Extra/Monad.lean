@@ -4,3 +4,10 @@
 -/
 def guardM.{v} {m : Type → Type v} [Monad m] [Alternative m] (p : m Bool) : m Unit :=
   p >>= (guard ·)
+
+/-- Lift an `IO.Ref α` into a `MonadStateOf α IO` instance, forwarding `get`/`set`/`modifyGet`
+directly to the ref. -/
+def IO.Ref.toMonadStateOf {α} (ref : IO.Ref α) : MonadStateOf α IO where
+  get := ref.get
+  set := ref.set
+  modifyGet := ref.modifyGet

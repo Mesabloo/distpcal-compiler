@@ -73,6 +73,25 @@ protected abbrev Block.begin {b} : Block b → List (Statement false)
 protected abbrev Block.end {b} : Block b → Statement b
   | ⟨_, «end»⟩ => «end»
 
+/-- Runs `act` over every non-terminal statement in `B` (`B.begin`, in order), then its terminal
+one (`B.end`) — the "distribute a per-statement action over an atomic block" shape shared by
+`WellFormedness`'s per-check walkers (`Restrictions.checkRestrictions`,
+`WellScoped.checkWellScoped`, `Labelling.checkGotoTargets`), each supplying its own `act` (often
+a partial application of their own `Statement`-level checker, itself already `∀ {b}, Statement b
+→ m Unit` once its non-`Statement` arguments are supplied). -/
+def Block.forStatements {b} {m : Type → Type} [Monad m]
+    (act : ∀ {b'}, Statement b' → m Unit) (B : Block b) : m Unit := do
+  B.begin.forM act
+  act B.end
+
+/-- `Block.forStatements`, distributed over `either`/`or` branches. -/
+def Branches.forStatements {b} {m : Type → Type} [Monad m]
+    (act : ∀ {b'}, Statement b' → m Unit) : Branches b → m Unit
+  | .either B => Block.forStatements act B
+  | .or B rest => do
+    Block.forStatements act B
+    Branches.forStatements act rest
+
 instance {b} : Inhabited (Statement b) where
   default := match b with
     | true => .goto default

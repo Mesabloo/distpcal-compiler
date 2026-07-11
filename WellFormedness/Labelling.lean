@@ -23,33 +23,20 @@ def TypedPlusCal.Process.labels {m : Type → Type} [Monad m] [MonadExceptOf Wel
       else pure label
   return perThread.flatten
 
-mutual
-  /-- Walks every `goto l` reachable from `s`, checking `l` against `labels ∪ {"Done"}`. -/
-  partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Monad m]
-      [MonadExceptOf WellFormednessError m] (labels : List String) (s : TypedPlusCal.Statement b) : m Unit :=
-    match_source s with
-    | .goto l, pos => unless labels.contains l ∨ l = "Done" do throw (.unknownLabel pos l)
-    | .if _ B₁ B₂, _ => do
-      TypedPlusCal.Block.checkGotoTargets labels B₁
-      TypedPlusCal.Block.checkGotoTargets labels B₂
-    | .either branches, _ => TypedPlusCal.Branches.checkGotoTargets labels branches
-    | .while _ B, _ => TypedPlusCal.Block.checkGotoTargets labels B
-    | .with _ _ _ _ B, _ => TypedPlusCal.Block.checkGotoTargets labels B
-    | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
-    | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
-
-  partial def TypedPlusCal.Block.checkGotoTargets {b} {m : Type → Type} [Monad m]
-      [MonadExceptOf WellFormednessError m] (labels : List String) (B : TypedPlusCal.Block b) : m Unit := do
-    B.begin.forM (TypedPlusCal.Statement.checkGotoTargets labels)
-    TypedPlusCal.Statement.checkGotoTargets labels B.end
-
-  partial def TypedPlusCal.Branches.checkGotoTargets {b} {m : Type → Type} [Monad m]
-      [MonadExceptOf WellFormednessError m] (labels : List String) : TypedPlusCal.Branches b → m Unit
-    | .either B => TypedPlusCal.Block.checkGotoTargets labels B
-    | .or B rest => do
-      TypedPlusCal.Block.checkGotoTargets labels B
-      TypedPlusCal.Branches.checkGotoTargets labels rest
-end
+/-- Walks every `goto l` reachable from `s`, checking `l` against `labels ∪ {"Done"}`. -/
+partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Monad m]
+    [MonadExceptOf WellFormednessError m] (labels : List String) (s : TypedPlusCal.Statement b) : m Unit :=
+  match_source s with
+  | .goto l, pos => unless labels.contains l ∨ l = "Done" do throw (.unknownLabel pos l)
+  | .if _ B₁ B₂, _ => do
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₁
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₂
+  | .either branches, _ =>
+    TypedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) branches
+  | .while _ B, _ => TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
+  | .with _ _ _ _ B, _ => TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
+  | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
+  | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
 
 /-- Well-labelledness over a whole algorithm: per process (labels are process-scoped, shared
 across all of that process's threads, per `Process.labels` above), check every `goto` in every
@@ -60,4 +47,4 @@ def TypedPlusCal.Algorithm.checkLabelling {m : Type → Type} [Monad m]
     let labels ← p.labels
     for thread in p.threads do
       for (_, blk) in thread do
-        TypedPlusCal.Block.checkGotoTargets labels blk
+        TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) blk

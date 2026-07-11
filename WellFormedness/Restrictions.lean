@@ -171,62 +171,45 @@ mutual
     | .mvar _ e, _ => recurse e
 end
 
-mutual
-  /-- Walks every expression/`Ref.args` reachable from `s`. -/
-  partial def TypedPlusCal.Statement.checkRestrictions {b} {m' : Type → Type} [Monad m']
-      [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
-      [MonadStateOf (Std.HashSet (String × String)) m']
-      (currentModule : String) (ownDecls : List Decl) (s : TypedPlusCal.Statement b) : m' Unit :=
-    let checkExpr (e : TypedPlusCal.Expression) : m' Unit :=
-      TypedTLAPlus.Expression.checkRestrictions currentModule ownDecls [] e
-    -- `send`'s/`receive`'s channel argument `c` is a legitimate channel reference — only its
-    -- index expressions (`Ref.args`) are subject to check 1, not its own type.
-    let checkRef (r : TypedPlusCal.Ref) : m' Unit := r.args.forM checkExpr
-    -- Every other `Ref` position (`assign`'s LHS, `receive`'s destination `r`) is *not* exempt:
-    -- referencing an already-declared channel there is exactly check 1's concern, just via a
-    -- `Ref` (which never produces an `Expression` node) instead of a `.var`.
-    let checkNonChannelRef (pos : SourceSpan) (r : TypedPlusCal.Ref) : m' Unit := do
-      if r.type.isChannelLike then throw (.channelInExpression pos r.type)
-      checkRef r
-    match_source s with
-    | .goto _, _ | .skip, _ => pure ()
-    | .print e, _ => checkExpr e
-    | .assign asss, pos => asss.forM λ (r, e) ↦ do checkNonChannelRef pos r; checkExpr e
-    | .if cond B₁ B₂, _ => do
-      checkExpr cond
-      TypedPlusCal.Block.checkRestrictions currentModule ownDecls B₁
-      TypedPlusCal.Block.checkRestrictions currentModule ownDecls B₂
-    | .await e, _ => checkExpr e
-    | .with _ _ _ val B, _ => do
-      checkExpr val
-      TypedPlusCal.Block.checkRestrictions currentModule ownDecls B
-    | .assert e, _ => checkExpr e
-    | .either branches, _ => TypedPlusCal.Branches.checkRestrictions currentModule ownDecls branches
-    | .while cond B, _ => do
-      checkExpr cond
-      TypedPlusCal.Block.checkRestrictions currentModule ownDecls B
-    | .receive c r _, pos => do checkRef c; checkNonChannelRef pos r
-    | .send c e, _ => do checkRef c; checkExpr e
-    | .multicast _ filter, _ => do
-      filter.binds.forM λ (_, _, _, e) ↦ checkExpr e
-      checkExpr filter.val
-
-  partial def TypedPlusCal.Block.checkRestrictions {b} {m' : Type → Type} [Monad m']
-      [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
-      [MonadStateOf (Std.HashSet (String × String)) m']
-      (currentModule : String) (ownDecls : List Decl) (B : TypedPlusCal.Block b) : m' Unit := do
-    B.begin.forM (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls)
-    TypedPlusCal.Statement.checkRestrictions currentModule ownDecls B.end
-
-  partial def TypedPlusCal.Branches.checkRestrictions {b} {m' : Type → Type} [Monad m']
-      [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
-      [MonadStateOf (Std.HashSet (String × String)) m']
-      (currentModule : String) (ownDecls : List Decl) : TypedPlusCal.Branches b → m' Unit
-    | .either B => TypedPlusCal.Block.checkRestrictions currentModule ownDecls B
-    | .or B rest => do
-      TypedPlusCal.Block.checkRestrictions currentModule ownDecls B
-      TypedPlusCal.Branches.checkRestrictions currentModule ownDecls rest
-end
+/-- Walks every expression/`Ref.args` reachable from `s`. -/
+partial def TypedPlusCal.Statement.checkRestrictions {b} {m' : Type → Type} [Monad m']
+    [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
+    [MonadStateOf (Std.HashSet (String × String)) m']
+    (currentModule : String) (ownDecls : List Decl) (s : TypedPlusCal.Statement b) : m' Unit :=
+  let checkExpr (e : TypedPlusCal.Expression) : m' Unit :=
+    TypedTLAPlus.Expression.checkRestrictions currentModule ownDecls [] e
+  -- `send`'s/`receive`'s channel argument `c` is a legitimate channel reference — only its
+  -- index expressions (`Ref.args`) are subject to check 1, not its own type.
+  let checkRef (r : TypedPlusCal.Ref) : m' Unit := r.args.forM checkExpr
+  -- Every other `Ref` position (`assign`'s LHS, `receive`'s destination `r`) is *not* exempt:
+  -- referencing an already-declared channel there is exactly check 1's concern, just via a
+  -- `Ref` (which never produces an `Expression` node) instead of a `.var`.
+  let checkNonChannelRef (pos : SourceSpan) (r : TypedPlusCal.Ref) : m' Unit := do
+    if r.type.isChannelLike then throw (.channelInExpression pos r.type)
+    checkRef r
+  match_source s with
+  | .goto _, _ | .skip, _ => pure ()
+  | .print e, _ => checkExpr e
+  | .assign asss, pos => asss.forM λ (r, e) ↦ do checkNonChannelRef pos r; checkExpr e
+  | .if cond B₁ B₂, _ => do
+    checkExpr cond
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B₁
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B₂
+  | .await e, _ => checkExpr e
+  | .with _ _ _ val B, _ => do
+    checkExpr val
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B
+  | .assert e, _ => checkExpr e
+  | .either branches, _ =>
+    TypedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) branches
+  | .while cond B, _ => do
+    checkExpr cond
+    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B
+  | .receive c r _, pos => do checkRef c; checkNonChannelRef pos r
+  | .send c e, _ => do checkRef c; checkExpr e
+  | .multicast _ filter, _ => do
+    filter.binds.forM λ (_, _, _, e) ↦ checkExpr e
+    checkExpr filter.val
 
 /-- Checks 1/2(c)/3 over a whole algorithm. `currentModule`/`ownDecls` come from the enclosing
 `TypedModule` (`WellFormedness/WellFormedness.lean`) — this pass alone doesn't have them, since
@@ -241,5 +224,5 @@ def TypedPlusCal.Algorithm.checkRestrictions {m' : Type → Type} [Monad m']
     for p in algo.processes do
       for thread in p.threads do
         for (_, blk) in thread do
-          TypedPlusCal.Block.checkRestrictions currentModule ownDecls blk
+          TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) blk
   go.run' {}
