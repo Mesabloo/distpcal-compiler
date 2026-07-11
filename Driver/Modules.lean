@@ -47,6 +47,14 @@ def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)
   | none => return none
   | some moduleId => return (·.split (· == '\n') |>.toList) <$> (← lookupSource moduleId)
 
+def DriverWarning.sourceLines (err : DriverWarning) : IO (Option (List String.Slice)) := do
+  let moduleId? := match err with
+    | .parser moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ =>
+      some moduleId
+  match moduleId? with
+  | none => return none
+  | some moduleId => return (·.split (· == '\n') |>.toList) <$> (← lookupSource moduleId)
+
 /-- Names of modules currently being resolved, outermost first — pushed via `withReader (name ::
 ·)` before recursing into a dependency. A module about to be resolved that's already in this
 list is a cyclic `EXTENDS`. -/
@@ -58,7 +66,7 @@ payload `onModuleEvent` reports (`Fugue.lean` turns this into `Built`/`Replayed`
 lex/parse failures, which happen before a name is known, just surface as the overall compile
 failure. -/
 inductive ModuleOutcome : Type
-  | built
+  | built (hadWarnings : Bool)
   | replayed
   | failed
 
@@ -101,11 +109,15 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
 /-- The concrete monad `compileModule`/`resolveModule` run at when actually invoked.
 `FlagsEnv`/`Ξ` are both backed by a global `IO.Ref` and reachable directly at `IO`;
 `ResolutionStack` is the one genuinely scoped Reader (push-on-recurse, pop-on-return), so it's
-the one transformer layer needed on top of `IO`. -/
-abbrev M := ReaderT ResolutionStack (ExceptT DriverError IO)
+the one transformer layer needed on top of `DiagT`'s own `DriverWarning`/`DriverError` reporting
+over `IO` (`PLAN.md` §9.14) — `compileModule`/`resolveModule` are concrete against this one stack,
+not polymorphic like everything else here: the per-module warning scoping below (`runScoped`)
+needs to actually *run* `DiagT`'s own layer down to a plain value, which is only possible against
+a fixed concrete stack, not an abstract `m`. Both were only ever instantiated here anyway. -/
+abbrev M := ReaderT ResolutionStack (DiagT DriverWarning DriverError IO)
 
 /-- Run an `M` action from the top, with an empty resolution stack. -/
-def runM {α} (act : M α) : IO (Except DriverError α) :=
+def runM {α} (act : M α) : IO (List DriverWarning × Except DriverError α) :=
   (ReaderT.run act []).run
 
 /-- Backing store for `Ξ`, mirroring `Common/Flags.lean`'s `flagsRef` pattern. -/
@@ -151,30 +163,35 @@ instance : MonadForeignLookup m where
     | some entry => return some entry.value
     | none => return builtinModules[name]?
 
-/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch, only once
-this module's outcome (`Built`/`Replayed`/`Failed`) is known — never interleaved before it. Each
-call site passes only warnings collected for that module's own `compileModule` call; a
-dependency's warnings are flushed separately by its own recursive call. `logLine` is pluggable
-(defaults to `eprintln`) so `Fugue.lean` can route it through its spinner instead. -/
-private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
-    (lines : List String.Slice) (colored : Bool)
-    (logLine : String → m Unit) (warnings : List DriverWarning) : m Unit :=
-  warnings.forM λ warning ↦ do
-    if ← FlagsEnv.isWarningEnabled warning.name then
-      logLine <| CompilerDiagnostic.pretty warning lines colored
+/-- Actually run `act`'s own `M`-action down through the current `ResolutionStack` and `DiagT`'s
+`IO` base, producing the exact `List DriverWarning` it `tell`'d and its `Except`-wrapped result as
+plain data. The only way to observe either once a `throw` is in play: `MonadWriter.listen` has
+nowhere to put warnings once the value they'd pair with disappears on a throw (same structural
+wall as a generic `ExceptT ε N` composition would hit — `DiagT` itself doesn't have this problem,
+but `listen`'s own abstract `m (α × ω)` shape still would, so this sidesteps `listen` entirely and
+goes straight to `DiagT.run`). -/
+private def runScoped {α} (act : M α) : M (List DriverWarning × Except DriverError α) := do
+  let resStack ← readThe ResolutionStack
+  liftM (DiagT.run (ReaderT.run act resStack) : IO (List DriverWarning × Except DriverError α))
 
-/-- Run `act`; if it throws, flush `warnings` (collected so far for this module), report `name` as
-`.failed` via `onModuleEvent`, and re-throw the same error unchanged. Factored out since
-`compileModule` needs this exact flush/report/re-throw shape at three separate points. -/
-private def reportFailureOnThrow {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m] [MonadExceptOf DriverError m] {α}
-    (lines : List String.Slice) (colored : Bool) (logLine : String → m Unit)
-    (onModuleEvent : String → ModuleOutcome → m Unit) (name : String) (warnings : List DriverWarning) (act : m α) : m α := do
-  try
-    act
-  catch e =>
-    flushWarnings lines colored logLine warnings
+/-- Run `act`; if it throws, flush the warnings `act` itself produced (up to the throw), report
+`name` as `.failed` via `onModuleEvent`, and re-throw the same error unchanged. If it succeeds,
+`tell` its warnings back into the ambient accumulator — so they keep flowing toward whichever
+later stage, or the final per-module flush, is next — and return its value. Replaces the old
+hand-threaded `warnings : List DriverWarning` parameter this used to take explicitly; `compileModule`
+needs this exact flush/report/re-throw-or-forward shape at three separate points. -/
+private def reportFailureOnThrow {α} --(lines : List String.Slice) (colored : Bool) (logLine : String → M Unit)
+    (onModuleEvent : String → ModuleOutcome → M Unit) (name : String) (act : M α) : M α := do
+  let (warnings, result) ← runScoped act
+  match result with
+  | .error e =>
+    -- flushWarnings lines colored logLine warnings
+    tell warnings
     onModuleEvent name .failed
     throw e
+  | .ok a =>
+    tell warnings
+    pure a
 
 /-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. -/
 private def dumpToFile {m} [Monad m] [MonadLiftT IO m] (content : String) (dir : System.FilePath) (name : String) : m Unit := do
@@ -232,17 +249,9 @@ mutual
   for the main module it's whatever caller-chosen identifier `Fugue.lean` passes.
 -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
-    -- (onTokens : Array (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))) → m Unit := fun _ ↦ pure ())
-    -- (onParsed : SurfaceTLAPlus.Module
-    --     (SurfacePlusCal.Algorithm (List SurfaceTLAPlus.CommentAnnotation) (SurfaceTLAPlus.Expression (List SurfaceTLAPlus.CommentAnnotation)))
-    --     (List SurfaceTLAPlus.CommentAnnotation) → m Unit := fun _ ↦ pure ())
-    -- (onDesugared : CoreTLAPlus.Module
-    --     (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)))
-    --     (Option SurfaceTLAPlus.Typ) → m Unit := fun _ ↦ pure ())
-    -- (onTyped : TypedModule → m Unit := fun _ ↦ pure ())
-    (onModuleEvent : String → ModuleOutcome → m Unit := fun _ _ ↦ pure ())
-    (onModuleProgress : String → m Unit := fun _ ↦ pure ())
-    (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m TypedModule := do
+    (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
+    (onModuleProgress : String → M Unit := fun _ ↦ pure ())
+    (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M TypedModule := do
   let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim defaultDumpDir (↑·)
 
   registerSource moduleId source
@@ -252,83 +261,66 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     | .inl e => throw (.lex moduleId e)
     | .inr tokens => pure tokens
 
-/-
-      (onTokens := λ tokens ↦ do
-
-      (onParsed := λ mod ↦ do
-
-      (onDesugared := λ mod ↦ do
-        )
-      (onTyped := λ typed ↦ do
-        )
--/
-
   if ← FlagsEnv.getDebugFlag "dump-tokens" then
     dumpToFile (reprStr tokens) dumpDir s!"{moduleId}-tokens"
 
-  let (mod, parserWarnings) ← match SurfaceTLAPlus.Parser.parseModule tokens with
-    | .inl e => throw (.parse moduleId e)
-    | .inr r => pure r
-  let warnings : List DriverWarning := parserWarnings.map (.parser moduleId)
+  let mod ← DiagT.lift (.parser moduleId) (.parse moduleId) (SurfaceTLAPlus.Parser.parseModule tokens)
 
   if ← FlagsEnv.getDebugFlag "dump-cst" then
     dumpToFile (reprStr mod) dumpDir s!"{moduleId}-cst"
 
   onModuleProgress mod.name
-  let (mod, warnings) ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
-    let mod ← match resolveAnnotations mod with
-      | .error e => throw (.annotation moduleId e)
-      | .ok mod => pure mod
-    let mod ← match mod.runDesugarer with
-      | .error e => throw (.desugar moduleId e)
-      | .ok mod => pure mod
-    let mod ← match mod.stripTLAPlusAnnotations with
-      | .error e => throw (.desugar moduleId e)
-      | .ok mod => pure mod
-    let (algo, warnings) ← match mod.pcalAlgorithm with
-      | none => pure (none, warnings)
-      | some algo =>
-        match algo.runDesugarer with
+  let (warnings, result) ← runScoped do
+    let mod ← reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name do
+      let mod ← match resolveAnnotations mod with
+        | .error e => throw (.annotation moduleId e)
+        | .ok mod => pure mod
+      let mod ← DiagT.lift (.desugar moduleId) (.desugar moduleId) mod.runDesugarer
+      let mod ← match mod.stripTLAPlusAnnotations with
         | .error e => throw (.desugar moduleId e)
-        | .ok (algo, desugarWarnings) =>
-          pure (some algo, warnings ++ desugarWarnings.map (.desugar moduleId))
-    let mod := { mod with pcalAlgorithm := algo }
+        | .ok mod => pure mod
+      let algo ← match mod.pcalAlgorithm with
+        | none => pure none
+        | some algo => some <$> DiagT.lift (.desugar moduleId) (.desugar moduleId) algo.runDesugarer
+      let mod := { mod with pcalAlgorithm := algo }
 
-    if ← FlagsEnv.getDebugFlag "dump-desugared" then
-      dumpToFile (reprStr mod) dumpDir s!"{moduleId}-desugared"
+      if ← FlagsEnv.getDebugFlag "dump-desugared" then
+        dumpToFile (reprStr mod) dumpDir s!"{moduleId}-desugared"
 
-    pure (mod, warnings)
-  let deps ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings <|
-    mod.extends.mapM λ dep ↦
-      withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
-  onModuleProgress mod.name
+      pure mod
+    let deps ← reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name <|
+      mod.extends.mapM λ dep ↦
+        withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
+    onModuleProgress mod.name
 
-  let typed ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
-    let importedBindings := deps.flatMap λ (_, depMod) ↦
-      (depMod.declarations₁ ++ depMod.declarations₂).flatMap (Decl.bindings depMod.name)
-    let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
-    let typed ← match CoreTLAPlus.Module.runChecker Γ₀ mod with
-      | .error e => throw (.typeCheck moduleId e)
-      | .ok typed => pure typed
+    reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name do
+      let importedBindings := deps.flatMap λ (_, depMod) ↦
+        (depMod.declarations₁ ++ depMod.declarations₂).flatMap (Decl.bindings depMod.name)
+      let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
+      let typed ← DiagT.lift (.typeCheck moduleId) (.typeCheck moduleId) (CoreTLAPlus.Module.runChecker Γ₀ mod)
 
-    match ← (TypedTLAPlus.Module.checkWellFormed typed : ExceptT WellFormednessError m Unit).run with
-    | .error e => throw (.wellFormedness moduleId e)
-    | .ok () => pure ()
+      match ← (TypedTLAPlus.Module.checkWellFormed typed : ExceptT WellFormednessError M Unit).run with
+      | .error e => throw (.wellFormedness moduleId e)
+      | .ok () => pure ()
 
-    match ← (TypedTLAPlus.Module.toComputable typed : ExceptT ComputableError m _).run with
-    | .error e => throw (.computability moduleId e)
-    | .ok computable =>
-      if ← FlagsEnv.getDebugFlag "dump-computable" then
-        dumpToFile (reprStr computable) dumpDir s!"{moduleId}-computable"
+      match ← (TypedTLAPlus.Module.toComputable typed : ExceptT ComputableError M _).run with
+      | .error e => throw (.computability moduleId e)
+      | .ok computable =>
+        if ← FlagsEnv.getDebugFlag "dump-computable" then
+          dumpToFile (reprStr computable) dumpDir s!"{moduleId}-computable"
 
-    if ← FlagsEnv.getDebugFlag "dump-typed" then
-      dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"
+      if ← FlagsEnv.getDebugFlag "dump-typed" then
+        dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"
 
+      return typed
+
+  tell warnings
+  match result with
+  | .error e => throw e
+  | .ok typed =>
+    onModuleEvent mod.name (.built (!warnings.isEmpty))
+    -- flushWarnings lines colored logLine warnings
     return typed
-
-  flushWarnings lines colored logLine warnings
-  onModuleEvent mod.name .built
-  return typed
 
 /--
   The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
@@ -342,9 +334,9 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   the top of the `.file` case.
 -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
-    (onModuleEvent : String → ModuleOutcome → m Unit := fun _ _ ↦ pure ())
-    (onModuleProgress : String → m Unit := fun _ ↦ pure ())
-    (logLine : String → m Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : m (Bool × TypedModule) := do
+    (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
+    (onModuleProgress : String → M Unit := fun _ ↦ pure ())
+    (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M (Bool × TypedModule) := do
   if name ∈ (← readThe ResolutionStack) then
     throw (.cyclicExtends ((← readThe ResolutionStack).reverse ++ [name]))
   match ← locate name containingDir with

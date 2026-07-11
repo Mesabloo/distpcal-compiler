@@ -8,5 +8,5 @@ and multi-binder-collapse transformations, `Desugarer/TLAPlus.lean`). -/
 class abbrev MonadDesugarerExpr (α : outParam Type) (m : Type → Type) :=
   MonadReaderOf (Option (CoreTLAPlus.Expression α)) m,
   MonadWithReaderOf (Option (CoreTLAPlus.Expression α)) m,
-  MonadExceptOf DesugarError m,
+  MonadDiagnostic DesugarWarning DesugarError m,
   MonadFresh m

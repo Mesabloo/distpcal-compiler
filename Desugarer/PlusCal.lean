@@ -46,8 +46,7 @@ namespace SurfacePlusCal
     fallthrough : String
     deriving Inhabited
 
-  variable {α β : Type} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
-    [MonadStateOf (List DesugarWarning) m]
+  variable {α β : Type} {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
     [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
     [MonadReaderOf SegmentContext m] [MonadWithReaderOf SegmentContext m]
 
@@ -287,13 +286,13 @@ namespace SurfacePlusCal
   discarding the fresh-name counter. Used for `@mailbox`'s filter arguments
   (`extractMailbox` below). -/
   private def desugarMailboxArg (e : SurfaceTLAPlus.Expression (List Annotation)) :
-      Except DesugarError (CoreTLAPlus.Expression (List Annotation)) :=
-    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (StateT Nat (Except DesugarError)) _ := e.desugar
-    (d.run none).run' 0
+      DiagT DesugarWarning DesugarError Id (CoreTLAPlus.Expression (List Annotation)) :=
+    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (StateT Nat (DiagT DesugarWarning DesugarError Id)) _ := e.desugar
+    ((d.run none).run' 0).run
 
   /-- Validate and extract a `Process.ann` slot: at most one `@mailbox`, nothing else, with its
   filter arguments fully desugared (`desugarMailboxArg`). -/
-  def extractMailbox {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+  def extractMailbox {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
       (anns : List Annotation) : m (Option (String × List (CoreTLAPlus.Expression (List Annotation)))) := do
     let mut mailbox : Option (String × List (SurfaceTLAPlus.Expression (List Annotation))) := none
     for ann in anns do
@@ -305,16 +304,15 @@ namespace SurfacePlusCal
       | _ => throw (.wrongAnnotationKindAtSite ann.posOf ann.name "@mailbox")
     match mailbox with
     | none => return none
-    | some (name, args) => match args.mapM desugarMailboxArg with
-      | .error e => throw e
-      | .ok args' => return some (name, args')
+    | some (name, args) =>
+      (some ∘ (name, ·)) <$> args.mapM λ e ↦ DiagT.lift id id (desugarMailboxArg e)
 
   /-- Validate `@parameter`'s placement (only on a `∈`-initialized entry) and extract its
   *presence* into the dedicated `isParameter` field — a repeated `@parameter` is a warning, not
   an error. Every other annotation is left untouched in `α` for `stripEmbeddedTypeAnnotations`
   to validate later. -/
-  def Declarations.desugarCheck {β : Type} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
-      [MonadStateOf (List DesugarWarning) m]
+  def Declarations.desugarCheck {β : Type} {m : Type → Type} [Monad m]
+      [MonadDiagnostic DesugarWarning DesugarError m]
       (decls : Declarations (List Annotation) β) : m (CorePlusCal.Declarations (List Annotation) β) := do
     let «variables» ← decls.variables.mapM λ (x, anns, init) ↦ do
       -- `init`'s `Bool` is `true` for `=`, `false` for `∈`; `@parameter` only makes sense on a
@@ -328,7 +326,7 @@ namespace SurfacePlusCal
         match ann with
         | .«@parameter» pos =>
           unless allowParameter do throw (.wrongAnnotationKindAtSite pos "@parameter" "@type")
-          if seenParameter then modify (DesugarWarning.duplicateParameterAnnotation pos :: ·)
+          if seenParameter then warn (DesugarWarning.duplicateParameterAnnotation pos)
           seenParameter := true
         | other => rest := other :: rest
       return (x, rest.reverse, seenParameter, init)
@@ -423,15 +421,18 @@ def CorePlusCal.Algorithm.stripEmbeddedTypeAnnotations
   bitraverse extractType (traverse extractType) algo
 
 /-- Run statement desugaring (fused with `@mailbox`/`@parameter` checking/extraction) against the
-concrete monad it needs: `WithContext`'s and `SegmentContext`'s `Reader`s, error reporting, and a
-`List DesugarWarning` accumulator. Also runs `CorePlusCal.Algorithm.checkAssignConflicts` before
-`stripEmbeddedTypeAnnotations`, so the returned `CorePlusCal.Algorithm` is fully checked with
-every annotation slot resolved to its actual content. -/
+concrete monad it needs: `WithContext`'s and `SegmentContext`'s `Reader`s, plus `MonadDiagnostic`
+for error reporting and the `List DesugarWarning` accumulator — instantiated at `DiagT`, so a
+warning emitted before a later fatal error still survives (`PLAN.md` §9.14). Also runs
+`CorePlusCal.Algorithm.checkAssignConflicts` before `stripEmbeddedTypeAnnotations`, so the
+returned `CorePlusCal.Algorithm` is fully checked with every annotation slot resolved to its
+actual content — both run after warnings are already extracted, since neither ever touches them. -/
 def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
-    Except DesugarError (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ)) × List DesugarWarning) := do
-  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (StateT (List DesugarWarning) (Except DesugarError))) _ :=
+    DiagT DesugarWarning DesugarError Id (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) :=
+  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (DiagT DesugarWarning DesugarError Id)) _ :=
     a.desugar
-  let (algo, warnings) ← ((desugar.run {}).run default).run []
-  algo.checkAssignConflicts
-  let algo ← algo.stripEmbeddedTypeAnnotations
-  return (algo, warnings)
+  let (warnings, result) := ((desugar.run {}).run default).run
+  (warnings, do
+    let algo ← result
+    algo.checkAssignConflicts
+    algo.stripEmbeddedTypeAnnotations)

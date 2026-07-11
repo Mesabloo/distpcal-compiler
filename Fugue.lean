@@ -167,6 +167,18 @@ private def validateAndSetFlags (p : Parsed) : IO Unit := do
 
   flagsRef.set { debug, features, warnings, output, target, searchPath }
 
+/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch, only once
+this module's outcome (`Built`/`Replayed`/`Failed`) is known — never interleaved before it. Each
+call site passes only warnings collected for that module's own `compileModule` call; a
+dependency's warnings are flushed separately by its own recursive call. `logLine` is pluggable
+(defaults to `eprintln`) so `Fugue.lean` can route it through its spinner instead. -/
+private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
+    (lines : List String.Slice) (colored : Bool) (warnings : List DriverWarning)
+    (logLine : String → m Unit) : m Unit :=
+  warnings.forM λ warning ↦ do
+    if ← FlagsEnv.isWarningEnabled warning.name then
+      logLine <| CompilerDiagnostic.pretty warning ((← warning.sourceLines).getD lines) colored
+
 private def runCli (p : Parsed) : IO UInt32 := do
   validateAndSetFlags p
 
@@ -204,12 +216,12 @@ private def runCli (p : Parsed) : IO UInt32 := do
     -- must still only ever count that module once done.
     let done ← IO.mkRef (∅ : Std.HashSet String)
 
-    let result ← runM <| compileModule source containingDir dumpName
+    let (warnings, result) ← runM <| compileModule source containingDir dumpName
       (onModuleEvent := λ name outcome ↦ do
         done.modify (·.insert name)
         let count := s!"[{(← done.get).size}/{(← discovered.get).size}]"
         let (dingbat, color, label) : String × Colorized.Color × String := match outcome with
-          | .built => ("✔", .Green, "Built")
+          | .built hadWarnings => (if hadWarnings then "⚠" else "✔", if hadWarnings then .Yellow else .Green, "Built")
           | .replayed => ("✔", .Cyan, "Replayed")
           | .failed => ("✖", .Red, "Failed")
         spinner.log <| styleIf colored .Bold <| colorizeIf colored color s!"{dingbat} {count} {label} {name}")
@@ -217,6 +229,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
         discovered.modify (·.insert name)
         spinner.setTitle s!"[{(← done.get).size}/{(← discovered.get).size}] Running on module '{name}'…")
       (logLine := λ line ↦ do spinner.log line)
+    flushWarnings lines colored warnings (λ m ↦ spinner.log m)
     match result with
     | .error e =>
       -- Print the actual error *before* ending the spinner — `Compilation failed.` is the final

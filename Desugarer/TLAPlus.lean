@@ -279,11 +279,14 @@ namespace SurfaceTLAPlus
 end SurfaceTLAPlus
 
 /-- Run expression desugaring against the concrete monad it needs: `@`'s Reader context,
-fresh-name generation, and error reporting — discarding the final fresh-name counter. -/
+fresh-name generation, and `MonadDiagnostic`'s error reporting/warning accumulation (instantiated
+at `DiagT`, so a warning survives a later fatal error — `PLAN.md` §9.14) — discarding the final
+fresh-name counter. No expression-level rule ever actually emits a `DesugarWarning` yet, but the
+concrete stack stays uniform with `Desugarer/PlusCal.lean`'s statement-level `runDesugarer`. -/
 def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] (mod : SurfaceTLAPlus.Module (SurfacePlusCal.Algorithm α (SurfaceTLAPlus.Expression α)) α) :
-    Except DesugarError (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
-  let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (StateT Nat (Except DesugarError)) _ := mod.desugar
-  (desugar.run none).run' 0
+    DiagT DesugarWarning DesugarError Id (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
+  let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (StateT Nat (DiagT DesugarWarning DesugarError Id)) _ := mod.desugar
+  ((desugar.run none).run' 0).run
 
 /-- Validate an annotation slot known to be `@type`-only: must contain only `@type`, and at most
 one, then is replaced by the `Typ` it names. Shared between the TLA⁺ half below

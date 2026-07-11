@@ -38,11 +38,14 @@ def Module.check (mod : CoreTLAPlus.Module SrcAlgorithm (Option Typ)) : m TypedM
 end CoreTLAPlus
 
 /-- Run the checker against its one concrete monad instantiation: `Γ`'s `ReaderT`, the
-metavariable/pending-bounds contexts and fresh-name counter as nested `StateT`s, and `TCError`
-reporting via `Except`. `Γ₀` is the caller-supplied initial context. -/
+metavariable/pending-bounds contexts and fresh-name counter as nested `StateT`s, and
+`MonadDiagnostic`'s `TCError`/`TCWarning` reporting via `DiagT` — so a warning emitted before a
+later fatal error still survives (`PLAN.md` §9.14). No checking rule emits a `TCWarning` yet, but
+the capability is wired through uniformly with every other pass. `Γ₀` is the caller-supplied
+initial context. -/
 def CoreTLAPlus.Module.runChecker (Γ₀ : Context) (mod : CoreTLAPlus.Module SrcAlgorithm (Option Typ)) :
-    Except TCError TypedModule :=
+    DiagT TCWarning TCError Id TypedModule :=
   let check : ReaderT Context
-      (StateT (MetavarContext Typ) (StateT PendingBounds (StateT Nat (Except TCError)))) TypedModule :=
+      (StateT (MetavarContext Typ) (StateT PendingBounds (StateT Nat (DiagT TCWarning TCError Id)))) TypedModule :=
     mod.check
-  (((check.run Γ₀).run' ∅).run' ∅).run' 0
+  ((((check.run Γ₀).run' ∅).run' ∅).run' 0).run

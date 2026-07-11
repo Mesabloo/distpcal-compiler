@@ -1125,14 +1125,17 @@ namespace SurfaceTLAPlus.Parser
       declarations₂ := decls₂.toList.filterMap λ x ↦ (λ y ↦ y @@ posOf x) <$> x
     }
 
-  /-- Parse a full module, returning any collected `ParserWarning`s alongside a successful
-  parse. -/
+  /-- Parse a full module, always pairing any collected `ParserWarning`s with the result —
+  whether or not parsing itself succeeded, so a warning emitted before a fatal parse error still
+  reaches the caller (`PLAN.md` §9.14). A `DiagT` in all but name (`Id` base) — ascribed that way
+  so `Driver/Modules.lean` can absorb it directly via `DiagT.lift`. -/
   def parseModule (tokens : Array (Located' (Token (Located' SurfacePlusCal.Token)))) :
-    Unexpected (Token (Located' SurfacePlusCal.Token)) ⊕ (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation) × List ParserWarning) :=
+    DiagT ParserWarning (Unexpected (Token (Located' SurfacePlusCal.Token))) Id
+      (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation)) :=
       let (res, warnings) := (parseModule'.run (Stream.mkOfList tokens.toList)).run []
-      match res with
-      | .error _ e => .inl <| errToUnexpected e
-      | .ok _ mod => .inr (mod, warnings)
+      (warnings, match res with
+      | .error _ e => .error <| errToUnexpected e
+      | .ok _ mod => .ok mod)
   where
     errToUnexpected : Parser.Error.Simple (Stream.OfList _) (Located' (Token (Located' SurfacePlusCal.Token))) → Unexpected _
       -- `n` points past the end of `tokens` when the error is genuinely "ran out of input"

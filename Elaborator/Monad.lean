@@ -58,5 +58,5 @@ class abbrev MonadElaborator (m : Type → Type) :=
   MonadReaderOf Context m,
   MonadWithReaderOf Context m,
   MonadMetavarContext TypedTLAPlus.Typ m,
-  MonadExceptOf TCError m,
+  MonadDiagnostic TCWarning TCError m,
   MonadFresh m
