@@ -73,6 +73,7 @@ ask before overturning).
 | CLI flag surface | **Settled**, GCC/Clang-style flag naming on top of `leanprover/Cli` (still the underlying framework, as in prior art — `--help`/`--version` come free from it): `-d<name>[=<value>]` (debugging options generally — AST dumps, but also e.g. `-dtiming` for per-pass timing, not just dumps), `-f<name>[=<value>]` (feature/config toggles, e.g. `-fno-color` to disable ANSI-colored diagnostic output — implemented, `Common/Errors.lean`'s `CompilerDiagnostic.pretty` takes a `colored` flag threaded from this), `-W<name>`/`-Wno-<name>` (per-warning control — e.g. `-Wno-fair` suppresses the `fair process`/`fair+`-ignored warning, §5.1), `-o`/`--output`, `-t`/`--target go|join`, `-I <path>` (add a module search path, see §5.3). Two details still open — Join Calculus "flavors" and where the Go `-p` package name lives — see §9.3. **Concrete invocation syntax, pinned down during Phase 2 (CLI wiring):** `leanprover/Cli` rejects the same named flag being given more than once (`duplicateFlag`) and parses `Array α`-typed flags as a single comma-separated occurrence, not true repetition — so each of `-d`/`-f`/`-W`/`-I` is one Cli flag of an `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style (`-dfoo -dbar`). This is a mechanical consequence of the library, not a design choice, and doesn't change the settled semantics above. **`-d dump-dir=<path>`** (default `.fugue/debug`; prior art's own default was `.pcvc`, changed since this is a fresh project with its own name) sets where `-d dump-tokens`/`-d dump-cst` write their output — as in prior art, dumps go to `<dump-dir>/<input-file-name>-tokens`/`-cst` files, not stdout; `-d dump-dir` without a value is a hard error. **`-d`/`-f`/`-W` names are validated against a hardcoded allowlist** (`knownDebugOptions`/`knownFeatures`/`knownWarnings`, `Fugue.lean`) — an unrecognized name is a hard CLI error, not silently accepted (a misspelled `-d`/`-f`/`-W` option previously landed in `FlagsEnv`'s map unnoticed, since nothing ever looked it up). Extend these three arrays by hand as later phases add dump points/features/warnings — no registration mechanism beyond that, deliberately, since the current set is small enough not to warrant one. |
 | Go runtime library location | **Settled: `runtime/go/` in this repo**, versioned alongside the compiler that targets it, not a separate repo (unlike prior art's implicit `github.com/mesabloo/distpcal-compiler/lib`). See §5.7. |
 | `Int` representation dispatch: machine `int` vs. `math/big` (Go backend, §5.7/§9.7) | **A compiler flag, target-specific to the Go backend** — not a per-`CONSTANT`/per-declaration type annotation. Resolves §9.21: the flag picks one of the two Go encodings the thesis's second July 2026 revision commits to (default machine `int`, opt-in `math/big`) for the whole compiled output, rather than deciding per-value or per-module. **Exact flag name not yet chosen** — see §9.3's third bullet for the naming detail still open. |
+| Name-provenance (which module declared a name) | **Tagged on the AST by the elaborator itself, not reconstructed later as a `Driver/Modules.lean` side table.** Resolves §9.22 (corrected after further review — an earlier pass at this decision proposed a `Driver/Modules.lean`-level `CacheEntry.provenance : Std.HashMap String String`, superseded before implementation started). Both `WellFormedness` (§5.2a, checks 2(c)/3) and `Network2Go` (§5.7, resolving whether a builtin-looking operator like `+`/`Naturals`, §9.19, is the real builtin or a user override) need to know which module declared a referenced name — but the elaborator already resolves every `.var` reference through `Γ`, and already knows at that point whether it's a binder or a top-level declaration and which module the latter came from. `Elaborator/Monad.lean`'s `Binding` gains an `origin : Origin` field (`.binder` / `.module name`), tagged at `Γ`-construction time (`Elaborator/Context.lean`'s `extend`/`extendAll` for binders; `Elaborator/Declarations.lean`'s own-declaration checking and `Driver/Modules.lean`'s imported-`Γ₀` fold for top-level names, both already knowing the relevant module name for free); `TypedTLAPlus.Expression.var` widens to carry that `Origin` so it survives past `Γ` (discarded after checking) into the checked AST, where downstream passes read it directly with no lookup. Only one real `.var`-construction site exists (`Elaborator/Expressions.lean`'s `inferExpr`), so this is a same-lookup tag, not an extra pass — smaller than the table-based design it replaces. A plain `lookupForeign : String → m (Option TypedModule)` (`MonadForeignLookup`, `Driver/Modules.lean`-backed) is still needed, only to fetch a foreign module's declaration list once its name is already known from `origin` — for checks 2(c)/3's "what kind of declaration is this / keep walking its body" half, not for provenance itself. |
 | Address visibility / deployment topology | **Accepted limitation, not fixed by this plan.** Distributed PlusCal lets any process know any other process's identity, so generated code can't principally avoid assuming worst-case full connectivity ("star" topology) between processes. A "minimal needed addresses" static analysis was considered but is **not planned work** — it's largely mooted by the nameserver-based addressing already settled for both backends (§5.6, §5.7). See §7's stretch list. |
 | Fairness (`isFair`, `fair process`/`fair+`) | **Largely ignored by the compiler** — there's no way to insert fairness into the target languages' runtimes (neither the generated Go's goroutine scheduler nor the Join Calculus's reaction-firing nondeterminism are made fairness-aware by this plan). `isFair` is still carried through the ASTs (parsing → both backends) for round-tripping/documentation purposes, but neither backend's compilation scheme (§5.6, §5.7) does anything with it. The parser emits a **warning** (§5.1) whenever a `fair process` / `fair+` annotation is encountered, telling the user it will be ignored. |
 | `CONSTANT` values, and process-set (`p ∈ S`) cardinality | **Left to the user of the compiled code, deliberately.** `CONSTANT`s are genuinely abstract entities (both their type and their value) as far as this compiler is concerned — they only get concretized when someone builds a real executable program out of the generated code, matching the existing "the compiler doesn't emit `main`" scope boundary (§5.7). No `ASSUME`-pinning requirement, no companion config file. Correspondingly, a process set `p ∈ S` does **not** compile to `S`-many spawned goroutines/definitions — each process definition compiles to a **single entry point** (a Go function, a Join Calculus process definition), parameterized over the process's own identity/address; the user is responsible for invoking that entry point once per concrete process they want running, with whatever address they choose. See §5.3, §5.6, §5.7. |
@@ -168,7 +169,7 @@ chapters and prior-art code as the only real guidance.
 | 4 | "Compiler verification, denotationally" | Stub (title only) — unchanged |
 | 5 | Guarded PlusCal → Network PlusCal | Stub in the thesis — but *implemented and proved* in the `fugue` repo's `main` branch. Read the code, not the thesis, for this pass. Unchanged in the July 2026 revision. |
 | 6 | Denotational account of Go | Fully written; heavy domain theory. See §6.4. Unchanged. |
-| 7 | Network PlusCal → Go, lock inference | **Further filled in by a second July 2026 revision**: §7.1 (atomicity/lock inference) unchanged, still fully written (§9.20). §7.2.1.1 (Go representations of each TLA+ type) is now fully written — see §5.7 below for the new subsection, and §9.21 for the numeric-dispatch question it raises. §7.2.1.2 (compiling TLA+ *expressions*) and §7.2.2 (compiling Network PlusCal *statements*) remain mostly stub — framing prose only, with the boolean/set/function-operator subsections still bare placeholders. §7.3 (correctness sketch) is still a stub (header only). Notably the thesis itself flags `Channel(τ)`'s Go representation as an open task, same open question as §9.12 — this revision doesn't resolve that one. |
+| 7 | Network PlusCal → Go, lock inference | **Filled in further still by a third July 2026 revision (commit `c2bbf8f`, 2026-07-11)**, on top of the second revision's changes. §7.1 (atomicity/lock inference) unchanged, still fully written (§9.20). §7.2 has been renumbered as it's filled in: §7.2.1.1 (Go representations of each TLA+ type, incl. the `Channel(τ)` resolution below) and **§7.2.1.2 (compiling TLA+ *expressions* — booleans/quantifiers, sets, functions) are now both fully written**, and a **new §7.2.2 ("Compiling operator and function definitions")** has been split out and is also fully written (non-recursive vs. parametric operators, recursive functions via a tie-the-knot `MkRecFn`). What was previously called "§7.2.2" (statement-level Network PlusCal → Go compilation) is renumbered **§7.2.3** and remains a stub — one framing paragraph, no content. §7.3 (correctness sketch) is still a stub (header only), same as before. **The `Channel(τ)` open task is now resolved in the thesis itself**: "channels are not first-class citizens in Distributed PlusCal, [so] we do not (need to) represent `Channel(τ)` in the general case" — narrows but doesn't close §9.12 (see there). See §5.7 below for the full digest of the new §7.2.1.2/§7.2.2 content. |
 | 8 | Network PlusCal → the Join Calculus | Fully written, including a worked Ping-Pong example. This is the primary spec for the new backend; §5.6 below is a condensed version. Unchanged in the July 2026 revision. |
 | 9 | Conclusion | Stub (title only) — unchanged |
 
@@ -1409,17 +1410,77 @@ only gestured at:
   user — consistent with the `CONSTANT` scope boundary above.
 - `Address` → an unspecified interface, decaying to a constrained generic argument in
   generated code.
-- `Channel(τ)` → **explicitly still an open task in the thesis itself** ("What do we do of
-  `Channel(τ)`? [task]") — not something only this plan hasn't gotten to. Consistent with,
-  and no more resolved than, §9.12's open cross-process `send` question.
+- `Channel(τ)` → **resolved as of the third July 2026 revision (commit `c2bbf8f`)**: "since
+  channels are not first-class citizens in Distributed PlusCal, we do not (need to)
+  represent `Channel(τ)` in the general case" — i.e. there's no general-purpose Go value
+  representation to design, because a channel is never stored in a variable, passed
+  around, or put in a data structure as an ordinary TLA+ value; it only ever appears
+  indexed (`c[α]`) at a `send`/`receive` site. **This narrows, but doesn't close, §9.12**:
+  it answers "what Go *type* represents a channel value" (answer: none needed), not "what
+  does `send(c, e)` to a different process actually compile to on the wire" (still open —
+  see §9.12).
 
-§7.2.1.2 (compiling TLA+ *expressions*, as opposed to *types*) is still almost entirely
-unwritten — general framing prose only, with the boolean-operator, set-operator, and
-function-operator subsections each a bare placeholder. §7.2.2 (statement-level Network
-PlusCal → Go compilation) and §7.3 (correctness sketch) are likewise still stub headers.
-None of this changes anything already decided elsewhere in this plan — it narrows the
-type-representation half of §9.7 without resolving the numeric-dispatch question it
-raises (§9.21), and doesn't touch §9.12.
+**§7.2.1.2 and §7.2.2, both new as of the third July 2026 revision (commit `c2bbf8f`,
+2026-07-11) — compiling TLA+ expressions, operators, and functions.** Both are now fully
+written (superseding the earlier "almost entirely unwritten" state); §7.2.3 (statement-level
+Network PlusCal → Go compilation, the section this plan previously called "§7.2.2" before
+the renumbering — see §3.3) and §7.3 (correctness sketch) remain stubs, so the actual
+process/thread/atomic-block compilation scheme is still undesigned. Digest of the new
+material:
+
+- **Equality/ordering.** Go's builtin `==`/`comparable` can't be implemented for custom
+  types and falls short for the complex TLA+ types anyway (order-irrelevant set equality,
+  sets-of-sets needing deep order-irrelevance, lazy maps not comparing all entries). The
+  thesis defines its own `Eq[T]`/`Ord[T]` interfaces (`Ord` extends `Eq`, adds `Gt`/`Lt`,
+  with `Le`/`Ge`/`Cmp` derived generically) and has every wrapper type implement them —
+  including primitive types, which need a local newtype (`type Bool bool`, etc.) since Go
+  interfaces can't be implemented for non-local types. Port `Eq`/`Ord` as part of the
+  runtime library (below), and every generated type implements them, not just the ones
+  that happen to need comparison at a given use site.
+- **Booleans.** `/\`/`\/` compile to Go's short-circuiting `&&`/`||` (sound because
+  non-action, non-temporal TLA+ expressions are pure — no observable side effect from
+  skipping evaluation of one side). `\A x \in S : P`/`\E x \in S : P` compile to a search
+  over `S` for the first counterexample/witness (via De Morgan equivalence between the
+  two).
+- **Sets.** `{x \in S : P}`/`{e : x \in S}` compile via `SetFilter`/`SetMap` helpers,
+  copying the underlying slice rather than mutating `S` in place (TLA+ data is immutable).
+  `CHOOSE x \in S : P` — needing to be *deterministic* (`CHOOSE x \in S : P` always picks
+  the same element for the same `S`/`P`) — compiles to filter-then-take-minimum-by-`Ord`
+  (`SetFilter` then `slices.MinFunc` against `Cmp`), not a random pick; this only requires
+  an `Ord` (not just `Eq`) constraint on the element type at `CHOOSE`'s own call site, not
+  everywhere a `Set(τ)` is used, since Go generics resolve constraints per call site.
+  Panics on an empty result set.
+- **Functions.** Still lazy maps (§7.2.1.1), but since Go's builtin `map[T]U` requires `T`
+  to implement `comparable` (which the custom `Eq`/`Ord` interfaces don't satisfy), the
+  thesis switches the underlying storage away from `map[T]U` to an ordered-map structure
+  keyed by a comparator derived from `Ord.Lt`. The thesis's own text gestures at the
+  external `github.com/igrmk/treemap` package for this, but **per the project owner, this
+  plan does not take that dependency — see `.claude/plans/persistent-collections-plan.md`,
+  a home-grown, persistent (immutable, structurally-shared) `TreeMap[K, V]` in
+  `persistent/treemap/`** (weight-balanced tree, `Compare func(a, b K) int`-parameterized,
+  O(1) `Clone`/O(log n) `Insert`/`Delete`/`Get`, no `comparable` constraint). This isn't
+  just a not-invented-here swap: `EXCEPT` (function overloading) always clones the
+  underlying map before writing, so `[f EXCEPT ![3] = 7][3] = 7 /\ f[3] # 7` holds — with a
+  genuinely persistent tree, that clone is O(1) via structural sharing rather than an O(n)
+  full copy, which a mutable external map would force. See the runtime library paragraph
+  below.
+- **Operator/function definitions (§7.2.2, a newly-split-out section — see §3.3).**
+  Parameter-less operators compile to a plain (mutable, in Go's
+  own type system — "immutable" is a documentation convention here, not
+  compiler-enforced, since most TLA+ value types aren't in Go's small set of `const`-eligible
+  types) `var`, initialized once. Parametric operators — recursive or not, Go supports
+  mutually-recursive top-level functions natively — compile straightforwardly to Go
+  functions; names are capitalized in the generated code (Go's own public/private
+  convention) regardless of original casing, except `LOCAL` definitions. **Recursive
+  *functions*** (as opposed to recursive operators) need a bootstrapping trick, since the
+  generator closure has to call back into the very `LazyFunction` it's building: `MkRecFn`
+  allocates the `LazyFunction` first with a `nil` generator, then overwrites `.gen` with a
+  closure capturing the function itself by reference (Go closures capture variables, not
+  values) — "ties the knot" so the closure can call back into its own cache once invoked,
+  without ever being invoked before construction completes.
+
+None of this changes anything already decided elsewhere in this plan — it doesn't touch
+§9.7's already-settled numeric-dispatch question (§9.21) or reopen anything in §2.
 
 **Runtime library.** `Core/Go`'s pretty-printer assumes a companion Go package (prior art:
 `github.com/mesabloo/distpcal-compiler/lib`, which will need to be furnished for this
@@ -1431,7 +1492,15 @@ providing: TLA+ value encodings (`Seq`,
 into a proper, reusable runtime component rather than per-example copies). This library
 is part of this project's deliverables, not an external dependency — **settled: lives in
 `runtime/go/` in this repo**, alongside the Lean sources, versioned together with the
-compiler that targets it.
+compiler that targets it. **New concrete requirement, from the third July 2026 revision's
+§7.2.1.2/§7.2.2 (above):** the `Eq`/`Ord` interfaces and their implementations for every
+generated wrapper/newtype belong here too, and lazy functions need an ordered-map backing
+store in place of `map[T]U` (since `T` is constrained by the custom `Ord`, not Go's builtin
+`comparable`). **Settled per the project owner: no external dependency for this** — use the
+home-grown persistent `persistent/treemap` package instead of the thesis's own suggestion
+of the external `github.com/igrmk/treemap`, per
+`.claude/plans/persistent-collections-plan.md` (see the "Functions" bullet above for why
+persistence specifically, not just ordering, is the actual payoff).
 
 **The compiler does not emit a `main` function, or a runnable program on its own.**
 `Network2Go` produces Go source — types and functions — not a deployable binary; the
@@ -1839,6 +1908,17 @@ persistence is actually added:
 
 ### 9.12 `send(c, e)`'s actual Go compilation scheme is unknown
 
+**Partially narrowed by the third July 2026 thesis revision (commit `c2bbf8f`,
+2026-07-11):** the thesis now explicitly resolves the adjacent question of whether
+`Channel(τ)` needs a general-purpose Go value representation — it doesn't, because
+channels "are not first-class citizens in Distributed PlusCal" (§5.7, §3.3). That answers
+"what Go type does a channel value have" (none — a channel is never stored, passed
+around, or put in a data structure the way an ordinary TLA+ value is; it only appears
+indexed, `c[α]`, at a `send`/`receive` site). It does **not** answer this section's actual
+open question, which is about wire mechanics, not representation: connection lifecycle,
+serialization format, and how a channel's identity travels alongside its payload once
+`send(c, e)` targets a different process. Everything below remains open.
+
 §5.7 describes `Network2Go/PlusCal.lean` as "already gets essentially everything right"
 except lock inference, and separately lists the hand-written `tests/*/{lib,nameserver}`
 scaffolding (TCP/UDP address resolution, a name-server process) as directly reusable —
@@ -2175,4 +2255,24 @@ channel-capacity discussion and with `lib/tlaplus.go`'s existing `Seq`/`Set`/fun
 encodings, which would need to be generic over (or duplicated across) both numeric
 backings if a single spec is ever allowed to mix them — that composition question isn't
 resolved by picking the flag mechanism, only by-value-vs-by-flag was.
+
+### 9.22 Name-provenance: `Driver`-level side table, or tagged on the AST by the elaborator? — resolved, moved to §2
+
+Surfaced while starting the well-formedness checking implementation (§5.2a, task 1):
+`~/.claude/plans/jolly-chasing-book.md`'s first pass at provenance plumbing
+(`CacheEntry.provenance`, `MonadForeignLookup` returning a `Std.HashMap`) was written up
+purely to serve checks 2(c)/3's cross-module lookup need, reconstructed in `Driver/Modules.
+lean` *after* type checking. The project owner first pointed out `Network2Go` (§5.7) needs
+the exact same fact later — given a builtin-looking operator call like `+`, whether it
+resolves to the real `Naturals` builtin (§9.19) or a user override declared in the compiled
+module itself, which decides native-Go-operator vs. call-into-user-code codegen — then, once
+that generalization was underway, raised the sharper objection: the elaborator already
+resolves every `.var` through `Γ` and already knows, right there, whether a name is a binder
+or a top-level declaration and which module the latter came from, so reconstructing it again
+afterward as a side table duplicates work already done, with strictly less information
+available (no operator/function body, worse error messages). Asked the project owner
+directly; **resolved: tag `Binding` with its origin at `Γ`-construction time and bake that
+origin onto `TypedTLAPlus.Expression.var` itself**, so it survives past `Γ` (discarded after
+checking) into the checked AST — see §2's new row for the concrete shape. Superseded the
+`CacheEntry.provenance`/table-based design before any of it was implemented.
 

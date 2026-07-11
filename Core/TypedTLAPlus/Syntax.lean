@@ -31,15 +31,35 @@ abbrev Typ := SurfaceTLAPlus.Typ
 /-- The type used to identify a not-yet-resolved metavariable `?n`. -/
 abbrev MVarId := Nat
 
+/-- Where a name resolved via `Γ` came from: an ordinary binder; a top-level declaration of some
+real or simulated module (`name` — own, imported, or a `builtinModules` entry like `Naturals`/
+`Sequences`); or `intrinsic`, for a name with no owning module at all — real TLA⁺'s own core
+syntax (`=`, `/\`, `\in`, `\cup`, `DOMAIN`, …), never `EXTENDS`-gated, matching `builtinContext`'s
+own scope after §9.19's resolution. `intrinsic` is not a fake module name (`"<builtin>"` would
+misrepresent a core-language primitive as if it came from some module called that) — an operator
+that *does* come from a real module (e.g. `Len`/`Sequences`, `..`/`Naturals`) is tagged
+`.module "Sequences"`/`.module "Naturals"` instead, even when synthesized by the compiler itself
+(`Elaborator/Subtyping.lean`'s coercion machinery). Tagged at `Γ`-construction time
+(`Elaborator/Context.lean`, `Elaborator/Declarations.lean`, `Driver/Modules.lean`) and baked
+directly onto `Expression.var` below, so it survives past `Γ` (discarded once checking finishes)
+into the checked AST — later passes (`WellFormedness`, `Network2Go`) read it straight off a
+`.var` node, no further lookup needed to know which module a name came from. Not a third type
+parameter on `Expression`: unlike `α`, this doesn't vary by stage/instantiation. -/
+inductive Origin : Type
+  | binder
+  | intrinsic
+  | «module» (name : String)
+  deriving Repr, Inhabited, BEq
+
 /--
   TLA⁺ expressions after type checking. `α` is always instantiated at `Typ` by the checker's
   actual output — kept generic to match `CoreTLAPlus.Expression`'s own shape. Identical to
   `CoreTLAPlus.Expression` node-for-node except: `var` gains a trailing type (the `Γ`-lookup
-  result); `mvar`/`seq` are new.
+  result) and an `Origin`; `mvar`/`seq` are new.
 -/
 inductive Expression (α : Type) : Type
-  /-- An unqualified identifier, now with its type resolved via `Γ`. -/
-  | var : String → α → Expression α
+  /-- An unqualified identifier, now with its type resolved via `Γ` and its `Origin` recorded. -/
+  | var : String → α → Origin → Expression α
   /-- An operator application `f(e₁, …, eₙ)`. -/
   | opCall : Expression α → List (Expression α) → Expression α
   /-- Bounded or unbounded universal quantification. -/
@@ -104,7 +124,7 @@ inductive Expression (α : Type) : Type
 -- Structural recursion isn't visibly decreasing to Lean here (nested `List`/`Option` occurrences
 -- of `Expression`) — `partial` until revisited.
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
-  | .var v τ, pos => .var v (f τ) @@ pos
+  | .var v τ o, pos => .var v (f τ) o @@ pos
   | .nat n, pos => .nat n @@ pos
   | .str s, pos => .str s @@ pos
   | .true, pos => .true @@ pos
@@ -139,7 +159,7 @@ instance : Functor Expression where
 
 local instance {F : Type → Type} [Applicative F] {α} : Inhabited (F (Expression α)) := ⟨pure .true⟩ in
 protected partial def Expression.traverse {F : Type → Type} [Applicative F] {α β} (f : α → F β) (e : Expression α) : F (Expression β) := match_source e with
-  | .var v τ, pos => (.var v · @@ pos) <$> f τ
+  | .var v τ o, pos => (.var v · o @@ pos) <$> f τ
   | .nat n, pos => pure <| .nat n @@ pos
   | .str s, pos => pure <| .str s @@ pos
   | .true, pos => pure <| .true @@ pos

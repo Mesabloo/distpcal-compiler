@@ -13,7 +13,7 @@ correct `<:` relation recursively, but only returns a coercion when the sub-coer
 `.id`. `Channel` only supports subtyping via plain reflexivity (`τ = τ'`); a `receive`'s
 element-vs-reference coercion is computed directly rather than through `Channel(τ) <: Channel(τ')`. -/
 
-open TypedTLAPlus (Typ MVarId Expression Coercion Expr)
+open TypedTLAPlus (Typ MVarId Expression Coercion Expr Origin)
 
 /--
   The three outcomes of a subtyping check — not a plain success/failure, since an unresolved
@@ -55,20 +55,23 @@ instance {m} [Monad m] [MonadStateOf PendingBounds m] : MonadPendingBounds m whe
   pendingUpperBounds n := return (← getThe PendingBounds).bounds.getD n []
   addPendingUpperBound n τ := modify λ ⟨bounds⟩ ↦ ⟨bounds.insert n (τ :: bounds.getD n [])⟩
 
-/-- A builtin operator referenced as a value. -/
-private def builtin (name : String) (τ : Typ) : Expr := .var name τ
+/-- A builtin operator referenced as a value, tagged with its real owning module — `.intrinsic`
+for genuine core TLA⁺ syntax (never `EXTENDS`-gated), `.module name` for an operator that really
+does belong to a standard module (e.g. `Len`/`Sequences`, `..`/`Naturals`), even though this
+reference itself is synthesized by the coercion machinery rather than written by the user. -/
+private def builtin (name : String) (τ : Typ) (origin : Origin) : Expr := .var name τ origin
 
 /-- `Str <: Seq(Int)` — `"Str2Seq"` is a placeholder builtin name pending a real bundled-stub
-operator table. -/
+operator table, so it has no real owning module either. -/
 private def strToSeqCoercion (e : Expr) : Expr :=
-  .opCall (builtin "Str2Seq" (.operator [.str] (.seq .int))) [e]
+  .opCall (builtin "Str2Seq" (.operator [.str] (.seq .int)) .intrinsic) [e]
 
 /-- `Seq(τ) <: Int → τ` — `[i ∈ 1..Len(e) ↦ e[i]]`. `i` must already be a fresh name chosen by
 the caller. -/
 private def seqToFunCoercion (τ : Typ) (i : String) (e : Expr) : Expr :=
-  let range : Expr := .opCall (builtin ".." (.operator [.int, .int] (.set .int)))
-    [.nat "1", .opCall (builtin "Len" (.operator [.seq τ] .int)) [e]]
-  .fn i .int range (.fnCall e (.var i .int))
+  let range : Expr := .opCall (builtin ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
+    [.nat "1", .opCall (builtin "Len" (.operator [.seq τ] .int) (.module "Sequences")) [e]]
+  .fn i .int range (.fnCall e (.var i .int .binder))
 
 /-- `⟨τ,...,τ⟩ <: Seq(τ)` (uniform tuple only) — a tuple's arity `n` is static, so the result is
 just a literal `.seq` of the `n` projected, coerced components. -/
@@ -77,7 +80,7 @@ private def tupleToSeqCoercion (n : Nat) (τ : Typ) (e : Expr) : Expr :=
 
 /-- `Set(τ) <: Set(τ')` — `{coerce(x) : x ∈ e}`. -/
 private def setCoercion (x : String) (τ : Typ) (c : Coercion) (e : Expr) : Expr :=
-  .map' (c.apply (.var x τ)) x τ e
+  .map' (c.apply (.var x τ .binder)) x τ e
 
 /-- `⟨τ₁,...,τₙ⟩ <: ⟨τ₁',...,τₙ'⟩` — a new literal tuple, each component projected out of `e`
 (tuples being encoded as unary functions from naturals) and coerced. -/
@@ -94,12 +97,12 @@ private def recordCoercion (fields : List (String × Coercion × Typ)) (e : Expr
 DOMAIN(f)} ↦ coerceRng(f[CHOOSE x ∈ DOMAIN(f) : coerceDom(x) = y])]`. -/
 private def functionCoercion
     (x y : String) (dom rng dom' : Typ) (cDom cRng : Coercion) (f : Expr) : Expr :=
-  let domainExpr : Expr := .opCall (builtin "DOMAIN" (.operator [.function dom rng] (.set dom))) [f]
-  let newDomain : Expr := .map' (cDom.apply (.var x dom)) x dom domainExpr
+  let domainExpr : Expr := .opCall (builtin "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic) [f]
+  let newDomain : Expr := .map' (cDom.apply (.var x dom .binder)) x dom domainExpr
   let eqTy : Typ := .operator [dom', dom'] .bool
   let recoveredArg : Expr :=
     .choose x dom (some domainExpr)
-      (.opCall (builtin "=" eqTy) [cDom.apply (.var x dom), .var y dom'])
+      (.opCall (builtin "=" eqTy .intrinsic) [cDom.apply (.var x dom .binder), .var y dom' .binder])
   .fn y dom' newDomain (cRng.apply (.fnCall f recoveredArg))
 
 variable {m : Type → Type} [Monad m] [MonadMetavarContext Typ m] [MonadPendingBounds m]

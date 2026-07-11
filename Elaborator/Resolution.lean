@@ -20,7 +20,7 @@ local instance : Inhabited (m Expr) := ⟨pure default⟩
   a second pass over this pass's output.
 -/
 partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
-  | .var v τ, pos => return .var v τ @@ pos
+  | .var v τ o, pos => return .var v τ o @@ pos
   | .nat n, pos => return .nat n @@ pos
   | .str s, pos => return .str s @@ pos
   | .true, pos => return .true @@ pos

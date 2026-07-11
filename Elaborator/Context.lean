@@ -5,15 +5,15 @@ open TypedTLAPlus (Typ)
 variable {m : Type → Type} [Monad m] [MonadElaborator m]
 
 /-- Extend `Γ` with one more binding for the scope of `act` — always monomorphic (`isScheme :=
-false`, the `Binding` default): every caller of `extend`/`extendAll` is introducing a binder, not
-a top-level declaration. -/
+false`, the `Binding` default) and always `origin := .binder`: every caller of
+`extend`/`extendAll` is introducing a binder, not a top-level declaration. -/
 def extend {α} (x : String) (τ : Typ) (act : m α) : m α :=
-  withTheReader Context (·.insert x { type := τ }) act
+  withTheReader Context (·.insert x { type := τ, origin := .binder }) act
 
 /-- Extend `Γ` with every binding in `bindings` for the scope of `act`, later entries shadowing
 earlier ones on conflict. -/
 def extendAll {α} (bindings : List (String × Typ)) (act : m α) : m α :=
-  withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, τ) ↦ ctx'.insert x { type := τ }) act
+  withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, τ) ↦ ctx'.insert x { type := τ, origin := .binder }) act
 
 /-- Extend `Γ` with a list of already-tagged `Binding`s (each carrying its own `isScheme`) for
 the scope of `act` — used where the caller has just checked a whole top-level declaration list

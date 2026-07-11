@@ -176,10 +176,10 @@ mutual
     | .var x, pos => do
       match (← readThe Context).get? x with
       | none => throw (.unboundVariable pos x)
-      | some { type := τ, isScheme := true } => do
+      | some { type := τ, isScheme := true, origin } => do
         let τ' ← specializeType τ
-        return (τ', .var x τ' @@ pos)
-      | some { type := τ, isScheme := false } => return (τ, .var x τ @@ pos)
+        return (τ', .var x τ' origin @@ pos)
+      | some { type := τ, isScheme := false, origin } => return (τ, .var x τ origin @@ pos)
     /-
       ────────────── [Number]
        Γ ⊢ n ⇑ Int

@@ -23,10 +23,10 @@ variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m
 /-- `Γ ⊢ M typeok`: `declarations₁`, then the embedded algorithm (if any), then `declarations₂`
 against the same `Γ` `declarations₁` left behind. -/
 def Module.check (mod : CoreTLAPlus.Module SrcAlgorithm (Option Typ)) : m TypedModule := do
-  let (decls1', bindings1) ← checkDeclarations mod.declarations₁
+  let (decls1', bindings1) ← checkDeclarations mod.name mod.declarations₁
   extendAllBindings bindings1 do
     let pcalAlgorithm' ← mod.pcalAlgorithm.mapM checkAlgorithm
-    let (decls2', _) ← checkDeclarations mod.declarations₂
+    let (decls2', _) ← checkDeclarations mod.name mod.declarations₂
     return {
       name := mod.name
       «extends» := mod.extends

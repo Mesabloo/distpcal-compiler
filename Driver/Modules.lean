@@ -179,7 +179,8 @@ private def defaultDumpDir : System.FilePath := ".fugue/debug"
 `Decl` rather than by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
 declarations into a fresh `Γ₀` — all of a dependency's own `params`/`defs` come into scope, not
 just its exported operators. PlusCal-internal declarations are never included, since they never
-leak into a module's `Γ` in the first place.
+leak into a module's `Γ` in the first place. `moduleName` (`depMod.name` at the one call site) is
+what declared this `Decl` — tags every returned binding's `Origin` accordingly (PLAN.md §9.22).
 
 A `constants`/`variables` binding is never a scheme (`Binding.isScheme := false`); an
 `operator`/`function` binding always is, any arity — matches `Elaborator/Declarations.lean`'s
@@ -187,12 +188,12 @@ A `constants`/`variables` binding is never a scheme (`Binding.isScheme := false`
 0-ary builtin like `Bags`'s `EmptyBag` (`Driver/Builtins.lean`) get freshened on every reference
 without `Driver/Builtins.lean` itself needing any change — arity alone (already present on every
 `Decl.operator`) decides `isScheme`. -/
-private def Decl.bindings : Decl → List (String × Binding)
-  | .constants xs => xs.map λ (x, τ) ↦ (x, { type := τ })
-  | .variables xs => xs.map λ (x, τ) ↦ (x, { type := τ })
+private def Decl.bindings (moduleName : String) : Decl → List (String × Binding)
+  | .constants xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName })
+  | .variables xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName })
   | .assume _ => []
-  | .operator τ f _ _ => [(f, { type := τ, isScheme := true })]
-  | .function τ f _ _ => [(f, { type := τ, isScheme := true })]
+  | .operator τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName })]
+  | .function τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName })]
 
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
@@ -295,7 +296,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
 
   let typed ← reportFailureOnThrow lines colored logLine onModuleEvent mod.name warnings do
     let importedBindings := deps.flatMap λ (_, depMod) ↦
-      (depMod.declarations₁ ++ depMod.declarations₂).flatMap Decl.bindings
+      (depMod.declarations₁ ++ depMod.declarations₂).flatMap (Decl.bindings depMod.name)
     let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
     let typed ← match mod.runChecker Γ₀ with
       | .error e => throw (.typeCheck moduleId e)

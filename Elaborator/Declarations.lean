@@ -35,22 +35,22 @@ freshened into their own metavariable at every reference (`specializeType`,
 `Elaborator/Expressions.lean`'s `inferExpr`). -/
 def builtinContext : Context := Std.HashMap.ofList [
   -- Equality.
-  ("=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true }),
-  ("/=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true }),
+  ("=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true, origin := .intrinsic }),
+  ("/=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true, origin := .intrinsic }),
   -- Boolean connectives.
-  ("/\\", { type := .operator [.bool, .bool] .bool, isScheme := true }),
-  ("\\/", { type := .operator [.bool, .bool] .bool, isScheme := true }),
-  ("=>", { type := .operator [.bool, .bool] .bool, isScheme := true }),
-  ("<=>", { type := .operator [.bool, .bool] .bool, isScheme := true }),
-  ("\\neg", { type := .operator [.bool] .bool, isScheme := true }),
+  ("/\\", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("\\/", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("=>", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("<=>", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
+  ("\\neg", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
   -- Sets.
-  ("\\in", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true }),
-  ("\\notin", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true }),
-  ("\\subseteq", { type := .operator [.set (.var "a"), .set (.var "a")] .bool, isScheme := true }),
-  ("\\cup", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true }),
-  ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true }),
-  ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true }),
-  ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true }),
+  ("\\in", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true, origin := .intrinsic }),
+  ("\\notin", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true, origin := .intrinsic }),
+  ("\\subseteq", { type := .operator [.set (.var "a"), .set (.var "a")] .bool, isScheme := true, origin := .intrinsic }),
+  ("\\cup", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
+  ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
+  ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
+  ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
 ]
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
@@ -72,7 +72,7 @@ a scheme (`Binding.isScheme := false`, even if its annotation happens to mention
 `CONSTANT` is one fixed, if abstract, value, not a family of them to instantiate fresh per
 reference. An `operator`/`function` definition's own returned binding *is* a scheme, any arity —
 see each case below. -/
-def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Binding)) := match d with
+def checkDeclaration (moduleName : String) (d : SrcDecl) : m (Decl × List (String × Binding)) := match d with
   /-
      ∀ 1 ≤ i ≤ n, xᵢ ∉ Γ
     ───────────────────────────────────────────────────── [Constants]
@@ -82,13 +82,13 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Binding)) := mat
   -/
   | .constants xs => do
     let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"CONSTANT `{x}`" ann)
-    return (.constants xs', xs'.map λ (x, τ) ↦ (x, { type := τ }))
+    return (.constants xs', xs'.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName }))
   /-
     Same shape as [Constants].
   -/
   | .variables xs => do
     let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"VARIABLE `{x}`" ann)
-    return (.variables xs', xs'.map λ (x, τ) ↦ (x, { type := τ }))
+    return (.variables xs', xs'.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName }))
   /-
      Γ ⊢ e ⇓ Bool
     ─────────────────── [Assumption]
@@ -117,7 +117,7 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Binding)) := mat
     | [], retTy => do
       let body' ← checkExpr body retTy
       let body' ← resolveMVars body'
-      return (.operator retTy f args body', [(f, { type := retTy, isScheme := true })])
+      return (.operator retTy f args body', [(f, { type := retTy, isScheme := true, origin := .module moduleName })])
     | _, .operator paramTys retTy =>
       if paramTys.length ≠ args.length then
         throw (.arityMismatch (posOf body) paramTys.length args.length)
@@ -126,7 +126,7 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Binding)) := mat
         let bindings := args.map Prod.fst |>.zip paramTys
         let body' ← extendAll bindings (checkExpr body retTy)
         let body' ← resolveMVars body'
-        return (.operator τ f args body', [(f, { type := τ, isScheme := true })])
+        return (.operator τ f args body', [(f, { type := τ, isScheme := true, origin := .module moduleName })])
     | _, _ => throw (.notAnOperatorType (posOf body) τ)
   /-
      f ∉ Γ       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇓ Set(τᵢ)       Γ, f : ⟨τ₁, …, τₙ⟩ → τ, x₁ : τ₁, …, xₙ : τₙ ⊢ e ⇓ τ
@@ -149,14 +149,14 @@ def checkDeclaration (d : SrcDecl) : m (Decl × List (String × Binding)) := mat
       let bindings := (f, τ) :: (args.map Prod.fst |>.zip τs)
       let body' ← extendAll bindings (checkExpr body retTy)
       let body' ← resolveMVars body'
-      return (.function τ f args' body', [(f, { type := τ, isScheme := true })])
+      return (.function τ f args' body', [(f, { type := τ, isScheme := true, origin := .module moduleName })])
     | _ => throw (.notAFunctionType (posOf body) τ)
 
 /-- `Γ ⊢ D₁, …, Dₙ ⊣ Γ'` — checks a whole declaration list, threading `Γ` through each one.
 Returns the accumulated `Γ' \ Γ` bindings alongside the checked declarations. -/
-def checkDeclarations : List SrcDecl → m (List Decl × List (String × Binding))
+def checkDeclarations (moduleName : String) : List SrcDecl → m (List Decl × List (String × Binding))
   | [] => return ([], [])
   | d :: ds => do
-    let (d', bindings) ← checkDeclaration d
-    let (ds', restBindings) ← extendAllBindings bindings (checkDeclarations ds)
+    let (d', bindings) ← checkDeclaration moduleName d
+    let (ds', restBindings) ← extendAllBindings bindings (checkDeclarations moduleName ds)
     return (d' :: ds', bindings ++ restBindings)
