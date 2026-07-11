@@ -51,8 +51,26 @@ Desugared AST — annotations stripped into concrete fields (types, mailbox, par
 ## `Core/TypedPlusCal/`, `Core/TypedTLAPlus/`
 Typed AST — `Elaborator`'s output, every annotation resolved to concrete `Typ` (no more
 `Option Typ`/metavariables).
-- `Syntax.lean` (each) — the AST types.
+- `Syntax.lean` (`TypedTLAPlus/`) — the AST types.
+- `Syntax.lean` (`TypedPlusCal/`) — `ElaboratedPlusCal.{Ref,MulticastFilter,Statement,Block,
+  Branches,Declarations,Process,Algorithm}`, generic over `(τ ε : Type)`, plus `TypedPlusCal`'s
+  own pin of that layer at `TypedTLAPlus.Typ`/`Expression` — the shared generic layer
+  `Core/ComputablePlusCal/Syntax.lean` pins again at `ComputableTLAPlus`'s types instead.
 - `Coercion.lean` (`TypedTLAPlus/` only) — term-level coercions inserted by subtyping (`<:`).
+- `Builtins.lean` (`TypedTLAPlus/` only) — the shared builtin-operator table (`BuiltinOp`,
+  `builtinOpOf?`, `Expression.recognizeBuiltin?`), keyed by `(Origin, name)`; also
+  `reservedTemporalActionNames`. Any pass downstream of type checking recognizing a builtin
+  call reuses this instead of keeping its own list.
+
+## `Core/ComputableTLAPlus/`, `Core/ComputablePlusCal/`
+`Typed2Computable`'s output AST — `TypedTLAPlus`/`TypedPlusCal` minus the handful of
+constructs with no finite runtime representation (`PLAN.md` §5.3).
+- `Syntax.lean` (`ComputableTLAPlus/`) — `Expression`, missing `fforall`/`eexists`/`stutter`/
+  `mvar`/`fnSet`/`recordSet` relative to `TypedTLAPlus.Expression`; `forall`/`exists`/
+  `choose`'s domain is a plain `Expression`, not `Option (Expression)`. `Typ`/`Origin` reused
+  directly from `TypedTLAPlus` (not re-copied).
+- `Syntax.lean` (`ComputablePlusCal/`) — pins `ElaboratedPlusCal` (`Core/TypedPlusCal/
+  Syntax.lean`) at `ComputableTLAPlus`'s types.
 
 ## `Desugarer/`
 Surface → Core lowering (`PLAN.md` §3.2).
@@ -71,6 +89,12 @@ ahead of its own phase slot, and isn't duplicated here.
 - `Errors.lean` — `WellFormednessError` variants.
 - `Monad.lean` — `MonadForeignLookup` (fetch a module's checked declarations by name; the one
   seam into `Driver/`'s module cache), plus generic `StateT`/`ExceptT` lift instances for it.
+- `Reachability.lean` — the shared reachability walk, reused by `Restrictions.lean` below and
+  by `Typed2Computable`: `ResolvedDecl`/`Decl.resolve`/`resolveInModule` (name resolution
+  against a module's declaration list), `ReachabilityClosure` (every `(module, name)` pair
+  resolved so far), `Expression`/`Statement`/`Algorithm.walkReachable` (the traversal itself,
+  each taking thin per-node callbacks — `Restrictions.lean` supplies its real checks,
+  `Typed2Computable` supplies no-ops and just keeps the closure).
 - `Labelling.lean` — every `goto` targets a label its process actually defines, or `"Done"`;
   `"Done"` itself is never redefined.
 - `WellScoped.lean` — no duplicate/shadowed names in any scope (global, process-local,
@@ -78,12 +102,29 @@ ahead of its own phase slot, and isn't duplicated here.
   modeling the same discipline for a later `GuardedPlusCal` preservation lemma.
 - `Declarations.lean` — structural/type-shape checks: no Channel-typed `variables` entry, no
   process-local `channels`/`fifos` (defense-in-depth), no algorithm-level `variables`.
-- `Restrictions.lean` — the expression walker: no channel value inside an ordinary expression
-  (or as `assign`'s/`receive`'s non-channel `Ref` positions), no reference to a module-level
-  `VARIABLE`, no bare/transitive temporal or action operator, no unbounded quantifier —
-  transitively, through every operator/function the algorithm calls.
+- `Restrictions.lean` — supplies `Reachability.lean`'s shared walk its actual checks (as
+  `visitStatement`/`visitExpr` callbacks): no channel value inside an ordinary expression (or
+  as `assign`'s/`receive`'s non-channel `Ref` positions, `Statement.checkRefRestrictions`), no
+  reference to a module-level `VARIABLE`, no bare/transitive temporal or action operator, no
+  unbounded quantifier (`Expression.checkNode`) — transitively, through every operator/
+  function the algorithm calls.
 - `WellFormedness.lean` — ties the four checks together; `TypedTLAPlus.Module.checkWellFormed`
   is the one entry point `Driver/Modules.lean` calls.
+
+## `Typed2Computable/`
+`TypedTLAPlus`/`TypedPlusCal` → `ComputableTLAPlus`/`ComputablePlusCal` (`PLAN.md` §5.3),
+run against a `TypedModule` right after well-formedness succeeds (`Driver/Modules.lean`).
+- `Errors.lean` — `ComputableError` variants (`notComputable` — `fnSet`/`recordSet`;
+  `internalInvariantViolated` — defense-in-depth for constructs earlier passes already
+  guarantee can't occur here).
+- `TLAPlus.lean` — `TypedTLAPlus.Expression.toComputable`, structural per-constructor
+  translation.
+- `PlusCal.lean` — the same, over `Ref`/`Statement`/`Block`/`Branches`/`Declarations`/
+  `Process`/`Algorithm`, delegating every leaf expression to `TLAPlus.lean`'s translation.
+- `Typed2Computable.lean` — the entry point (`TypedTLAPlus.Module.toComputable`): collects
+  the reachability closure from the algorithm (`WellFormedness/Reachability.lean`'s shared
+  walk, no-op callbacks), drops builtin-sourced entries, translates the rest plus the
+  algorithm itself, and returns the flattened output module.
 
 ## `Elaborator/`
 Bidirectional type checker (`PLAN.md` §3.1, ch. 3.1 of thesis).
@@ -108,8 +149,9 @@ module, recursing on its own `EXTENDS` list, module cache `Ξ`, and standard-lib
 operator table. `Fugue.lean` calls into this for main module; calls back into itself
 recursively for each dependency.
 - `Modules.lean` — the orchestration itself.
-- `Errors.lean` — wraps each lower-level pass's error type plus resolution-specific
-  conditions (`moduleNotFound`, etc.).
+- `Errors.lean` — wraps each lower-level pass's error type (including `Typed2Computable`'s
+  `ComputableError`, as `.computability`) plus resolution-specific conditions
+  (`moduleNotFound`, etc.).
 - `Builtins.lean` — standard-library operator table.
 
 ## `Typed2Guarded/`

@@ -30,6 +30,9 @@ accurate, not frozen artifact from one planning session.
   last touched.
 - **Always use `lean-lsp` connector when edit `.lean` files.** Reserve plain `lake build`
   (not `lean-lsp`) for final build at end of task.
+- **Wait for explicit approval before start next task from task list or plan.** Finish one
+  task, stop, tell owner what done, wait for go-ahead before pick up next item — don't
+  chain through list on own steam.
 
 ## Reference material — where it live, how to use it
 

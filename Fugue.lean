@@ -72,7 +72,7 @@ instance : ParseableType Target where
     | _ => none
 
 /-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
-private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-dir"]
+private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-dir"]
 
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
 private def knownFeatures : Array String := #["no-color", "no-progress"]
@@ -244,7 +244,7 @@ private def cli : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
+    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
     f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[=value]` pairs."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
 

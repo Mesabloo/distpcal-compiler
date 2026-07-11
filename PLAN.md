@@ -88,6 +88,8 @@ ask before overturning).
 | Diagnostic/error-model shape | **Per-pass error types, unified by a common rendering interface** — not one shared diagnostic sum type. Warning suppression (`-W`/`-Wno-<name>`, §2) is handled either at the point a warning is emitted or by filtering after the fact, before rendering — either is fine, implementer's call. Per the project owner, this mechanism (per-pass errors, common rendering, some form of warning filtering) is expected to already exist in `Common/Errors.lean` (§4), just not necessarily well-documented — read that file before designing something new rather than assuming a gap that isn't there. It's explicitly fine to later refactor either the error style or the warning/error emission mechanism if either doesn't hold up in practice. **Known bug to watch for when porting:** the project owner has observed a rendering bug somewhere in this diagnostic-printing code where, in some circumstances not yet pinned down, one character in the offending source line gets duplicated in the printed output — worth tracking down and fixing during the port rather than carrying it forward silently. |
 | Generated-identifier hygiene | **Resolved by renaming; direction doesn't matter.** Whether a user-chosen name or a compiler-introduced one is the one that gets renamed on collision is irrelevant — the only hard requirement is that **no shadowing is ever introduced in the generated code, checked at every pass, not just the final pretty-printer.** This is the same class of problem as escaping target-language reserved words (a PlusCal variable literally named `type` or `def` colliding with a Go/Join-Calculus keyword), which prior art already partially handles: `Core/Go/Pretty.lean` has a `keywords : Std.HashSet String` table and a `sanitize` function (suffixes a colliding name with `__`) applied at every point an identifier gets printed. **Port and generalize this mechanism** — to cover compiler-introduced internal names (`recv`, `inbox`, lock variables, label atoms, §5.6/§5.7) and the Join Calculus's own reserved surface, not just Go keywords — rather than treating it as a Go-only concern. See §5.2a, §5.6, §5.7. |
 | Flags, and `Ξ` (§9.10, now resolved): how do these cross-cutting effects fit the monad-polymorphism convention? | **Unified effect stack, not a driver/pass split.** Every function — pass code and the CLI driver alike — is written against one abstract `{m : Type _ → Type _} [Monad m]`, with every effect (errors, flags, module cache) as a typeclass constraint on that same `m`, rather than confining `IO`-flavored effects to an outer driver layer. Concretely: (1) **Flags are a contextual (Reader) effect, not an opaque action.** A single `getFlag : String → m (Option String)` was tried and rejected — flags aren't uniformly `Option String` (boolean `-f`/`-W` flags vs. valued `-d<name>=<value>` options vs. `-o`/`-t`/`-I`'s own typed values each need their real type, not a stringly-typed lookup every caller re-parses), and separately, this project's proofs run on `Std.Do.WP`, which cannot be instantiated at `IO` at all — an opaque, unconstrained action gives that framework nothing to reason about, whereas Reader is exactly the transparent, structural effect it already handles. So: a concrete, typed `FlagsEnv` structure (covering the full settled flag surface above), populated once by the CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus small typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`, not new typeclasses per flag. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup, replacing prior art's ad hoc `DebugOptions.from` + closure-capture pattern. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), with an `IO` instance backed by an in-memory `IO.Ref` — **disk persistence is deferred** (§2, §9.11: the checker is still under active development, so a persisted cache would need a real invalidation story this project isn't ready to commit to yet; an in-memory cache sidesteps the question entirely rather than answering it, and can simply not survive past one compiler run for now) — a genuine mutable-store effect, unlike flags, but it only shows up in `Elaborator`, which isn't part of §6.2's committed proof surface, so it doesn't hit the `Std.Do.WP`-compatibility question flags did; revisit its shape if `Elaborator` itself ever becomes a proof target. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Guarded2Network.compile` stays generic (`{m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadExceptOf G2NError m]`, same shape as every other pass) rather than being special-cased monomorphic. The refinement theorem is proved against whichever concrete instantiation `Std.Do.WP` actually supports (e.g. `m := Id`, or a `ReaderT FlagsEnv (Except G2NError)` stack) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for actual CLI execution is a **separate, deliberately unverified step** — same source term, same typeclass contract, believed equivalent by construction but not formally connected to the proof; this gap is to be documented explicitly in `Guarded2Network`'s own module docs once written. (4) **Fresh-name generation gets the same treatment as `Ξ`**, resolved during Phase 4: `MonadFresh m` (`Common/Fresh.lean`), a monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transformations (§5.2) and expected to recur at `Typed2Guarded`'s `𝒞_par` (§5.4). Names are generated as `"<prefix>$<n>"` — `$` cannot appear in a TLA⁺ identifier, so no scope-tracking is needed to prove freshness, unlike a general capture-avoiding-substitution setup. |
+| Shared builtin-operator recognizer (`.claude/tasklist.md` `Typed2Computable` phase, task 1) | **One shared table, `Core/TypedTLAPlus/Builtins.lean`, not a per-pass string list.** Builtins are represented uniformly as `.opCall (.var name _ origin) args`, resolved by string name + `Origin` (`.intrinsic` for `builtinContext`'s core operators, `.module "Sequences"`/`.module "Naturals"`/etc. for stdlib stubs). `WellFormedness/Restrictions.lean`'s reserved-temporal-action check, and `Typed2Computable`'s own "is this builtin computable?" question (§5.3 — skip translating a builtin's own stub body outright, since backends replace every stdlib operator at code-generation time regardless of what its definition says), both used to keep independent copies of this before it was centralized. **Closed `inductive BuiltinOp`, one constructor per literal builtin** — project owner's explicit call, against a lighter category-tagged-table alternative that was also considered: gives exhaustiveness-checked `match`es to every downstream consumer, at the cost of hand-duplicating each name already listed in `builtinContext`/`builtinModules` a third time. `reservedTemporalActionNames` stays a bare name-only list (not derived from this `Origin`-keyed table) — these eight spellings can never be user-shadowed, so name-only matching is exact, not an approximation. |
+| `Typed2Computable`'s two genuinely new restrictions, beyond `WellFormedness` (`.claude/tasklist.md` `Typed2Computable` phase) | **`[A -> B]`/`[a:A,...]` (`fnSet`/`recordSet`) rejected outright; `forall`/`exists`/`choose`'s domain becomes structurally mandatory.** Both denote sets/expressions with no finite runtime representation under this compiler's finite-sets assumption (§5.7's Go-representation write-up has no compilation scheme for either) — `ComputableTLAPlus.Expression` simply has no constructor for the first two, and the third's domain field is a plain `Expression`, not `Option (Expression)` (`WellFormedness/Restrictions.lean`'s check 3 already bans an unbounded domain transitively-reachable-from-the-algorithm, so this is enforcing an already-established invariant structurally, not adding a new runtime check — see §5.2a's updated note). Everything else `TypedTLAPlus`/`TypedPlusCal` can express, reachable from the algorithm, translates cleanly. |
 
 ---
 
@@ -201,8 +203,8 @@ Fugue/                          (this repo)
 ├── Core/                         fresh — one subfolder per IR, each with Syntax.lean (+ Pretty.lean, + Semantics/ once verified)
 │   ├── SurfaceTLAPlus/  SurfacePlusCal/         parser output (CSTs)
 │   ├── CoreTLAPlus/     CorePlusCal/            desugared (§5.2)
-│   ├── TypedTLAPlus/    TypedPlusCal/           type-checked (§5.3)
-│   ├── TypedSetTheory/                          output of a separate check *after* §5.3, not of the checker itself (§5.3); Syntax/WellScopedness.lean ported (§5.2a)
+│   ├── TypedTLAPlus/    TypedPlusCal/           type-checked (§5.3); TypedTLAPlus/Builtins.lean is the shared builtin-operator table (§2)
+│   ├── ComputableTLAPlus/ ComputablePlusCal/    output of a separate pass *after* §5.3, not of the checker itself (§5.3); Syntax/WellScopedness.lean ported (§5.2a)
 │   ├── GuardedPlusCal/                          guards floated to block-start (§5.4); Syntax/WellScopedness.lean ported (§5.2a)
 │   ├── NetworkPlusCal/                          explicit inbox, no receive-guards (§5.5)
 │   ├── JoinCalculus/                            NEW — guarded-reaction JC dialect (§5.6)
@@ -215,6 +217,7 @@ Fugue/                          (this repo)
 ├── Driver/                       fresh — recursive `EXTENDS` resolution: not type-checking rules, the orchestration around invoking them
 │                                    (locate/lex/parse/desugar a module, recurse on its own `EXTENDS`, module cache `Ξ`, stdlib operator table)
 ├── WellFormedness/               fresh — well-labelledness + variable well-scopedness + no-bare-temporal-op checks over Core ASTs, run after the type checker (§5.2a)
+├── Typed2Computable/              fresh — `TypedTLAPlus`/`TypedPlusCal` → `ComputableTLAPlus`/`ComputablePlusCal`, run after well-formedness (§5.3)
 ├── Typed2Guarded/                fresh — the cflow/par/flat/reord pipeline (§5.4)
 ├── Guarded2Network/               ported from prior art incl. its proofs (§5.5)
 ├── Network2JoinCalculus/          NEW (§5.6)
@@ -234,8 +237,9 @@ Each `Core/<Lang>` module owns exactly one AST plus its pretty-printer; semantic
 (`Semantics/Denotational.lean`, `Semantics/Lemmas.lean`) are added only for passes that
 have (or are actively getting) a refinement proof, to avoid maintaining semantics nobody
 is using. `Fugue.Core`, `Fugue.Parser`, `Fugue.Desugarer`, `Fugue.WF`, `Fugue.Elaborator`,
-`Fugue.Driver`, `Fugue.T2G`, `Fugue.G2N`, `Fugue.N2JC`, `Fugue.N2Go` are the corresponding
-`lean_lib` targets in `lakefile.lean`, mirroring the `distpcal-compiler` naming scheme.
+`Fugue.Driver`, `Fugue.T2C`, `Fugue.T2G`, `Fugue.G2N`, `Fugue.N2JC`, `Fugue.N2Go` are the
+corresponding `lean_lib` targets in `lakefile.lean`, mirroring the `distpcal-compiler`
+naming scheme.
 
 ---
 
@@ -899,13 +903,13 @@ declarations, gotos, and operator shapes are all already resolved by the time
   task 8 of `.claude/plans/jolly-chasing-book.md`): the paragraph above described the
   *original*, narrower scope of this check — direct-only, deferring the transitive case (an
   operator the algorithm calls, whose own body is where the temporal/action content actually
-  lives) to §5.3's later `TypedTLAPlus → TypedSetTheory` pass. **That's no longer the
+  lives) to §5.3's later `TypedTLAPlus → ComputableTLAPlus` (`Typed2Computable`) pass. **That's no longer the
   split.** The project owner asked for the transitive walk to land *here* instead, motivated
   by the same no-shared-memory concern driving §5.2a's other two checks (2(c)/2(d)): an
   operator called from the algorithm shouldn't be able to leak temporal/action content (or a
   global `VARIABLE` reference, or a channel value) into the algorithm any more than writing
   it directly would. Consequently:
-  - **Phase 8's `TypedSetTheory` pass, whenever built, should treat "every expression
+  - **Phase 8's `ComputableTLAPlus` pass, whenever built, should treat "every expression
     reachable from the algorithm is already free of temporal/action operators" as an
     already-established invariant**, not something it needs to re-derive by walking the same
     call graph again — matching how well-scopedness's "resolves to a declared name" half is
@@ -917,29 +921,53 @@ declarations, gotos, and operator shapes are all already resolved by the time
     text — not in the thesis, added per the project owner's own no-shared-memory reasoning)
     is scoped identically to the temporal/action ban, i.e. only to what's reachable
     *from the algorithm*; anything Phase 8 processes outside that reach (e.g. ordinary TLA⁺
-    operators the algorithm never calls, if `TypedSetTheory` ever covers those too) isn't
+    operators the algorithm never calls, if `ComputableTLAPlus` ever covers those too) isn't
     this pass's concern and needs its own check if Phase 8 wants the same restriction there.
     This was flagged as a TODO in the implementing plan file and needed to land here, in
     `PLAN.md` itself, per `CLAUDE.md`'s plan-sync rule — done.
 
+  **Updated again once `Typed2Computable` was actually implemented** (`.claude/tasklist.md`,
+  this project's Phase 7 build): the "Phase 8 will still need its own unbounded-quantifier
+  handling" concern above didn't materialize. `Typed2Computable`'s own scope turned out to be
+  *exactly* the reachability closure from the algorithm — the same scope this check already
+  covers — never anything wider (§5.3), so there's no content outside this check's reach for
+  it to worry about. It treats both the temporal/action-freedom and bounded-quantifier
+  guarantees as already-established invariants: no temporal/action constructor exists in
+  `ComputableTLAPlus.Expression` at all (nothing to re-check), and `forall`/`exists`/`choose`'s
+  domain field is a plain `Expression`, not `Option (Expression)` — enforced structurally, by
+  construction, rather than by a runtime check.
+
 ### 5.3 Type checking
 **Input:** `CoreTLAPlus`/`CorePlusCal`. **Output:** `TypedTLAPlus`/`TypedPlusCal`.
 
-`TypedSetTheory` (`TypedTLAPlus` minus temporal operators and actions) is *not* an
-output of this pass, despite the layout in §4 sitting it next to
-`TypedTLAPlus`/`TypedPlusCal` — it's a separate, subsequent pass: given the already
-type-checked algorithm, translate every expression actually used within the PlusCal
-algorithm (and every operator defined earlier in the module that those expressions
-depend on) into `TypedSetTheory` by removing all actions and temporal formulas (the
-prefix `[]`/`<>`/`ENABLED`/`UNCHANGED` and postfix `'`/`^+`/`^*`/`^#` operators, per the
-`TypedTLAPlus` grammar), which doubles as the check that none of those constructs were
-there illegitimately in the first place — Distributed PlusCal's own expressions have no
-business using temporal operators or actions even though the surrounding TLA+ module
-they're embedded in may elsewhere. Design this as its own small pass downstream of the
-type checker (§7 phases it separately), not as a second thing the checker itself
-produces. Its output is also where the ported `Core/TypedSetTheory/Syntax/
-WellScopedness.lean` (§5.2a) applies — the same variable-scoping discipline
-`GuardedPlusCal` gets, restated over `TypedSetTheory`'s (typed) expressions.
+`ComputableTLAPlus`/`ComputablePlusCal` (`TypedTLAPlus`/`TypedPlusCal` minus the handful of
+constructs with no finite runtime representation) is *not* an output of this pass, despite
+the layout in §4 sitting it next to `TypedTLAPlus`/`TypedPlusCal` — it's a separate,
+subsequent pass, `Typed2Computable` (implemented; `.claude/plans/nifty-jumping-anchor.md`):
+given the already type-checked *and well-formed* algorithm (`WellFormedness`, §5.2a, must
+already have run and passed), collect every constant/variable/operator/function
+transitively reachable from the algorithm (own-module or `EXTENDS`-ed, flattened into one
+output module regardless of origin; a reference into a builtin/stdlib module is dropped
+outright rather than translated — `Driver/Builtins.lean`'s own stub definitions are never
+actually used, backends replace every stdlib operator at code-generation time regardless of
+what its "definition" says) and translate each, plus the algorithm itself, into
+`ComputableTLAPlus`/`ComputablePlusCal`. Unlike the original plan for this pass, it does
+*not* re-derive the temporal/action ban — `WellFormedness/Restrictions.lean`'s check 3
+already established, transitively, that everything reachable from the algorithm is free of
+temporal/action operators and unbounded quantifiers (§5.2a's own note on this), so
+`Typed2Computable` treats both as already-guaranteed invariants: unbounded quantifiers are
+enforced structurally (`forall`/`exists`/`choose`'s domain field is a plain `Expression`,
+not `Option (Expression)`, in `ComputableTLAPlus`) rather than re-checked, and no
+temporal/action constructor exists in `ComputableTLAPlus.Expression` at all for one to slip
+through. What `Typed2Computable` *does* add, genuinely new relative to `WellFormedness`: two
+constructs it rejects outright as not computable under this compiler's finite-sets
+assumption, `[A -> B]` (`fnSet`, the set of all functions from `A` to `B`) and `[a:A,...]`
+(`recordSet`, the set of all records shaped that way) — both denote sets with no finite
+runtime representation. Design this as its own small pass downstream of the type checker
+(§7 phases it separately), not as a second thing the checker itself produces. Its output is
+also where the ported `Core/ComputableTLAPlus/Syntax/WellScopedness.lean` (§5.2a) applies —
+the same variable-scoping discipline `GuardedPlusCal` gets, restated over
+`ComputableTLAPlus`'s (typed) expressions.
 
 Fully specified in thesis §3.1 — implement the rules essentially as written, with one
 deliberate deviation from the literal presentation (polymorphism instantiation, see
@@ -1205,7 +1233,8 @@ below):
   program from the generated output, not something `Elaborator` or either backend resolves.
 
 ### 5.4 Distributed PlusCal → Guarded PlusCal (`Typed2Guarded`)
-**Input:** `TypedPlusCal`. **Output:** `GuardedPlusCal` (a restriction where every
+**Input:** `ComputablePlusCal.Algorithm` (§5.3's `Typed2Computable` output). **Output:**
+`GuardedPlusCal` (a restriction where every
 `await`/`receive`/`with` sits at the very start of its atomic block).
 
 Defined in the thesis (§3.2.2) as `𝒞_reord ∘ 𝒞_flat ∘ 𝒞_par ∘ 𝒞_cflow` (order between
@@ -1667,11 +1696,15 @@ buildable (`lake build`), even if incomplete/unverified.
    already guaranteed by having gotten through phase 6 (see §5.2a for the detailed
    breakdown). Port the two `WellScopedness.lean` files here too (§2), even though their
    primary use shifts to proof-support at phases 8 and 9.
-8. **`TypedTLAPlus` → `TypedSetTheory`** (§5.3): a separate pass from the type checker
-   itself — translate every expression used in the PlusCal algorithm (and every operator
-   defined earlier in the module that those expressions depend on) by stripping out
-   actions and temporal formulas, which doubles as checking none were illegitimately
-   present. Depends on phase 6, but is its own small pass, not part of it.
+8. **`TypedTLAPlus`/`TypedPlusCal` → `ComputableTLAPlus`/`ComputablePlusCal`**
+   (`Typed2Computable`, §5.3): a separate pass from the type checker itself — collect every
+   constant/variable/operator/function transitively reachable from the algorithm and
+   translate each, plus the algorithm itself. Depends on phase 7 (`WellFormedness`), not
+   just phase 6: its temporal/action-freedom and bounded-quantifier guarantees are already
+   established transitively by phase 7's own check 3, so this pass treats both as
+   already-guaranteed invariants rather than re-deriving them, and rejects only what
+   `WellFormedness` doesn't already cover — `[A -> B]`/`[a:A,...]` (`fnSet`/`recordSet`,
+   no finite runtime representation under this compiler's finite-sets assumption).
 9. **`Typed2Guarded`** (§5.4): the four subpasses, in order, each independently
    testable against the thesis's Two-Phase Commit worked example.
 10. **`Guarded2Network`** (§5.5): port pass + proof from prior art.
@@ -2439,6 +2472,51 @@ stdlib operators are open-ended declarations in an ordinary (if hardcoded) `Modu
 giving *those* dedicated constructors would mean a constructor per `Len`/`Head`/`+`/…,
 undermining the whole point of representing them as ordinary declarations (§9.19) rather
 than special-cased primitives.
+
+### 9.27 `Typed2Computable`'s finite-sets assumption doesn't cover an infinite set used as a quantifier/set-builder domain — open
+
+Surfaced while hand-verifying `Typed2Computable`'s output against the regression fixtures
+(dev-plan Phase 7, `.claude/tasklist.md` task 12) — raised by the project owner, not
+originally anticipated by the pass's own design. `Nat`/`Int` (real, reachable builtin
+infinite sets — `STRING`, TLA+'s other classic infinite base set, isn't parseable by this
+compiler at all yet, so it's moot for now) can currently be used as a bare `forall`/
+`exists`/`choose` domain, or a set-builder (`collect`/`map'`) domain, with nothing
+rejecting it — confirmed empirically: `\A x \in Nat : x >= 0` inside a PlusCal statement
+translates cleanly through `Typed2Computable` today. This is a real gap given §5.7's own
+compilation scheme (§7.2.1.2): `\A x \in S : P`/`\E x \in S : P` compile to "a search over
+`S`", `{x \in S : P}`/`{e : x \in S}` copy `S`'s underlying slice, and `CHOOSE x \in S : P`
+filters then takes a minimum over `S` — all three genuinely enumerate `S` at runtime, so an
+infinite `S` there isn't just inelegant, it doesn't terminate.
+
+**Settled, not actually part of this gap:** a function literal's domain (`fn`, `[x \in S
+|-> e]`) being infinite is *not* a problem and needs no restriction — per §5.7/§7.2.1.1,
+functions compile to lazy maps (`map[τ]τ'`, "avoiding eagerly computing the whole graph at
+declaration time — mirrors what TLC does"), so `[x \in Nat |-> x * x]` is perfectly fine
+and should stay unrestricted; disallowing it would be an unnecessary regression relative to
+real TLA+ expressiveness. `Typed2Computable`'s current behavior (no restriction on `fn`'s
+domain) is already correct on this count and should stay that way.
+
+**Genuinely open:** whether/how to reject an infinite domain specifically at `forall`/
+`exists`/`choose`/`collect`/`map'` (and PlusCal's own `with x \in dom`, same enumeration
+concern), and where such a check should live (`Typed2Computable`, matching `fnSet`/
+`recordSet`'s existing precedent, vs. deferred to `Network2Go`/§5.7 itself, where the
+lazy-map/eager-slice distinction is actually implemented). Two options surfaced, neither
+committed to:
+- **Narrow, syntactic check**: reject a *direct* bare reference to a known-infinite
+  builtin set (`Nat`/`Int`, recognized the same way `Typed2Computable`'s own builtin-drop
+  logic already recognizes them, task 8) at exactly these positions — catches the obvious
+  case, not a derived-but-still-infinite one (`Nat \ {0}`, `Nat \cup {1}`, an operator that
+  returns `Nat` under another name, …).
+- **Track possible-infiniteness with an invariant**, project owner's own tentative idea:
+  most infinite sets actually encountered (`Nat`, `STRING`, `[Nat -> Nat]`) just denote "the
+  universe of all values of some type" — a property that might be summarizable/tracked
+  rather than requiring general finiteness inference. Explicitly floated as possibly not
+  worth it ("perhaps this is a bad idea") — not designed further this session.
+
+No fix implemented this session — `Typed2Computable`'s regression suite/verification
+(task 12) doesn't cover this case, and no new `ComputableError` variant was added for it.
+Revisit before `Network2Go`/§5.7 needs a real answer for how `forall`/`exists`/`choose`/
+set-builder actually compile, since that's the point this stops being deferrable.
 
 Not resolved — revisit once `Typed2Computable`'s shared recognizer (task 1 above) is
 built and its shape (closed enum vs. category-tagged table, also undecided) is known;

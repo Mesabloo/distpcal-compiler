@@ -80,6 +80,10 @@ lean_lib Fugue.Elaborator where
 orchestration around invoking them. -/
 lean_lib Fugue.Driver where
   roots := #[`Driver]
+/-- Translate the checked module into its computable (`ComputableTLAPlus`/`ComputablePlusCal`)
+fragment. -/
+lean_lib Fugue.T2C where
+  roots := #[`Typed2Computable]
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
 lean_lib Fugue.T2G where
   roots := #[`Typed2Guarded]

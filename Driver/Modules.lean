@@ -40,7 +40,7 @@ against the main module's own lines. -/
 def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)) := do
   let moduleId? := match err with
     | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _
-    | .typeCheck moduleId _ | .wellFormedness moduleId _ =>
+    | .typeCheck moduleId _ | .wellFormedness moduleId _ | .computability moduleId _ =>
       some moduleId
     | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => none
   match moduleId? with
@@ -314,6 +314,12 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     match ← (TypedTLAPlus.Module.checkWellFormed typed : ExceptT WellFormednessError m Unit).run with
     | .error e => throw (.wellFormedness moduleId e)
     | .ok () => pure ()
+
+    match ← (TypedTLAPlus.Module.toComputable typed : ExceptT ComputableError m _).run with
+    | .error e => throw (.computability moduleId e)
+    | .ok computable =>
+      if ← FlagsEnv.getDebugFlag "dump-computable" then
+        dumpToFile (reprStr computable) dumpDir s!"{moduleId}-computable"
 
     if ← FlagsEnv.getDebugFlag "dump-typed" then
       dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"
