@@ -1,7 +1,9 @@
 import WellFormedness.Errors
 import WellFormedness.Monad
+import WellFormedness.Reachability
 import Elaborator.Declarations
 import Core.TypedPlusCal.Syntax
+import Core.TypedTLAPlus.Builtins
 
 /-!
   The expression walker (`PLAN.md` §5.2a's checks 1, 2(c), 3): one unified recursive walk over
@@ -11,6 +13,13 @@ import Core.TypedPlusCal.Syntax
   rather than three separate ones avoids re-deriving "which expression positions exist in a
   statement" three times, and gets check 3's transitive half for free: recursing into a called
   declaration's body re-applies *every* check to it, not just the temporal/action one.
+
+  The recursion/resolution/memoization machinery itself — `ResolvedDecl`, `Decl.resolve`,
+  `resolveInModule`, `TypedTLAPlus.Expression.walkReachable` — lives in
+  `WellFormedness/Reachability.lean`, shared with `Typed2Computable`'s own later use of the same
+  walk. This file supplies the actual checks (below) as `walkReachable`'s `visit` callback, run
+  once per node in the same pre-order the walk visits nodes in, before recursing into children —
+  same visiting order the original fused version used.
 
   - **Check 1**: any subexpression node whose type is Channel-shaped (`Typ.isChannelLike`,
     shared with `Declarations.lean`) is an error. Only nodes that actually carry a type
@@ -53,48 +62,20 @@ import Core.TypedPlusCal.Syntax
     to be visible across sibling branches the way `visited` does.
 -/
 
-/-- What a name resolves to inside one module's declaration list — only as much detail as the
-checks below need: is it a `VARIABLE` (check 2(c)), or an `operator`/`function` with a body to
-keep walking (check 3 transitive)? `constants`/`assume` (and "not found", which shouldn't happen
-by construction — a name only carries `origin := .module m` because `m` already type-checked
-it) all fall through to `none`, i.e. "nothing further to check here." -/
-private inductive ResolvedDecl : Type
-  | «variable»
-  | operatorOrFunction (body : TypedPlusCal.Expression)
-
-private def Decl.resolve (name : String) : Decl → Option ResolvedDecl
-  | .constants _ => none
-  | .variables xs => if xs.any (·.1 == name) then some .variable else none
-  | .assume _ => none
-  | .operator _ f _ body => if f == name then some (.operatorOrFunction body) else none
-  | .function _ f _ body => if f == name then some (.operatorOrFunction body) else none
-
-/-- Resolves `name` against `m`'s own declaration list — `current`'s own `declarations₁ ++
-declarations₂` (already in hand, no lookup) if `m` is the module currently being checked, else
-`lookupForeign m`'s (`WellFormedness/Monad.lean`). `none` if `m` can't be found at all (should be
-unreachable — see `ResolvedDecl`'s own doc comment) or `name` isn't in its list (a `constants`/
-`assume` entry, or genuinely absent). -/
-private def resolveInModule {m' : Type → Type} [Monad m'] [MonadForeignLookup m']
-    (currentModule : String) (ownDecls : List Decl) (targetModule name : String) : m' (Option ResolvedDecl) := do
-  let decls ← if targetModule == currentModule then pure ownDecls
-    else match ← lookupForeign targetModule with
-      | some tm => pure (tm.declarations₁ ++ tm.declarations₂)
-      | none => pure []
-  return decls.findSome? (Decl.resolve name)
-
-/-- The eight reserved temporal/action operator spellings check 3 bans, by canonical name
-(`Desugarer/TLAPlus.lean`'s `PrefixOperator.canonicalName`/`PostfixOperator.canonicalName`). -/
-private def reservedTemporalActionNames : List String :=
-  ["[]", "<>", "ENABLED", "UNCHANGED", "'", "^+", "^*", "^#"]
-
-mutual
-  /-- Checks 1/2(c)/3 over `e` and everything reachable from it, transitively. -/
-  partial def TypedTLAPlus.Expression.checkRestrictions {m' : Type → Type} [Monad m']
-      [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
-      [MonadStateOf (Std.HashSet (String × String)) m']
-      (currentModule : String) (ownDecls : List Decl) (path : List String)
-      (e : TypedPlusCal.Expression) : m' Unit :=
-    let recurse := TypedTLAPlus.Expression.checkRestrictions currentModule ownDecls path
+/-- Checks 1/2(c)/3 over `e` and everything reachable from it, transitively — a thin per-node
+`visit`, run once per node by `WellFormedness/Reachability.lean`'s shared
+`TypedTLAPlus.Expression.walkReachable`, which owns the actual recursion/resolution/memoization.
+`visit` itself never recurses (the walk does that); each arm below only inspects the current
+node, using `resolveInModule` directly for check 2(c) — a leaf check, independent of the walk's
+own memoized resolution (check 2(c) must fire on *every* reference to a global variable, not just
+the first, unlike check 3-transitive's into-the-body recursion, which the walk already memoizes
+for its own purposes). -/
+def TypedTLAPlus.Expression.checkRestrictions {m' : Type → Type} [Monad m']
+    [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
+    [MonadStateOf ReachabilityClosure m']
+    (currentModule : String) (ownDecls : List Decl) (path : List String)
+    (e : TypedPlusCal.Expression) : m' Unit :=
+  let visit (path : List String) (e : TypedPlusCal.Expression) : m' Unit :=
     match_source e with
     | .var name τ origin, pos => do
       if τ.isChannelLike then throw (.channelInExpression pos τ)
@@ -102,79 +83,30 @@ mutual
       | .binder | .intrinsic => pure ()
       | .module m => do
         match ← resolveInModule currentModule ownDecls m name with
-        | some .variable => throw (.globalTLAPlusVariable pos name m)
-        | some (.operatorOrFunction body) => do
-          let visited ← getThe (Std.HashSet (String × String))
-          unless visited.contains (m, name) do
-            modifyThe (Std.HashSet (String × String)) (·.insert (m, name))
-            TypedTLAPlus.Expression.checkRestrictions m ownDecls (path ++ [name]) body
-        | none => pure ()
-    | .opCall f args, pos => do
+        | some (.variable _) => throw (.globalTLAPlusVariable pos name m)
+        | _ => pure ()
+    | .opCall f _, pos => do
       match f with
-      | .var op _ _ => if reservedTemporalActionNames.contains op then throw (.bareTemporalOrAction pos op path)
+      | .var op _ _ => if TypedTLAPlus.reservedTemporalActionNames.contains op then throw (.bareTemporalOrAction pos op path)
       | _ => pure ()
-      recurse f
-      args.forM recurse
-    | .forall _ _ dom body, pos => do
-      if dom.isNone then throw (.unboundedQuantifier pos path)
-      dom.forM recurse
-      recurse body
-    | .exists _ _ dom body, pos => do
-      if dom.isNone then throw (.unboundedQuantifier pos path)
-      dom.forM recurse
-      recurse body
+    | .forall _ _ dom _, pos => if dom.isNone then throw (.unboundedQuantifier pos path) else pure ()
+    | .exists _ _ dom _, pos => if dom.isNone then throw (.unboundedQuantifier pos path) else pure ()
     | .fforall .., pos => throw (.bareTemporalOrAction pos "\\AA" path)
     | .eexists .., pos => throw (.bareTemporalOrAction pos "\\EE" path)
-    | .choose _ _ dom body, pos => do
-      if dom.isNone then throw (.unboundedQuantifier pos path)
-      dom.forM recurse
-      recurse body
-    | .set es τ, pos => do
-      if τ.isChannelLike then throw (.channelInExpression pos τ)
-      es.forM recurse
-    | .collect _ _ dom body, _ => do recurse dom; recurse body
-    | .map' body _ _ dom, _ => do recurse body; recurse dom
-    | .fnCall f idx, _ => do recurse f; recurse idx
-    | .fn _ _ dom body, _ => do recurse dom; recurse body
-    | .fnSet dom cod, _ => do recurse dom; recurse cod
-    | .record fs, pos =>
-      fs.forM λ (τ, _, e) ↦ do
-        if τ.isChannelLike then throw (.channelInExpression pos τ)
-        recurse e
-    | .recordSet fs, pos =>
-      fs.forM λ (τ, _, e) ↦ do
-        if τ.isChannelLike then throw (.channelInExpression pos τ)
-        recurse e
-    | .except e upds, _ => do
-      recurse e
-      upds.forM λ (path', newVal) ↦ do
-        path'.forM λ
-          | .inl _ => pure ()
-          | .inr idx => recurse idx
-        recurse newVal
-    | .recordAccess e _, _ => recurse e
-    | .tuple es, pos =>
-      es.forM λ (τ, e) ↦ do
-        if τ.isChannelLike then throw (.channelInExpression pos τ)
-        recurse e
-    | .seq es τ, pos => do
-      if τ.isChannelLike then throw (.channelInExpression pos τ)
-      es.forM recurse
-    | .if c t f, _ => do recurse c; recurse t; recurse f
-    | .case branches other, _ => do
-      branches.forM λ (p, e) ↦ do recurse p; recurse e
-      other.forM recurse
-    | .nat _, _ | .str _, _ | .true, _ | .false, _ => pure ()
+    | .choose _ _ dom _, pos => if dom.isNone then throw (.unboundedQuantifier pos path) else pure ()
+    | .set _ τ, pos => if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+    | .record fs, pos => fs.forM λ (τ, _, _) ↦ if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+    | .recordSet fs, pos => fs.forM λ (τ, _, _) ↦ if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+    | .tuple es, pos => es.forM λ (τ, _) ↦ if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+    | .seq _ τ, pos => if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
     | .stutter .., pos => throw (.bareTemporalOrAction pos "[.]_." path)
-    -- Unreachable in practice (every `mvar` is substituted away before the checker's output is
-    -- ever handed to a caller) — recurse defensively rather than special-case an impossible input.
-    | .mvar _ e, _ => recurse e
-end
+    | _, _ => pure ()
+  TypedTLAPlus.Expression.walkReachable visit currentModule ownDecls path e
 
 /-- Walks every expression/`Ref.args` reachable from `s`. -/
 partial def TypedPlusCal.Statement.checkRestrictions {b} {m' : Type → Type} [Monad m']
     [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
-    [MonadStateOf (Std.HashSet (String × String)) m']
+    [MonadStateOf ReachabilityClosure m']
     (currentModule : String) (ownDecls : List Decl) (s : TypedPlusCal.Statement b) : m' Unit :=
   let checkExpr (e : TypedPlusCal.Expression) : m' Unit :=
     TypedTLAPlus.Expression.checkRestrictions currentModule ownDecls [] e
@@ -220,7 +152,7 @@ was already walked while checking a *previous* module has no bearing on checking
 def TypedPlusCal.Algorithm.checkRestrictions {m' : Type → Type} [Monad m']
     [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
     (currentModule : String) (ownDecls : List Decl) (algo : TypedPlusCal.Algorithm) : m' Unit :=
-  let go : StateT (Std.HashSet (String × String)) m' Unit := do
+  let go : StateT ReachabilityClosure m' Unit := do
     for p in algo.processes do
       for thread in p.threads do
         for (_, blk) in thread do
