@@ -2410,3 +2410,37 @@ unsendable channel-of-channels declaration (none currently known — `Channel`'s
 subtyping and the lack of any other channel-shaped-type constructor make this look structurally
 unlikely, not just unimplemented, but not proven impossible).
 
+### 9.26 Should intrinsic operators get dedicated AST constructors instead of `opCall`? — open
+
+Surfaced while planning the `Typed2Computable` pass (`ComputableTLAPlus`/
+`ComputablePlusCal`, dev-plan Phase 7, `.claude/plans/nifty-jumping-anchor.md`). Every
+builtin operator, intrinsic or stdlib, is represented uniformly as `.opCall (.var name _
+origin) args` — no dedicated `Expression` constructor per operator. This keeps the
+type checker's op-call rule uniform (one generic rule plus a `Γ`/`builtinContext` lookup,
+not one typing rule per builtin), but pushes every downstream pass that needs to
+special-case a builtin into re-deriving its own string/`Origin` match against the same
+representation — `WellFormedness/Restrictions.lean`'s `reservedTemporalActionNames`
+today, `Typed2Computable`'s own computability classification tomorrow, and (per
+`Driver/Builtins.lean`'s own module doc) both backends unconditionally, since
+stdlib operators "get replaced by backend-native implementations at code-generation time
+regardless of what their 'definition' says." A shared recognizer table
+(`Core/TypedTLAPlus/Builtins.lean`, tasklist item 1 of the `Typed2Computable` work) is
+the near-term fix, decided and in progress — this question is about whether that's
+enough long-term, or whether it's worth going further.
+
+**Scope of the question, per the project owner: intrinsics only** — `builtinContext`'s
+own ~14 genuinely `EXTENDS`-independent entries (`=`, `/=`, `/\`, `\/`, `=>`, `<=>`,
+`\neg`, `\in`, `\notin`, `\subseteq`, `\cup`, `\cap`, `\`, `DOMAIN`, plus the temporal
+ones tracked separately in §9.24) — **not** operators declared via vendored stdlib
+modules (`Naturals`/`Sequences`/`Bags`/`FiniteSets`/etc., §9.19's `builtinModules`
+table). The two groups differ in exactly the way that matters here: intrinsics are a
+small, closed, permanent set baked into every module regardless of `EXTENDS`, while
+stdlib operators are open-ended declarations in an ordinary (if hardcoded) `Module` —
+giving *those* dedicated constructors would mean a constructor per `Len`/`Head`/`+`/…,
+undermining the whole point of representing them as ordinary declarations (§9.19) rather
+than special-cased primitives.
+
+Not resolved — revisit once `Typed2Computable`'s shared recognizer (task 1 above) is
+built and its shape (closed enum vs. category-tagged table, also undecided) is known;
+that'll make the actual remaining pain (if any) concrete rather than hypothetical.
+

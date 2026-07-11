@@ -47,7 +47,16 @@ if [ ! -x "$fugue" ]; then
 fi
 
 results_dir="$(mktemp -d)"
-trap 'rm -rf "$results_dir"' EXIT
+cleanup() {
+  if [ "${fail_count:-0}" -eq 0 ]; then
+    rm -rf "$results_dir"
+  fi
+}
+trap cleanup EXIT
+
+# `time`'s builtin report, not an external `date +%N`/`perl` dependency — macOS's stock `date`
+# has no sub-second resolution, this works on any bash. `%R` = wall-clock seconds, "0.042" style.
+TIMEFORMAT='%R'
 
 names=()
 skip_count=0
@@ -72,15 +81,20 @@ for f in "$script_dir"/*.tla; do
   names+=("$name")
 
   (
-    "$fugue" -f no-color,no-progress "$f" >/dev/null 2>&1
+    log="$results_dir/$name.log"
+    timefile="$results_dir/$name.time"
+    { time "$fugue" -f no-color,no-progress "$f" >"$log" 2>>"$log"; } 2>"$timefile"
     got_exit=$?
+    elapsed="$(cat "$timefile")"
+    rm -f "$timefile"
     if { [ "$want_exit" -eq 0 ] && [ "$got_exit" -eq 0 ]; } || \
        { [ "$want_exit" -ne 0 ] && [ "$got_exit" -ne 0 ]; }; then
       echo "PASS" > "$results_dir/$name.status"
-      echo "${c_green}PASS${c_reset}  $name"
+      rm -f "$log"
+      echo "${c_green}PASS${c_reset}  $name (${elapsed}s)"
     else
       echo "FAIL" > "$results_dir/$name.status"
-      echo "${c_red}FAIL${c_reset}  $name (expected exit $want_exit, got $got_exit)"
+      echo "${c_red}FAIL${c_reset}  $name (expected exit $want_exit, got $got_exit, ${elapsed}s) — log: $log"
     fi
   ) &
 done
@@ -103,5 +117,6 @@ if [ "$fail_count" -eq 0 ]; then
   echo "${c_bold}${c_green}$pass_count passed, $fail_count failed, $skip_count skipped${c_reset}"
 else
   echo "${c_bold}${c_red}$pass_count passed, $fail_count failed, $skip_count skipped${c_reset}"
+  echo "Failing tests' full output kept at: $results_dir"
 fi
 [ "$fail_count" -eq 0 ]
