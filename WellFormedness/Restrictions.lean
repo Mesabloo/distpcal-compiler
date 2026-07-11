@@ -125,18 +125,18 @@ partial def TypedPlusCal.Statement.checkRestrictions {b} {m' : Type → Type} [M
   | .assign asss, pos => asss.forM λ (r, e) ↦ do checkNonChannelRef pos r; checkExpr e
   | .if cond B₁ B₂, _ => do
     checkExpr cond
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B₁
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B₂
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B₁
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B₂
   | .await e, _ => checkExpr e
   | .with _ _ _ val B, _ => do
     checkExpr val
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B
   | .assert e, _ => checkExpr e
   | .either branches, _ =>
-    TypedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) branches
+    ElaboratedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) branches
   | .while cond B, _ => do
     checkExpr cond
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) B
   | .receive c r _, pos => do checkRef c; checkNonChannelRef pos r
   | .send c e, _ => do checkRef c; checkExpr e
   | .multicast _ filter, _ => do
@@ -156,5 +156,5 @@ def TypedPlusCal.Algorithm.checkRestrictions {m' : Type → Type} [Monad m']
     for p in algo.processes do
       for thread in p.threads do
         for (_, blk) in thread do
-          TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) blk
+          ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkRestrictions currentModule ownDecls) blk
   go.run' {}

@@ -29,12 +29,12 @@ partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Mon
   match_source s with
   | .goto l, pos => unless labels.contains l ∨ l = "Done" do throw (.unknownLabel pos l)
   | .if _ B₁ B₂, _ => do
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₁
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₂
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₁
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₂
   | .either branches, _ =>
-    TypedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) branches
-  | .while _ B, _ => TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
-  | .with _ _ _ _ B, _ => TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
+    ElaboratedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) branches
+  | .while _ B, _ => ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
+  | .with _ _ _ _ B, _ => ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
   | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
   | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
 
@@ -44,7 +44,7 @@ thread of that same process. -/
 def TypedPlusCal.Algorithm.checkLabelling {m : Type → Type} [Monad m]
     [MonadExceptOf WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
   for p in algo.processes do
-    let labels ← p.labels
+    let labels ← TypedPlusCal.Process.labels p
     for thread in p.threads do
       for (_, blk) in thread do
-        TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) blk
+        ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) blk

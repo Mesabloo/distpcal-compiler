@@ -2,132 +2,155 @@ import Core.TypedTLAPlus.Coercion
 import Core.CorePlusCal.Syntax
 
 /-!
-  The output of PlusCal statement checking — a fresh, monomorphic AST mirroring
-  `CorePlusCal.Statement`/`Block`/`Branches`/`Declarations`/`Process`/`Algorithm`, with every
-  embedded expression checked (`CoreTLAPlus.Expression` → `TypedTLAPlus.Expression`) and every
-  type parameter pinned at `Typ`/`Expression Typ`.
+  The output of PlusCal statement checking — `ElaboratedPlusCal.Statement`/`Block`/`Branches`/
+  `Declarations`/`Process`/`Algorithm` mirror `CorePlusCal`'s own shape node-for-node, but
+  parameterized over `(τ ε : Type)` (the annotation and expression types) rather than reusing
+  `CorePlusCal`'s own `(α β : Type)` directly: `Ref` carries an extra resolved `type : τ` field,
+  and `Statement.receive` an extra `coe : TypedTLAPlus.Coercion` field, neither of which
+  `CorePlusCal.Ref`/`.receive` has room for — needed so a later pass (`WellFormedness/
+  Restrictions.lean`'s check 1) can tell whether a bare `Ref` position (`assign`'s LHS,
+  `receive`'s destination) is itself Channel-shaped without needing `Γ`, which is gone by then.
+  `Coercion`'s own type never varies across instantiations (§9 — its shape is TLA⁺-expression-
+  specific either way), so it isn't itself a third parameter.
 
-  `Statement.receive` and `Ref` both differ in shape from their `CorePlusCal` counterparts:
-  `Statement.receive` carries an extra `Coercion` field for the channel-element-vs-reference-type
-  upcast, and `Ref` carries its own resolved `type` (`inferRef`'s `Γ`-lookup result,
-  `Elaborator/PlusCal.lean`) rather than being reused generically — needed so a later pass
-  (`WellFormedness/Restrictions.lean`'s check 1) can tell whether a bare Ref position (`assign`'s
-  LHS, `receive`'s destination) is itself Channel-shaped without needing `Γ`, which is gone by
-  then. Every other constructor is a plain transcription at `α := Typ`, `β := Expression Typ`.
+  `TypedPlusCal` below pins this generic layer at `τ := TypedTLAPlus.Typ`,
+  `ε := TypedTLAPlus.Expression TypedTLAPlus.Typ` — the checker's own output. `Core/
+  ComputablePlusCal/Syntax.lean` pins the exact same generic layer at `ComputableTLAPlus`'s types
+  instead, sharing this file's `Statement`/`Block`/`Branches`/etc. rather than re-copying them:
+  neither `Ref`'s `type` field nor `receive`'s `Coercion` field change shape between the two
+  (`Typed2Computable` doesn't touch either), so nothing forces a second monomorphic copy the way
+  `TypedPlusCal` itself forking away from `CorePlusCal.Statement`'s own generic form did.
   `MulticastFilter` is reused generically from `SurfacePlusCal` (its target is a bare `String`,
   not a `Ref`, so it has no type to carry either way).
 -/
 
-namespace TypedPlusCal
+-- The shared generic layer both `TypedPlusCal` and `ComputablePlusCal` pin — see the module doc
+-- above for why this, unlike `TypedPlusCal`'s own fork away from `CorePlusCal`, doesn't need a
+-- monomorphic copy per stage.
+namespace ElaboratedPlusCal
 
-/-- Checked PlusCal expressions — always `TypedTLAPlus.Expression` at the checker's own `Typ`. -/
-abbrev Expression := TypedTLAPlus.Expression TypedTLAPlus.Typ
-
-/-- A checked `Ref` — unlike `CorePlusCal.Ref`, carries its own resolved `type` (see the module
-doc above). -/
-structure Ref : Type where
+/-- Carries its own resolved `type` (unlike `CorePlusCal.Ref`) — see the module doc above. -/
+structure Ref (τ ε : Type) : Type where
   name : String
-  args : List Expression
-  type : TypedTLAPlus.Typ
+  args : List ε
+  type : τ
   deriving Repr
 
-/-- `SurfacePlusCal.MulticastFilter`, checked — reused generically. -/
-abbrev MulticastFilter := SurfacePlusCal.MulticastFilter TypedTLAPlus.Typ Expression
+/-- `SurfacePlusCal.MulticastFilter`, reused generically. -/
+abbrev MulticastFilter (τ ε : Type) := SurfacePlusCal.MulticastFilter τ ε
 
 mutual
-  /-- Checked PlusCal statements — a fresh copy of `CorePlusCal.Statement`, not an `abbrev`. -/
-  inductive Statement : Bool → Type
-    | goto (label : String) : Statement true
-    | skip : Statement false
-    | print (e : Expression) : Statement false
-    | assign (_ : List (Ref × Expression)) : Statement false
-    | «if» {b} (cond : Expression) (B₁ B₂ : Block b) : Statement b
-    | await (e : Expression) : Statement false
-    | «with» (var : String) (ann : TypedTLAPlus.Typ) («=|∈» : Bool) (val : Expression) (B : Block false) :
-        Statement false
-    | assert (e : Expression) : Statement false
-    | either {b} (branches : Branches b) : Statement b
-    | «while» {b} (cond : Expression) (B : Block b) : Statement false
+  /-- A fresh copy of `CorePlusCal.Statement`'s shape, not an `abbrev` over it — parameterized
+  over `(τ ε : Type)` here instead of `CorePlusCal.Statement`'s own `(α β : Type)`, since
+  `receive` needs an extra field `CorePlusCal.Statement.receive` has no room for. -/
+  inductive Statement (τ ε : Type) : Bool → Type
+    | goto (label : String) : Statement τ ε true
+    | skip : Statement τ ε false
+    | print (e : ε) : Statement τ ε false
+    | assign (_ : List (Ref τ ε × ε)) : Statement τ ε false
+    | «if» {b} (cond : ε) (B₁ B₂ : Block τ ε b) : Statement τ ε b
+    | await (e : ε) : Statement τ ε false
+    | «with» (var : String) (ann : τ) («=|∈» : Bool) (val : ε) (B : Block τ ε false) :
+        Statement τ ε false
+    | assert (e : ε) : Statement τ ε false
+    | either {b} (branches : Branches τ ε b) : Statement τ ε b
+    | «while» {b} (cond : ε) (B : Block τ ε b) : Statement τ ε false
     /-- Differs from `CorePlusCal.Statement.receive`: `coe` is the checked-element-vs-reference-
     type upcast for the value this `receive` will read off the channel at runtime. -/
-    | receive (c r : Ref) (coe : TypedTLAPlus.Coercion) : Statement false
-    | send (c : Ref) (e : Expression) : Statement false
-    | multicast (c : String) (filter : MulticastFilter) : Statement false
+    | receive (c r : Ref τ ε) (coe : TypedTLAPlus.Coercion) : Statement τ ε false
+    | send (c : Ref τ ε) (e : ε) : Statement τ ε false
+    | multicast (c : String) (filter : MulticastFilter τ ε) : Statement τ ε false
     deriving Repr
 
-  /-- Checked PlusCal atomic blocks — a fresh copy of `CorePlusCal.Block`. -/
-  inductive Block : Bool → Type where
-    | mk {b} (begin : List (Statement false)) («end» : Statement b) : Block b
+  /-- A fresh copy of `CorePlusCal.Block`'s shape. -/
+  inductive Block (τ ε : Type) : Bool → Type where
+    | mk {b} (begin : List (Statement τ ε false)) («end» : Statement τ ε b) : Block τ ε b
     deriving Repr
 
-  /-- Checked PlusCal `either`/`or` branches — a fresh copy of `CorePlusCal.Branches`. -/
-  inductive Branches : Bool → Type where
-    | either {b} : Block b → Branches b
-    | or {b} : Block b → Branches b → Branches b
+  /-- A fresh copy of `CorePlusCal.Branches`'s shape. -/
+  inductive Branches (τ ε : Type) : Bool → Type where
+    | either {b} : Block τ ε b → Branches τ ε b
+    | or {b} : Block τ ε b → Branches τ ε b → Branches τ ε b
     deriving Repr
 end
 
-protected abbrev Block.begin {b} : Block b → List (Statement false)
+protected abbrev Block.begin {τ ε b} : Block τ ε b → List (Statement τ ε false)
   | ⟨begin, _⟩ => begin
 
-protected abbrev Block.end {b} : Block b → Statement b
+protected abbrev Block.end {τ ε b} : Block τ ε b → Statement τ ε b
   | ⟨_, «end»⟩ => «end»
 
 /-- Runs `act` over every non-terminal statement in `B` (`B.begin`, in order), then its terminal
 one (`B.end`) — the "distribute a per-statement action over an atomic block" shape shared by
 `WellFormedness`'s per-check walkers (`Restrictions.checkRestrictions`,
 `WellScoped.checkWellScoped`, `Labelling.checkGotoTargets`), each supplying its own `act` (often
-a partial application of their own `Statement`-level checker, itself already `∀ {b}, Statement b
-→ m Unit` once its non-`Statement` arguments are supplied). -/
-def Block.forStatements {b} {m : Type → Type} [Monad m]
-    (act : ∀ {b'}, Statement b' → m Unit) (B : Block b) : m Unit := do
+a partial application of their own `Statement`-level checker, itself already `∀ {b}, Statement τ
+ε b → m Unit` once its non-`Statement` arguments are supplied). -/
+def Block.forStatements {τ ε b} {m : Type → Type} [Monad m]
+    (act : ∀ {b'}, Statement τ ε b' → m Unit) (B : Block τ ε b) : m Unit := do
   B.begin.forM act
   act B.end
 
 /-- `Block.forStatements`, distributed over `either`/`or` branches. -/
-def Branches.forStatements {b} {m : Type → Type} [Monad m]
-    (act : ∀ {b'}, Statement b' → m Unit) : Branches b → m Unit
+def Branches.forStatements {τ ε b} {m : Type → Type} [Monad m]
+    (act : ∀ {b'}, Statement τ ε b' → m Unit) : Branches τ ε b → m Unit
   | .either B => Block.forStatements act B
   | .or B rest => do
     Block.forStatements act B
     Branches.forStatements act rest
 
-instance {b} : Inhabited (Statement b) where
+instance {τ ε b} : Inhabited (Statement τ ε b) where
   default := match b with
     | true => .goto default
     | false => .skip
 
-instance {b} : Inhabited (Block b) where
+instance {τ ε b} : Inhabited (Block τ ε b) where
   default := .mk default default
 
-instance {b} : Inhabited (Branches b) where
+instance {τ ε b} : Inhabited (Branches τ ε b) where
   default := .either default
 
-/-- Checked declarations (`variables`/`channels`/`fifos`) — a fresh copy of
-`CorePlusCal.Declarations` at `α := Typ`, `β := Expression`. -/
-structure Declarations : Type where
-  «variables» : List (String × TypedTLAPlus.Typ × Bool × Option (Bool × Expression))
-  channels : List (String × TypedTLAPlus.Typ × List Expression)
-  fifos : List (String × TypedTLAPlus.Typ × List Expression)
+/-- A fresh copy of `CorePlusCal.Declarations`'s shape. -/
+structure Declarations (τ ε : Type) : Type where
+  «variables» : List (String × τ × Bool × Option (Bool × ε))
+  channels : List (String × τ × List ε)
+  fifos : List (String × τ × List ε)
   deriving Repr, Inhabited
 
-/-- A checked process — a fresh copy of `CorePlusCal.Process`. -/
-structure Process : Type where
-  mailbox : Option (String × List Expression)
+/-- A fresh copy of `CorePlusCal.Process`'s shape. -/
+structure Process (τ ε : Type) : Type where
+  mailbox : Option (String × List ε)
   isFair : Bool
   name : String
   «=|∈» : Bool
-  id : Expression
-  localState : Declarations
-  threads : List (List (String × Block true))
+  id : ε
+  localState : Declarations τ ε
+  threads : List (List (String × Block τ ε true))
   deriving Repr, Inhabited
 
-/-- A checked algorithm — a fresh copy of `CorePlusCal.Algorithm`. -/
-structure Algorithm : Type where
+/-- A fresh copy of `CorePlusCal.Algorithm`'s shape. -/
+structure Algorithm (τ ε : Type) : Type where
   isFair : Bool
   name : String
-  globalState : Declarations
-  processes : List Process
+  globalState : Declarations τ ε
+  processes : List (Process τ ε)
   deriving Repr, Inhabited
+
+end ElaboratedPlusCal
+
+-- `ElaboratedPlusCal` pinned at the type checker's own output — see the module doc above.
+namespace TypedPlusCal
+
+/-- Checked PlusCal expressions — always `TypedTLAPlus.Expression` at the checker's own `Typ`. -/
+abbrev Expression := TypedTLAPlus.Expression TypedTLAPlus.Typ
+
+abbrev Ref := ElaboratedPlusCal.Ref TypedTLAPlus.Typ Expression
+abbrev MulticastFilter := ElaboratedPlusCal.MulticastFilter TypedTLAPlus.Typ Expression
+abbrev Statement := ElaboratedPlusCal.Statement TypedTLAPlus.Typ Expression
+abbrev Block := ElaboratedPlusCal.Block TypedTLAPlus.Typ Expression
+abbrev Branches := ElaboratedPlusCal.Branches TypedTLAPlus.Typ Expression
+abbrev Declarations := ElaboratedPlusCal.Declarations TypedTLAPlus.Typ Expression
+abbrev Process := ElaboratedPlusCal.Process TypedTLAPlus.Typ Expression
+abbrev Algorithm := ElaboratedPlusCal.Algorithm TypedTLAPlus.Typ Expression
 
 end TypedPlusCal

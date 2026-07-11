@@ -67,14 +67,14 @@ partial def TypedPlusCal.Statement.checkWellScoped {b} {m : Type → Type} [Mona
     [MonadExceptOf WellFormednessError m] (inScope : List String) (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
   | .if _ B₁ B₂, _ => do
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₁
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₂
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₁
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₂
   | .either branches, _ =>
-    TypedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) branches
-  | .while _ B, _ => TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B
+    ElaboratedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) branches
+  | .while _ B, _ => ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B
   | .with x _ _ _ B, pos => do
     if inScope.contains x then throw (.shadowedName pos x)
-    TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped (x :: inScope)) B
+    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped (x :: inScope)) B
   | .goto _, _ | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
   | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
 
@@ -84,16 +84,16 @@ process's own local declarations fresh among themselves and not shadowing a glob
 whatever outer `with`s it's nested in. -/
 def TypedPlusCal.Algorithm.checkWellScoped {m : Type → Type} [Monad m]
     [MonadExceptOf WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
-  let globalNames := algo.globalState.namesWithPos
+  let globalNames := TypedPlusCal.Declarations.namesWithPos algo.globalState
   checkNoDuplicates globalNames
   for p in algo.processes do
-    let localNames := p.localState.namesWithPos
+    let localNames := TypedPlusCal.Declarations.namesWithPos p.localState
     checkNoDuplicates localNames
     checkNoShadow (globalNames.map Prod.fst) localNames
     let inScope := globalNames.map Prod.fst ++ localNames.map Prod.fst
     for thread in p.threads do
       for (_, blk) in thread do
-        TypedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) blk
+        ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) blk
 
 /-! ## 2. `CorePlusCal.WellScoped`, a Prop — authored fresh, not executed -/
 

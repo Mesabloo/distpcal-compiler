@@ -21,7 +21,7 @@ def TypedTLAPlus.Module.checkWellFormed {m : Type → Type} [Monad m]
   match mod.pcalAlgorithm with
   | none => pure ()
   | some algo => do
-    algo.checkLabelling
-    algo.checkWellScoped
-    algo.checkDeclarations
-    algo.checkRestrictions mod.name (mod.declarations₁ ++ mod.declarations₂)
+    TypedPlusCal.Algorithm.checkLabelling algo
+    TypedPlusCal.Algorithm.checkWellScoped algo
+    TypedPlusCal.Algorithm.checkDeclarations algo
+    TypedPlusCal.Algorithm.checkRestrictions mod.name (mod.declarations₁ ++ mod.declarations₂) algo
