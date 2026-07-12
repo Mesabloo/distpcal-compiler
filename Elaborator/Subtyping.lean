@@ -10,12 +10,12 @@ algorithm used in place of a literal `Specialize` rule.
 
 Term-level coercions aren't always available: `Set`/`Function`/`Tuple`/`Record` can always be
 wrapped generally (a set-image, a domain remap via `CHOOSE`, or projecting components/fields out
-of the original expression, respectively). `Seq` and `Operator` cannot in general — `Seq` has no
-static arity to rebuild a literal over, and `Operator` would need a first-class operator value
-this grammar has no constructor for — so for these two the structural rule still computes the
-correct `<:` relation recursively, but only returns a coercion when the sub-coercion needed is
-`.id`. `Channel` only supports subtyping via plain reflexivity (`τ = τ'`); a `receive`'s
-element-vs-reference coercion is computed directly rather than through `Channel(τ) <: Channel(τ')`. -/
+of the original expression). `Seq` and `Operator` cannot in general — `Seq` has no static arity to
+rebuild a literal over, and `Operator` would need a first-class operator value this grammar has no
+constructor for — so for these two the structural rule still computes the correct `<:` relation
+recursively, but only returns a coercion when the sub-coercion needed is `.id`. `Channel` supports
+subtyping only via plain reflexivity (`τ = τ'`); a `receive`'s element-vs-reference coercion is
+computed directly, not through `Channel(τ) <: Channel(τ')`. -/
 
 open TypedTLAPlus (Typ MVarId Coercion)
 
@@ -119,15 +119,12 @@ private partial def tryAxioms (subtypeRec : Typ → Typ → m SubtypeResult) (τ
 partial def subtype (τ τ' : Typ) : m SubtypeResult := do
   match τ, τ' with
   | .mvar a, .mvar b => do
-    -- The same metavariable is trivially its own subtype, resolved or not — checked before the
-    -- `assigned?` dispatch below, since two independent references to one *scheme* declaration
-    -- can both be checked against a third, shared metavariable (e.g. an operator call's own
-    -- freshened parameter type), each landing here comparing that same metavariable against
-    -- itself while still unassigned. Without this check, `none, none` below would (wrongly)
-    -- record a fresh, spurious, self-referential pending bound (`a`'s own upper bound becoming
-    -- `.mvar a`) instead of recognizing the comparison as vacuous — contradicting `Elaborator/
-    -- Resolution.lean`'s `resolveExprMVars`, whose `.mvar n e` case relies on exactly this `b
-    -- <: b` reflexivity always succeeding cleanly (see its own comment there).
+    -- A metavariable is trivially its own subtype, resolved or not — checked before the
+    -- `assigned?` dispatch below, since two references to one *scheme* declaration can compare
+    -- a shared, still-unassigned metavariable against itself. Without this check, `none, none`
+    -- would record a spurious self-referential pending bound (`a`'s upper bound becoming `.mvar
+    -- a`) instead of recognizing the comparison as vacuous. `Elaborator/Resolution.lean`'s
+    -- `resolveExprMVars` relies on this `b <: b` reflexivity always succeeding.
     if a == b then return .success .id
     else match ← assigned? a, ← assigned? b with
     | some s, _ => subtype s τ'

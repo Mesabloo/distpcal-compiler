@@ -74,12 +74,9 @@ inductive ModuleOutcome : Type
   | replayed
   | failed
 
-/--
-  The module cache `Ξ`. Keyed by module name alone, not by name-plus-hash: the hash of a
-  candidate file isn't known until after it has already been located and read, so
-  `resolveModule` looks up by name first, then compares the returned `CacheEntry.sourceHash`
-  against the freshly-read file's own hash.
--/
+/-- The module cache `Ξ`. Keyed by module name alone, not name-plus-hash: a candidate file's hash
+isn't known until after it's been located and read, so `resolveModule` looks up by name first,
+then compares the returned `CacheEntry.sourceHash` against the freshly-read file's hash. -/
 structure CacheEntry (β : Type) : Type where
   /-- The hash of the source text that produced `value`. -/
   sourceHash : UInt64
@@ -114,10 +111,10 @@ instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] 
 `FlagsEnv`/`Ξ` are both backed by a global `IO.Ref` and reachable directly at `IO`;
 `ResolutionStack` is the one genuinely scoped Reader (push-on-recurse, pop-on-return), so it's
 the one transformer layer needed on top of `DiagT`'s own `DriverWarning`/`DriverError` reporting
-over `IO` (`PLAN.md` §9.14) — `compileModule`/`resolveModule` are concrete against this one stack,
-not polymorphic like everything else here: the per-module warning scoping below (`runScoped`)
-needs to actually *run* `DiagT`'s own layer down to a plain value, which is only possible against
-a fixed concrete stack, not an abstract `m`. Both were only ever instantiated here anyway. -/
+over `IO` — `compileModule`/`resolveModule` are concrete against this one stack, not polymorphic
+like everything else here: the per-module warning scoping below (`runScoped`) needs to actually
+run `DiagT`'s layer down to a plain value, which is only possible against a fixed concrete stack,
+not an abstract `m`. -/
 abbrev M := ReaderT ResolutionStack (DiagT DriverWarning DriverError IO)
 
 /-- Run an `M` action from the top, with an empty resolution stack. -/
@@ -167,23 +164,21 @@ instance : MonadForeignLookup m where
     | some entry => return some entry.value
     | none => return builtinModules[name]?
 
-/-- Actually run `act`'s own `M`-action down through the current `ResolutionStack` and `DiagT`'s
-`IO` base, producing the exact `List DriverWarning` it `tell`'d and its `Except`-wrapped result as
-plain data. The only way to observe either once a `throw` is in play: `MonadWriter.listen` has
-nowhere to put warnings once the value they'd pair with disappears on a throw (same structural
-wall as a generic `ExceptT ε N` composition would hit — `DiagT` itself doesn't have this problem,
-but `listen`'s own abstract `m (α × ω)` shape still would, so this sidesteps `listen` entirely and
-goes straight to `DiagT.run`). -/
+/-- Run `act`'s `M`-action down through the current `ResolutionStack` and `DiagT`'s `IO` base,
+producing the exact `List DriverWarning` it `tell`'d and its `Except`-wrapped result as plain
+data. This is the only way to observe either once a `throw` is in play: `MonadWriter.listen` has
+nowhere to put warnings once the value they'd pair with disappears on a throw (same wall a
+generic `ExceptT ε N` composition would hit), so this sidesteps `listen` entirely and goes
+straight to `DiagT.run`. -/
 private def runScoped {α} (act : M α) : M (List DriverWarning × Except DriverError α) := do
   let resStack ← readThe ResolutionStack
   liftM (DiagT.run (ReaderT.run act resStack) : IO (List DriverWarning × Except DriverError α))
 
-/-- Run `act`; if it throws, flush the warnings `act` itself produced (up to the throw), report
-`name` as `.failed` via `onModuleEvent`, and re-throw the same error unchanged. If it succeeds,
-`tell` its warnings back into the ambient accumulator — so they keep flowing toward whichever
-later stage, or the final per-module flush, is next — and return its value. Replaces the old
-hand-threaded `warnings : List DriverWarning` parameter this used to take explicitly; `compileModule`
-needs this exact flush/report/re-throw-or-forward shape at three separate points. -/
+/-- Run `act`; if it throws, flush the warnings `act` produced (up to the throw), report `name`
+as `.failed` via `onModuleEvent`, and re-throw the error unchanged. If it succeeds, `tell` its
+warnings back into the ambient accumulator — so they keep flowing toward whichever later stage,
+or the final per-module flush, is next — and return its value. `compileModule` needs this exact
+flush/report/re-throw-or-forward shape at three separate points. -/
 private def reportFailureOnThrow {α} --(lines : List String.Slice) (colored : Bool) (logLine : String → M Unit)
     (onModuleEvent : String → ModuleOutcome → M Unit) (name : String) (act : M α) : M α := do
   let (warnings, result) ← runScoped act
@@ -207,17 +202,17 @@ private def defaultDumpDir : System.FilePath := ".fugue/debug"
 
 /-- Every name/type binding a checked declaration introduces, computed from an already-checked
 `Decl` rather than by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
-declarations into a fresh `Γ₀` — all of a dependency's own `params`/`defs` come into scope, not
-just its exported operators. PlusCal-internal declarations are never included, since they never
-leak into a module's `Γ` in the first place. `moduleName` (`depMod.name` at the one call site) is
-what declared this `Decl` — tags every returned binding's `Origin` accordingly (PLAN.md §9.22).
+declarations into a fresh `Γ₀` — all of a dependency's `params`/`defs` come into scope, not just
+its exported operators. PlusCal-internal declarations are never included, since they never leak
+into a module's `Γ` in the first place. `moduleName` (`depMod.name` at the one call site) is what
+declared this `Decl` — tags every returned binding's `Origin` accordingly.
 
 A `constants`/`variables` binding is never a scheme (`Binding.isScheme := false`); an
 `operator`/`function` binding always is, any arity — matches `Elaborator/Declarations.lean`'s
-`checkDeclaration`, whose own returned bindings follow the identical rule. This is what lets a
-0-ary builtin like `Bags`'s `EmptyBag` (`Driver/Builtins.lean`) get freshened on every reference
-without `Driver/Builtins.lean` itself needing any change — arity alone (already present on every
-`Decl.operator`) decides `isScheme`. -/
+`checkDeclaration`, whose returned bindings follow the identical rule. This is what lets a 0-ary
+builtin like `Bags`'s `EmptyBag` (`Driver/Builtins.lean`) get freshened on every reference without
+`Driver/Builtins.lean` needing any change — arity alone (already present on every `Decl.operator`)
+decides `isScheme`. -/
 private def Decl.bindings (moduleName : String) : Decl → List (String × Binding)
   | .constants xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName })
   | .variables xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName })
@@ -232,26 +227,23 @@ private def Decl.bindings (moduleName : String) : Decl → List (String × Bindi
 private instance {m} [Applicative m] {α} [Inhabited α] : Inhabited (m α) := ⟨pure default⟩
 
 mutual
-/--
-  Run a module's source all the way through to a checked module: lex, parse, resolve
-  annotations, desugar TLA⁺ expressions and the embedded PlusCal algorithm, resolve every
-  `EXTENDS`-ed dependency (`resolveModule`, recursing into `compileModule` for anything not
-  already satisfied by the cache or a builtin), merge their exported declarations into an
-  initial `Γ`, and check.
+/-- Run a module's source all the way through to a checked module: lex, parse, resolve
+annotations, desugar TLA⁺ expressions and the embedded PlusCal algorithm, resolve every
+`EXTENDS`-ed dependency (`resolveModule`, recursing into `compileModule` for anything not already
+satisfied by the cache or a builtin), merge their exported declarations into an initial `Γ`, and
+check.
 
-  `onModuleProgress name` fires twice for this module: once as soon as `name` is known (right
-  after parsing), and again right after its own `EXTENDS` dependencies finish resolving, to
-  refocus display back onto this module once its dependencies are no longer "current".
+`onModuleProgress name` fires twice: once as soon as `name` is known (right after parsing), and
+again once its `EXTENDS` dependencies finish resolving, to refocus display back onto this module
+once its dependencies are no longer "current".
 
-  `onModuleEvent name .built` fires once this module is fully checked, and `.failed` if this
-  module's own processing throws — the one place `.built`/`.failed` are reported for this
-  module (a dependency's own outcome is reported inside its own recursive `compileModule` call,
-  never duplicated here).
+`onModuleEvent name .built` fires once this module is fully checked, `.failed` if its own
+processing throws — the one place either is reported for this module (a dependency's own outcome
+is reported inside its own recursive `compileModule` call, never duplicated here).
 
-  `moduleId` is the registry key `DriverError`'s variants tag themselves with, registered
-  against `source` before lexing runs. For a dependency this is the `EXTENDS`-requested name;
-  for the main module it's whatever caller-chosen identifier `Fugue.lean` passes.
--/
+`moduleId` is the registry key `DriverError`'s variants tag themselves with, registered against
+`source` before lexing runs. For a dependency this is the `EXTENDS`-requested name; for the main
+module it's whatever identifier `Fugue.lean` passes. -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
@@ -316,17 +308,16 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     -- flushWarnings lines colored logLine warnings
     return typed
 
-/--
-  The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
-  not-found/ambiguous), check `Ξ`, and recompute if `name`'s source changed or if anything it
-  transitively depends on changed. The returned `Bool` is "was this module actually recomputed
-  just now," threaded up so its dependents can tell whether they need to recompute in turn.
+/-- The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
+not-found/ambiguous), check `Ξ`, and recompute if `name`'s source changed or anything it
+transitively depends on changed. The returned `Bool` is whether this module was actually
+recomputed just now, threaded up so its dependents can tell whether they need to recompute in
+turn.
 
-  Fires `onModuleEvent name .replayed` on the one path that never touches `compileModule` (a
-  cache hit with nothing changed); every other outcome is reported by whichever `compileModule`
-  call this makes. Not for `.builtin`, which is static. `onModuleProgress name` fires once, at
-  the top of the `.file` case.
--/
+Fires `onModuleEvent name .replayed` on the one path that never touches `compileModule` (a cache
+hit with nothing changed); every other outcome is reported by whichever `compileModule` call this
+makes. Not for `.builtin`, which is static. `onModuleProgress name` fires once, at the top of the
+`.file` case. -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())

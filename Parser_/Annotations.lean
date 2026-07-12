@@ -38,11 +38,11 @@ section
   open SurfaceTLAPlus (Typ Expression CommentAnnotation Module)
 
   /--
-    A subset of general annotations, as understood by our tool. Every constructor carries its
-    own `pos : SourceSpan` explicitly rather than using `Common/Position.lean`'s `@@`/`posOf`
-    mechanism, which is unsound for nullary constructors such as `«@parameter»` (they share a
-    single tagged scalar representation, so pointer-identity-based position lookup cannot
-    distinguish separate occurrences).
+    A subset of general annotations understood by this tool. Each constructor carries its own
+    `pos : SourceSpan` explicitly rather than using `Common/Position.lean`'s `@@`/`posOf`
+    mechanism, which is unsound for nullary constructors such as `«@parameter»`: they share a
+    single tagged scalar representation, so pointer-identity-based position lookup can't
+    distinguish separate occurrences.
   -/
   inductive Annotation
     /-- Type information for variables. -/

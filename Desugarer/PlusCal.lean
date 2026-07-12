@@ -14,38 +14,34 @@ public section
   `CorePlusCal`'s explicit-`goto`, type-indexed-terminal `Block`s.
 
   A label may appear inside an `if`/`while`/`either` body, not just at a thread's top level: it
-  marks the start of a new addressable atomic block, so it is *extracted* into its own top-level
-  `(label, Block)` entry, with explicit `goto`s inserted to stitch control flow back together.
-  `with` is the one exception — its body never allows a nested label, `goto`, or `while` at any
-  depth, and one found there is a hard error.
+  marks the start of a new addressable atomic block, so it is extracted into its own top-level
+  `(label, Block)` entry, with explicit `goto`s stitching control flow back together. `with` is
+  the one exception — its body never allows a nested label, `goto`, or `while`, and one found
+  there is a hard error.
 
-  A `goto` may only appear as the last statement of the list it's directly embedded in. A `while`
-  must always be immediately preceded by a real, user-written label; none is auto-inserted if
-  missing. Likewise, an `if`/`either` containing a label or `goto` must itself be followed by a
-  real label; none is synthesized.
+  A `goto` may only appear as the last statement of its enclosing list. A `while` must be
+  immediately preceded by a real label; none is auto-inserted. An `if`/`either` containing a
+  label or `goto` must itself be followed by a real label; none is synthesized.
 
   If a thread's last label runs out of statements without an explicit terminal, `goto Done` is
-  inserted automatically — `"Done"` is a reserved sentinel that never needs a matching label
-  definition.
+  inserted — `"Done"` is a reserved sentinel needing no matching label definition.
 
-  `ownLabel`/`fallthrough` and `WithContext`'s with-bound-variable list are `Reader` effects
-  (`SegmentContext`/`WithContext` below), not manually-threaded parameters; `acc` — the segment's
-  own accumulated non-terminal statements — stays an explicit fold parameter instead.
+  `ownLabel`/`fallthrough` and `WithContext`'s bound-variable list are `Reader` effects
+  (`SegmentContext`/`WithContext` below); `acc` — the segment's own accumulated statements —
+  stays an explicit fold parameter.
 -/
 
 namespace SurfacePlusCal
-  /-- The reader context `Statement.desugarLabelFree` and friends thread through their
-  recursion: which variable names, if any, are currently bound by an enclosing `with`
-  (innermost first; order is otherwise irrelevant). Nested `with`s accumulate rather than
-  replace. Used to reject a `while` or a write (`assign`/`receive`) targeting a with-bound
-  name, which is a local binding to a fixed value, not a process variable. -/
+  /-- Names currently bound by an enclosing `with` (innermost first; order doesn't matter),
+  threaded as a `Reader` through `Statement.desugarLabelFree` and friends. Nested `with`s
+  accumulate rather than replace. Used to reject a `while`, or a write (`assign`/`receive`)
+  targeting a with-bound name — a fixed local binding, not a process variable. -/
   structure WithContext where
     boundVars : List String := []
 
-  /-- The reader context `desugarSegment` threads through its recursion: which label (if any)
-  "owns" the segment currently being built (`none` for an `if`/`either` branch, which has no
-  address of its own), and where to `goto` if this segment runs out of statements without an
-  explicit redirect. -/
+  /-- The `Reader` context `desugarSegment` threads through its recursion: which label (if any)
+  owns the segment being built (`none` for an `if`/`either` branch, which has no address of its
+  own), and where to `goto` if the segment runs out of statements without an explicit redirect. -/
   structure SegmentContext where
     ownLabel : Option String
     fallthrough : String
@@ -69,13 +65,10 @@ namespace SurfacePlusCal
     { name := r.name, args := r.args.map (Sum.map id (SurfaceTLAPlus.wrapIndices pos)) }
 
   mutual
-    /--
-      Does this statement, anywhere within it, need the expensive, extraction-capable desugaring
-      path (`desugarSegment`) rather than the cheap always-non-terminal one
-      (`desugarLabelFreeBlock`)? True if a label appears anywhere, an `if`/`either` branch or
-      `while` body ends in a bare `goto`, or a `while` appears anywhere. A `with` body never
-      needs extraction.
-    -/
+    /-- Does this statement need the extraction-capable desugaring path (`desugarSegment`) rather
+    than the cheap always-non-terminal one (`desugarLabelFreeBlock`)? True if a label appears
+    anywhere within it, an `if`/`either` branch or `while` body ends in a bare `goto`, or a
+    `while` appears anywhere. A `with` body never needs extraction. -/
     partial def Statement.needsExtraction : Statement α β → Bool
       | .if _ b1 b2 => b1.needsExtraction || (b2.map (·.needsExtraction)).getD false
       | .either bs => bs.any (·.needsExtraction)
@@ -83,12 +76,9 @@ namespace SurfacePlusCal
       | .with .. | .skip | .goto _ | .print _ | .assign _ | .await _ | .assert _
       | .receive .. | .send .. | .multicast .. => false
 
-    /--
-      `List.needsExtraction` (declared at the root `List` namespace so plain dot-notation on a
-      `List (String ⊕ Statement α β)` value resolves to it): `true` as soon as a label is found
-      anywhere, its own last element is a bare `goto`, any statement in it
-      (`Statement.needsExtraction`) does, or a `while` appears anywhere in the list.
-    -/
+    /-- Declared at the root `List` namespace so dot-notation on a `List (String ⊕ Statement α
+    β)` resolves to it. `true` as soon as a label is found anywhere, the last element is a bare
+    `goto`, any statement (`Statement.needsExtraction`) does, or a `while` appears in the list. -/
     partial def _root_.List.needsExtraction : List (String ⊕ Statement α β) → Bool
       | [] => false
       | .inl _ :: _ => true
@@ -110,10 +100,9 @@ namespace SurfacePlusCal
 
   /-- Flatten a multi-binder `with (x = e, y ∈ S, …) { … }` into a nested chain of single-binder
   `CorePlusCal.Statement.with`s (`with (x = e) { with (y ∈ S) { … } }`) — `CorePlusCal.Statement.
-  with` only ever binds one variable at a time (`Core/CorePlusCal/Syntax.lean`'s module doc), so
-  every binder past the first gets wrapped in its own label-free `Block` (`⟨[], ·⟩`, no leading
-  statements of its own) around the next binder in the chain, with `B` — the already-desugared
-  original body — as the innermost one's. -/
+  with` only ever binds one variable at a time (`Core/CorePlusCal/Syntax.lean`'s module doc).
+  Every binder past the first is wrapped in its own label-free `Block` (`⟨[], ·⟩`) around the
+  next binder, with `B` — the already-desugared body — innermost. -/
   def buildWithChain (vars : List (String × α × Bool × β)) (B : CorePlusCal.Block α β false) :
       CorePlusCal.Statement α β false :=
     match vars with
@@ -122,17 +111,13 @@ namespace SurfacePlusCal
     | (x, ann, eq, e) :: rest => .with x ann eq e ⟨[], buildWithChain rest B⟩
 
   mutual
-    /--
-      Desugar a statement known to *not* be the last of its enclosing sequence and known to need
-      no extraction anywhere inside it: always yields a non-terminal (`false`)
-      `CorePlusCal.Statement`, with `if`/`while`/`either`'s own sub-blocks recursing via
-      `desugarLabelFreeBlock`.
+    /-- Desugar a statement known not to be last in its enclosing sequence and known to need no
+    extraction anywhere inside it: always yields a non-terminal (`false`) `CorePlusCal.Statement`,
+    with `if`/`while`/`either`'s sub-blocks recursing via `desugarLabelFreeBlock`.
 
-      Reads `WithContext` to tell which names, if any, are currently `with`-bound. A `while` is
-      rejected outright if any names are currently bound (`whileInWith`). An `assign` targeting a
-      currently-`with`-bound name, or a `receive` whose target `Ref` is one, is likewise rejected
-      (`withBoundVarWritten`).
-    -/
+    Reads `WithContext` for which names are currently `with`-bound. A `while` is rejected outright
+    if any are bound (`whileInWith`); an `assign` or `receive` targeting a bound name is likewise
+    rejected (`withBoundVarWritten`). -/
     partial def Statement.desugarLabelFree (s : Statement α CoreExpr) : m (CorePlusCal.Statement α CoreExpr false) := match_source s with
       | .goto _, pos => throw (.gotoNotInTailPosition pos)
       | .skip, _ => pure .skip
@@ -190,18 +175,15 @@ namespace SurfacePlusCal
     | [b] => .either b
     | b :: bs => .or b (buildBranches bs)
 
-  /--
-    Desugar `stmts` — the content directly following a label, per the ambient `SegmentContext`'s
-    `ownLabel` (if this call is processing exactly that; `none` if it's an `if`/`either` branch,
-    which has no address of its own) — into the terminal `CorePlusCal.Block` for *this* segment,
-    plus every `(label, Block)` pair extracted from labels found nested within it
-    (`if`/`while`/`either` bodies). `SegmentContext.fallthrough` is where to implicitly `goto` if
-    this segment (or its last extracted continuation) runs out of statements without an explicit
-    redirect.
+  /-- Desugar `stmts` — content directly following a label, per the ambient `SegmentContext`'s
+  `ownLabel` (if this call is processing exactly that; `none` for an `if`/`either` branch, which
+  has no address of its own) — into the terminal `CorePlusCal.Block` for this segment, plus every
+  `(label, Block)` pair extracted from labels nested within it (`if`/`while`/`either` bodies).
+  `SegmentContext.fallthrough` is where to implicitly `goto` once the segment (or its last
+  extracted continuation) runs out of statements without an explicit redirect.
 
-    `acc` accumulates this segment's own non-terminal statements so far, in order — kept as an
-    explicit parameter rather than folded into the `Reader` context (this file's module doc).
-  -/
+  `acc` accumulates the segment's own non-terminal statements so far, in order — an explicit
+  parameter rather than folded into the `Reader` context (module doc above). -/
   partial def desugarSegment (acc : List (CorePlusCal.Statement α CoreExpr false)) :
       List (String ⊕ Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr true × List (String × CorePlusCal.Block α CoreExpr true))
     | [] => do
@@ -221,8 +203,8 @@ namespace SurfacePlusCal
             withTheReader SegmentContext (λ _ ↦ { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest')
           pure (⟨acc, .goto l⟩, (nextLabel, nextBlock) :: extracted)
         | .inr s' :: _ => throw (.gotoNotInTailPosition (posOf s'))
-      -- A `while` must be immediately preceded by a real, user-written label: nothing to extract
-      -- here unless `acc` is empty and there's a real label to attribute the `while` to.
+      -- A `while` must be immediately preceded by a real label: nothing to extract unless `acc`
+      -- is empty and there's a real label to attribute the `while` to.
       | .while cond body, pos => do
         let ctx ← readThe SegmentContext
         if hAcc : acc.isEmpty ∧ ctx.ownLabel.isSome then
@@ -262,10 +244,10 @@ namespace SurfacePlusCal
         let s' ← Statement.desugarLabelFree s
         desugarSegment (acc ++ [s']) rest
   where
-    /-- The continuation label for "whatever comes after a control-flow statement that needed
-    extraction", plus its own extracted content: the next real label if `rest` starts with one,
-    the ambient `SegmentContext.fallthrough` if `rest` is empty, or a hard error
-    (`notFollowedByLabel`) otherwise. -/
+    /-- The continuation label for whatever comes after a control-flow statement that needed
+    extraction, plus its own extracted content: the next real label if `rest` starts with one,
+    the ambient `SegmentContext.fallthrough` if `rest` is empty, or `notFollowedByLabel`
+    otherwise. -/
     desugarContinuation :
         List (String ⊕ Statement α CoreExpr) → m (String × List (String × CorePlusCal.Block α CoreExpr true))
       | [] => do
@@ -288,11 +270,10 @@ namespace SurfacePlusCal
         withTheReader SegmentContext (λ _ ↦ { ownLabel := some firstLabel, fallthrough := doneLabel }) (desugarSegment [] rest)
       pure ((firstLabel, block) :: extracted)
 
-  /-- Run `SurfaceTLAPlus.Expression.desugar` against a single, self-contained expression. Used
-  for `@mailbox`'s filter arguments (`extractMailbox` below). Fresh-name generation draws from
-  `Common/Fresh.lean`'s single process-wide `IO.Ref` counter, the same one every other pass
-  (including the rest of this algorithm's own statement desugaring) draws from — no longer its
-  own separate, `0`-restarted namespace the way a locally-threaded `StateT Nat` would give it. -/
+  /-- Run `SurfaceTLAPlus.Expression.desugar` on a single, self-contained expression — used for
+  `@mailbox`'s filter arguments (`extractMailbox` below). Fresh-name generation draws from
+  `Common/Fresh.lean`'s single process-wide `IO.Ref` counter, same as every other pass, not a
+  separate `0`-restarted namespace the way a locally-threaded `StateT Nat` would give it. -/
   private def desugarMailboxArg (e : SurfaceTLAPlus.Expression (List Annotation)) :
       DiagT DesugarWarning DesugarError IO (CoreTLAPlus.Expression (List Annotation)) :=
     let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (DiagT DesugarWarning DesugarError IO) _ := e.desugar
@@ -360,22 +341,22 @@ namespace SurfacePlusCal
 
 end SurfacePlusCal
 
-/-- Records `r`'s *base variable* (`r.name`) as a write against `seen`, throwing
-`DesugarError.conflictingAssignment` if it's already there — regardless of indexing, since
-deciding whether two indexed writes to the same base variable actually alias is out of scope
-for this purely syntactic check; `x[0] := 3` and `x[1] := 4` conflict by this rule even though
-they touch different elements. -/
+/-- Records `r`'s base variable (`r.name`) as a write against `seen`, throwing
+`DesugarError.conflictingAssignment` if already present — regardless of indexing, since deciding
+whether two indexed writes to the same base variable actually alias is out of scope for this
+syntactic check; `x[0] := 3` and `x[1] := 4` conflict even though they touch different
+elements. -/
 private def checkWrite {β} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
     (seen : List String) (r : CorePlusCal.Ref β) (pos : SourceSpan) : m (List String) :=
   if seen.contains r.name then throw (.conflictingAssignment pos r.name)
   else pure (r.name :: seen)
 
 /-!
-  Checks that no two assignments write the same *base* variable within one atomic step, on the
-  same control path, regardless of indexing (`checkWrite` above) from `assign` and `receive`'s
-  *both* `Ref`s (the channel counts as a write too, not just the target). `if`/`either`'s
-  branches are separate control paths, checked independently from the same starting set, but
-  their writes are unioned into what continues past them.
+  Checks that no two assignments write the same base variable within one atomic step, on the
+  same control path, regardless of indexing (`checkWrite` above) — from both of `assign`'s and
+  `receive`'s `Ref`s (the channel counts as a write too, not just the target). `if`/`either`
+  branches are separate control paths, checked independently from the same starting set, with
+  their writes unioned into what continues past them.
 -/
 mutual
   partial def CorePlusCal.Statement.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
@@ -432,10 +413,10 @@ def CorePlusCal.Algorithm.stripEmbeddedTypeAnnotations
 /-- Run statement desugaring (fused with `@mailbox`/`@parameter` checking/extraction) against the
 concrete monad it needs: `WithContext`'s and `SegmentContext`'s `Reader`s, plus `MonadDiagnostic`
 for error reporting and the `List DesugarWarning` accumulator — instantiated at `DiagT`, so a
-warning emitted before a later fatal error still survives (`PLAN.md` §9.14). Also runs
+warning emitted before a later fatal error still survives. Also runs
 `CorePlusCal.Algorithm.checkAssignConflicts` before `stripEmbeddedTypeAnnotations`, so the
-returned `CorePlusCal.Algorithm` is fully checked with every annotation slot resolved to its
-actual content — both run after warnings are already extracted, since neither ever touches them. -/
+returned `CorePlusCal.Algorithm` is fully checked with every annotation slot resolved — both run
+after warnings are already extracted, since neither touches them. -/
 def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
     DiagT DesugarWarning DesugarError IO (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) := do
   let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (DiagT DesugarWarning DesugarError IO))

@@ -8,18 +8,16 @@ public import Core.TypedTLAPlus.Syntax
 /-!
   The single shared table of builtin operators — every name `builtinContext`
   (`Elaborator/Declarations.lean`) and `builtinModules` (`Driver/Builtins.lean`) bind, keyed by
-  `(Origin, name)`. Pure data, no `Driver`/`Elaborator` dependency, so any pass downstream of
+  `(Origin, name)`. Pure data with no `Driver`/`Elaborator` dependency, so any pass downstream of
   type checking can recognize a builtin call without re-deriving its own string list.
 
-  `WellFormedness/Restrictions.lean`'s reserved-temporal-action check and `Typed2Computable`'s own
-  "is this builtin computable?" question both used to keep independent copies of (part of) this
-  list; `Network2Go`/`Network2JoinCalculus` already special-case every stdlib operator by name at
-  code-generation time regardless of what its "definition" says (`Driver/Builtins.lean`'s own
-  module doc) — this file is the one place that name↔operator wiring is written down.
+  `WellFormedness/Restrictions.lean`'s reserved-temporal-action check and `Typed2Computable`'s
+  "is this builtin computable?" question used to keep independent copies of this list — this file
+  is now the one place that name↔operator wiring is written down.
 
-  One constructor per literal builtin, rather than a lighter category-tagged table: gives
+  One constructor per literal builtin rather than a lighter category-tagged table: gives
   exhaustiveness-checked `match`es to every downstream consumer, at the cost of hand-duplicating
-  each name already listed in `builtinContext`/`builtinModules` a third time here.
+  each name a third time here.
 -/
 
 namespace TypedTLAPlus
@@ -91,15 +89,13 @@ def Expression.recognizeBuiltin? {α : Type} : Expression α → Option (Builtin
   | .opCall (.var name _ origin) args => (builtinOpOf? origin name).map (·, args)
   | _ => none
 
-/-- The eight reserved temporal/action operator spellings real TLA⁺ core syntax carries
-(`reference/thesis.pdf` §3.1.3.4/3.1.3.5, Figures 3.1.4/3.1.5; `PLAN.md` §9.24) that
-`WellFormedness/Restrictions.lean`'s check 3 bans outright, by bare name, regardless of whether
-the name resolves to anything (a name this project reserves this way can never be shadowed by a
-user declaration, so an origin-agnostic check is exact, not an approximation). `^+`/`^*`/`^#`
-have no typing rule (`PLAN.md` §9.24) and so no `BuiltinOp` constructor above — genuinely unbound,
-unlike the other five, which double as real `builtinOpOf?` entries (`.enabled`, `.unchanged`,
-`.always`, `.eventually`, `.prime`). Kept here, not derived from `builtinOpOf?`, for that reason:
-this list and the builtin table overlap but aren't one the same. -/
+/-- The eight reserved temporal/action operator spellings real TLA⁺ core syntax carries, banned
+outright by bare name in `WellFormedness/Restrictions.lean`'s check 3 regardless of whether the
+name resolves to anything (a reserved name can never be shadowed by a user declaration, so an
+origin-agnostic check is exact). `^+`/`^*`/`^#` have no typing rule and so no `BuiltinOp`
+constructor above — genuinely unbound, unlike the other five, which double as real `builtinOpOf?`
+entries (`.enabled`, `.unchanged`, `.always`, `.eventually`, `.prime`). Kept as a separate list
+rather than derived from `builtinOpOf?`, since the two overlap but aren't the same. -/
 def reservedTemporalActionNames : List String :=
   ["[]", "<>", "ENABLED", "UNCHANGED", "'", "^+", "^*", "^#"]
 

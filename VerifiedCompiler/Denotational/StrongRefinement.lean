@@ -196,7 +196,7 @@ namespace StrongRefinement
     Behavior refinement in the aborting case.
 
     - `semₛ'` is the aborting semantics for the source language.
-    - `semₛ'` is the aborting semantics for the source language.
+    - `semₜ'` is the aborting semantics for the target language.
   -/
   @[expose]
   protected def Aborting (semₛ' : Set (α × τ)) (semₜ' : Set (β × τ)) : Prop :=
@@ -315,8 +315,8 @@ end StrongRefinement
   - `semₛ₂` is the aborting semantics for the source language.
   - `semₛ₃` is the diverging semantics for the source language.
   - `semₜ₁` is the reducing semantics for the target language.
-  - `semₜ₂` is the aborting semantics for the source language.
-  - `semₜ₂` is the diverging semantics for the target language.
+  - `semₜ₂` is the aborting semantics for the target language.
+  - `semₜ₃` is the diverging semantics for the target language.
  -/
 structure StrongRefinement {τ : Type _} [Trace τ] {α β : Type _} (R : Rel α β)
     (semₛ₁ : Set (α × τ × α)) (semₛ₂ semₛ₃ : Set (α × τ))

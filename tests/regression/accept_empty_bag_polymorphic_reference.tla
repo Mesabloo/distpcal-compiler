@@ -6,8 +6,7 @@
 \* that already-pinned metavariable — this used to fail (`EmptyBag`'s `Typ.var` was bound once,
 \* rigidly, with no per-reference generalization at all).
 \* Regression-covers `Elaborator/Monad.lean`'s `Binding.isScheme`/`Elaborator/Expressions.lean`'s
-\* `inferExpr`'s `.var` case unifying let-generalization at every `Γ`-reference (PLAN.md §9.19,
-\* third follow-up).
+\* `inferExpr`'s `.var` case unifying let-generalization at every `Γ`-reference.
 
 EXTENDS Bags, Naturals
 

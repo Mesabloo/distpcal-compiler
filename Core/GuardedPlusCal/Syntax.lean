@@ -12,26 +12,24 @@ public import Mathlib.Control.Bitraversable.Instances
 
 
 /-!
-  The output of `Computable2Guarded` (§5.4): every guard (`await`/`receive`/`with`) sits at the very
+  The output of `Computable2Guarded`: every guard (`await`/`receive`/`with`) sits at the very
   start of its atomic branch. Reuses `ElaboratedPlusCal.Ref`/`.MulticastFilter` rather than
   redefining them — `Computable2Guarded`'s `Ref` field-access fix (`Core/TypedPlusCal/Syntax.lean`)
   flows through automatically. Unlike `ElaboratedPlusCal`, `Statement` here is genuinely flat: by
-  this stage every `if`/`while`/`either` has already been rewritten away into `AtomicBranch`'s own
+  this stage every `if`/`while`/`either` has already been rewritten away into `AtomicBranch`'s
   precondition/action split (`𝒞_cflow`/`𝒞_flat`/`𝒞_reord`), so no constructor embeds a nested
   `Block`/`Branches` the way `CorePlusCal.Statement.if`/`.while`/`.either` do — no `mutual`,
-  `partial`, or position tracking (`ElaboratedPlusCal` carries none either, see
-  `Typed2Computable/PlusCal.lean`'s module doc) is needed anywhere in this file.
+  `partial`, or position tracking is needed anywhere in this file (`ElaboratedPlusCal` carries
+  none either, see `Typed2Computable/PlusCal.lean`'s module doc).
 
   `Block`, unlike every other type here, is generic over an arbitrary index family
-  `α : Bool → Type`, not `(Typ Expr : Type)` — ported near-verbatim from `~/Documents/
-  distpcal-compiler/Core/GuardedPlusCal/Syntax.lean` (reused as design, not code, per this
-  project's "fresh domain code" convention), since it's purely structural and doesn't reference
+  `α : Bool → Type`, not `(Typ Expr : Type)`, since it's purely structural and doesn't reference
   `Typ`/`Expr` at all. `Block (Statement Typ Expr true) false`/`Block (Statement Typ Expr false)
   true` both instantiate it.
 
   Pinned at `ComputableTLAPlus.Typ`/`ComputablePlusCal.Expression` for this pass's actual use
-  (`ComputableGuardedPlusCal` below), the same way `Core/ComputablePlusCal/Syntax.lean` itself
-  pins the shared `ElaboratedPlusCal` layer rather than forking a monomorphic copy.
+  (`ComputableGuardedPlusCal` below), the same way `Core/ComputablePlusCal/Syntax.lean` pins the
+  shared `ElaboratedPlusCal` layer rather than forking a monomorphic copy.
 -/
 
 namespace GuardedPlusCal
@@ -43,8 +41,8 @@ structure Block (α : Bool → Type) (b : Bool) : Type where
   begin : List (α false)
   last : α b
 
-/-- `deriving Repr` can't discharge this on its own — `α`'s own `Repr` instance is only known
-per-index (`∀ b, Repr (α b)`), not as one instance for the whole family. -/
+/-- `deriving Repr` can't discharge this — `α`'s `Repr` instance is only known per-index
+(`∀ b, Repr (α b)`), not as one instance for the whole family. -/
 instance {α : Bool → Type} [∀ b, Repr (α b)] {b : Bool} : Repr (Block α b) where
   reprPrec B n := reprPrec (B.begin, B.last) n
 
@@ -59,10 +57,10 @@ def Block.traverse {α β : Bool → Type} {m : Type → Type} [Applicative m]
 abbrev Ref (Typ Expr : Type) := ElaboratedPlusCal.Ref Typ Expr
 abbrev MulticastFilter (Typ Expr : Type) := SurfacePlusCal.MulticastFilter Typ Expr
 
-/-- `ElaboratedPlusCal.Ref` carries no `Bifunctor`/`Bitraversable` instance of its own (it has an
-extra `baseType : τ` field, same reason `Typed2Computable/PlusCal.lean`'s `Ref.toComputable` is
+/-- `ElaboratedPlusCal.Ref` carries no `Bifunctor`/`Bitraversable` instance (it has an extra
+`baseType : τ` field, same reason `Typed2Computable/PlusCal.lean`'s `Ref.toComputable` is
 hand-written rather than a generic `bitraverse` call) — small local helpers instead, used only by
-`Statement`'s own instances below, not registered as global instances. -/
+`Statement`'s instances below, not registered as global instances. -/
 def Ref.bimap {Typ Typ' Expr Expr'} (f : Typ → Typ') (g : Expr → Expr') (r : Ref Typ Expr) :
     Ref Typ' Expr' :=
   { name := r.name, args := Sum.map id g <$> r.args, baseType := f r.baseType }
@@ -155,8 +153,8 @@ instance : Bifunctor AtomicBlock where
 instance : Bitraversable AtomicBlock where
   bitraverse f g B := AtomicBlock.mk B.label <$> traverse (bitraverse f g) B.branches
 
-/-- One parallel `{...}` thread — its own sequence of labelled atomic blocks, in program order.
-`AtomicBlock` already carries its own `label`, unlike `ElaboratedPlusCal.Process.threads`'s
+/-- One parallel `{...}` thread — a sequence of labelled atomic blocks, in program order.
+`AtomicBlock` already carries a `label`, unlike `ElaboratedPlusCal.Process.threads`'s
 `List (String × Block τ ε true)` pairing, so no separate label pairing is needed here. -/
 abbrev Thread (Typ Expr : Type) : Type := List (AtomicBlock Typ Expr)
 

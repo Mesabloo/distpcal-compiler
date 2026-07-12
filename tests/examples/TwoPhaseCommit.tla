@@ -1,9 +1,9 @@
 ---- MODULE TwoPhaseCommit ----
-\* Adapted from ~/Documents/distpcal-compiler/tests/TPC/TPC.tla (the thesis's own worked example,
-\* PLAN.md §5.4/`Typed2Guarded`'s Checkpoint 3) to this project's C-syntax convention. Not a
+\* Adapted from a known two-phase-commit worked example (`Typed2Guarded`'s Checkpoint 3 case)
+\* to this project's C-syntax convention. Not a
 \* pass/fail regression fixture (see tests/regression/run.sh's own scope note) -- a hand-
 \* verification aid: `fugue -d dump-guarded` on this file's `c2` block (the coordinator's second
-\* thread) is compared structurally against the thesis's Listing 3.2.4, the final post-`𝒞_D→G`
+\* thread) is compared structurally against that worked example's final post-`𝒞_D→G`
 \* shape. `c2` alone already exercises every subpass: `𝒞_cflow` (the `while` and the nested
 \* `if`/`else if` chain), `𝒞_flat` (hoisting the `if`s' `either`s), and `𝒞_reord` (floating
 \* `receive`'s guard past nothing here, but floating the loop's own re-entry `await` past the

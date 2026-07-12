@@ -186,11 +186,10 @@ private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT I
       logLine <| CompilerDiagnostic.pretty warning ((← warning.sourceLines).getD lines) colored
 
 /-- `MonadForeignLookup`'s instance for plain `IO` — needed by `WellFormedness.checkWellFormed`/
-`Typed2Computable.toComputable` below, both of which run here, after the driver has already
-returned its checked module, rather than inside `Driver/Modules.lean`'s own `M`. All they need is
-`Ξ`'s cache (already fully populated by the driver's recursive `EXTENDS` resolution by this point)
-and the builtin table — same lookup `Driver/Modules.lean`'s own instance does, just against `IO`
-directly instead of `M`. -/
+`Typed2Computable.toComputable` below, which run here after the driver has already returned its
+checked module, not inside `Driver/Modules.lean`'s own `M`. Needs only `Ξ`'s cache (already
+populated by the driver's recursive `EXTENDS` resolution) and the builtin table — the same
+lookup `Driver/Modules.lean`'s instance does, against `IO` instead of `M`. -/
 instance : MonadForeignLookup IO where
   lookupForeign name := do
     match ← lookupModule name with
@@ -198,20 +197,19 @@ instance : MonadForeignLookup IO where
     | none => return builtinModules[name]?
 
 /-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. Mirrors
-`Driver/Modules.lean`'s own private `dumpToFile` — kept as its own copy rather than exported,
-since it's a three-line helper and the two files dump different things at different stages. -/
+`Driver/Modules.lean`'s own `dumpToFile` — kept as a separate copy rather than exported, since
+it's a three-line helper and the two files dump different things at different stages. -/
 private def dumpToFile (content : String) (dir : System.FilePath) (name : String) : IO Unit := do
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / name) content
 
 /-- Run one of the passes past the driver (well-formedness checking, `Typed2Computable`, and
-whatever else `PLAN.md` §9 eventually adds outside `compileModule`) — every pass reports through
-`MonadDiagnostic` (a `DiagT`-based warnings-plus-error stack), never a bare `MonadExceptOf`, so
-this is the one runner every such pass goes through. Each warning not suppressed by
-`-Wno-<name>` (`CompilerDiagnostic.name`) is rendered the same way `flushWarnings` renders the
-driver's own — plain `eprintln`, not through the spinner, which only wraps the driver's own
-portion of `runCli` below — before the final result is handled: `.error e` renders `e` the same
-way and exits, `.ok a` returns. -/
+whatever else runs outside `compileModule`) — every pass reports through `MonadDiagnostic` (a
+`DiagT`-based warnings-plus-error stack), never a bare `MonadExceptOf`, so this is the one
+runner every such pass goes through. Warnings not suppressed by `-Wno-<name>` are rendered the
+same way `flushWarnings` renders the driver's own — plain `eprintln`, not through the spinner,
+which only wraps the driver's own portion of `runCli` below. `.error e` renders `e` the same way
+and exits; `.ok a` returns. -/
 private def runPassDiag {α ε} [CompilerDiagnostic α String] [CompilerDiagnostic ε String] {γ}
     (lines : List String.Slice) (colored : Bool) (act : DiagT α ε IO γ) : IO γ := do
   let (warnings, result) ← act.run
@@ -238,13 +236,11 @@ private def runCli (p : Parsed) : IO UInt32 := do
     | .path path => path.parent
     | .stdin => none
 
-  -- One spinner for the whole compile, Lean-`lake build`-style: no per-pass titles
-  -- ("Lexing…"/"Parsing…"/…) — just `[<done>/<discovered>] Running on module '<name>'…`, `<done>`
-  -- and `<discovered>` tracked here (not in `Driver/Modules.lean` — it only reports raw
-  -- `onModuleProgress`/`onModuleEvent` facts, this is presentation), `<discovered>` growing as
-  -- `EXTENDS` pulls in modules not seen yet this run. Completed steps — reading the input, each
-  -- `EXTENDS`ed module `Built`/`Replayed`, warnings — print as their own persisted lines via
-  -- `Spinner.log` without interrupting the animation.
+  -- One spinner for the whole compile, Lean-`lake build`-style: just
+  -- `[<done>/<discovered>] Running on module '<name>'…`, tracked here (not in
+  -- `Driver/Modules.lean`, which only reports raw `onModuleProgress`/`onModuleEvent` facts).
+  -- `<discovered>` grows as `EXTENDS` pulls in new modules; completed steps print as
+  -- persisted lines via `Spinner.log` without interrupting the animation.
   withProgress "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
@@ -257,9 +253,9 @@ private def runCli (p : Parsed) : IO UInt32 := do
     let lines := source.split (· == '\n') |>.toList
 
     let discovered ← IO.mkRef (∅ : Std.HashSet String)
-    -- A set, not a counter: `onModuleEvent` can fire more than once for the same name (e.g.
-    -- `.built` the first time, `.replayed` for every later cache-hit reference to it), and this
-    -- must still only ever count that module once done.
+    -- A set, not a counter: `onModuleEvent` can fire more than once for the same name (`.built`
+    -- once, `.replayed` for every later cache-hit reference), but must still count each module
+    -- only once done.
     let done ← IO.mkRef (∅ : Std.HashSet String)
 
     let (warnings, result) ← runM <| compileModule source containingDir dumpName
@@ -279,10 +275,10 @@ private def runCli (p : Parsed) : IO UInt32 := do
 
     let (typedMod, lines) ← match result with
     | .error e =>
-      -- Print the actual error *before* ending the spinner — `Build failed` is the final
-      -- word, not a banner ahead of the detail explaining it. `e` may have originated in an
-      -- `EXTENDS`-ed dependency, not the main module read into `lines` above — render against
-      -- the offending module's own source when it has one.
+      -- Print the error *before* ending the spinner: "Build failed" is the final word, not a
+      -- banner ahead of the detail. `e` may have originated in an `EXTENDS`-ed dependency, not
+      -- the main module read into `lines` — render against the offending module's own source
+      -- when it has one.
       spinner.log <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
       spinner.fail "Build failed."
       IO.Process.exit 1
@@ -291,10 +287,10 @@ private def runCli (p : Parsed) : IO UInt32 := do
 
     let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim ".fugue/debug" (↑·)
 
-    -- Everything past this point runs *outside* the driver — `compileModule` only takes a module
-    -- through type checking and caches that result (`PLAN.md` §9); well-formedness checking and
-    -- the `Typed2Computable` translation are the first two passes of the real pipeline proper, and
-    -- run once here, against the driver's already-returned main module, not per-`EXTENDS`-dependency
+    -- Everything past this point runs *outside* the driver: `compileModule` only takes a module
+    -- through type checking and caches that result. Well-formedness checking and the
+    -- `Typed2Computable` translation are the first two passes of the real pipeline, run once
+    -- here against the driver's already-returned main module, not per `EXTENDS` dependency
     -- inside the driver's own recursion.
     runPassDiag lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : DiagT Empty WellFormednessError IO Unit)
     let computable ← runPassDiag lines colored (TypedTLAPlus.Module.toComputable typedMod : DiagT Empty ComputableError IO _)
@@ -302,8 +298,8 @@ private def runCli (p : Parsed) : IO UInt32 := do
     if ← FlagsEnv.getDebugFlag "dump-computable" then
       dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
 
-    -- `Computable2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
-    -- TLA⁺ module with none is done once `toComputable` above has checked it).
+    -- `Computable2Guarded`'s pass, only when there's a PlusCal algorithm to run it on — an
+    -- ordinary TLA⁺ module with none is done once `toComputable` above has checked it.
     if let some algo := computable.pcalAlgorithm then
       let guarded ← runPassDiag lines colored (algo.toGuarded : DiagT Empty GuardedError IO _)
       if ← FlagsEnv.getDebugFlag "dump-guarded" then

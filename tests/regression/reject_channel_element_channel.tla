@@ -7,7 +7,7 @@
 \* exercise well-formedness's `channelInExpression` check via `receive`'s destination `r`
 \* resolving to a channel-shaped type: that scenario needed the *source* channel's own element
 \* type to itself be Channel-shaped too, matching `Channel`'s reflexivity-only subtyping rule --
-\* which this very check now rejects first, at declaration time. See `PLAN.md` §9.25.)
+\* which this very check now rejects first, at declaration time.)
 
 CONSTANTS
     \* @type: Address;

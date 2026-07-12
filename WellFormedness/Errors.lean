@@ -5,9 +5,8 @@ public import Core.TypedTLAPlus.Syntax
 
 public section
 
-/-! The well-formedness pass's diagnostics: one named error variant per violation (`PLAN.md`
-§5.2a). All six checks are hard errors — no `WellFormednessWarning` needed (current
-expectation, per the plan: no check here is meant to be a warning). -/
+/-! The well-formedness pass's diagnostics: one named error variant per violation. All checks
+are hard errors — no `WellFormednessWarning` type is needed. -/
 
 /-- The well-formedness pass's errors. -/
 inductive WellFormednessError : Type

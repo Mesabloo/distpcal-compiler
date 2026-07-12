@@ -60,16 +60,16 @@ private def sequencesDeclarations : List Decl :=
 
 /-- `Integers`'s operators — just `Int` itself. Unary minus (`-.`) is already declared by
 `naturalsDeclarations` above: unlike real TLA⁺ (where `-.` belongs to `Integers`), this project's
-`Naturals` stub already carries it (`PLAN.md` §9.19), and `Integers` genuinely `«extends» :=
-["Naturals"]`, so it doesn't need to redeclare it. -/
+`Naturals` stub already carries it, and `Integers` genuinely `«extends» := ["Naturals"]`, so it
+doesn't need to redeclare it. -/
 private def integersDeclarations : List Decl :=
   [ .operator (.set .int) "Int" [] emptySetInt ]
 
 /-- `FiniteSets`'s operators. `Naturals`/`Sequences` are `LOCAL INSTANCE`d in the real module —
 `LOCAL` there only means "not re-exported to a module doing `EXTENDS FiniteSets`", but this
 table's `«extends»` field is this project's own import-dependency edge, not a re-export flag
-(`Driver/Modules.lean`'s `resolveModule`/`compileModule` treat every builtin the same regardless
-of `LOCAL`), so `FiniteSets` still `«extends» := ["Naturals", "Sequences"]`. -/
+(`resolveModule`/`compileModule` treat every builtin the same regardless of `LOCAL`), so
+`FiniteSets` still `«extends» := ["Naturals", "Sequences"]`. -/
 private def finiteSetsDeclarations : List Decl :=
   [ .operator (.operator [.set (.var "a")] .bool) "IsFiniteSet" [("S", 0)] .true,
     .operator (.operator [.set (.var "a")] .int) "Cardinality" [("S", 0)] intZero ]
@@ -79,17 +79,13 @@ private def finiteSetsDeclarations : List Decl :=
 `LOCAL` in the real module (a helper for `BagUnion`/`BagCardinality`'s own definitions), so it's
 not included here — matches `FiniteSets`/`Sequences` never exporting their own `LOCAL` helpers
 either. `EXTENDS TLC` and `LOCAL INSTANCE Naturals` in the real module both become `«extends»`
-edges here regardless of `LOCAL` (see `finiteSetsDeclarations`'s doc above for why), so
-`«extends» := ["TLC", "Naturals"]` — `TLC` itself is currently an empty stub so this has no
-effect yet.
+edges here regardless of `LOCAL` (see `finiteSetsDeclarations`'s doc above), so `«extends» :=
+["TLC", "Naturals"]` — `TLC` itself is currently an empty stub so this has no effect yet.
 
-`EmptyBag : Function(a, Int)` is genuinely polymorphic, matching real TLA⁺ — every reference to
-it gets its own fresh instantiation of `a`, since `Decl.bindings` (`Driver/Modules.lean`) marks
-every 0-ary `operator` declaration a *scheme* (`Elaborator/Monad.lean`'s `Binding.isScheme`),
-freshened at each `Γ`-reference by `Elaborator/Expressions.lean`'s `inferExpr`. This used to be a
-known limitation (a rigid, single-instantiation `Typ.var` that broke e.g. `SetToBag(S) (+)
-EmptyBag`) — resolved along with generalizing the same mechanism to every declaration, `PLAN.md`
-§9.19. -/
+`EmptyBag : Function(a, Int)` is genuinely polymorphic, matching real TLA⁺ — every reference gets
+its own fresh instantiation of `a`, since `Decl.bindings` (`Driver/Modules.lean`) marks every
+0-ary `operator` declaration a scheme (`Elaborator/Monad.lean`'s `Binding.isScheme`), freshened at
+each `Γ`-reference by `Elaborator/Expressions.lean`'s `inferExpr`. -/
 private def bagsDeclarations : List Decl :=
   [ .operator (.operator [.function (.var "a") .int] .bool) "IsABag" [("B", 0)] .true,
     .operator (.operator [.function (.var "a") .int] (.set (.var "a"))) "BagToSet" [("B", 0)] emptySetOfVarA,
@@ -111,10 +107,10 @@ private def bagsDeclarations : List Decl :=
 
 /-- The table itself (doc above). `«extends»` mirrors each real module's own top-of-file
 dependency list (`EXTENDS`/`LOCAL INSTANCE` alike — `LOCAL` only means "not re-exported" in real
-TLA⁺, not "not a dependency", and this project's `resolveModule`/`compileModule` don't
-distinguish the two anyway), so a module that only `EXTENDS Sequences`/`Integers`/`FiniteSets`/
-`Bags` still transitively sees everything that real module itself imports. `RealTime`/`Reals`
-are out of scope entirely (never ported — see `CLAUDE.md`). -/
+TLA⁺, not "not a dependency", and `resolveModule`/`compileModule` don't distinguish the two
+anyway), so a module that only `EXTENDS Sequences`/`Integers`/`FiniteSets`/`Bags` still
+transitively sees everything that real module itself imports. `RealTime`/`Reals` are out of
+scope entirely (never ported). -/
 def builtinModules : Std.HashMap String TypedModule := Std.HashMap.ofList <|
   #[("Sequences", sequencesDeclarations, ["Naturals"]), ("Naturals", naturalsDeclarations, []),
       ("Integers", integersDeclarations, ["Naturals"]), ("FiniteSets", finiteSetsDeclarations, ["Naturals", "Sequences"]),

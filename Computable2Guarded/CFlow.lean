@@ -6,11 +6,10 @@ public import Computable2Guarded.Errors
 public section
 
 /-!
-  `𝒞_cflow` (thesis §3.2.2, `PLAN.md` §5.4): eliminates `if`/`while` by rewriting them into
-  `either`/`await` congruences. Same type in, same type out (`ComputablePlusCal.Statement`/
-  `.Block`/`.Branches`) — `if`/`while` are eliminated as a runtime fact, not type-encoded, the
-  same "only the producer maintains the invariant" precedent §5.2a already uses for
-  "`while` must be immediately preceded by a label."
+  `𝒞_cflow`: eliminates `if`/`while` by rewriting them into `either`/`await` congruences. Same
+  type in, same type out (`ComputablePlusCal.Statement`/`.Block`/`.Branches`) — `if`/`while` are
+  eliminated as a runtime fact, not type-encoded; only the producer maintains the invariant that
+  `while` must be immediately preceded by a label.
 
   ```
   𝒞_cflow(l: while e do {B1}; B2; goto l') = l: if e then {B1; goto l} else {B2; goto l'}
@@ -47,13 +46,11 @@ private def awaitPrepend (g : Expression) {b} (B : Block b) : Block b :=
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty GuardedError m]
 
-/-- Coerces `B` to end in an explicit `goto label`, iff it doesn't already — i.e. the two real
-cases from `ElaboratedPlusCal.Statement.while`'s own doc comment: a loop body already terminal
-(ends in its own `goto` back to the loop, because a labelled step was extracted from it) passes
-through unchanged; a non-terminal one gets `goto label` appended as its new terminal. The
-`(true, false)` case is a genuine contradiction (a body that's already terminal can't be coerced
-to non-terminal without silently dropping a real `goto`) — defensively unreachable given the
-`while`-must-be-block-front invariant this pass relies on throughout. -/
+/-- Coerces `B` to end in an explicit `goto label` if it doesn't already, per
+`ElaboratedPlusCal.Statement.while`'s own doc comment: a loop body already terminal (already
+ending in its own `goto` back to the loop) passes through unchanged; a non-terminal one gets
+`goto label` appended as its new terminal. The `(true, false)` case is unreachable — a body
+already terminal can't be coerced to non-terminal without silently dropping a real `goto`. -/
 private def coerceGoto {b₀ b : Bool} (label : String) (B : Block b₀) : m (Block b) :=
   match b₀, b, B with
   | true, true, B => pure B
@@ -83,9 +80,9 @@ mutual
       let B₁' ← Block.cflow label B₁
       let B₂' ← Block.cflow label B₂
       return .either (.or (awaitPrepend cond B₁') (.either (awaitPrepend (negate cond) B₂')))
-    -- Defensive: `Block.cflow` intercepts every legitimate `while` (always at its containing
-    -- block's own front) before recursing into individual statements — reaching this arm means
-    -- one turned up somewhere else, violating the "immediately preceded by a label" invariant.
+    -- `Block.cflow` intercepts every legitimate `while` (always at its containing block's own
+    -- front) before recursing into individual statements — reaching this arm means one turned
+    -- up elsewhere, violating the "immediately preceded by a label" invariant.
     | .while _ _ => throw (.internalInvariantViolated SourceSpan.placeholder
         "𝒞_cflow: `while` found somewhere other than its containing block's own front")
 

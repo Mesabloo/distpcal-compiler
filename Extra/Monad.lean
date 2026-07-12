@@ -2,10 +2,8 @@ module
 
 public section
 
-/--
-  Execute a guard `p` in the monad `m`.
-  If its result is `false`, fail with `Alternative.failure`, otherwise return `Unit.unit`.
--/
+/-- Executes guard `p` in `m`; fails via `Alternative.failure` if `p` returns `false`, otherwise
+returns `Unit.unit`. -/
 def guardM.{v} {m : Type → Type v} [Monad m] [Alternative m] (p : m Bool) : m Unit :=
   p >>= (guard ·)
 

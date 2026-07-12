@@ -10,40 +10,39 @@ public section
 
 /-!
   Bidirectional expression checking: `checkExpr` (`Γ ⊢ e ⇓ τ`) and `inferExpr` (`Γ ⊢ e ⇑ τ`),
-  turning a `CoreTLAPlus.Expression (Option TypedTLAPlus.Typ)` (every binder's annotation still
-  the optional, user-written one) into a `TypedTLAPlus.Expression TypedTLAPlus.Typ` (every binder
-  now a real, resolved type). Each case below carries the rule it implements as a comment:
-  premises over a bar over the conclusion, tagged `[Rule Name]`.
+  turning a `CoreTLAPlus.Expression (Option TypedTLAPlus.Typ)` (binder annotations still the
+  optional, user-written ones) into a `TypedTLAPlus.Expression TypedTLAPlus.Typ` (every binder now
+  a resolved type). Each case carries the rule it implements as a comment: premises over a bar
+  over the conclusion, tagged `[Rule Name]`.
 
-  A few constructs synthesize a type only in certain cases:
-  - `∅` is checking-only (`lub` over zero elements is undefined), but a nonempty `{e1,...,en}`
+  A few constructs synthesize only in certain cases:
+  - `∅` is checking-only (`lub` over zero elements is undefined); a nonempty `{e1,...,en}`
     synthesizes `Set(lub(τ1,...,τn))`.
   - `IF`/`CASE` both synthesize `lub` over their branches.
   - `⟨e1,...,en⟩` dispatches by mode: checked against an expected `Seq(τ)` it uses the sequence
-    constructor (each element only needs to check against `τ`); everywhere else it synthesizes as
-    a tuple. The elaborated term keeps the distinction (`.tuple` vs. `.seq`).
+    constructor (each element checks against `τ`); everywhere else it synthesizes as a tuple. The
+    elaborated term keeps the distinction (`.tuple` vs. `.seq`).
   - Unbounded `\A`/`\E` synthesize only when annotated with an explicit `x : τ`. Unbounded
-    `CHOOSE` is checking-only always — hitting it in synthesis position is a real error
+    `CHOOSE` is always checking-only — hitting it in synthesis position is a real error
     (`TCError.cannotInferType`), not a missing-annotation one. Bounded quantification/choice
     (`x ∈ S`) always synthesizes, since `x`'s type comes from `S`.
 
   Out of scope, with no `CoreTLAPlus.Expression` constructor to match on: `LAMBDA`, `LET-IN`,
   weak/strong fairness (`WF_`/`SF_`), non-stuttering `⟨A⟩_e`, and temporal operators generally.
-  `UNCHANGED`/`ENABLED`/prime `'`/`~>`/`-+>`/`[]`/`<>` desugar to plain operator calls and need no
-  dedicated case — the generic `OPERATOR CALL` rule covers them once the builtin table gives each
-  one a `Γ` entry. Only `stutter` (`[A]_e`) is a real constructor with its own case.
+  `UNCHANGED`/`ENABLED`/prime `'`/`~>`/`-+>`/`[]`/`<>` desugar to plain operator calls, covered by
+  the generic `OPERATOR CALL` rule once the builtin table gives each one a `Γ` entry. Only
+  `stutter` (`[A]_e`) is a real constructor with its own case.
 
   `EXCEPT` supports an arbitrary-length path of record-field/index steps per update (`[f EXCEPT
-  ![1].x[2] = v]`), implemented as one general recursive walk (`stepInto`/`checkExceptPath`
-  below) rather than one case per path length.
+  ![1].x[2] = v]`), implemented as one general recursive walk (`stepInto`/`checkExceptPath` below)
+  rather than one case per path length.
 
   Polymorphism instantiation happens once, at `[Var]` below, not at `OPERATOR CALL`: a reference
-  to a *scheme* `Γ` binding (`Elaborator/Monad.lean`'s `Binding.isScheme` — every top-level
-  `operator`/`function` definition, as opposed to an ordinary binder) freshens every distinct
-  `Typ.var` in its type into its own metavariable (`specializeType`,
-  `Elaborator/TypeUtils.lean`) right there, whether or not that reference goes on to be called.
-  `OPERATOR CALL` then just checks arguments against whatever (already-specialized) type its
-  callee resolved to — argument checking resolves those metavariables incrementally through
+  to a *scheme* `Γ` binding (`Elaborator/Monad.lean`'s `Binding.isScheme` — a top-level
+  `operator`/`function` definition, not an ordinary binder) freshens every distinct `Typ.var` in
+  its type into its own metavariable (`specializeType`, `Elaborator/TypeUtils.lean`) right there,
+  whether or not that reference is later called. `OPERATOR CALL` just checks arguments against the
+  callee's already-specialized type, resolving those metavariables incrementally through
   `Elaborator/Subtyping.lean`'s direction-aware solving.
 -/
 
@@ -66,9 +65,6 @@ private def lubAll (pos : SourceSpan) : List Typ → m Typ
 /-- Needed for the `partial def`s below to type-check at all (an arbitrary `m` isn't otherwise
 known nonempty). -/
 private local instance {α} [Inhabited α] : Inhabited (m α) := ⟨pure default⟩
--- private local instance : Inhabited (m (Typ × Expr)) := ⟨pure default⟩
--- private local instance : Inhabited (m (Typ × (String ⊕ Expr))) := ⟨pure default⟩
--- private local instance : Inhabited (m (Typ × List (String ⊕ Expr))) := ⟨pure default⟩
 
 mutual
   /--

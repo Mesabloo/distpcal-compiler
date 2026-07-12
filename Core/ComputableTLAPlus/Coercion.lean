@@ -7,30 +7,28 @@ public section
 
 
 /-!
-  `Coercion.applyComputable` — the second of `Core/TypedTLAPlus/Coercion.lean`'s two structural
-  recursions consuming `TypedTLAPlus.Coercion` data, this one discharging against
-  `ComputableTLAPlus.Expression` instead of `TypedTLAPlus.Expression`. Needed because a `receive`
-  statement's channel/reference coercion is stored unapplied on the `receive` node and survives
-  past `Typed2Computable`'s type change — `Guarded2Network` is the first pass with a concrete
-  `ComputableTLAPlus.Expression` to discharge it against (the freshly-built `Head(inbox)`/
-  `Tail(inbox)` expression), so this can't reuse `Coercion.apply` (fixed at `TypedTLAPlus.Expr`).
+  `Coercion.applyComputable` is the second of `Core/TypedTLAPlus/Coercion.lean`'s two structural
+  recursions over `TypedTLAPlus.Coercion`, discharging against `ComputableTLAPlus.Expression`
+  instead of `TypedTLAPlus.Expression`. Needed because a `receive`'s channel/reference coercion is
+  stored unapplied and survives past `Typed2Computable`'s type change: `Guarded2Network` is the
+  first pass with a concrete `ComputableTLAPlus.Expression` (the built `Head(inbox)`/`Tail(inbox)`
+  expression) to discharge it against, so it can't reuse `Coercion.apply` (fixed at
+  `TypedTLAPlus.Expr`).
 
-  Same case-for-case structure as `Coercion.apply` — every constructor `Coercion.apply` handles
-  has a like-shaped `ComputableTLAPlus.Expression` counterpart, except `choose`'s domain is a
-  required `Expression α`, not `Option (Expression α)` (`Core/ComputableTLAPlus/Syntax.lean`'s
-  own module doc explains why).
+  Mirrors `Coercion.apply` case-for-case, except `choose`'s domain here is a required `Expression
+  α` rather than `Option (Expression α)` — see `Core/ComputableTLAPlus/Syntax.lean`'s module doc.
 -/
 
 namespace TypedTLAPlus
 
-/-- Checked TLA⁺ expressions at `ComputableTLAPlus`'s own output type — what `Coercion.
-applyComputable` transforms. -/
+/-- Checked TLA⁺ expressions at `ComputableTLAPlus`'s output type — what `Coercion.applyComputable`
+transforms. -/
 abbrev CExpr := ComputableTLAPlus.Expression ComputableTLAPlus.Typ
 
--- Structural recursion isn't visibly decreasing to Lean here, same as `Coercion.apply` — see its
--- own note in `Core/TypedTLAPlus/Coercion.lean` — `partial` until revisited.
-/-- Apply a coercion to an already-built `ComputableTLAPlus.Expression` — see the module doc
-above for why this can't just reuse `Coercion.apply`. -/
+-- Structural recursion isn't visibly decreasing to Lean here, same as `Coercion.apply` — `partial`
+-- until revisited.
+/-- Applies a coercion to an already-built `ComputableTLAPlus.Expression` — see the module doc
+above for why this can't reuse `Coercion.apply`. -/
 partial def Coercion.applyComputable : Coercion → CExpr → CExpr
   | .id, e => e
   | .strToSeq, e =>

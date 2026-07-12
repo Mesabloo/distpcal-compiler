@@ -20,29 +20,25 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   posOf : ε → SourceSpan
   msgOf : ε → α
   hintsOf : ε → List α := λ _ ↦ []
-  /-- The `-W<name>`/`-Wno-<name>` name this diagnostic is filtered under (`Fugue.lean`'s
-  `runPassDiag`/`flushWarnings`). Only meaningful for warnings — an error is never suppressed by
-  `-W`, so its instance leaves this at the default. -/
+  /-- The `-W<name>`/`-Wno-<name>` name this diagnostic is filtered under. Only meaningful for
+  warnings — an error is never suppressed by `-W`, so its instance leaves this at the default. -/
   name : ε → String := λ _ ↦ ""
 
-/-- A pass that never emits any warning at all uses `MonadDiagnostic Empty ε m` (`Empty`, not a
-new bespoke singleton warning type) — this instance lets `List Empty`'s (always-empty, since
-nothing can construct an `Empty`) contents still satisfy a `runPassDiag`-style caller's generic
-`[CompilerDiagnostic α String]` requirement uniformly, without that caller needing a special case
-for "this particular pass has no warnings." Every field is `Empty.elim`, since there's never a
-real `Empty` value to apply it to. -/
+/-- A pass with no warnings uses `MonadDiagnostic Empty ε m`. Lets `List Empty` still satisfy a
+generic `[CompilerDiagnostic α String]` requirement; every field is `Empty.elim` since no `Empty`
+value ever exists to apply it to. -/
 instance : CompilerDiagnostic Empty String where
   isError := true
   posOf := Empty.elim
   msgOf := Empty.elim
 
-/-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). Not
-`private`: `Fugue.lean` reuses it for its `Built`/`Replayed` progress lines, not just here. -/
+/-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`). Not `private`:
+`Fugue.lean` reuses it for its `Built`/`Replayed` progress lines too. -/
 def colorizeIf {α} [Colorized α] (enabled : Bool) (c : Colorized.Color) (x : α) : α :=
   if enabled then Colorized.color c x else x
 
-/-- `Colorized.style`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). Not
-`private`: `Fugue.lean` reuses it too, for its `Built`/`Replayed`/`Failed` progress lines. -/
+/-- `Colorized.style`, but a no-op when `enabled` is `false` (`-fno-color`). Not `private`:
+`Fugue.lean` reuses it too, for its `Built`/`Replayed`/`Failed` progress lines. -/
 def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) : α :=
   if enabled then Colorized.style s x else x
 
@@ -67,13 +63,10 @@ def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [Com
 {linePadding}|{String.replicate (startCol + 1) ' '}{colorizeIf colored color <| String.replicate (endCol - startCol) '^'}"
 
 /-- The effects a diagnostics-producing pass needs: an always-growing `List α` of non-fatal
-warnings (`MonadWriter`), alongside `MonadExceptOf`'s ordinary throw/catch for a fatal `β`.
-Bundled as a `class abbrev` (no new fields — same shape as `Elaborator/Monad.lean`'s
-`MonadElaborator` and `Desugarer/Monad.lean`'s `MonadDesugarerExpr`), since the point isn't the
-two constraints in isolation but a specific interaction between them, only actually guaranteed by
-`DiagT` below: the accumulated `List α` survives a `throw`, unlike the ordinary (and lossy)
-`WriterT (List α) (ExceptT β ·)` order, where a `throw` short-circuits the whole computation
-before the writer's own log ever gets paired up with anything. -/
+warnings (`MonadWriter`), plus `MonadExceptOf`'s throw/catch for a fatal `β`. The point isn't the
+two constraints alone but their interaction, only actually guaranteed by `DiagT` below: the
+accumulated `List α` survives a `throw`, unlike the ordinary `WriterT (List α) (ExceptT β ·)`
+order, where a `throw` short-circuits before the writer's log is ever paired with anything. -/
 class abbrev MonadDiagnostic (α β : outParam (Type _)) (m : Type _ → Type _) :=
   MonadWriter (List α) m, MonadExceptOf β m
 
@@ -82,14 +75,12 @@ but every call site only ever has one warning in hand at a time. -/
 def warn {α β : Type _} {m : Type _ → Type _} [MonadDiagnostic α β m] (w : α) : m PUnit :=
   tell [w]
 
-/-- The one concrete `MonadDiagnostic α β` instance that actually keeps the promise above:
-`Except β γ` lives *inside* the pair, as ordinary data, rather than as a monadic short-circuit
-wrapping the pair from outside — so a `throw` is just `pure ([], .error e)`, and every warning
-`tell`'d beforehand is already sitting in that `[]`'s place, nothing to lose. This is also why
-`listen`/`pass` stay fully lossless here (see the `MonadWriter` instance below), unlike the
-generic `ExceptT ε N` composition would be: there, `listen`'s own `N (α × ω)` shape has nowhere
-to put `ω` once `α` disappears on a throw, whereas here the `List α` component never lives inside
-the `Except` in the first place. -/
+/-- The one concrete `MonadDiagnostic α β` instance that keeps the promise above: `Except β γ`
+lives *inside* the pair as ordinary data, rather than as a monadic short-circuit wrapping the pair
+from outside — so a `throw` is just `pure ([], .error e)`, and every warning already `tell`'d is
+already in that `[]`, nothing lost. Also why `listen`/`pass` stay lossless, unlike the generic
+`ExceptT ε N` composition, where `listen`'s `N (α × ω)` shape has nowhere to put `ω` once `α`
+disappears on a throw. -/
 @[expose] def DiagT (α β : Type _) (m : Type _ → Type _) (γ : Type _) : Type _ :=
   m (List α × Except β γ)
 
@@ -151,9 +142,8 @@ instance : MonadLift m (DiagT α β m) where
     let a ← x
     pure ([], .ok a)
 
-/-- `compileModule` (`Driver/Modules.lean`) needs `FlagsEnv`/`ResolutionStack` reachable through
-whatever `DiagT` layer it runs at — lift straight from the base `m`, same shape as the
-`MonadLift` instance above. -/
+/-- Lets `FlagsEnv`/`ResolutionStack` reach through whatever `DiagT` layer `compileModule` runs
+at — lifts straight from the base `m`, same shape as the `MonadLift` instance above. -/
 instance {ρ : Type _} [MonadReaderOf ρ m] : MonadReaderOf ρ (DiagT α β m) where
   read := DiagT.mk do
     let r ← (read : m ρ)
@@ -164,9 +154,8 @@ pop-on-return pattern (`withReader (mod.name :: ·)`) needs to reach through `Di
 instance {ρ : Type _} [MonadWithReaderOf ρ m] : MonadWithReaderOf ρ (DiagT α β m) where
   withReader f x := DiagT.mk (withReader f (DiagT.run x))
 
-/-- Lift `m`'s own state through `DiagT` — `Driver/Modules.lean`'s `MonadModuleCache`/
-`MonadSourceRegistry` (both generic over `[MonadStateOf _ m]`) pick this up automatically,
-without needing their own dedicated `DiagT` instances. -/
+/-- Lifts `m`'s own state through `DiagT`, so any `[MonadStateOf _ m]`-generic instance picks it
+up automatically without a dedicated `DiagT` instance. -/
 instance {σ : Type _} [MonadStateOf σ m] : MonadStateOf σ (DiagT α β m) where
   get := DiagT.mk do
     let s ← (MonadStateOf.get : m σ)
@@ -180,14 +169,12 @@ instance {σ : Type _} [MonadStateOf σ m] : MonadStateOf σ (DiagT α β m) whe
 
 end DiagT
 
-/-- Retag and absorb a self-contained sub-computation's own diagnostics into the caller's own
-ambient `MonadDiagnostic α' β' m`: `tell`s `f`-mapped warnings, then `throw`s `g e` on `.error`, or
-returns the value on `.ok`. `n` is `x`'s own base monad (`Id` for a pure, fully self-contained
-runner — `Parser_.TLAPlus.parseModule`, `Desugarer`'s `runDesugarer`s, `Elaborator.Elaborator`'s
-`runChecker`; `IO`-flavored for a nested `Driver/Modules.lean` recursive `compileModule` call) —
-lifted into `m` via ordinary `MonadLiftT`, so nothing about `x`'s own concrete stack needs to leak
-into the caller. The one primitive that lets the main driver `let`-bind straight through a
-sub-pass's result without ever unwrapping its `DiagT`/`Except` by hand. -/
+/-- Absorbs a self-contained sub-computation's diagnostics into the caller's ambient
+`MonadDiagnostic α' β' m`: `tell`s `f`-mapped warnings, then `throw`s `g e` on `.error`, or returns
+the value on `.ok`. `n` is `x`'s own base monad (`Id` for a pure runner, `IO`-flavored for a nested
+recursive call), lifted into `m` via `MonadLiftT` so nothing about `x`'s concrete stack leaks into
+the caller. Lets a caller `let`-bind straight through a sub-pass's result without unwrapping its
+`DiagT`/`Except` by hand. -/
 @[expose] def DiagT.lift {α α' β β' γ : Type _} {n m : Type _ → Type _} [Monad m] [MonadLiftT n m]
     [MonadDiagnostic α' β' m] (f : α → α') (g : β → β') (x : DiagT α β n γ) : m γ := do
   let (warnings, result) ← (liftM (DiagT.run x) : m (List α × Except β γ))

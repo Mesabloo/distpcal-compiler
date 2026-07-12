@@ -50,16 +50,9 @@ namespace AList
 
   def traverse {α : Type} [DecidableEq α] {β γ : α → Type} {F : Type → Type} [Applicative F] (f : (k : α) → β k → F (γ k)) (x : AList β) : F (AList γ) :=
     (λ kvs : List (Sigma γ) ↦ {entries := kvs.dedupKeys, nodupKeys := List.nodupKeys_dedupKeys ..})
-      -- NOTE: I don't know how else to state that the keys are not duplicated.
-      -- In practice, I don't know of any applicative functor for which our list traversal *may* duplicate our keys,
-      -- so this `List.dedupKeys` should actually do nothing (while still consuming runtime, though…).
-      --
-      -- Also note that we can state and prove that the set of keys in `kvs` is a subset of `x.keys` (with some clever use of `Subtype` and `List.attach`),
-      -- BUT this doesn't help us in proving that `kvs` doesn't contain duplicated keys (because we may only state properties on individual keys,
-      -- in isolation with other keys of the list).
-      --
-      -- This problem actually stems from the fact that we cannot state properties on the result of `x.entries.traverse`, because its
-      -- result is in the applicative functor `F`, which we may not unwrap.
+      -- `dedupKeys` should be a no-op here: no applicative functor we traverse with actually
+      -- duplicates keys. But that's not provable generically, since only per-key properties are
+      -- statable on the traversal result, not a global no-duplicates property over the whole list.
       <$> x.entries.traverse λ ⟨k, v⟩ ↦ Sigma.mk k <$> f k v
     -- (λ (kvs : List {y : Nat × Sigma γ // ∃ (h : y.fst < x.entries.length), x.entries[y.fst].fst = y.snd.fst}) ↦ {
     --   entries := kvs.unattach.map Prod.snd |>.dedupKeys

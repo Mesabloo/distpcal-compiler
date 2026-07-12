@@ -5,8 +5,8 @@
 \* `Id`'s type variable, once at `Int` and once at `Bool` in the very same module.
 \* Regression-covers `Elaborator/Monad.lean`'s `Binding.isScheme` distinguishing a declaration
 \* (always a scheme, any arity) from a binder (never one, via `extend`/`extendAll`) — the
-\* motivating correctness constraint for PLAN.md §9.19's third follow-up, not just `EmptyBag`'s
-\* narrower 0-ary case.
+\* motivating correctness constraint for the third follow-up's let-generalization fix, not just
+\* `EmptyBag`'s narrower 0-ary case.
 
 EXTENDS Naturals
 

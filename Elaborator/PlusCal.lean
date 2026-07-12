@@ -14,20 +14,20 @@ public section
   A few notable points:
   - `[Multicast]`'s `e1` premise is checked against `Set(τ)`: multicast's desugared semantics
     tests `y ∈ e1`, which only type-checks if `e1 : Set(τ)`.
-  - Algorithm-level `variables` (`Algorithm.globalState.variables`) are checked the same way a
-    process's own local variables are (`checkVariables` below, shared by both).
-  - A `with`-bound variable's/PlusCal `variables` entry's/multicast bind's optional annotation is
-    checked against when present, otherwise inferred from the initializer.
+  - Algorithm-level `variables` (`Algorithm.globalState.variables`) are checked the same way as a
+    process's own local variables (`checkVariables` below, shared by both).
+  - A `with`-bound variable's/`variables` entry's/multicast bind's optional annotation is checked
+    against when present, otherwise inferred from the initializer.
   - `[Goto]` performs no type check at all — label existence is the well-formedness pass's job.
   - A `receive`/`send`'s channel reference, and a `with`/`variables` entry's Ref-typed
     destination, are checked via `inferRef` below, not `Elaborator/Expressions.lean`'s
-    `inferExpr`/`checkExpr` — `CorePlusCal.Ref` is a distinct type from `CoreTLAPlus.Expression`,
-    so it needs its own small synthesis judgment: a `Γ`-lookup on `name` followed by
+    `inferExpr`/`checkExpr`: `CorePlusCal.Ref` is a distinct type from `CoreTLAPlus.Expression`,
+    needing its own small synthesis judgment — a `Γ`-lookup on `name` followed by
     `Elaborator/Expressions.lean`'s own `indexInto` once per bracket group.
   - A channel/FIFO declaration's Γ-binding domain follows the same `n = 1`/`n > 1` reconciliation
     as function definitions (`Elaborator/Declarations.lean`): `m = 1` binds a channel's own
-    Γ-type at plain `Address → Channel(τ)`; `m > 1` needs the tupled
-    `⟨Address,...⟩ → Channel(τ)` domain.
+    Γ-type at plain `Address → Channel(τ)`; `m > 1` needs the tupled `⟨Address,...⟩ → Channel(τ)`
+    domain.
 -/
 
 open TypedTLAPlus (Typ Coercion)
@@ -44,13 +44,12 @@ abbrev SrcAlgorithm := CorePlusCal.Algorithm (Option Typ) SrcExpr
 abbrev SrcMulticastFilter := SurfacePlusCal.MulticastFilter (Option Typ) SrcExpr
 
 /-- The `showable` predicate, used by `print`: `Int`/`Bool`/`Str`/`Address` atomic;
-`Function`/`Set`/`Seq`/`Tuple`/`Record` recursively (a `Function` is showable when both its
-domain and range are). `Operator`/`Channel`/`Const`/rigid type variables, and anything containing
-them, are not showable. Pure and non-monadic — **callers must resolve `τ`'s metavariables first**
-(`resolveTypeMVarsForDisplay`, at the point of use, not here) so `.mvar _ => false` only ever
-fires on a genuinely still-unresolved metavariable, not one that's already been pinned to
-something showable. `partial`: nested `List` recursion over `Tuple`/`Record`'s components/fields
-isn't visibly structurally decreasing to Lean. -/
+`Function`/`Set`/`Seq`/`Tuple`/`Record` recursively (a `Function` is showable when both its domain
+and range are). `Operator`/`Channel`/`Const`/rigid type variables, and anything containing them,
+are not showable. Pure and non-monadic — **callers must resolve `τ`'s metavariables first**
+(`resolveTypeMVarsForDisplay`, at the point of use) so `.mvar _ => false` only fires on a
+genuinely unresolved metavariable, not one already pinned to something showable. `partial`: nested
+`List` recursion over `Tuple`/`Record`'s fields isn't visibly structurally decreasing to Lean. -/
 partial def showable : Typ → Bool
   | .bool | .int | .str | .address => true
   | .function dom rng => showable dom && showable rng
@@ -60,13 +59,11 @@ partial def showable : Typ → Bool
   | .operator .. | .channel .. | .var _ | .const _ | .mvar _ => false
 
 /-- The `sendable` predicate, used by a channel's own declared element type
-(`checkChannelDecl`): the same restriction as `showable` (a `CONSTANT` isn't sendable either,
-even though it's just an opaque value at this point — the project owner's own concern: a
-`CONSTANT` gets substituted by the user *after* code generation, and an unsendable
-instantiation would silently break this invariant once compiled), currently identical in shape
-but named and defined separately since the two represent distinct restrictions that only
-happen to coincide today, not the same rule reused. Same non-monadic, resolve-first contract as
-`showable`. -/
+(`checkChannelDecl`): the same restriction as `showable` (a `CONSTANT` isn't sendable either — it
+gets substituted by the user only *after* code generation, and an unsendable instantiation would
+silently break this invariant once compiled). Identical in shape to `showable` but defined
+separately since the two restrictions only happen to coincide today, not the same rule reused.
+Same non-monadic, resolve-first contract as `showable`. -/
 partial def sendable : Typ → Bool
   | .bool | .int | .str | .address => true
   | .function dom rng => sendable dom && sendable rng
@@ -94,12 +91,11 @@ local instance {b} : Inhabited (m (TypedPlusCal.Block b)) := ⟨pure default⟩
 local instance {b} : Inhabited (m (TypedPlusCal.Branches b)) := ⟨pure default⟩
 
 /-- Synthesize a `Ref`'s type: a `Γ`-lookup on `name`, then `Elaborator/Expressions.lean`'s own
-`stepInto` once per path segment — the same `.inl` field/`.inr` index dispatch `EXCEPT` paths use,
-reused as-is rather than duplicating the record-field-access rule. `pos` is borrowed from the
-enclosing statement — a `Ref` carries no position of its own. Returns the reference's own
-*result* type (`τ`, after every segment) for the caller to check against directly — the built
-`TypedPlusCal.Ref` itself keeps only `baseType` (`τ₀`, before any segment): see `Ref.baseType`'s
-doc comment (`Core/TypedPlusCal/Syntax.lean`) for why. -/
+`stepInto` once per path segment — the same `.inl` field/`.inr` index dispatch `EXCEPT` paths use.
+`pos` is borrowed from the enclosing statement since a `Ref` carries no position of its own.
+Returns the reference's *result* type (`τ`, after every segment) for the caller to check against
+directly — the built `TypedPlusCal.Ref` keeps only `baseType` (`τ₀`, before any segment): see
+`Ref.baseType`'s doc comment (`Core/TypedPlusCal/Syntax.lean`) for why. -/
 private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Ref) := do
   match (← readThe Context).get? r.name with
   | none => throw (.unboundVariable pos r.name)
@@ -151,14 +147,11 @@ private def checkVariables :
     return (entry :: rest', (x, τ) :: bindings)
 
 /-- One channel declaration entry: every index set checks against `Set(Address)`; the Γ-binding
-is simply whatever the mandatory `@type` annotation itself already says (no rule ever synthesizes
-it) — a plain `Channel(τ)` for a bare, unindexed channel, or `dom → Channel(τ)` for an indexed
-one. Returns the full Γ-binding type alongside the checked *element* type and the checked index
-sets.
-
-The annotation *is* the full Γ-binding type, not just the bare element type — do not reconstruct
-it from `idxSets.length` instead, which would double-wrap unindexed channels and reject indexed
-ones. -/
+is whatever the mandatory `@type` annotation itself says (no rule synthesizes it) — a plain
+`Channel(τ)` for a bare, unindexed channel, or `dom → Channel(τ)` for an indexed one. Returns the
+full Γ-binding type alongside the checked *element* type and the checked index sets. Don't
+reconstruct the binding type from `idxSets.length` instead — that would double-wrap unindexed
+channels and reject indexed ones. -/
 private def checkChannelDecl (x : String) (ann : Option Typ) (idxSets : List SrcExpr) :
     m (Typ × Typ × List TypedPlusCal.Expression) := do
   let bindTy ← requireAnnotation SourceSpan.placeholder s!"channel `{x}`" ann
@@ -246,10 +239,10 @@ mutual
     -/
     | .print e, pos => do
       let (τ, e') ← inferExprR e
-      -- `τ` isn't necessarily stored anywhere inside `e'` (many expression shapes carry no own
-      -- type at all), so `resolveMVars e'`'s traversal above may not have touched it: resolve it
-      -- separately before testing `showable`, so an already-pinned metavariable is checked
-      -- against its real type instead of unconditionally failing as `.mvar _`.
+      -- `τ` isn't necessarily stored inside `e'` (many expression shapes carry no own type), so
+      -- `resolveMVars e'`'s traversal above may not have touched it: resolve it separately before
+      -- testing `showable`, so an already-pinned metavariable is checked against its real type
+      -- instead of unconditionally failing as `.mvar _`.
       let τ ← resolveTypeMVarsForDisplay τ
       if showable τ then return .print e' @@ pos
       else throw (.notShowable pos τ)
@@ -386,10 +379,9 @@ end
 
 /--
   `Γ|Ξ⊩ p∈S ⋆ x1=e1;...;xm=em ⋆ T1...Tn ok`: `S` must be `Set(Address)`, checked *without* `self`
-  in scope; everything else about a process — `mailbox`, local variables, and every thread — is
-  checked with `self:Address` already in scope. `mailbox`'s own filter/index expressions are
-  simply inferred, unconstrained, but still need `self` in scope (`@mailbox: agt[self];` is the
-  standard idiom).
+  in scope; everything else about a process — `mailbox`, local variables, every thread — is
+  checked with `self:Address` already in scope. `mailbox`'s filter/index expressions are inferred,
+  unconstrained, but still need `self` in scope (`@mailbox: agt[self];` is the standard idiom).
 
   `process (p = e)` checks `e` against `Address` directly, not `Set(Address)` (dispatches on
   `proc.«=|∈»` rather than constructing a singleton set `{e}` and checking that).

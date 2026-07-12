@@ -32,10 +32,8 @@ namespace SurfaceTLAPlus.Lexer
       let endPos ← getPosition
       return { segment := ⟨startPos, endPos⟩, data := res }
 
-    /--
-      A parser designed to ignore whitespaces, given `p₁` a parser which consumes (at least 1) whitespace,
-      `p₂` a parser consuming line comments and `p₃` a parser consuming block comments.
-    -/
+    /-- Skips whitespace: `p₁` consumes (at least 1) whitespace character, `p₂` line comments,
+    `p₃` block comments. -/
     @[inline]
     private def space [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] (p₁ p₂ p₃ : SimpleParserT σ τ m PUnit) : SimpleParserT σ τ m PUnit
       := dropMany <| first [p₁, p₂, p₃]
@@ -359,8 +357,7 @@ namespace SurfaceTLAPlus.Lexer
       let _ ← chars "(*"
       unless inner do
         let isAlg ← test <| lookAhead do
-          -- NOTE: big assumption that the comment actually starts with the algorithm, not random junk.
-          --       maybe one day we'll remove that?
+          -- Assumes the comment starts directly with the algorithm, not other content.
           let _ ← takeMany (withBacktracking <| lexeme <| char '*')
           let _ ← chars "--"
           let _ ← eoption (withBacktracking (chars "fair") <* takeMany1 (withBacktracking <| Unicode.whitespace))
@@ -400,7 +397,7 @@ namespace SurfaceTLAPlus.Lexer
       ]
   end Tokens
 
-  /-- Lex a full TLA⁺ token, may it be an operator, a reserved word, an identifier, or anything else really. -/
+  /-- Lex a full TLA⁺ token: operator, reserved word, identifier, or literal. -/
   private partial def lexToken : TLAPlusLexer (Located (Token (Located SurfacePlusCal.Token))) := located <| first [
     lineComment,
     blockComment lexToken,
@@ -421,10 +418,8 @@ namespace SurfaceTLAPlus.Lexer
     | .error _ e => .inl <| errToUnexpected e
     | .ok str tokens =>
       assert! str.1.isEmpty
-      -- TODO: we need to patch positions: from byte indices to line/column in UTF-8 codepoints
-      --       this is very inefficient, as we have to traverse the whole token list, and overlapping
-      --       parts of the stream for each token
-      --       maybe one day I'll fix that, if it ends up being too slow?
+      -- TODO: patch positions from byte indices to line/column in UTF-8 codepoints. Currently
+      -- inefficient: traverses the whole token list and overlapping stream parts per token.
       .inr <| tokens.map λ ⟨pos, tok⟩ ↦ ⟨mkPosition pos, (λ ⟨pos, tok⟩ ↦ ⟨mkPosition pos, tok⟩) <$> tok⟩
   where
     @[inline]
@@ -468,17 +463,13 @@ namespace SurfaceTLAPlus.Parser
       else
         s.past[n]!
 
-  /--
-    Removes "blank" tokens when parsing. Be careful so as to not call this too much, as we still
-    want to keep comments for type annotations in some places.
-  -/
+  /-- Drops "blank" tokens. Use sparingly: comments must still be kept in some places, for type
+  annotations. -/
   @[inline]
   private def ws : TLAPlusParser PUnit :=
     dropMany <| tokenFilter (λ | ⟨_, .inlineComment _⟩ | ⟨_, .blockComment _⟩ => true | _ => false)
 
-  /--
-    `lexeme p` applies the parser `p` then tries to consume some "whitespace" as defined by `ws`.
-  -/
+  /-- `lexeme p` applies `p`, then tries to consume trailing "whitespace" as defined by `ws`. -/
   @[inline]
   private def lexeme {α} (p : TLAPlusParser α) : TLAPlusParser α := p <* ws
 
@@ -550,9 +541,9 @@ namespace SurfaceTLAPlus.Parser
   namespace Annotations
     /--
       Parses annotations out of a run of adjacent comments by concatenating their raw content
-      into one flat `String` and parsing over that with the ordinary `String.Slice` stream.
-      Each match's flat position is mapped back to the original comment it fell in (via
-      `commentIndexOf` below) to recover that comment's own `SourceSpan`.
+      into one flat `String` and parsing over it with the ordinary `String.Slice` stream. Each
+      match's flat position is mapped back to its original comment (via `commentIndexOf` below)
+      to recover that comment's own `SourceSpan`.
     -/
     private abbrev TypeParser := SimpleParser String.Slice Char
 
@@ -716,7 +707,7 @@ namespace SurfaceTLAPlus.Parser
 
       instance : HasPrecedence SurfaceTLAPlus.InfixOperator where
         range
-          | .«?» => (0, 20) -- NOTE: conflict with all operators, as I don't know what this operator is supposed to be
+          | .«?» => (0, 20) -- Conflicts with every operator: this operator's semantics are unknown.
           | .«=>» => (1, 1)
           | .«-+->» | .«<=> » _ | .«~>» => (2, 2)
           | .«/\ » _ | .«\/ » _ => (3, 3)
@@ -753,7 +744,7 @@ namespace SurfaceTLAPlus.Parser
 
       /-- Maps a TLA+ infix operator to its associativity. -/
       def TLAPlus.InfixOperator.assoc : SurfaceTLAPlus.InfixOperator → Associativity
-        -- Somehow there's no right associative operator in TLA+?
+        -- No TLA+ operator is right-associative.
         | .«/\ » _ | .«\/ » _ | .«\cdot» | .«@@» | .«\cap » _ | .«\cup » _ | .«##» | .«$» | .«$$» | .«??» | .«\sqcap» | .«\sqcup» | .«\uplus»
           | .«(+) » _ | .«+» | .«++» | .«%%» | .«|» | .«||» | .«(-) » _ | .«-» | .«--» | .«&» | .«&&» | .«(.) » _ | .«(\X) » _ | .«*»
           | .«**» | .«\bigcirc» | .«\bullet» | .«\o » _ | .«\star» | .«\X » _ | .«.» => .left
@@ -767,10 +758,8 @@ namespace SurfaceTLAPlus.Parser
           return ()
 
       set_option linter.unusedVariables false in
-      /--
-        A modified version of the Shunting Yard algorithm for parsing expressions with infix operators.
-        In our case, we also need to handle prefix and postfix operators and conflicts between precedence ranges.
-      -/
+      /-- A modified Shunting Yard algorithm: also handles prefix/postfix operators and conflicts
+      between precedence ranges. -/
       def shuntingYard (input : List OperatorOrExpression) : TLAPlusParser (Expression (List CommentAnnotation))
         := do
           let mut output : List (Expression (List CommentAnnotation)) := []
@@ -1019,10 +1008,8 @@ namespace SurfaceTLAPlus.Parser
         let expr := orderInput atoms (OperatorOrExpression.infix <$> infixOps)
         shuntingYard expr
       where
-        /--
-          An infix atom is an atom, optionally prefixed with some prefix operators,
-          and optionally followed by some postfix operators.
-        -/
+        /-- An infix atom is an atom, optionally prefixed by prefix operators and optionally
+        followed by postfix operators. -/
         @[inline]
         parseInfixAtom : TLAPlusParser (List OperatorOrExpression) := do
           let prefixOps ← Array.map .prefix <$> takeMany parsePrefixOperator
@@ -1131,8 +1118,8 @@ namespace SurfaceTLAPlus.Parser
 
   /-- Parse a full module, always pairing any collected `ParserWarning`s with the result —
   whether or not parsing itself succeeded, so a warning emitted before a fatal parse error still
-  reaches the caller (`PLAN.md` §9.14). A `DiagT` in all but name (`Id` base) — ascribed that way
-  so `Driver/Modules.lean` can absorb it directly via `DiagT.lift`. -/
+  reaches the caller. A `DiagT` in all but name (`Id` base), ascribed that way so
+  `Driver/Modules.lean` can absorb it directly via `DiagT.lift`. -/
   def parseModule (tokens : Array (Located' (Token (Located' SurfacePlusCal.Token)))) :
     DiagT ParserWarning (Unexpected (Token (Located' SurfacePlusCal.Token))) Id
       (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation)) :=

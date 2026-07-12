@@ -21,10 +21,10 @@ def extendAll {α} (bindings : List (String × Typ)) (act : m α) : m α :=
   withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, τ) ↦ ctx'.insert x { type := τ, origin := .binder }) act
 
 /-- Extend `Γ` with a list of already-tagged `Binding`s (each carrying its own `isScheme`) for
-the scope of `act` — used where the caller has just checked a whole top-level declaration list
-(`Elaborator/Declarations.lean`'s `checkDeclarations`, `Elaborator/Elaborator.lean`'s
-`Module.check`) and must extend `Γ` with its `operator`/`function` bindings as schemes, unlike
-`extendAll` above, which always inserts monomorphically. -/
+the scope of `act` — used after checking a whole top-level declaration list (`Elaborator/
+Declarations.lean`'s `checkDeclarations`, `Elaborator.lean`'s `Module.check`) to extend `Γ` with
+its `operator`/`function` bindings as schemes, unlike `extendAll`, which always inserts
+monomorphically. -/
 def extendAllBindings {α} (bindings : List (String × Binding)) (act : m α) : m α :=
   withTheReader Context (λ ctx ↦ bindings.foldl (init := ctx) λ ctx' (x, b) ↦ ctx'.insert x b) act
 

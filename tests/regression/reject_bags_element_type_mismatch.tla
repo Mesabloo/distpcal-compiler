@@ -1,7 +1,7 @@
 ---- MODULE RejectBagsElementTypeMismatch ----
 \* Expect: rejected. `SetToBag(IntSet) (+) SetToBag(BoolSet)` genuinely mixes an `Int`-element
 \* bag with a `Bool`-element bag through `(+)`'s single shared element-type metavariable — this
-\* must still fail after the third/fourth follow-ups (PLAN.md §9.19) generalized every top-level
+\* must still fail after the third/fourth follow-ups generalized every top-level
 \* declaration's references and fixed a self-comparison bug in `subtype`, neither of which is
 \* meant to paper over an actual type conflict.
 \* Regression-covers `Elaborator/Resolution.lean`'s new `resolveTypeMVarsForDisplay` too, even

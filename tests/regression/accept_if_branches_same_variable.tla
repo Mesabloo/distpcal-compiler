@@ -1,6 +1,6 @@
 ---- MODULE AcceptIfBranchesSameVariable ----
 \* Expect: accepted. Two *different* `if` branches writing to the same variable is fine -- only
-\* one of them ever actually runs (`PLAN.md` §5.2a).
+\* one of them ever actually runs.
 
 CONSTANTS
     \* @type: Address;

@@ -23,13 +23,13 @@ public import Core.SurfacePlusCal.Syntax
   statement" is a structural invariant rather than a side condition to maintain by hand.
 
   `Process.threads : List (List (String × Block α β true))` pairs each atomic block with its
-  own label (the outer list is `SurfacePlusCal`'s parallel `{...} {...}` threads, the inner list
-  the sequence of labelled atomic blocks within one thread).
+  label (the outer list is `SurfacePlusCal`'s parallel `{...} {...}` threads, the inner list the
+  sequence of labelled atomic blocks within one thread).
 
-  `Process`/`Declarations`/`Algorithm` share the same `α`/`β` that `Statement`/`Block`/`Branches`/
-  `MulticastFilter` do: `α` is the declared-type annotation at whatever stage of checking it's
+  `Process`/`Declarations`/`Algorithm` share the same `α`/`β` as `Statement`/`Block`/`Branches`/
+  `MulticastFilter`: `α` is the declared-type annotation at whatever stage of checking it's
   currently at. Content that can't be expressed via this shared `α` (`@mailbox`'s channel
-  name/index expressions, `@parameter`'s presence-as-a-`Bool`) is instead its own concrete field
+  name/index expressions, `@parameter`'s presence-as-a-`Bool`) instead gets a concrete field
   (`Process.mailbox`, `Declarations.variables`' `isParameter`).
 -/
 namespace CorePlusCal
@@ -64,7 +64,7 @@ namespace CorePlusCal
       | «with» (var : String) (ann : α) («=|∈» : Bool) (val : β) (B : Block α β false) : Statement α β false
       | assert (e : β) : Statement α β false
       | either {b} (branches : Branches α β b) : Statement α β b
-      /-- `while`'s own body may be either terminal or not (terminal when a labelled step was
+      /-- `while`'s body may be either terminal or not (terminal when a labelled step was
       extracted from the loop body, ending in a `goto` back to the condition check); the
       `while` statement itself is always non-terminal, since falling out of the loop continues
       normally to whatever follows it. -/
@@ -182,8 +182,8 @@ namespace CorePlusCal
   `Branches`/`MulticastFilter`. -/
   structure Declarations (α β : Type) : Type where
     /-- `(name, declared-type annotation, isParameter, initializer)`; `isParameter` is `true`
-    only on a `@parameter`-annotated, `∈`-initialized entry. The initializer's own `Bool` is
-    `true` for `=`, `false` for `∈`. -/
+    only on a `@parameter`-annotated, `∈`-initialized entry. The initializer's `Bool` is `true`
+    for `=`, `false` for `∈`. -/
     «variables» : List (String × α × Bool × Option (Bool × β))
     channels : List (String × α × List β)
     fifos : List (String × α × List β)
@@ -218,8 +218,8 @@ namespace CorePlusCal
     «=|∈» : Bool
     id : β
     localState : Declarations α β
-    /-- One entry per parallel `{...}` thread; each thread is its own sequence of labelled
-    atomic blocks, in program order. -/
+    /-- One entry per parallel `{...}` thread; each thread is a sequence of labelled atomic
+    blocks, in program order. -/
     threads : List (List (String × Block α β true))
     deriving Repr, Inhabited
 

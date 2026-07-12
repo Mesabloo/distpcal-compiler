@@ -15,8 +15,7 @@ public import Extra.Prod
 
 /-!
   The output of `Typed2Computable` — `TypedTLAPlus.Expression` restricted to what a backend can
-  actually compute (`.claude/tasklist.md` task 3; `reference/thesis.pdf` §... via `PLAN.md` §5.3).
-  Structurally identical to `TypedTLAPlus.Expression` node-for-node except:
+  actually compute. Structurally identical to `TypedTLAPlus.Expression` node-for-node except:
 
   - No `fnSet` (`[A -> B]`, the set of *all* functions `A → B`) or `recordSet` (`[a : A, ...]`,
     the set of *all* records shaped that way) — both denote sets with no finite representation in
@@ -25,17 +24,16 @@ public import Extra.Prod
     them into something wrong.
   - No `fforall`/`eexists` (`\AA`/`\EE`, temporal quantification) or `stutter` (`[A]_e`) — already
     banned from anything reachable from the algorithm by `WellFormedness/Restrictions.lean`'s
-    check 3 (`PLAN.md` §5.2a), so absent by construction from `Typed2Computable`'s input; kept out
-    of this AST entirely rather than carried forward as dead constructors no producer ever emits.
-  - No `mvar` — every metavariable is already resolved by the time the type checker's own output
-    is handed to any caller (`TypedTLAPlus.Syntax.lean`'s own doc comment), so `Typed2Computable`'s
-    input never contains one either.
+    check 3, so absent by construction from `Typed2Computable`'s input; kept out of this AST
+    entirely rather than carried forward as dead constructors no producer ever emits.
+  - No `mvar` — every metavariable is already resolved by the time the type checker's output is
+    handed to any caller (`TypedTLAPlus.Syntax.lean`'s doc comment), so `Typed2Computable`'s input
+    never contains one either.
   - `forall`/`exists`/`choose`'s domain is a required `Expression α`, not `Option (Expression
     α)` — `WellFormedness/Restrictions.lean`'s check 3 already bans an unbounded quantifier
-    (`dom = none`) from anything reachable from the algorithm, so by the time `Typed2Computable`
-    runs, every surviving domain is `some`; tightening the field itself (rather than leaving it
-    `Option` and trusting every consumer to handle `none` as "impossible") makes that invariant
-    checked by the type system instead of by convention.
+    (`dom = none`) from anything reachable from the algorithm, so every surviving domain is `some`
+    by the time `Typed2Computable` runs; tightening the field makes that invariant checked by the
+    type system instead of by convention.
 -/
 
 namespace ComputableTLAPlus
@@ -50,9 +48,9 @@ only which expressions are allowed to exist at all. -/
 abbrev Origin := TypedTLAPlus.Origin
 
 /--
-  Computable TLA⁺ expressions — see the module doc above for exactly how this differs from
-  `TypedTLAPlus.Expression`. `α` is always instantiated at `Typ` by `Typed2Computable`'s actual
-  output — kept generic to match `TypedTLAPlus.Expression`'s own shape.
+  Computable TLA⁺ expressions — see the module doc above for how this differs from
+  `TypedTLAPlus.Expression`. `α` is always instantiated at `Typ` by `Typed2Computable`'s output —
+  kept generic to match `TypedTLAPlus.Expression`'s shape.
 -/
 inductive Expression (α : Type) : Type
   /-- An unqualified identifier, with its type resolved via `Γ` and its `Origin` recorded. -/

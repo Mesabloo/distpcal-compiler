@@ -13,15 +13,13 @@ known nonempty). -/
 private local instance {α} [Inhabited α] : Inhabited (m α) := ⟨pure default⟩
 
 /--
-  Eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` is resolved
-  before an outer one that might wrap it. Each metavariable is resolved by defaulting it to its
-  recorded upper bound, if there's exactly one; a metavariable with no recorded bound is an
-  unconstrained-metavariable error, and one with more than one recorded bound is not yet
-  supported (would need genuine per-site tracking to substitute soundly).
+  Eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` resolves before
+  an outer one that might wrap it. Each metavariable defaults to its recorded upper bound, if
+  there's exactly one; no recorded bound is an unconstrained-metavariable error, and more than one
+  is not yet supported (would need per-site tracking to substitute soundly).
 
-  Only eliminates `Expression.mvar` wrapper nodes — doesn't itself touch `Typ.mvar` occurrences
-  embedded inside a node's own stored type field. Those are resolved by `resolveMVars` below, as
-  a second pass over this pass's output.
+  Only eliminates `Expression.mvar` wrapper nodes, not `Typ.mvar` occurrences embedded in a node's
+  stored type field — those are resolved by `resolveMVars` below, as a second pass.
 -/
 partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
   | .var v τ o, pos => return .var v τ o @@ pos
@@ -82,11 +80,10 @@ partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
           "metavariable with more than one recorded upper bound — not yet supported")
 
 /-- Substitutes every already-assigned metavariable inside `τ`, recursing into whatever
-`onUnassigned` returns for one that isn't assigned — shared by `resolveTypeMVars` (throws: every
-metavariable must be resolved by the time a declaration's checking finishes) and
-`resolveTypeMVarsForDisplay` below (best-effort: an unresolved one is left exactly as `Typ.mvar
-n`, since it's only ever used to make a *thrown* error's carried types as concrete as possible,
-not to enforce that the program is fully resolved). -/
+`onUnassigned` returns for one that isn't. Shared by `resolveTypeMVars` (throws: every
+metavariable must be resolved by the time a declaration finishes checking) and
+`resolveTypeMVarsForDisplay` below (best-effort: an unresolved one is left as `Typ.mvar n`, since
+it's only used to make a *thrown* error's carried types as concrete as possible). -/
 private partial def resolveTypeMVarsWith (onUnassigned : MVarId → m Typ) : Typ → m Typ
   | .mvar n => do
     match ← assigned? n with
@@ -112,12 +109,10 @@ private def resolveTypeMVars (pos : SourceSpan) : Typ → m Typ :=
   resolveTypeMVarsWith λ _ ↦ throw (.unconstrainedMetavariable pos)
 
 /-- Best-effort metavariable substitution for a `Typ` about to be embedded in a *thrown*
-`TCError` — an already-resolved metavariable (e.g. one pinned by an earlier operand in the same
-call, as with two `Bags` operands compared against a shared, by-then-resolved element-type
-metavariable) is substituted so the error shows the real, concrete type instead of a raw,
-uninformative `?n`; one that's genuinely never been constrained by anything is left as `Typ.mvar
-n` (rendered `?n`) rather than erroring — this is for display only, not a checking-correctness
-concern, so there's nothing else sensible to do with a truly-unconstrained one here. -/
+`TCError`: an already-resolved metavariable (e.g. pinned by an earlier operand in the same call)
+is substituted so the error shows a concrete type instead of a raw `?n`; one that's never been
+constrained is left as `Typ.mvar n` (rendered `?n`) rather than erroring — display only, not a
+checking-correctness concern. -/
 def resolveTypeMVarsForDisplay : Typ → m Typ :=
   resolveTypeMVarsWith (pure ∘ .mvar)
 

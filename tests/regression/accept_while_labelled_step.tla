@@ -2,7 +2,7 @@
 \* Expect: accepted. A label may sit nested inside a `while` body (`l2`) — the desugarer
 \* extracts it into its own top-level block, stitching `goto`s so `l2` loops back to `l1`
 \* and falling out of the loop continues to `l3`. This is the project owner's own worked
-\* example from the basic-block-extraction correction (`PLAN.md` §5.2).
+\* example from the basic-block-extraction correction.
 
 EXTENDS Naturals
 

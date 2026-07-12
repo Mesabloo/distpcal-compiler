@@ -1,7 +1,6 @@
 ---- MODULE RejectSequentialAssignSameVariable ----
 \* Expect: rejected. `x := 4; x := 0` writes the same bare variable twice within one atomic
-\* step, even though the two assigns are separate (sequential, not `||`) statements
-\* (`PLAN.md` §5.2a).
+\* step, even though the two assigns are separate (sequential, not `||`) statements.
 
 (*--algorithm RejectSequentialAssignSameVariable {
     variables x = 0;

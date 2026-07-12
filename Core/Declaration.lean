@@ -11,10 +11,10 @@ public import Mathlib.Control.Bitraversable.Instances
 
 /-!
   The shape of a TLA⁺ declaration/module, shared verbatim by `SurfaceTLAPlus`, `CoreTLAPlus`,
-  `TypedTLAPlus` — each stage's own `Declaration`/`Module` used to be the exact same source text,
-  differing only by which stage's `Expression` former they closed over. Parametrized here by that
-  former (`E`), so the shape and its `Functor`/`Traversable`/`Bifunctor`/`Bitraversable` instances
-  are defined once; each stage recovers its own `Declaration`/`Module` via an `abbrev` over its own
+  `TypedTLAPlus` — each stage's `Declaration`/`Module` used to be identical source text, differing
+  only in which stage's `Expression` former they closed over. Parametrized here by that former
+  (`E`) so the shape and its `Functor`/`Traversable`/`Bifunctor`/`Bitraversable` instances are
+  defined once; each stage recovers its `Declaration`/`Module` via an `abbrev` over its
   `Expression`.
 -/
 
@@ -25,14 +25,13 @@ inductive Declaration (E : Type → Type) (α : Type) : Type
   | assume : E α → Declaration E α
   /--
     An operator definition, optionally with higher-order arguments. Each parameter's `Nat`
-    is its own arity (`0` for `x`, `3` for `F(_, _, _)`, …).
+    is its arity (`0` for `x`, `3` for `F(_, _, _)`, …).
   -/
   | operator : α → String → List (String × Nat) → E α → Declaration E α
   /-- A function definition, with an explicit domain for every argument. -/
   | function : α → String → List (String × E α) → E α → Declaration E α
 
-/-- Hand-written since `deriving Repr` can't discharge the higher-kinded `Repr (E α)` obligation
-on its own. -/
+/-- Hand-written since `deriving Repr` can't discharge the higher-kinded `Repr (E α)` obligation. -/
 instance {E α} [Repr α] [Repr (E α)] : Repr (Declaration E α) where
   reprPrec d _ := match d with
     | .constants xs => f!"Declaration.constants {repr xs}"
@@ -60,12 +59,12 @@ instance {E} [Traversable E] : Traversable (Declaration E) where
 /--
   A TLA⁺ module, `EXTENDS`-list and all, wrapping the embedded (Distributed) PlusCal algorithm at
   whatever `α` the caller instantiates it at — kept abstract to avoid a cyclic import between the
-  TLA⁺ and PlusCal Core ASTs. Each stage recovers its own `Module` via an `abbrev` over its own
-  `Expression` (`SurfaceTLAPlus.Module`, `CoreTLAPlus.Module`, `TypedTLAPlus.Module`); dot-called
-  extension methods defined under a stage's `Module` namespace (`mod.runChecker`,
-  `mod.checkWellFormed`, …) are qualified-call sites now, not method-call sites, since generalized
-  field notation resolves through the `abbrev`'s full unfold and would otherwise land on this
-  shared type instead of the stage's own (nonexistent) namespace.
+  TLA⁺ and PlusCal Core ASTs. Each stage recovers its `Module` via an `abbrev` over its
+  `Expression` (`SurfaceTLAPlus.Module`, `CoreTLAPlus.Module`, `TypedTLAPlus.Module`). Dot-called
+  extension methods under a stage's `Module` namespace (`mod.runChecker`, `mod.checkWellFormed`,
+  …) become qualified calls rather than method calls: generalized field notation resolves through
+  the `abbrev`'s full unfold, landing on this shared type instead of the stage's (nonexistent)
+  namespace.
 -/
 structure Module (E : Type → Type) (α β : Type) : Type where
   name : String
@@ -75,7 +74,7 @@ structure Module (E : Type → Type) (α β : Type) : Type where
   declarations₂ : List (Declaration E β)
   deriving Inhabited
 
-/-- Hand-written, same reason as `Declaration`'s own `Repr` instance above. -/
+/-- Hand-written, same reason as `Declaration`'s `Repr` instance above. -/
 instance {E α β} [Repr α] [Repr β] [Repr (E β)] : Repr (Module E α β) where
   reprPrec m _ :=
     f!"\{ name := {repr m.name}, extends := {repr m.extends}, declarations₁ := {repr m.declarations₁}, " ++

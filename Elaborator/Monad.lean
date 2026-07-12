@@ -10,14 +10,14 @@ public section
 /-! The effects the type checker needs: a local typing context `Γ`, a metavariable context,
 error reporting, and fresh-name generation. -/
 
-/-- One `Γ` binding: its type, whether it's a *scheme* — a top-level `operator`/`function`
-definition, freshened into new metavariables on every `.var` reference (`Elaborator/
-Expressions.lean`'s `inferExpr`) — versus an ordinary monomorphic binding (`CONSTANT`/`VARIABLE`
-declarations, and every binder: operator/function parameters, quantifiers, `CHOOSE`, `EXCEPT`,
-PlusCal variables/channels), used exactly as declared, and its `origin` (`Core/TypedTLAPlus/
-Syntax.lean`'s `Origin`) — an ordinary binder, or a top-level declaration of some module. Only a
-declaration has a scheme to generalize in the first place; a binder is fixed for the scope of the
-one body it's bound in. No default for `origin`: every construction site must say which. -/
+/-- One `Γ` binding: its type; whether it's a *scheme* (a top-level `operator`/`function`
+definition, freshened into new metavariables on every `.var` reference in `Elaborator/
+Expressions.lean`'s `inferExpr`) versus an ordinary monomorphic binding (`CONSTANT`/`VARIABLE`
+declarations, and every binder — parameters, quantifiers, `CHOOSE`, `EXCEPT`, PlusCal
+variables/channels — used exactly as declared); and its `origin` (`Core/TypedTLAPlus/Syntax.lean`'s
+`Origin`): a binder or a top-level declaration. Only declarations generalize to schemes; binders
+are fixed for the scope of their one body. No default for `origin` — every construction site must
+say which. -/
 structure Binding : Type where
   type : TypedTLAPlus.Typ
   isScheme : Bool := false

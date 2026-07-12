@@ -15,17 +15,16 @@ public import Extra.Prod
 
 /-!
   The output of the type checker — `CoreTLAPlus.Expression`/`Declaration`/`Module`, every binder's
-  annotation now a required `Typ` rather than an optional user-written one, plus two new
-  constructors with no `CoreTLAPlus` counterpart: `mvar` (a pending-coercion placeholder, resolved
-  before the checker's own output is ever handed to a caller) and `seq` (the checking-mode
-  sequence-constructor rule, kept distinct from `tuple`'s synthesis rule).
+  annotation now a required `Typ` rather than optional, plus two new constructors with no
+  `CoreTLAPlus` counterpart: `mvar` (a pending-coercion placeholder, resolved before the checker's
+  output is ever handed to a caller) and `seq` (the checking-mode sequence rule, kept distinct
+  from `tuple`'s synthesis rule).
 
   Most nodes don't carry a redundant "own type" field — it's recoverable from context — except
   where checking would otherwise need to re-synthesize it: `var` (the `Γ`-lookup result);
-  `set`/`seq`'s element type (the empty-literal case has no element to derive a type from);
-  `tuple`'s per-component types (each component can be an arbitrary expression, not a cheap
-  pattern-match); `record`/`recordSet`'s per-field types (already present in
-  `CoreTLAPlus.Expression`'s own shape).
+  `set`/`seq`'s element type (an empty literal has no element to derive a type from); `tuple`'s
+  per-component types (each component can be an arbitrary expression); `record`/`recordSet`'s
+  per-field types (already present in `CoreTLAPlus.Expression`'s shape).
 -/
 
 namespace TypedTLAPlus
@@ -40,17 +39,13 @@ abbrev MVarId := Nat
 /-- Where a name resolved via `Γ` came from: an ordinary binder; a top-level declaration of some
 real or simulated module (`name` — own, imported, or a `builtinModules` entry like `Naturals`/
 `Sequences`); or `intrinsic`, for a name with no owning module at all — real TLA⁺'s own core
-syntax (`=`, `/\`, `\in`, `\cup`, `DOMAIN`, …), never `EXTENDS`-gated, matching `builtinContext`'s
-own scope after §9.19's resolution. `intrinsic` is not a fake module name (`"<builtin>"` would
-misrepresent a core-language primitive as if it came from some module called that) — an operator
-that *does* come from a real module (e.g. `Len`/`Sequences`, `..`/`Naturals`) is tagged
-`.module "Sequences"`/`.module "Naturals"` instead, even when synthesized by the compiler itself
-(`Elaborator/Subtyping.lean`'s coercion machinery). Tagged at `Γ`-construction time
-(`Elaborator/Context.lean`, `Elaborator/Declarations.lean`, `Driver/Modules.lean`) and baked
-directly onto `Expression.var` below, so it survives past `Γ` (discarded once checking finishes)
-into the checked AST — later passes (`WellFormedness`, `Network2Go`) read it straight off a
-`.var` node, no further lookup needed to know which module a name came from. Not a third type
-parameter on `Expression`: unlike `α`, this doesn't vary by stage/instantiation. -/
+syntax (`=`, `/\`, `\in`, `\cup`, `DOMAIN`, …), never `EXTENDS`-gated. `intrinsic` is not a fake
+module name: an operator that *does* come from a real module (e.g. `Len`/`Sequences`, `..`/
+`Naturals`) is tagged `.module "Sequences"`/`.module "Naturals"` instead, even when synthesized by
+the compiler itself (`Elaborator/Subtyping.lean`'s coercion machinery). Tagged at `Γ`-construction
+time and baked onto `Expression.var` below, so it survives into the checked AST — later passes
+(`WellFormedness`, `Network2Go`) read it straight off a `.var` node. Not a third type parameter on
+`Expression`: unlike `α`, this doesn't vary by stage. -/
 inductive Origin : Type
   | binder
   | intrinsic

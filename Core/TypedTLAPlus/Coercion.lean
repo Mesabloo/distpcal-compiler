@@ -6,30 +6,27 @@ public section
 
 
 /-!
-  `Coercion` — a term-level witness of `<:`, realized as closed structural data (not an opaque
-  `Expr → Expr` closure). Lives in `Core/` (not `Elaborator/`) so that `CorePlusCal.Statement.
-  receive` can carry a `Coercion` field without `Core/` depending on `Elaborator/`. `Elaborator/
-  Subtyping.lean` owns everything *about* `Coercion` (the subtyping judgment, every coercion
-  built from one); this file only owns the type itself, its discharge (`Coercion.apply`), and its
-  `Repr` instance.
+  `Coercion` — a term-level witness of `<:`, realized as closed structural data, not an opaque
+  `Expr → Expr` closure. Lives in `Core/` (not `Elaborator/`) so `CorePlusCal.Statement.receive`
+  can carry a `Coercion` field without `Core/` depending on `Elaborator/`. `Elaborator/
+  Subtyping.lean` owns everything *about* `Coercion` (the subtyping judgment, every coercion built
+  from one); this file only owns the type itself, its discharge (`Coercion.apply`), and its `Repr`
+  instance.
 
   Data rather than a closure because a `receive` statement's coercion (`Core/GuardedPlusCal/
   Syntax.lean`) must survive past `Typed2Computable`'s type change (`TypedTLAPlus.Expression` →
-  `ComputableTLAPlus.Expression`) and get discharged against the *later* type — a closure fixed at
-  one concrete `Expr` type can't cross that boundary. Each constructor below mirrors one of
-  `Elaborator/Subtyping.lean`'s structural `<:` rules (or `tryAxioms`' non-structural ones),
-  carrying exactly the type indices, field names, and nested sub-`Coercion`s that rule's discharge
-  needs, plus any fresh binder name (`x`/`y`/`i`) `subtype`/`tryAxioms` generated via `MonadFresh`
-  at construction time — baked in once, since a name fresh at construction remains fresh at
-  discharge (`freshName`'s `$`-based freshness argument, `Common/Fresh.lean`).
+  `ComputableTLAPlus.Expression`) and discharge against the *later* type — a closure fixed at one
+  concrete `Expr` type can't cross that boundary. Each constructor mirrors one of `Elaborator/
+  Subtyping.lean`'s structural `<:` rules (or `tryAxioms`'s non-structural ones), carrying the type
+  indices, field names, and nested sub-`Coercion`s that rule's discharge needs, plus any fresh
+  binder name (`x`/`y`/`i`) generated via `MonadFresh` at construction time — baked in once, since
+  a name fresh at construction stays fresh at discharge.
 
-  Two small structural recursions consume this same data, one per concrete expression type:
-  `Coercion.apply` (below, unchanged name/signature — every ordinary subtyping call site, e.g.
-  `[Send]`'s payload, keeps calling it immediately at check time with zero diff) and
-  `Coercion.applyComputable` (`Core/ComputableTLAPlus/Coercion.lean`).
+  Two structural recursions consume this data, one per concrete expression type: `Coercion.apply`
+  (below) and `Coercion.applyComputable` (`Core/ComputableTLAPlus/Coercion.lean`).
 
-  `Repr Coercion` is a placeholder, not a real rendering: `-d dump-typed` output for a `receive`
-  statement's coercion is just the literal string `"<coercion>"`.
+  `Repr Coercion` is a placeholder: `-d dump-typed` renders any `receive`'s coercion as the literal
+  string `"<coercion>"`.
 -/
 
 namespace TypedTLAPlus
@@ -38,10 +35,9 @@ namespace TypedTLAPlus
 abbrev Expr := Expression Typ
 
 /--
-  A coercion, witnessing `τ <: τ'` at the term level — see the module doc above for why this is
-  closed data rather than an `Expr → Expr` closure. `.id` is its own constructor rather than
-  folding identity into a general case so structural subtyping rules can cheaply detect "nothing
-  to wrap" by pattern matching alone.
+  A coercion, witnessing `τ <: τ'` at the term level. `.id` is its own constructor rather than
+  folded into a general case, so structural subtyping rules can cheaply detect "nothing to wrap"
+  by pattern matching alone.
 -/
 inductive Coercion : Type
   /-- No wrapping needed — the source expression is already of the target type as-is. -/

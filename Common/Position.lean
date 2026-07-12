@@ -85,10 +85,9 @@ def SourceSpan.merge (p₁ p₂ : SourceSpan) : SourceSpan where
   «end» := max p₁.end p₂.end
 
 /-- A placeholder position for diagnostics with no real one to report against. **Not**
-`default`/`(0 : SourceSpan)` — both are `⟨⟨0,0⟩,⟨0,0⟩⟩`, but every *real* position in this
-codebase has 1-indexed lines (lexing starts at `⟨1,0⟩`, not `⟨0,0⟩`), so line `0` here would
-render an actual (wrong, off-by-one) line number. Line `1` at least points at a real line, even
-though the span itself is still meaningless. -/
+`default`/`(0 : SourceSpan)` — both are `⟨⟨0,0⟩,⟨0,0⟩⟩`, but every real position in this codebase
+has 1-indexed lines (lexing starts at `⟨1,0⟩`), so line `0` would render a wrong, off-by-one line
+number. Line `1` points at a real line even though the span itself stays meaningless. -/
 def SourceSpan.placeholder : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
 
 instance : Append SourceSpan where

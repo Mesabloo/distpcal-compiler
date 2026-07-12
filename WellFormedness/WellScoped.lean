@@ -8,32 +8,22 @@ public section
 
 
 /-!
-  Well-scopedness (`PLAN.md` §5.2a): every name is fresh in the scope it's declared in — no
-  duplicate names within one flat declaration list, and no name shadowing an already-in-scope
-  one from an enclosing scope. The four scope classes (matching prior art's Σ/Δ/Γ/Ξ): global
-  (`Algorithm.globalState`), process-local (`Process.localState`), and block-local (`with`'s
-  own binder) — "channel" isn't a separate namespace from "global"/"process-local" in this
-  repo's `Declarations` shape (`variables`/`channels`/`fifos` already coexist in one flat scope
-  per `Declarations` value), so it's folded into whichever of those two applies.
+  Well-scopedness: every name is fresh in the scope it's declared in — no duplicate names within
+  one flat declaration list, and no name shadowing an already-in-scope one from an enclosing
+  scope. Scope classes: global (`Algorithm.globalState`), process-local (`Process.localState`),
+  and block-local (`with`'s own binder) — "channel" isn't a separate namespace from "global"/
+  "process-local" here (`variables`/`channels`/`fifos` already coexist in one flat scope per
+  `Declarations` value), so it's folded into whichever of those two applies.
 
-  This is only the "no duplicate names / no shadowing" half — the "every reference resolves to
-  a declared name" half is now redundant with type checking's own success (§5.2a's reorder) and
-  isn't re-derived here.
+  This is only the "no duplicate names / no shadowing" half — "every reference resolves to a
+  declared name" is redundant with type checking's own success and isn't re-derived here.
 
-  Two distinct things below, per §5.2a — don't conflate them:
+  Two distinct things below:
   1. The **executable** check (`TypedPlusCal.Algorithm.checkWellScoped`), run by the driver.
-  2. `CorePlusCal.WellScoped`, a **Prop** authored fresh (no such file exists in prior art at
-     the `CorePlusCal` stage — only already-elaborated `GuardedPlusCal`/`TypedSetTheory`
-     versions do), modeled on the same scope-class shape. This is infrastructure for a later
-     preservation lemma (`CorePlusCal.WellScoped p → GuardedPlusCal.Algorithm.WellScoped
-     (Computable2Guarded (Elaborator p))`, `PLAN.md` §2/§6.2/§9), not something (1) needs to invoke —
-     nothing proves anything about it yet.
-
-  **Deferred port, flagged here so it isn't missed**: prior art's `Core/GuardedPlusCal/Syntax/
-  WellScopedness.lean` and `Core/TypedSetTheory/Syntax/WellScopedness.lean` are the
-  already-elaborated restatements of this same discipline — port them (with cleanup) once
-  whichever of Phase 8 (`TypedSetTheory`) / Phase 9 (`GuardedPlusCal`, via `Computable2Guarded`)
-  actually creates those types. Neither exists in this repo yet.
+  2. `CorePlusCal.WellScoped`, a **Prop** modeled on the same scope-class shape — infrastructure
+     for a later preservation lemma (`CorePlusCal.WellScoped p → GuardedPlusCal.Algorithm.
+     WellScoped (Computable2Guarded (Elaborator p))`), not something (1) needs to invoke. Nothing
+     proves anything about it yet.
 -/
 
 /-! ## 1. The executable check, over `TypedPlusCal.Algorithm` -/

@@ -8,15 +8,15 @@ public import Computable2Guarded.Errors
 public section
 
 /-!
-  The merged `𝒞_flat`/`𝒞_reord` (thesis §3.2.2, `PLAN.md` §5.4): both are the same kind of
-  operation — a single left-to-right walk over a block's statements — so this file goes straight
-  from `ComputablePlusCal.Block` to `List GuardedPlusCal.AtomicBranch`, with no intermediate AST
-  (no separate `𝒞_flat`-output/`𝒞_reord`-input staging type). Runs after `𝒞_cflow`/`𝒞_par`
-  (`Computable2Guarded/CFlow.lean`/`Par.lean`), so no `if`/`while` survives anywhere in the tree
-  (`𝒞_cflow` already rewrote every one into `either`/`await`), and every `assign` carries exactly
-  one `(Ref, Expr)` pair (`𝒞_par` already reduced every parallel assignment) — both are runtime
-  facts checked defensively (`GuardedError.internalInvariantViolated`), not type-level ones, same
-  precedent `CFlow.lean` itself already uses for `while`-must-be-block-front.
+  The merged `𝒞_flat`/`𝒞_reord`: both are the same kind of operation — a single left-to-right
+  walk over a block's statements — so this file goes straight from `ComputablePlusCal.Block` to
+  `List GuardedPlusCal.AtomicBranch`, with no intermediate AST (no separate `𝒞_flat`-output/
+  `𝒞_reord`-input staging type). Runs after `𝒞_cflow`/`𝒞_par` (`Computable2Guarded/CFlow.lean`/
+  `Par.lean`), so no `if`/`while` survives anywhere in the tree (`𝒞_cflow` already rewrote every
+  one into `either`/`await`), and every `assign` carries exactly one `(Ref, Expr)` pair (`𝒞_par`
+  already reduced every parallel assignment) — both are runtime facts checked defensively
+  (`GuardedError.internalInvariantViolated`), not type-level ones, same precedent `CFlow.lean`
+  itself already uses for `while`-must-be-block-front.
 
   `walkBlock` threads two accumulators built up in original encounter order — `guards : List
   (GuardedPlusCal.Statement true false)` (`with`/`await`/`receive`) and `actions : List
@@ -29,22 +29,21 @@ public section
     action accumulated so far: `substActionsInExpr`/`substActionsInRef` fold `Expression.substRef`
     across `actions` in *reverse* (most-recently-accumulated action first, since it happened
     closest to this guard's original position — substituting right-to-left through the pending
-    prefix realizes the thesis's single-step `e'[e\r]` rule applied once per intervening action).
-    `actions` itself is **not** consumed/cleared (those statements still need to run, just after
-    every guard) — only the guard being floated gets adjusted, then appended to `guards`.
-  - **`with`**: no substitution (a fresh `with`-bound name is never re-bound, per §5.2a, so
-    nothing about its own domain expression needs adjusting when it moves earlier). Its
-    (body-less) binding is appended to `guards`, and its nested body is *un-nested* — spliced in
-    front of whatever followed the `with` (`Block.append`) — before continuing the same walk.
-    This un-nesting is sound because of the same freshness/no-shadowing invariant, and uniformly
-    resolves `𝒞_par`'s own synthesized nested-`with`-chains too, with no separate case.
+    prefix applies the single-step `e'[e\r]` rule once per intervening action). `actions` itself
+    is **not** consumed/cleared (those statements still need to run, just after every guard) —
+    only the guard being floated gets adjusted, then appended to `guards`.
+  - **`with`**: no substitution (a fresh `with`-bound name is never re-bound, so nothing about its
+    own domain expression needs adjusting when it moves earlier). Its (body-less) binding is
+    appended to `guards`, and its nested body is *un-nested* — spliced in front of whatever
+    followed the `with` (`Block.append`) — before continuing the same walk. This un-nesting is
+    sound because of the same freshness/no-shadowing invariant, and uniformly resolves `𝒞_par`'s
+    own synthesized nested-`with`-chains too, with no separate case.
   - **`either`**: **`𝒞_flat`'s own fork/hoist case.** Splices each branch in front of whatever
     followed the `either` (again `Block.append`) and recurses independently per branch,
-    concatenating every branch's resulting `AtomicBranch` list — the thesis's
-    `𝒞_flat(B; either{B1}or…or{Bn}; B') = either{B;B1;B'}or…or{B;Bn;B'}` distribute-over-choice
-    equation, applied directly during the walk (a nested `either`/`with`-body reached via
-    splicing is discovered and handled the same way, no separate "hoist out of a `with`" rule
-    needed).
+    concatenating every branch's resulting `AtomicBranch` list — the distribute-over-choice
+    equation `𝒞_flat(B; either{B1}or…or{Bn}; B') = either{B;B1;B'}or…or{B;Bn;B'}`, applied
+    directly during the walk (a nested `either`/`with`-body reached via splicing is discovered
+    and handled the same way, no separate "hoist out of a `with`" rule needed).
   - **`goto`**: ends a branch — packages `(guards, actions, goto label)` into one
     `AtomicBranch`.
 
@@ -60,8 +59,8 @@ abbrev Guard := ComputableGuardedPlusCal.Statement true false
 abbrev Action := ComputableGuardedPlusCal.Statement false false
 
 /-- Sequences a non-terminal block `B₁` in front of whatever continues afterward (`B₂`) — the
-type-safe form of the thesis's `Bi.begin ++ [Bi.end] ++ rest` splicing (`𝒞_flat`'s `either`-hoist,
-`with`-body un-nesting), reused for both. -/
+type-safe form of `Bi.begin ++ [Bi.end] ++ rest` splicing (`𝒞_flat`'s `either`-hoist, `with`-body
+un-nesting), reused for both. -/
 private def ComputablePlusCal.Block.append {b} :
     ComputablePlusCal.Block false → ComputablePlusCal.Block b → ComputablePlusCal.Block b
   | ⟨begin₁, end₁⟩, ⟨begin₂, end₂⟩ => ⟨begin₁ ++ (end₁ :: begin₂), end₂⟩

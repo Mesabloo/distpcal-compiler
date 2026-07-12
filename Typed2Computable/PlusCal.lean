@@ -27,12 +27,11 @@ public section
   own `bitraverse pure Expression.desugar` calls).
 
   Every `ElaboratedPlusCal`-family conversion below is invoked via **qualified call**
-  (`TypedPlusCal.Block.toComputable B`, not `B.toComputable`) rather than dot-notation — the same
-  "dot-called extension methods are qualified-call sites" issue task 4 already hit: dot-notation on
-  a `TypedPlusCal.X`-typed value resolves through the abbrev to `ElaboratedPlusCal`'s own namespace,
-  which has no such method. Only `TypedTLAPlus.Expression`-typed leaves stay dot-called
-  (`e.toComputable`), since `Expression` is a real inductive matching its own declared name, not an
-  abbrev layer.
+  (`TypedPlusCal.Block.toComputable B`, not `B.toComputable`) rather than dot-notation:
+  dot-notation on a `TypedPlusCal.X`-typed value resolves through the abbrev to
+  `ElaboratedPlusCal`'s own namespace, which has no such method. Only `TypedTLAPlus.Expression`-
+  typed leaves stay dot-called (`e.toComputable`), since `Expression` is a real inductive matching
+  its own declared name, not an abbrev layer.
 -/
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty ComputableError m]

@@ -6,12 +6,12 @@ public import Core.TypedPlusCal.Syntax
 public section
 
 /-!
-  Well-labelledness (`PLAN.md` §5.2a): every `goto` targets a label its process actually
-  defines, or the reserved `"Done"`; `"Done"` itself is never a real, user-defined label.
+  Well-labelledness: every `goto` targets a label its process actually defines, or the reserved
+  `"Done"`; `"Done"` itself is never a real, user-defined label.
 
   Assignment-conflict checking is **not** duplicated here — it already runs in
-  `Desugarer/PlusCal.lean`'s `CorePlusCal.Algorithm.checkAssignConflicts`, ahead of its own
-  phase slot. The mutual-recursion shape below mirrors that function's own style.
+  `Desugarer/PlusCal.lean`'s `CorePlusCal.Algorithm.checkAssignConflicts`. The mutual-recursion
+  shape below mirrors that function's style.
 -/
 
 /-- Collect every label a process defines across all its threads (`Process.threads`, the label

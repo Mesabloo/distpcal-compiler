@@ -7,11 +7,10 @@ public import Core.ComputableTLAPlus.Syntax
 
 
 /-!
-  `ElaboratedPlusCal` (`Core/TypedPlusCal/Syntax.lean`) pinned at `Typed2Computable`'s own
-  output, instead of the type checker's — the same shared `Statement`/`Block`/`Branches`/`Ref`/
-  `Declarations`/`Process`/`Algorithm` layer `TypedPlusCal` pins, at `ComputableTLAPlus`'s types
-  instead. See `Core/TypedPlusCal/Syntax.lean`'s module doc for why this pass doesn't need its
-  own monomorphic copy the way `TypedPlusCal` itself needed one over `CorePlusCal`.
+  `ElaboratedPlusCal` pinned at `Typed2Computable`'s output rather than the type checker's — the
+  same `Statement`/`Block`/`Branches`/`Ref`/`Declarations`/`Process`/`Algorithm` layer
+  `TypedPlusCal` pins, but at `ComputableTLAPlus`'s types. See `Core/TypedPlusCal/Syntax.lean`'s
+  module doc for why this pass needs no separate monomorphic copy.
 -/
 
 namespace ComputablePlusCal
@@ -29,9 +28,8 @@ abbrev Declarations := ElaboratedPlusCal.Declarations ComputableTLAPlus.Typ Expr
 abbrev Process := ElaboratedPlusCal.Process ComputableTLAPlus.Typ Expression
 abbrev Algorithm := ElaboratedPlusCal.Algorithm ComputableTLAPlus.Typ Expression
 
-/-- `TypedPlusCal.Ref.stepType`'s own counterpart at this pin's types — see that def's doc
-comment (`Core/TypedPlusCal/Syntax.lean`) and `Ref.baseType`'s (`ElaboratedPlusCal`, same file)
-for why this is always cheap and why it's needed at all. -/
+/-- `TypedPlusCal.Ref.stepType`'s counterpart at this pin's types; see that def and
+`ElaboratedPlusCal.Ref.baseType` (same file) for why this is cheap and necessary. -/
 def Ref.stepType (τ : ComputableTLAPlus.Typ) : String ⊕ Expression → ComputableTLAPlus.Typ
   | .inl field => match τ with
     | .record fs => (fs.lookup field).getD τ
@@ -44,11 +42,9 @@ def Ref.stepType (τ : ComputableTLAPlus.Typ) : String ⊕ Expression → Comput
       | _ => τ
     | _ => τ
 
-/-- The type a `Ref`'s own bracket-index expression must have at the point of one particular
-`.inr` step, given the type *before* that step (unlike `stepType`, which gives the type *after*
-it) — `Computable2Guarded/Par.lean`'s `parRef` is the one consumer, annotating each hoisted
-index-temp `with`-binding correctly instead of reusing the referenced `Ref`'s own (unrelated)
-result type. -/
+/-- The type a `Ref`'s bracket-index expression must have at one particular `.inr` step, given
+the type *before* that step (unlike `stepType`, which gives the type *after*). Used by
+`Computable2Guarded/Par.lean`'s `parRef` to annotate hoisted index-temp `with`-bindings. -/
 def Ref.indexType : ComputableTLAPlus.Typ → ComputableTLAPlus.Typ
   | .function dom _ => dom
   | .seq _ => .int

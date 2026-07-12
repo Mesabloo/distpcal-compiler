@@ -6,23 +6,22 @@ public section
 
 /-!
   Declaration/module-level checking: `checkDeclaration`/`checkDeclarations`, threading `Γ` across
-  `CONSTANTS`/`VARIABLES`/`ASSUME`/operator-definition/function-definition, plus `builtinContext`
-  — a minimal `Γ₀` prelude of core TLA⁺ operators (equality, boolean connectives, core set
-  theory) needed before any user declaration is checked.
+  `CONSTANTS`/`VARIABLES`/`ASSUME`/operator-definition/function-definition, plus `builtinContext`,
+  a minimal `Γ₀` prelude of core TLA⁺ operators (equality, boolean connectives, core set theory)
+  needed before any user declaration is checked.
 
-  Every declaration's own expressions are closed out via `resolveMVars` before `checkDeclaration`
-  returns, so a metavariable freshened during one declaration's checking doesn't leak unresolved
-  into the next declaration's `Γ`.
+  Every declaration's expressions are closed out via `resolveMVars` before `checkDeclaration`
+  returns, so a metavariable freshened during one declaration doesn't leak unresolved into the
+  next declaration's `Γ`.
 
-  `THEOREM`/`RECURSIVE` are both out of scope: neither has a `CoreTLAPlus.Declaration`
-  constructor. Consequently operator definitions get no self- or mutual recursion (their own name
-  is never in scope for their own body), while function definitions get self-recursion
-  unconditionally (`f` is in scope checking its own body), matching ordinary TLA⁺ recursive
-  function definitions.
+  `THEOREM`/`RECURSIVE` are out of scope: neither has a `CoreTLAPlus.Declaration` constructor.
+  Operator definitions thus get no self- or mutual recursion (their own name is never in scope
+  for their own body); function definitions get self-recursion unconditionally (`f` is in scope
+  checking its own body), matching ordinary TLA⁺ recursive functions.
 
   A multi-argument function *definition* `f[x₁ ∈ e₁,...,xₙ ∈ eₙ]` isn't pre-tupled the way a
-  multi-index *call* is, so this file reconciles the two: `n = 1` gives a domain type of `τ₁`
-  itself; `n > 1` requires the annotation's domain to be `Typ.tuple [τ₁,...,τₙ]`.
+  multi-index *call* is: `n = 1` gives a domain type of `τ₁` itself; `n > 1` requires the
+  annotation's domain to be `Typ.tuple [τ₁,...,τₙ]`.
 -/
 
 open TypedTLAPlus (Typ)
@@ -55,11 +54,10 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
-  -- Temporal/action operators (`reference/thesis.pdf` §3.1.3.4/3.1.3.5, Figures 3.1.4/3.1.5;
-  -- `PLAN.md` §9.24). `^+`/`^*`/`^#` deliberately excluded — no typing rule documented anywhere,
-  -- left unbound (§9.24). `WellFormedness/Restrictions.lean` bans all eight names regardless of
-  -- whether they're bound here — this table only decides whether referencing one gets caught by
-  -- that check (with a precise message) or by plain `unboundVariable` first.
+  -- Temporal/action operators. `^+`/`^*`/`^#` are deliberately excluded — no typing rule exists
+  -- for them, so they're left unbound. `WellFormedness/Restrictions.lean` bans all eight names
+  -- regardless of whether they're bound here — this table only decides whether referencing one
+  -- is caught by that check (with a precise message) or by plain `unboundVariable` first.
   ("ENABLED", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
   ("UNCHANGED", { type := .operator [.var "a"] .bool, isScheme := true, origin := .intrinsic }),
   ("[]", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
@@ -82,10 +80,9 @@ private def checkParamArity (pos : SourceSpan) (param : String) (arity : Nat) (�
 
 /-- `Γ ⊢ D ⊣ Γ'` — checks one declaration, returning its elaborated form alongside the bindings
 `Γ'` adds over `Γ` (`[]` for `ASSUME`, which adds none). A `CONSTANT`/`VARIABLE` binding is never
-a scheme (`Binding.isScheme := false`, even if its annotation happens to mention a `Typ.var`): a
-`CONSTANT` is one fixed, if abstract, value, not a family of them to instantiate fresh per
-reference. An `operator`/`function` definition's own returned binding *is* a scheme, any arity —
-see each case below. -/
+a scheme (`Binding.isScheme := false`, even if its annotation mentions a `Typ.var`): a `CONSTANT`
+is one fixed, if abstract, value, not a family to instantiate fresh per reference. An
+`operator`/`function` definition's own binding *is* a scheme, any arity — see each case below. -/
 def checkDeclaration (moduleName : String) (d : SrcDecl) : m (Decl × List (String × Binding)) := match d with
   /-
      ∀ 1 ≤ i ≤ n, xᵢ ∉ Γ

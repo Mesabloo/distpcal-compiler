@@ -9,60 +9,46 @@ public import Common.Fresh
 public section
 
 /-!
-  `Guarded2Network` (§5.5): compiles a `receive` away entirely, replacing it with a real second
-  kind of thread (`NetworkPlusCal.Thread.rx`) that loops draining a fresh process-local `inbox`
-  sequence variable, and rewrites every later `await`/`with` guard that referenced the received
-  value to read `inbox` instead — the guard's own truth no longer depends on an abstract "did a
-  message arrive" primitive, only on ordinary sequence operations (`Head`/`Tail`/`Len`) over
-  `inbox`. Design reference: `~/Documents/distpcal-compiler/Guarded2Network/PlusCal.lean` (139
-  lines, reused as design, not code, per this project's convention) — differences from that prior
-  art, beyond the fresh `GuardedPlusCal`/`NetworkPlusCal` ASTs (`Core/NetworkPlusCal/Syntax.lean`'s
-  own module doc) themselves:
+  `Guarded2Network` compiles a `receive` away entirely, replacing it with a real second kind of
+  thread (`NetworkPlusCal.Thread.rx`) that loops draining a fresh process-local `inbox` sequence
+  variable, and rewrites every later `await`/`with` guard that referenced the received value to
+  read `inbox` instead — the guard's truth no longer depends on an abstract "did a message
+  arrive" primitive, only on ordinary sequence operations (`Head`/`Tail`/`Len`) over `inbox`.
 
-  - **Monad-polymorphic** (`INSTRUCTIONS.md`'s cross-cutting convention), not hardcoded against
-    prior art's own concrete `Id`: generic `{m} [Monad m] [MonadFresh m] [MonadDiagnostic Empty
-    G2NError m]` — `MonadDiagnostic`, not a bare `MonadExceptOf`, so the concrete instantiation
-    pairs directly with `Fugue.lean`'s `runPassDiag` (the same `DiagT`-based calling convention
-    every other diagnostics-producing pass already uses, `Elaborator.lean`'s `runChecker`/
-    `Desugarer/TLAPlus.lean`'s `runDesugarer`). `Empty` (not a new bespoke warning type) for the
-    warning channel — this pass has no warnings to report yet (`Common/Errors.lean`'s
-    `CompilerDiagnostic Empty String` instance exists exactly for this case).
+  - **Monad-polymorphic**: generic `{m} [Monad m] [MonadFresh m] [MonadDiagnostic Empty G2NError
+    m]` — `MonadDiagnostic`, not a bare `MonadExceptOf`, so the concrete instantiation pairs
+    directly with `Fugue.lean`'s `runPassDiag` (the same `DiagT`-based calling convention every
+    other diagnostics-producing pass uses, `Elaborator.lean`'s `runChecker`/`Desugarer/
+    TLAPlus.lean`'s `runDesugarer`). `Empty` for the warning channel, since this pass has no
+    warnings to report yet (`Common/Errors.lean`'s `CompilerDiagnostic Empty String` instance
+    exists exactly for this case).
   - **Every fresh name — the process-local `inbox` variable and each `.rx` thread's own throwaway
-    loop-local `var` — comes from `freshName` (`Common/Fresh.lean`), not prior art's string
-    concatenation (`inbox ++ procName`) or bare counter-suffixed literal (`s!"rx_{i}"`)**. Same
-    `$`-based hygiene argument as every other pass's fresh binder (`Common/Fresh.lean`'s own doc
-    comment) — a name a real user could have written can never collide with one of these. `inbox`
-    is fresh once per process (shared by every thread of that process, exactly like prior art's own
-    `inbox ++ procName` was one name per process); each new `.rx` thread gets its own fresh `var`
-    (prior art's `rxs'` triple's synthesized name existed for the same purpose, just less
-    hygienically).
-  - **A `receive`'s stored `Coercion` (`Core/TypedTLAPlus/Coercion.lean`, item 0) is discharged via
+    loop-local `var` — comes from `freshName` (`Common/Fresh.lean`)**, giving the same
+    `$`-based hygiene as every other pass's fresh binder: a name a real user could have written
+    can never collide with one of these. `inbox` is fresh once per process, shared by every
+    thread of that process; each new `.rx` thread gets its own fresh `var`.
+  - **A `receive`'s stored `Coercion` (`Core/TypedTLAPlus/Coercion.lean`) is discharged via
     `Coercion.applyComputable` directly against the built `Head(inbox)` expression**, not left
-    unapplied — prior art's `receive` carried no coercion field at all, so this has no direct
-    precedent there.
-  - **Prior art's two `panic!` sites** ("channel has wrong type" / "channel not found") **become
-    `G2NError.internalInvariantViolated`**. In fact only "not found" is reachable at all in this
-    project's fresh design: `GuardedPlusCal.Declarations.channels`/`.fifos` already store a
-    channel's checked *element* type directly (`Elaborator/PlusCal.lean`'s `checkChannelDecl`
-    already unwraps `Channel(τ)`/`dom → Channel(τ)` down to `τ` before it ever reaches
-    `Declarations`), so there is no wrapped `Typ` left to mismatch on by the time this pass runs —
-    unlike prior art's own channel table, which stored the *unwrapped* Γ-binding type and so still
-    had a "wrong shape" case to guard against.
+    unapplied.
+  - **Only `G2NError.internalInvariantViolated` guards a `receive`'s channel resolution** — and
+    only "channel not found" is actually reachable: `GuardedPlusCal.Declarations.channels`/
+    `.fifos` already store a channel's checked *element* type directly (`Elaborator/
+    PlusCal.lean`'s `checkChannelDecl` unwraps `Channel(τ)`/`dom → Channel(τ)` down to `τ` before
+    it reaches `Declarations`), so there's no wrapped `Typ` left to mismatch on by the time this
+    pass runs.
   - **Guard-expression substitution reuses `ComputableTLAPlus.Expression.substRef`**
     (`Core/ComputableTLAPlus/Subst.lean`, already written for `Computable2Guarded/FlatReord.lean`'s
-    own `𝒞_reord` case) in place of prior art's local `Ref.substOf` + manual `.replace` fold — same
-    substitution primitive (bare `r` substitutes the name directly; a compound `r` substitutes the
-    whole base variable with a one-entry `EXCEPT`), just already available rather than
-    reimplemented. The **fold direction still matters and is unchanged from prior art**: each new
-    `(Ref, Expr)` pair is appended to the end of `newInstrs` as its receive is processed, and a
-    later guard's substitution is a **`foldr`** over that list — this makes a later-appended
-    "advance `inbox` past what this receive consumed" pair get applied *before* an earlier-appended
-    one during the fold (since `foldr` processes right-to-left), which is exactly what makes a
-    second receive's freshly-substituted `Head(inbox)` get caught and advanced to `Head(Tail(inbox))`
-    by the first receive's still-pending advance. Switching to `foldl` silently breaks this.
+    own `𝒞_reord` case): bare `r` substitutes the name directly; a compound `r` substitutes the
+    whole base variable with a one-entry `EXCEPT`. **Fold direction matters**: each new `(Ref,
+    Expr)` pair is appended to the end of `newInstrs` as its receive is processed, and a later
+    guard's substitution is a **`foldr`** over that list — a later-appended "advance `inbox` past
+    what this receive consumed" pair applies *before* an earlier-appended one (since `foldr`
+    processes right-to-left), which is what makes a second receive's freshly-substituted
+    `Head(inbox)` get caught and advanced to `Head(Tail(inbox))` by the first receive's
+    still-pending advance. Switching to `foldl` silently breaks this.
   - **No `Located`/position tracking anywhere**: this project's fresh `GuardedPlusCal.Statement`/
-    `NetworkPlusCal.Statement` carry no position at all (`Core/NetworkPlusCal/Syntax.lean`'s module
-    doc), so none of prior art's `posOf`/`@@`/`match_source` machinery has anything to port.
+    `NetworkPlusCal.Statement` carry no position at all (`Core/NetworkPlusCal/Syntax.lean`'s
+    module doc).
 
   ```
   receive(c, x[0]);
@@ -86,11 +72,10 @@ public section
 -/
 
 /-- One process's channel/fifo element-type table — a channel name resolves to its already-checked
-*element* type directly (see the module doc above for why no wrapped `Channel(_)`/`dom →
+element type directly (see the module doc above for why no wrapped `Channel(_)`/`dom →
 Channel(_)` shape ever needs matching here), built by merging global and process-local
-`channels`/`fifos` declarations. Looked up by a `receive`'s channel `Ref`'s own base name, ignoring
-any index arguments — a channel's element type doesn't depend on which array slot is referenced,
-same as prior art's own by-name lookup. -/
+`channels`/`fifos` declarations. Looked up by a `receive`'s channel `Ref`'s base name, ignoring any
+index arguments — a channel's element type doesn't depend on which array slot is referenced. -/
 abbrev Guarded2NetworkChans := List (String × ComputableTLAPlus.Typ)
 
 private def declsChans (decls : ComputableGuardedPlusCal.Declarations) : Guarded2NetworkChans :=
@@ -110,10 +95,9 @@ private def lenGt (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty G2NError m]
 
 /-- `processPrecondition`'s per-statement accumulator, threaded through `stepStatement` via a
-local `StateT` layer (same "function-scoped `StateT`, `.run` at the end" shape `WellFormedness/
-Restrictions.lean`'s `checkRestrictions` already uses for its own memoization state) rather than
-imperative `let mut` bindings — `i`/`newInstrs`/`rxs` below are exactly the three-way `mut` state
-the old shape threaded by hand. -/
+local `StateT` layer (same "function-scoped `StateT`, `.run` at the end" shape
+`WellFormedness/Restrictions.lean`'s `checkRestrictions` uses for its own memoization state)
+rather than imperative `let mut` bindings. -/
 private structure ReceiveState where
   i : Nat := 0
   newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression) := []
@@ -125,9 +109,8 @@ private def substGuard (newInstrs : List (ComputableGuardedPlusCal.Ref × Comput
     (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
   newInstrs.foldr (init := e) λ (r, rhs) e' ↦ ComputableTLAPlus.Expression.substRef r rhs e'
 
-/-- One statement of `processPrecondition`'s walk — `ReceiveState.i`'s value *before* this step's
-own increment is exactly the old shape's post-increment `i - 1` (the count of receives already
-consumed prior to this one). -/
+/-- One statement of `processPrecondition`'s walk — `ReceiveState.i`'s value before this step's
+own increment is the count of receives already consumed prior to this one. -/
 private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String) :
     ComputableGuardedPlusCal.Statement true false → StateT ReceiveState m (ComputableNetworkPlusCal.Statement true false)
   | .with x ann bound e => return .with x ann bound (substGuard (← get).newInstrs e)
@@ -147,14 +130,13 @@ private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String) :
         rxs := st.rxs.concat (c, τ) }
       pure <| .await (lenGt τ inboxVar st.i)
 
-/-- Walk one branch's precondition block (`none` for a branch with no guards at all), threading
+/-- Walk one branch's precondition block (`none` for a branch with no guards), threading
 substitution of every already-processed `receive` into later `await`/`with` guards — see the
-module doc above for the `foldr`/fold-direction explanation. Returns the rewritten precondition
-block; the physical consumption assignments (`ref := coe(Head(inbox)); inbox := Tail(inbox)` per
-`receive`, in order) as plain action statements, meant to be prepended to the branch's action
-block; and the list of `(channel, element type)` pairs this branch actually received from, in
-order (`Thread.toNetwork` below decides, per distinct channel, whether a new `.rx` thread is
-needed). -/
+module doc's `foldr`/fold-direction explanation. Returns the rewritten precondition block; the
+physical consumption assignments (`ref := coe(Head(inbox)); inbox := Tail(inbox)` per `receive`,
+in order) as plain action statements to prepend to the branch's action block; and the list of
+`(channel, element type)` pairs this branch received from, in order (`Thread.toNetwork` below
+decides, per distinct channel, whether a new `.rx` thread is needed). -/
 private def processPrecondition (chans : Guarded2NetworkChans) (inboxName : String) :
     Option (GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false) →
       m (Option (GuardedPlusCal.Block (ComputableNetworkPlusCal.Statement true) false) ×
@@ -168,8 +150,8 @@ private def processPrecondition (chans : Guarded2NetworkChans) (inboxName : Stri
 
 /-- Every action-class constructor `GuardedPlusCal.Statement`/`NetworkPlusCal.Statement` share
 verbatim (all but `receive`, already compiled away above, and `with`, guard-class only) — `Ref`/
-`MulticastFilter` are the exact same types under both pinnings (`Core/NetworkPlusCal/Syntax.lean`
-reuses `GuardedPlusCal.Ref`/`.MulticastFilter` directly), so this is a plain re-tagging, not a
+`MulticastFilter` are the same types under both pinnings (`Core/NetworkPlusCal/Syntax.lean` reuses
+`GuardedPlusCal.Ref`/`.MulticastFilter` directly), so this is a plain re-tagging, not a
 translation. -/
 private def convertActionStmt {b} : ComputableGuardedPlusCal.Statement false b → ComputableNetworkPlusCal.Statement false b
   | .skip => .skip
@@ -186,9 +168,8 @@ private def convertActionBlock (B : GuardedPlusCal.Block (ComputableGuardedPlusC
 
 variable [MonadFresh m]
 
-/-- `Thread.toNetwork`'s per-thread accumulator — `newLocals`/`rxThreads` are the two-way `mut`
-state the old shape threaded by hand across every block/branch of the thread; `blocks` itself
-needs no state slot at all (unlike the old shape's own `mut blocks`), since it's just
+/-- `Thread.toNetwork`'s per-thread accumulator — `newLocals`/`rxThreads` are threaded state
+across every block/branch of the thread; `blocks` itself needs no state slot, since it's just
 `stepBlock`'s ordinary `mapM` result. -/
 private structure ThreadState where
   newLocals : List (String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)) := []
@@ -224,10 +205,10 @@ private def stepBlock (chans : Guarded2NetworkChans) (inboxName : String)
 
 /-- One process's channel table (already merged with that process's own local `channels`/`fifos`
 by `Process.toNetwork`) and its single shared `inbox` name (fresh once per process, shared by
-every one of the process's threads — same sharing prior art's own `inbox ++ procName` had, just
-hygienic) drive the whole compilation: every `AtomicBranch`'s precondition is walked
-(`processPrecondition`), its action block gets the resulting consumption assignments prepended,
-and a new `.rx` thread is added the first time this call encounters a not-yet-seen channel. -/
+every thread of the process) drive the whole compilation: every `AtomicBranch`'s precondition is
+walked (`processPrecondition`), its action block gets the resulting consumption assignments
+prepended, and a new `.rx` thread is added the first time this call encounters a not-yet-seen
+channel. -/
 def ComputableGuardedPlusCal.Thread.toNetwork (chans : Guarded2NetworkChans) (inboxName : String)
     (T : ComputableGuardedPlusCal.Thread) :
     m (List (String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)) ×

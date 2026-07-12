@@ -43,12 +43,12 @@ end CoreTLAPlus
 
 /-- Run the checker against its one concrete monad instantiation: `Γ`'s `ReaderT`, the
 metavariable/pending-bounds contexts as nested `StateT`s, and `MonadDiagnostic`'s `TCError`/
-`TCWarning` reporting via `DiagT` — so a warning emitted before a later fatal error still
-survives (`PLAN.md` §9.14). No checking rule emits a `TCWarning` yet, but the capability is wired
-through uniformly with every other pass. `Γ₀` is the caller-supplied initial context. `DiagT`'s
-own base monad is `IO`, not `Id`: fresh-name generation (`MonadFresh`, needed by `Subtyping.lean`)
-now draws from `Common/Fresh.lean`'s single process-wide `IO.Ref` counter rather than a `StateT
-Nat` layered in here, so this stack needs `IO` reachable to pick that instance up. -/
+`TCWarning` reporting via `DiagT`, so a warning emitted before a later fatal error still
+survives. No checking rule emits a `TCWarning` yet, but the capability is wired through
+uniformly with every other pass. `Γ₀` is the caller-supplied initial context. `DiagT`'s base
+monad is `IO`, not `Id`: fresh-name generation (`MonadFresh`, needed by `Subtyping.lean`) draws
+from `Common/Fresh.lean`'s single process-wide `IO.Ref` counter, so this stack needs `IO`
+reachable to pick up that instance. -/
 def CoreTLAPlus.Module.runChecker (Γ₀ : Context) (mod : CoreTLAPlus.Module SrcAlgorithm (Option Typ)) :
     DiagT TCWarning TCError IO TypedModule :=
   let check : ReaderT Context

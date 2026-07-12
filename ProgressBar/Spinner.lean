@@ -6,20 +6,17 @@ public import Std.Sync.Channel
 
 /-- What must be done when stopping the spinner? -/
 public inductive CancelAction : Type
-  /--
-    Keep the spinner visible, replace the spinner by the symbol `sym`, and optionally change the
-    message to `msg` (if not `none`).
-  -/
+  /-- Replace the spinner animation with the symbol `sym`, optionally changing the message to
+  `msg`. -/
   | persist (sym : String) (msg : Option String)
   /-- Completely erase the spinner. -/
   | erase
   /-- Print the given `msg` in place of the spinner. -/
   | replace (msg : String)
 
-/-- What can be sent to the spinner's background task over its channel: either update the
-title shown next to the animation (`setTitle`, replacing the previous `Option String` — an empty
-string clears it, same as before), or print a line above the animation *without* stopping it
-(`log` — unlike `Spinner.cancel`'s `.persist`, which stops the spinner for good). -/
+/-- Messages sent to the spinner's background task over its channel: `setTitle` replaces the
+title shown next to the animation, or `log` prints a line above the animation without stopping
+it (unlike `Spinner.cancel`'s `.persist`, which stops the spinner for good). -/
 private inductive Spinner.Msg : Type
   | setTitle (title : String)
   | log (line : String)
@@ -47,14 +44,12 @@ public def Spinner.newInner (spinner : SpinnerData) (message : Option String) (s
       match m with
       | .setTitle title =>
         msg.set title
-        -- This allows us to be reactive to title changes, without needing to update the spinner animation
-        -- Also, we erase the whole line because the new title may be of a different length
+        -- Erase the whole line, since the new title may be a different length.
         stream.write s!"\x1b[2K\r{← currentFrame.get} {title}".toUTF8
         stream.flush
       | .log line =>
-        -- Erase the current animation line, print `line` as its own persisted line, then
-        -- immediately redraw the current frame/title on the fresh line beneath it — so there's
-        -- no visible gap before the next animation tick refreshes it.
+        -- Erase the animation line, print `line` as its own persisted line, then immediately
+        -- redraw the current frame/title beneath it, so there's no gap before the next tick.
         stream.write s!"\x1b[2K\r{line}\n{← currentFrame.get} {← msg.get}".toUTF8
         stream.flush
 
@@ -93,8 +88,8 @@ public def Spinner.newInner (spinner : SpinnerData) (message : Option String) (s
 public protected def Spinner.setTitle (spinner : Spinner) (title : String) : IO Unit := BaseIO.toIO do
   let _ ← spinner.chan.send (.setTitle title)
 
-/-- Print `line` as its own persisted line above the spinner, without stopping it — unlike
-`Spinner.cancel .persist`, which ends the spinner for good. -/
+/-- Print `line` as its own persisted line above the spinner, without stopping it (unlike
+`Spinner.cancel .persist`, which ends the spinner for good). -/
 public protected def Spinner.log (spinner : Spinner) (line : String) : IO Unit := BaseIO.toIO do
   let _ ← spinner.chan.send (.log line)
 

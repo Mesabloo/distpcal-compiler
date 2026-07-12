@@ -50,9 +50,9 @@ public meta def default := leading_parser
 open Lean in
 /--
   A shorthand to indicate at runtime that something has not been implemented yet.
-  A `(default := e)` can be given as first argument to indicate the value to be returned, in case either
-  - no `Inhabited` instance exists for the return type and it would be boring to make one just for this; or
-  - an `Inhabited` instance exists but returns a non-sensical value for the current purpose.
+  A `(default := e)` can be given as first argument to indicate the value to be returned, when
+  either no `Inhabited` instance exists for the return type, or one exists but returns a
+  nonsensical value for this purpose.
  -/
 macro:lead withPosition("todo!") dflt:(default)? t:(term)? : term => do
   let f : TSyntax `term → MacroM (TSyntax `term) ← Option.elimM (pure dflt) (pure pure)

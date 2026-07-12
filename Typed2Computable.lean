@@ -15,23 +15,21 @@ public section
   1. Collects the reachability closure from the embedded `pcalAlgorithm`
      (`Algorithm.collectReachable` below) — every constant/variable/operator/function
      transitively referenced, own-module or foreign. Foreign declarations are flattened straight
-     into the output module's own `declarations₁` rather than kept separate (project owner's own
-     call, `.claude/tasklist.md` task 8) — the checked module's own `EXTENDS` chain doesn't need
-     to survive past this point, and every downstream pass only ever wants one self-contained
-     module per compiled program.
+     into the output module's own `declarations₁` rather than kept separate — the checked
+     module's own `EXTENDS` chain doesn't need to survive past this point, and every downstream
+     pass only ever wants one self-contained module per compiled program.
   2. Drops every closure entry that resolved into a builtin/stdlib module
-     (`TypedTLAPlus.builtinOpOf?`, keyed by the closure entry's own `(module, name)`) — project
-     owner's own call: a builtin's "definition" is never actually used (`Driver/Builtins.lean`'s
-     own module doc — backends replace every stdlib operator at code-generation time regardless
-     of what its definition says), and may well use constructs this pass would otherwise reject
-     (`fnSet`, an unbounded quantifier, …) despite no downstream consumer ever caring what its
-     body says.
+     (`TypedTLAPlus.builtinOpOf?`, keyed by the closure entry's own `(module, name)`) — a
+     builtin's "definition" is never actually used (`Driver/Builtins.lean`'s own module doc —
+     backends replace every stdlib operator at code-generation time regardless of what its
+     definition says), and may well use constructs this pass would otherwise reject (`fnSet`, an
+     unbounded quantifier, …) despite no downstream consumer ever caring what its body says.
   3. Translates every remaining entry (`ResolvedDecl.toComputable` below) into one output
      declaration each — always exactly one `constants`/`variables`/`operator`/`function` node
-     carrying just the one referenced `name` (project owner's own call: filter each original
-     `CONSTANTS`/`VARIABLES` block down to just the referenced names, rather than re-emitting a
-     whole multi-name block for one reference — `Decl.resolve` hands back the *whole* original
-     node regardless of which one name triggered the match).
+     carrying just the one referenced `name`, filtering each original `CONSTANTS`/`VARIABLES`
+     block down to just the referenced names rather than re-emitting a whole multi-name block for
+     one reference (`Decl.resolve` hands back the *whole* original node regardless of which one
+     name triggered the match).
   4. Translates the algorithm itself (`Typed2Computable/PlusCal.lean`'s
      `TypedPlusCal.Algorithm.toComputable`).
 
@@ -45,16 +43,13 @@ variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty ComputableError m]
 /-- Translates one `ReachabilityClosure` entry into the single declaration it contributes — `name`
 comes from the entry's own `(module, name)` key (not stored in `ResolvedDecl` itself, which only
 carries the whole resolved `Decl`), used both to pick out just this one name from a
-`constants`/`variables` block and to re-name the translated `operator`/`function` (its own `Decl`
-already carries the same name, but re-deriving it from the key rather than re-matching keeps this
-independent of which of the two, structurally-identical fields the caller happened to use).
+`constants`/`variables` block and to re-name the translated `operator`/`function`.
 
 The `internalInvariantViolated` arms below are all defense-in-depth: `Decl.resolve`
 (`WellFormedness/Reachability.lean`) only ever constructs a `ResolvedDecl.constant`/`.variable`
 wrapping the exact `Decl.constants`/`.variables` node whose list contains `name`, and an
 `.operatorOrFunction` wrapping exactly the `Decl.operator`/`.function` node named `name` — so none
-of these arms should be reachable, but no proof of that exists yet (same reasoning as
-`Typed2Computable/Errors.lean`'s own `internalInvariantViolated`), and `SourceSpan.placeholder` is
+of these arms should be reachable, but no proof of that exists yet. `SourceSpan.placeholder` is
 the same "no real position to report against" placeholder `Common/Position.lean` defines for
 exactly this kind of diagnostic. -/
 def ResolvedDecl.toComputable (name : String) :

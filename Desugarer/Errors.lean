@@ -9,8 +9,8 @@ public section
 inductive DesugarError : Type
   /-- `@` used outside of an `EXCEPT` update. -/
   | misplacedAt (pos : SourceSpan)
-  /-- A `goto` is immediately followed by more, unlabelled statements — unreachable dead code
-  (`goto` immediately followed by a *label* is fine). -/
+  /-- A `goto` is followed by more unlabelled statements — unreachable dead code (a `goto`
+  followed by a label is fine). -/
   | gotoNotInTailPosition (pos : SourceSpan)
   /-- A statement appears before the first label of its enclosing thread — there is no label to
   attach it (or the block it starts) to. -/
@@ -26,9 +26,9 @@ inductive DesugarError : Type
   /-- A statement following an `if`/`either` that contains a labelled statement or a `goto`
   anywhere within it is not itself labelled. -/
   | notFollowedByLabel (pos : SourceSpan)
-  /-- A statement writes into a variable currently bound by an enclosing `with` — either an
-  `assign` targeting it directly or a `receive` whose target `Ref` is it. A `with`-bound name is
-  a local binding to a fixed value, not a process variable, so writing to it is meaningless. -/
+  /-- A statement writes into a variable currently bound by an enclosing `with` — an `assign`
+  target or a `receive`'s target `Ref`. A `with`-bound name is a fixed local binding, not a
+  process variable, so writing to it is meaningless. -/
   | withBoundVarWritten (pos : SourceSpan) (name : String)
   /-- An annotation-carrying slot only accepts specific kinds of annotation, but a different kind
   was found there. -/
@@ -37,9 +37,9 @@ inductive DesugarError : Type
   actually differ between instances (`@type`, `@mailbox`). Content-free markers (`@parameter`)
   get a warning instead (`DesugarWarning.duplicateParameterAnnotation`). -/
   | duplicateAnnotation (pos : SourceSpan) (kind : String)
-  /-- The same bare variable (no index — `x`, not `x[…]`) is written to more than once within one
+  /-- The same bare variable (no index — `x`, not `x[…]`) is written more than once within one
   atomic step (`assign`/`receive`, any combination), on the same control path. Indexed writes
-  (`x[0] := …`) are never tracked by this check. -/
+  (`x[0] := …`) aren't tracked by this check. -/
   | conflictingAssignment (pos : SourceSpan) (name : String)
   /-- The right-hand side of a record-access `.` is not a bare field-name identifier (e.g. `r.1`,
   `r.(f)`). -/

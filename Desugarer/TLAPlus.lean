@@ -14,7 +14,7 @@ namespace SurfaceTLAPlus
   def PrefixOperator.canonicalName : PrefixOperator → String
     -- Unary minus gets its own canonical spelling, `"-."`, distinct from infix `-`'s
     -- `InfixOperator.canonicalName` below, so the two arities of `-` get non-colliding `Γ`
-    -- entries; the surface syntax stays plain `-x`.
+    -- entries — the surface syntax stays plain `-x`.
     | .«-» => "-."
     | .«\neg » _ => "\\neg"
     | .«[]» => "[]"
@@ -114,17 +114,15 @@ namespace SurfaceTLAPlus
     | [e] => e
     | es => .tuple es @@ pos
 
-  /--
-    Flatten one already-desugared `QuantifierBound` into a list of single-variable
-    `(name, annotation, domain)` bindings, plus how `body` needs rewriting to still make sense in
-    terms of those flattened names:
-    - `.var ann x dom` is already single-variable: one binding, no rewriting needed.
-    - `.vars [(ann₁,x),(ann₂,y),…] dom` (`\A x, y ∈ S : …`) shares one domain across several
-      separate names: expands to one binding per name, no rewriting needed.
-    - `.varTuple [(ann₁,x),(ann₂,y),…] dom` (`\A ⟨x,y⟩ ∈ S : …`) is a tuple pattern: collapses to
-      one fresh binding over `dom`, rewriting `body` to substitute each `x`/`y` with the
-      corresponding projection out of the fresh variable.
-  -/
+  /-- Flatten one already-desugared `QuantifierBound` into a list of single-variable `(name,
+  annotation, domain)` bindings, plus how `body` needs rewriting to still make sense in terms of
+  those flattened names:
+  - `.var ann x dom` is already single-variable: one binding, no rewriting.
+  - `.vars [(ann₁,x),(ann₂,y),…] dom` (`\A x, y ∈ S : …`) shares one domain across several names:
+    expands to one binding per name, no rewriting.
+  - `.varTuple [(ann₁,x),(ann₂,y),…] dom` (`\A ⟨x,y⟩ ∈ S : …`) is a tuple pattern: collapses to
+    one fresh binding over `dom`, rewriting `body` to substitute each `x`/`y` with the
+    corresponding projection out of the fresh variable. -/
   def flattenBound (qb : QuantifierBound α (CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) :
       m (List (String × α × CoreTLAPlus.Expression α) × CoreTLAPlus.Expression α) :=
     match qb with
@@ -136,14 +134,12 @@ namespace SurfaceTLAPlus
       let ann := xs.head?.map Prod.fst |>.getD default
       pure ([(z, ann, dom)], body)
 
-  /--
-    Collapse a list of already-flattened single-variable bindings into exactly one binding, as
-    required by `CoreTLAPlus`'s single-binder function literals/set-maps. A single binding needs
-    no change; multiple bindings `x ∈ A, y ∈ B, …` collapse to one fresh variable over the
-    Cartesian product `A × B × …`, rewriting `body` to project each original name back out. Not
-    the same transformation as `\A x, y : P`'s sequential nesting (`nestQuantifier` below): `[x ∈
-    A, y ∈ B ↦ e]` denotes one function over pairs, not a function of functions.
-  -/
+  /-- Collapse a list of already-flattened single-variable bindings into exactly one, as required
+  by `CoreTLAPlus`'s single-binder function literals/set-maps. A single binding needs no change;
+  multiple bindings `x ∈ A, y ∈ B, …` collapse to one fresh variable over the Cartesian product
+  `A × B × …`, rewriting `body` to project each original name back out. Not the same
+  transformation as `\A x, y : P`'s sequential nesting (`nestQuantifier` below): `[x ∈ A, y ∈ B ↦
+  e]` denotes one function over pairs, not a function of functions. -/
   def collapseToSingleBinder (bindings : List (String × α × CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) :
       m (String × α × CoreTLAPlus.Expression α × CoreTLAPlus.Expression α) :=
     match bindings with
@@ -284,11 +280,11 @@ end SurfaceTLAPlus
 
 /-- Run expression desugaring against the concrete monad it needs: `@`'s Reader context,
 fresh-name generation, and `MonadDiagnostic`'s error reporting/warning accumulation (instantiated
-at `DiagT`, so a warning survives a later fatal error — `PLAN.md` §9.14). No expression-level rule
-ever actually emits a `DesugarWarning` yet, but the concrete stack stays uniform with `Desugarer/
-PlusCal.lean`'s statement-level `runDesugarer`. `DiagT`'s own base monad is `IO`, not `Id`:
-fresh-name generation now draws from `Common/Fresh.lean`'s single process-wide `IO.Ref` counter
-rather than a `StateT Nat` layered in here. -/
+at `DiagT`, so a warning survives a later fatal error). No expression-level rule actually emits a
+`DesugarWarning` yet, but the concrete stack stays uniform with `Desugarer/PlusCal.lean`'s
+statement-level `runDesugarer`. `DiagT`'s base monad is `IO`, not `Id`: fresh-name generation
+draws from `Common/Fresh.lean`'s single process-wide `IO.Ref` counter rather than a `StateT Nat`
+layered in here. -/
 def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] (mod : SurfaceTLAPlus.Module (SurfacePlusCal.Algorithm α (SurfaceTLAPlus.Expression α)) α) :
     DiagT DesugarWarning DesugarError IO (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
   let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (DiagT DesugarWarning DesugarError IO) _ := mod.desugar

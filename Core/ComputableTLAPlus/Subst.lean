@@ -7,22 +7,20 @@ public import Core.TypedPlusCal.Syntax
 
 
 /-!
-  `ComputableTLAPlus.Expression.subst` — no substitution helper exists yet for this expression
-  type, only `CoreTLAPlus.Expression.subst` does (`Desugarer/TLAPlus.lean:73`, a different AST at
-  an earlier pipeline stage). Mirrors that one's structure against `ComputableTLAPlus.Expression`'s
-  own (smaller) constructor set: no temporal binders (`fforall`/`eexists`), no `fnSet`/`recordSet`/
-  `stutter`, but an extra `seq` (checking-mode literal sequences, distinct from synthesis-mode
-  `tuple`) that `CoreTLAPlus.Expression` has no equivalent of.
+  Substitution for `ComputableTLAPlus.Expression`, mirroring `CoreTLAPlus.Expression.subst`
+  (`Desugarer/TLAPlus.lean:73`) against this type's smaller constructor set: no temporal binders
+  (`fforall`/`eexists`), no `fnSet`/`recordSet`/`stutter`, but an extra `seq` (checking-mode
+  literal sequences, distinct from synthesis-mode `tuple`) with no `CoreTLAPlus` equivalent.
 
   First consumer: `Computable2Guarded/FlatReord.lean`'s `𝒞_reord` case, substituting a preceding
-  action's effect into a guard expression being floated past it.
+  action's effect into a guard expression floated past it.
 -/
 
 namespace ComputableTLAPlus
 
 /-- Substitute every free occurrence of `Expression.var x` with `e`, stopping at any binder that
-rebinds `x` (the binder's own domain expression is *not* under its scope, so it's still
-substituted into either way). -/
+rebinds `x` (a binder's domain expression is not under its own scope, so it's substituted into
+regardless). -/
 partial def Expression.subst {α} (x : String) (e : Expression α) : Expression α → Expression α
   | .var y τ o => if y == x then e else .var y τ o
   | .opCall f es => .opCall (subst x e f) (subst x e <$> es)
@@ -46,11 +44,11 @@ partial def Expression.subst {α} (x : String) (e : Expression α) : Expression 
   | .true => .true
   | .false => .false
 
-/-- Thesis §3.2.2's `e'[e\r]`: substituting a preceding `r≔e` assignment's effect into a later
-expression `e'`. A bare-variable `r` (no `.args`) substitutes directly; a compound `r` (has field/
-index segments) instead substitutes the whole variable with `[var(r) EXCEPT !path = e]` (thesis
-Example 3.2.1) — `r.args` is already the exact `List (String ⊕ Expression α)` update-path shape
-`Expression.except` itself takes, so no reshaping is needed, just a one-entry `except` list. -/
+/-- `e'[e\r]`: substitutes a preceding `r≔e` assignment's effect into a later expression `e'`. A
+bare-variable `r` (no `.args`) substitutes directly; a compound `r` (with field/index segments)
+instead substitutes the whole variable with `[var(r) EXCEPT !path = e]`. `r.args` is already the
+`List (String ⊕ Expression α)` shape `Expression.except` takes, so it's just a one-entry `except`
+list, no reshaping needed. -/
 def Expression.substRef {α} (r : ElaboratedPlusCal.Ref α (Expression α)) (rhs e' : Expression α) :
     Expression α :=
   if r.args.isEmpty then

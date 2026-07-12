@@ -7,47 +7,34 @@ public import Core.CorePlusCal.Syntax
 
 
 /-!
-  The output of PlusCal statement checking — `ElaboratedPlusCal.Statement`/`Block`/`Branches`/
-  `Declarations`/`Process`/`Algorithm` mirror `CorePlusCal`'s own shape node-for-node, but
-  parameterized over `(τ ε : Type)` (the annotation and expression types) rather than reusing
-  `CorePlusCal`'s own `(α β : Type)` directly: `Ref` carries an extra resolved `type : τ` field,
-  and `Statement.receive` an extra `coe : TypedTLAPlus.Coercion` field, neither of which
-  `CorePlusCal.Ref`/`.receive` has room for — needed so a later pass (`WellFormedness/
-  Restrictions.lean`'s check 1) can tell whether a bare `Ref` position (`assign`'s LHS,
-  `receive`'s destination) is itself Channel-shaped without needing `Γ`, which is gone by then.
-  `Coercion`'s own type never varies across instantiations (§9 — its shape is TLA⁺-expression-
-  specific either way), so it isn't itself a third parameter.
+  The output of PlusCal statement checking. `ElaboratedPlusCal.Statement`/`Block`/`Branches`/
+  `Declarations`/`Process`/`Algorithm` mirror `CorePlusCal`'s shape node-for-node, but parameterized
+  over `(τ ε : Type)` rather than `CorePlusCal`'s `(α β : Type)`: `Ref` carries an extra resolved
+  `type : τ`, and `Statement.receive` an extra `coe : TypedTLAPlus.Coercion`, so a later pass
+  (`WellFormedness/Restrictions.lean` check 1) can tell whether a bare `Ref` position (`assign`'s
+  LHS, `receive`'s destination) is Channel-shaped without `Γ`, which is gone by then. `Coercion`
+  isn't a third parameter — its shape is TLA⁺-expression-specific regardless of instantiation.
 
-  `TypedPlusCal` below pins this generic layer at `τ := TypedTLAPlus.Typ`,
-  `ε := TypedTLAPlus.Expression TypedTLAPlus.Typ` — the checker's own output. `Core/
-  ComputablePlusCal/Syntax.lean` pins the exact same generic layer at `ComputableTLAPlus`'s types
-  instead, sharing this file's `Statement`/`Block`/`Branches`/etc. rather than re-copying them:
-  neither `Ref`'s `type` field nor `receive`'s `Coercion` field change shape between the two
-  (`Typed2Computable` doesn't touch either), so nothing forces a second monomorphic copy the way
-  `TypedPlusCal` itself forking away from `CorePlusCal.Statement`'s own generic form did.
-  `MulticastFilter` is reused generically from `SurfacePlusCal` (its target is a bare `String`,
-  not a `Ref`, so it has no type to carry either way).
+  `TypedPlusCal` pins this layer at `τ := TypedTLAPlus.Typ`, `ε := TypedTLAPlus.Expression
+  TypedTLAPlus.Typ`. `Core/ComputablePlusCal/Syntax.lean` pins the same layer at
+  `ComputableTLAPlus`'s types, reusing these definitions rather than re-copying them: neither
+  `Ref.type` nor `receive`'s `Coercion` field change shape across the two, so no second
+  monomorphic copy is needed. `MulticastFilter` is reused generically from `SurfacePlusCal` (its
+  target is a bare `String`, not a `Ref`, so no type to carry either way).
 -/
 
 -- The shared generic layer both `TypedPlusCal` and `ComputablePlusCal` pin — see the module doc
--- above for why this, unlike `TypedPlusCal`'s own fork away from `CorePlusCal`, doesn't need a
--- monomorphic copy per stage.
+-- above for why this doesn't need a monomorphic copy per stage.
 namespace ElaboratedPlusCal
 
-/-- Carries its own resolved `baseType` (unlike `CorePlusCal.Ref`) — see the module doc above.
-`args` follows `CorePlusCal.Ref`'s shape: one entry per path segment, `.inl` for a `.field`
-segment, `.inr` for a (unary) bracket-index segment.
+/-- Carries its own resolved `baseType` (unlike `CorePlusCal.Ref`). `args` follows
+`CorePlusCal.Ref`'s shape: one entry per path segment, `.inl` for a `.field` segment, `.inr` for a
+(unary) bracket-index segment.
 
-`baseType` is the *base variable*'s own type (`name`'s `Γ`-lookup result), before any `.args`
-segment is applied — not the reference's final/result type. Kept this way rather than the other
-way around because the base type is the one direction recovery can't go: given `baseType` plus
-`args`, the result type (and every intermediate step's own type) is always cheap to recompute
-(`Ref.stepType`/`.resultType` below, one per pinned instantiation — same structural step-rule
-`Elaborator/Expressions.lean`'s `stepInto`/`indexInto` use at check time, replayed without
-re-checking since every segment is already elaborated), but going the other way — recovering an
-intermediate step's type, or the base type itself, from just the final result type — isn't
-possible in general (a record access or tuple projection isn't invertible without knowing what
-was accessed). -/
+`baseType` is the *base variable*'s type (`name`'s `Γ`-lookup result), before any `.args` segment
+is applied — kept this way rather than the result type because the result type is always cheap to
+recompute from `baseType` (`Ref.stepType`/`.resultType` below), but recovering `baseType` from the
+result type isn't possible in general (a record access or tuple projection isn't invertible). -/
 structure Ref (τ ε : Type) : Type where
   name : String
   args : List (String ⊕ ε)
@@ -58,9 +45,9 @@ structure Ref (τ ε : Type) : Type where
 abbrev MulticastFilter (τ ε : Type) := SurfacePlusCal.MulticastFilter τ ε
 
 mutual
-  /-- A fresh copy of `CorePlusCal.Statement`'s shape, not an `abbrev` over it — parameterized
-  over `(τ ε : Type)` here instead of `CorePlusCal.Statement`'s own `(α β : Type)`, since
-  `receive` needs an extra field `CorePlusCal.Statement.receive` has no room for. -/
+  /-- A fresh copy of `CorePlusCal.Statement`'s shape, not an `abbrev` over it: parameterized over
+  `(τ ε : Type)` instead of `(α β : Type)`, since `receive` needs an extra field
+  `CorePlusCal.Statement.receive` has no room for. -/
   inductive Statement (τ ε : Type) : Bool → Type
     | goto (label : String) : Statement τ ε true
     | skip : Statement τ ε false
@@ -73,8 +60,8 @@ mutual
     | assert (e : ε) : Statement τ ε false
     | either {b} (branches : Branches τ ε b) : Statement τ ε b
     | «while» {b} (cond : ε) (B : Block τ ε b) : Statement τ ε false
-    /-- Differs from `CorePlusCal.Statement.receive`: `coe` is the checked-element-vs-reference-
-    type upcast for the value this `receive` will read off the channel at runtime. -/
+    /-- Differs from `CorePlusCal.Statement.receive` by `coe`: the checked element→reference-type
+    upcast for the value read off the channel at runtime. -/
     | receive (c r : Ref τ ε) (coe : TypedTLAPlus.Coercion) : Statement τ ε false
     | send (c : Ref τ ε) (e : ε) : Statement τ ε false
     | multicast (c : String) (filter : MulticastFilter τ ε) : Statement τ ε false
@@ -99,11 +86,9 @@ protected abbrev Block.end {τ ε b} : Block τ ε b → Statement τ ε b
   | ⟨_, «end»⟩ => «end»
 
 /-- Runs `act` over every non-terminal statement in `B` (`B.begin`, in order), then its terminal
-one (`B.end`) — the "distribute a per-statement action over an atomic block" shape shared by
-`WellFormedness`'s per-check walkers (`Restrictions.checkRestrictions`,
-`WellScoped.checkWellScoped`, `Labelling.checkGotoTargets`), each supplying its own `act` (often
-a partial application of their own `Statement`-level checker, itself already `∀ {b}, Statement τ
-ε b → m Unit` once its non-`Statement` arguments are supplied). -/
+one (`B.end`). Shared shape for `WellFormedness`'s per-check walkers
+(`Restrictions.checkRestrictions`, `WellScoped.checkWellScoped`, `Labelling.checkGotoTargets`),
+each supplying its own `act`. -/
 def Block.forStatements {τ ε b} {m : Type → Type} [Monad m]
     (act : ∀ {b'}, Statement τ ε b' → m Unit) (B : Block τ ε b) : m Unit := do
   B.begin.forM act
@@ -171,10 +156,9 @@ abbrev Declarations := ElaboratedPlusCal.Declarations TypedTLAPlus.Typ Expressio
 abbrev Process := ElaboratedPlusCal.Process TypedTLAPlus.Typ Expression
 abbrev Algorithm := ElaboratedPlusCal.Algorithm TypedTLAPlus.Typ Expression
 
-/-- The type after one `Ref` path segment, given the type before it — see `Ref.baseType`'s own
-doc comment (`ElaboratedPlusCal`, above) for why this is always cheap: every segment is already
-elaborated, so this is a pure structural pattern match, the same rule `Elaborator/
-Expressions.lean`'s `stepInto`/`indexInto` use at check time, just not re-checking anything.
+/-- The type after one `Ref` path segment, given the type before it. A pure structural pattern
+match — every segment is already elaborated, so this replays the same step-rule
+`Elaborator/Expressions.lean`'s `stepInto`/`indexInto` use at check time, without re-checking.
 Total: the fallback (`τ` unchanged) only triggers on a `Ref` no well-typed input can produce. -/
 def Ref.stepType (τ : TypedTLAPlus.Typ) : String ⊕ Expression → TypedTLAPlus.Typ
   | .inl field => match τ with
@@ -188,9 +172,8 @@ def Ref.stepType (τ : TypedTLAPlus.Typ) : String ⊕ Expression → TypedTLAPlu
       | _ => τ
     | _ => τ
 
-/-- A `Ref`'s own final/result type — the type of the value it denotes as an expression (what
-`assign r e`/`receive c r` check `e`'s type against) — recomputed from `baseType` by walking
-`args` left to right via `stepType`. -/
+/-- A `Ref`'s final/result type — what `assign r e`/`receive c r` check `e`'s type against —
+recomputed from `baseType` by walking `args` left to right via `stepType`. -/
 def Ref.resultType (r : Ref) : TypedTLAPlus.Typ := r.args.foldl Ref.stepType r.baseType
 
 end TypedPlusCal

@@ -117,8 +117,7 @@ namespace Std.HashMap
   abbrev find? {α β} [BEq α] [Hashable α] (m : HashMap α β) (k : α) : Option β := Prod.snd <$> m.findEntry? k
 
   def traverseWithKey {α β γ} [BEq α] [Hashable α] {m : Type _ → Type _} [Applicative m] (f : α → β → m γ) (t : HashMap α β) : m (HashMap α γ) :=
-    -- ugly way: copy into list, traverse list, then remake hashmap
-    -- very inefficient, but all in all I don't quite care now
+    -- Copies into a list, traverses that, rebuilds the map — simple but inefficient.
     let t' := t.toList
     let t' : m (List (α × γ)) := t'.traverse λ ⟨k, v⟩ ↦ Prod.mk k <$> f k v
     HashMap.ofList <$> t'

@@ -261,10 +261,9 @@ inductive Typ : Type
   deriving Repr, Inhabited, BEq
 
 /-- Whether `τ` is Channel-shaped: a bare `Channel(τ')`, or an indexed channel family `dom ->
-Channel(τ')` (`Elaborator/PlusCal.lean`'s `checkChannelDecl` encodes an indexed channel
-declaration's `Γ`-binding this way). Factored out of that same shape so `WellFormedness/
-Declarations.lean` (checks 2(a)/(d)) and `WellFormedness/Restrictions.lean` (check 1) share one
-source of truth for "is this a legal channel type" rather than each re-deriving it. -/
+Channel(τ')` (as `Elaborator/PlusCal.lean`'s `checkChannelDecl` encodes it). Shared by
+`WellFormedness/Declarations.lean` (checks 2(a)/(d)) and `WellFormedness/Restrictions.lean` (check
+1) as one source of truth for "legal channel type." -/
 def Typ.isChannelLike : Typ → Bool
   | .channel _ => true
   | .function _ (.channel _) => true

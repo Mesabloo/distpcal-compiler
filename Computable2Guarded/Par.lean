@@ -6,15 +6,14 @@ public import Common.Fresh
 public section
 
 /-!
-  `𝒞_par` (thesis §3.2.2.2, `PLAN.md` §5.4): eliminates parallel assignment (`r1≔e1 ‖ … ‖ rn≔en`)
-  by hoisting every RHS, and every compound `Ref`'s own index expressions, into fresh `with`-bound
-  temporaries evaluated up front, then re-emitting `n` ordinary single-target assignments in the
-  original order. Same type in, same type out (`ComputablePlusCal.Statement`/`.Block`/
-  `.Branches`), same "only the producer maintains the invariant" precedent `Computable2Guarded/
-  CFlow.lean` already uses for `while`-must-be-block-front — here the invariant is
-  `GuardedPlusCal.Statement.assign` taking a single `(Ref, Expr)` pair, which this pass
-  establishes as a runtime fact about `ComputablePlusCal.Statement.assign`'s `List` rather than a
-  type-level one.
+  `𝒞_par`: eliminates parallel assignment (`r1≔e1 ‖ … ‖ rn≔en`) by hoisting every RHS, and every
+  compound `Ref`'s own index expressions, into fresh `with`-bound temporaries evaluated up front,
+  then re-emitting `n` ordinary single-target assignments in the original order. Same type in,
+  same type out (`ComputablePlusCal.Statement`/`.Block`/`.Branches`), same "only the producer
+  maintains the invariant" precedent `Computable2Guarded/CFlow.lean` already uses for
+  `while`-must-be-block-front — here the invariant is `GuardedPlusCal.Statement.assign` taking a
+  single `(Ref, Expr)` pair, which this pass establishes as a runtime fact about
+  `ComputablePlusCal.Statement.assign`'s `List` rather than a type-level one.
 
   ```
   𝒞_par(r1≔e1 ‖ … ‖ rn≔en) =
@@ -29,9 +28,9 @@ public section
   **Reference-recursion, generalized to this project's flat `Ref.args : List (String ⊕
   Expression)`** (the field-access prerequisite, `Core/TypedPlusCal/Syntax.lean`'s module doc):
   walked left to right, a `.inl field` segment passes straight through with no fresh variable
-  (the thesis's `r.x` case), a `.inr indexExpr` segment binds one fresh temp (the thesis's `r[e]`
-  case) — simpler than the thesis's own recursive-prefix formulation since this project's `Ref`
-  is already flat, no nested `Ref`-within-`Ref`.
+  (the `r.x` case above), a `.inr indexExpr` segment binds one fresh temp (the `r[e]` case) —
+  simpler than a recursive-prefix formulation since this project's `Ref` is already flat, no
+  nested `Ref`-within-`Ref`.
 
   **A length-≤1 assignment list passes through untouched.** Aliasing is only a concern between
   *multiple* simultaneous writes; running the general temp-var recipe on a single assignment
@@ -69,8 +68,8 @@ where
       let body ← go (Ref.stepType τ (.inr e)) rest (.inr (.var y idxTy .binder) :: seen)
       pure ⟨[], .with y idxTy true e body⟩
 
-/-- Threads `parRef` across every `(rᵢ, vᵢ)` pair in turn (`r1` outermost, matching the thesis's
-own left-to-right `𝒞_par(r1,f1) … 𝒞_par(rn,fn)` nesting) to bind *every* `Ref`'s own index temps
+/-- Threads `parRef` across every `(rᵢ, vᵢ)` pair in turn (`r1` outermost, matching the
+left-to-right `𝒞_par(r1,f1) … 𝒞_par(rn,fn)` nesting above) to bind *every* `Ref`'s own index temps
 first — `k` only runs once all `n` are reconstructed, so no `rᵢ`'s index expression is ever
 evaluated after an earlier `rⱼ`'s assignment has already run (the entire point of hoisting: every
 read must see the pre-assignment state, not just each ref's own). -/

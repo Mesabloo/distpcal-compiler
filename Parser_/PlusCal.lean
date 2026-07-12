@@ -25,10 +25,8 @@ namespace SurfacePlusCal.Lexer
       let endPos ← getPosition
       return { segment := ⟨startPos, endPos⟩, data := res }
 
-    /--
-      A parser designed to ignore whitespaces, given `p₁` a parser which consumes (at least 1) whitespace,
-      `p₂` a parser consuming line comments and `p₃` a parser consuming block comments.
-    -/
+    /-- Skips whitespace: `p₁` consumes (at least 1) whitespace character, `p₂` line comments,
+    `p₃` block comments. -/
     @[inline]
     private def space [LE (Stream.Position σ)] [LT (Stream.Position σ)] [DecidableLE (Stream.Position σ)] [DecidableLT (Stream.Position σ)] (p₁ p₂ p₃ : SimpleParserT σ τ m PUnit) : SimpleParserT σ τ m PUnit
       := dropMany <| first [p₁, p₂, p₃]
@@ -61,7 +59,7 @@ namespace SurfacePlusCal.Lexer
 
   @[inline]
   private def patchTLALexer (lexTLAToken : Unit → PlusCalLexer (Located Token)) : PlusCalLexer (Located Token) := do
-    -- NOTE: patch the TLA⁺ lexer so that it does NOT accept some of our PlusCal-exclusive keywords and stuff
+    -- Patch the TLA⁺ lexer so it rejects identifiers that are actually PlusCal keywords.
     match ← lexTLAToken () with
     | tk@⟨_, .tla (.identifier x)⟩ => checkReserved x tk
     | tk => return tk
@@ -131,10 +129,8 @@ namespace SurfacePlusCal.Parser
       else
         s.past[n]!
 
-  /--
-    Removes "blank" tokens when parsing. Be careful so as to not call this too much, as we still
-    want to keep comments for type annotations in some places.
-  -/
+  /-- Drops "blank" tokens. Use sparingly: comments must still be kept in some places, for type
+  annotations. -/
   @[inline]
   private def ws : PlusCalParser PUnit :=
     dropMany <| tokenFilter (λ | ⟨_, .tla <| .inlineComment _⟩ | ⟨_, .tla <| .blockComment _⟩ => true | _ => false)
@@ -302,9 +298,9 @@ namespace SurfacePlusCal.Parser
 
     private def parseWith (block : PlusCalParser (List (String ⊕ Statement (List CommentAnnotation) (Expression (List CommentAnnotation))))) : PlusCalParser (Statement (List CommentAnnotation) (Expression (List CommentAnnotation))) := do
       let _ ← lexeme <| token .with
-      -- NOTE: don't use `parens` here, same reason `parseFilter` (multicast) doesn't use
-      -- `brackets` -- it would potentially consume any type information given for the first
-      -- binder (`lexeme`'s own trailing-whitespace-skip treats comments as whitespace too).
+      -- Not `parens`: `lexeme`'s trailing-whitespace skip treats comments as whitespace too, so
+      -- it would consume any type annotation on the first binder (same reason `parseFilter`,
+      -- multicast, avoids `brackets`).
       let _ ← token (.tla .lparen)
       let vars ← sepBy1 (semicolon <|> comma) do
         let annotations ← patchTLAParser tryParseAnnotations
@@ -332,7 +328,7 @@ namespace SurfacePlusCal.Parser
       return .multicast var filter
     where
       parseFilter : PlusCalParser (MulticastFilter (List CommentAnnotation) (Expression (List CommentAnnotation))) := located do
-        -- NOTE: don't use `brackets` here, as it will potentially consume any type information given for the bindings
+        -- Not `brackets`: it would consume any type annotation given for the bindings.
         let _ ← token (.tla .lbracket)
         let binds ← sepBy1 comma do
           let anns ← patchTLAParser tryParseAnnotations

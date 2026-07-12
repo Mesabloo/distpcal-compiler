@@ -10,29 +10,25 @@ public section
 
 
 /-!
-  The output of `Guarded2Network` (§5.5): a `receive` is no longer an abstract guard statement —
-  it's compiled into a genuine second kind of thread, `Thread.rx`, that loops reading a
-  process-local `inbox` sequence variable, and every later `await`/`with` guard that referenced
-  the received value now reads that `inbox` instead. Reuses `GuardedPlusCal.Block`/`Ref`/
-  `MulticastFilter`/`Declarations` unchanged — none of those shapes are affected by this pass,
-  only `Statement` (drops `receive`) and `Thread` (gains a second, non-`code` constructor) are.
+  The output of `Guarded2Network`: a `receive` is no longer an abstract guard statement — it's
+  compiled into a genuine second kind of thread, `Thread.rx`, that loops reading a process-local
+  `inbox` sequence variable, and every later `await`/`with` guard that referenced the received
+  value now reads that `inbox` instead. Reuses `GuardedPlusCal.Block`/`Ref`/`MulticastFilter`/
+  `Declarations` unchanged — none of those shapes are affected by this pass, only `Statement`
+  (drops `receive`) and `Thread` (gains a second, non-`code` constructor) are.
 
-  Differences from `~/Documents/distpcal-compiler`'s own `Core/NetworkPlusCal/Syntax.lean`
-  (reused as design, not code, per this project's convention):
-  - No separate `ChanRef` type: prior art exports `GuardedPlusCal.ChanRef` alongside `Ref` for a
-    `send`/`multicast`'s channel argument; this project's `GuardedPlusCal.Statement` already
-    reuses one uniform `Ref` for both a channel argument and an ordinary reference
-    (`Core/GuardedPlusCal/Syntax.lean`'s `send`/`assign`), so `NetworkPlusCal.Statement` carries
-    that same uniformity forward — no new `ChanRef` here either.
-  - Real `Bifunctor`/`Bitraversable` instances throughout, not commented-out stubs — matches
-    `Core/GuardedPlusCal/Syntax.lean`'s actual instances (`Ref.bimap`/`Ref.bitraverse` reused
-    directly, same as that file's own local helpers, since `Ref` itself has no generic instance).
+  - No separate `ChanRef` type: `GuardedPlusCal.Statement` already reuses one uniform `Ref` for
+    both a channel argument and an ordinary reference (`Core/GuardedPlusCal/Syntax.lean`'s
+    `send`/`assign`), so `NetworkPlusCal.Statement` carries that same uniformity forward.
+  - Real `Bifunctor`/`Bitraversable` instances throughout, matching
+    `Core/GuardedPlusCal/Syntax.lean`'s instances (`Ref.bimap`/`Ref.bitraverse` reused directly,
+    since `Ref` itself has no generic instance).
   - `Thread` is a genuine sum (`.code (blocks : List AtomicBlock)` | `.rx (chan : Ref Typ Expr)
-    (var : String) (τ : Typ) (inbox : String)`), per prior art — a receiving thread is a real
-    second kind of thread, not folded into `.code`.
+    (var : String) (τ : Typ) (inbox : String)`) — a receiving thread is a real second kind of
+    thread, not folded into `.code`.
   - `deriving Repr` throughout — no `Pretty.lean` needed yet: `-d dump-network` renders via
     `reprStr`, the same way `-d dump-guarded` does today (`Fugue.lean`'s existing debug-dump
-    wiring). A real pretty-printer is only worth adding once a backend needs one (§4).
+    wiring). A real pretty-printer is only worth adding once a backend needs one.
   - Lives under the existing `Fugue.Core` `lean_lib` target (its `roots := #[`Core`]` glob picks
     this file up automatically) — no new `lakefile.lean` target needed, unlike `Fugue.G2N`,
     already declared for the pass itself.
@@ -44,7 +40,7 @@ open GuardedPlusCal (Block Ref Ref.bimap Ref.bitraverse MulticastFilter Declarat
 
 /-- A statement in the Network PlusCal language — identical to `GuardedPlusCal.Statement` minus
 `receive` (compiled away into `Thread.rx` by this pass), including `with`'s `ann : Typ` field
-(`GuardedPlusCal.Statement.with`'s own doc comment explains why it's kept). The first `Bool`
+(`GuardedPlusCal.Statement.with`'s doc comment explains why it's kept). The first `Bool`
 (`guardClass`) is `true` for a statement allowed in a branch's precondition (`with`/`await`); the
 second (`terminal`) is `true` only for `goto`. -/
 inductive Statement (Typ Expr : Type) : Bool → Bool → Type
@@ -120,11 +116,11 @@ instance : Bifunctor AtomicBlock where
 instance : Bitraversable AtomicBlock where
   bitraverse f g B := AtomicBlock.mk B.label <$> traverse (bitraverse f g) B.branches
 
-/-- One parallel `{...}` thread — either ordinary code (its own sequence of labelled atomic
-blocks, in program order, same shape as `GuardedPlusCal.Thread`) or a dedicated receiving loop:
-reads `chan` into `var : τ` by repeatedly waiting on and draining a process-local `inbox` sequence
-variable (named `inbox`, fresh per `Guarded2Network.freshName`). A real second kind of thread, not
-folded into `.code`, since its body isn't a `List AtomicBlock` at all — see the module doc. -/
+/-- One parallel `{...}` thread — either ordinary code (a sequence of labelled atomic blocks, in
+program order, same shape as `GuardedPlusCal.Thread`) or a dedicated receiving loop: reads `chan`
+into `var : τ` by repeatedly waiting on and draining a process-local `inbox` sequence variable
+(named `inbox`, fresh per `Guarded2Network.freshName`). A real second kind of thread, not folded
+into `.code`, since its body isn't a `List AtomicBlock` — see the module doc. -/
 inductive Thread (Typ Expr : Type) : Type
   | code (blocks : List (AtomicBlock Typ Expr))
   | rx (chan : Ref Typ Expr) (var : String) (τ : Typ) (inbox : String)
@@ -187,7 +183,7 @@ instance : Bitraversable Algorithm where
 
 end NetworkPlusCal
 
--- Pinned for `Guarded2Network`'s actual use, mirroring `Core/GuardedPlusCal/Syntax.lean`'s own
+-- Pinned for `Guarded2Network`'s use, mirroring `Core/GuardedPlusCal/Syntax.lean`'s
 -- `ComputableGuardedPlusCal` pinning.
 namespace ComputableNetworkPlusCal
 

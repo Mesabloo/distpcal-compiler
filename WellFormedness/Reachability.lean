@@ -8,45 +8,34 @@ public section
 
 /-!
   The shared reachability walk: given a starting `TypedTLAPlus.Expression`, resolves every
-  `.var name _ (.module m)` against `m`'s declaration list and — for anything with a body
-  (`operator`/`function`) — recurses into that body too, transitively, memoized so a declaration
-  referenced from multiple places is only walked once. Every visited `(module, name)` pair,
-  alongside what it resolved to, accumulates into a `ReachabilityClosure` the caller gets back,
-  rather than being discarded once some check finishes with it.
+  `.var name _ (.module m)` against `m`'s declaration list and, for anything with a body
+  (`operator`/`function`), recurses into that body too, transitively, memoized so a declaration
+  referenced from multiple places is walked once. Every visited `(module, name)` pair, with what
+  it resolved to, accumulates into a `ReachabilityClosure` returned to the caller.
 
-  Originally fused directly into `WellFormedness/Restrictions.lean`'s own checks (channel-type,
-  reserved-name, unbounded-quantifier). Split out here so `Typed2Computable`
-  (`.claude/tasklist.md` task 8) can reuse the exact same resolution/recursion/memoization
-  machinery to collect "every constant/variable/operator/function reachable from the algorithm,"
-  without inheriting `Restrictions.lean`'s own `WellFormednessError`-throwing checks —
-  `walkReachable`'s `visit` parameter is the seam: `Restrictions.lean` supplies its checks
-  through it, a caller that only wants the closure supplies a no-op.
-
-  `Restrictions.lean`'s checks still run once per node via `visit`, in the same pre-order the
-  walk itself visits nodes in (`visit`, then recurse into children) — same visiting order as
-  the original fused version, so moving the checks out from under the recursion doesn't change
-  what fires or in what order.
+  Split out from `WellFormedness/Restrictions.lean` so `Typed2Computable` can reuse the same
+  resolution/recursion/memoization machinery to collect "every constant/variable/operator/
+  function reachable from the algorithm," without inheriting `Restrictions.lean`'s own
+  error-throwing checks. `walkReachable`'s `visit` parameter is the seam: `Restrictions.lean`
+  supplies its checks through it; a caller that only wants the closure supplies a no-op. Checks
+  run once per node via `visit`, in the same pre-order the walk visits nodes (`visit`, then
+  recurse into children).
 
   `TypedPlusCal.Statement.walkReachable`/`.Algorithm.walkReachable` below extend the same sharing
-  to the *statement*-level traversal — "which expression positions exist in a statement, and how
-  do they nest through `Block`/`Branches`" — previously fused into `Restrictions.lean`'s own
-  `Statement.checkRestrictions`/`Algorithm.checkRestrictions` the same way the expression-level
-  walk used to be fused into `Expression.checkRestrictions`. Two callbacks now, not one:
-  `visitStatement` (a statement's own non-expression positions — `Restrictions.lean`'s Ref
-  channel-likeness checks on `assign`'s LHS/`receive`'s destination) and `visitExpr` (forwarded
-  straight into `Expression.walkReachable`, same role as before). `Typed2Computable` supplies
-  no-ops for both, wanting only the `ReachabilityClosure` side effect; `Restrictions.lean` supplies
-  its real checks for both, and moved its old `Algorithm.checkRestrictions`-level `StateT
-  ReachabilityClosure` wrapping to its own call site, since `Algorithm.walkReachable` itself
-  leaves `.run` vs `.run'` to the caller, same as `Expression`/`Statement.walkReachable` already
-  did.
+  to the statement-level traversal — which expression positions exist in a statement, and how
+  they nest through `Block`/`Branches`. Two callbacks: `visitStatement` (a statement's own
+  non-expression positions — `Restrictions.lean`'s Ref channel-likeness checks on `assign`'s
+  LHS/`receive`'s destination) and `visitExpr` (forwarded into `Expression.walkReachable`).
+  `Typed2Computable` supplies no-ops for both, wanting only the `ReachabilityClosure`;
+  `Restrictions.lean` supplies its real checks for both, and wraps its own `StateT
+  ReachabilityClosure` at its own call site — `Algorithm.walkReachable` leaves `.run` vs `.run'`
+  to the caller, same as `Expression`/`Statement.walkReachable`.
 -/
 
-/-- What a name resolves to inside one module's declaration list, alongside the raw `Decl`
-itself (needed by any caller that wants to do more with it than just classify it —
-`Typed2Computable`'s own use, which re-emits referenced constants/variables and translates
-referenced operator/function bodies). `assume` entries never resolve (an `ASSUME` isn't a named,
-referenceable entity) — falls through to `none` in `Decl.resolve` below, same as "not found". -/
+/-- What a name resolves to inside one module's declaration list, alongside the raw `Decl` itself
+(needed by callers that do more than classify it — `Typed2Computable` re-emits referenced
+constants/variables and translates referenced operator/function bodies). `assume` entries never
+resolve — falls through to `none` in `Decl.resolve` below, same as "not found". -/
 inductive ResolvedDecl : Type
   | «constant» (decl : Decl)
   | «variable» (decl : Decl)
@@ -77,21 +66,20 @@ def resolveInModule {m' : Type → Type} [Monad m'] [MonadForeignLookup m']
 /-- Every `(module, name)` pair the walk has resolved so far, alongside what it resolved to. -/
 abbrev ReachabilityClosure := Std.HashMap (String × String) ResolvedDecl
 
-/-- The shared walk itself. Visits `e` and everything structurally reachable from it — every
-`opCall`'s function/arguments, every quantifier's domain/body, etc. — calling `visit path` once
-per node before recursing into its children (`path`, innermost first, only grows when the walk
-recurses into a *resolved declaration's* body, not for ordinary substructure recursion — the
-breadcrumb `Restrictions.lean`'s error messages report "reached via" through).
+/-- The shared walk. Visits `e` and everything structurally reachable from it — every `opCall`'s
+function/arguments, every quantifier's domain/body, etc. — calling `visit path` once per node
+before recursing into its children (`path`, innermost first, grows only when the walk recurses
+into a resolved declaration's body — the breadcrumb `Restrictions.lean`'s error messages report
+"reached via" through).
 
-Whenever a node is `.var name _ (.module m)`, resolves `(m, name)` and — the first time this
-particular pair is seen (`ReachabilityClosure`-memoized, guarding against looping on a
-self-recursive `function`; `operator`s never self-recurse, per `Elaborator/Declarations.lean`'s
-own doc comment, so only `function` bodies can actually cycle) — records the resolution in the
-closure and, if it resolved to an `operator`/`function`, recurses into its body too (with `path`
-extended by `name`). A `constant`/`variable` resolution is recorded but never recursed into (no
-body to walk). Resolutions after the first for an already-visited pair are silent no-ops as far
-as the walk's own recursion is concerned — `visit` still runs on every node regardless, since
-some checks (`Restrictions.lean`'s check 2(c)) are per-reference, not per-declaration. -/
+Whenever a node is `.var name _ (.module m)`, resolves `(m, name)` and, the first time this pair
+is seen (`ReachabilityClosure`-memoized, guarding against looping on a self-recursive `function`
+— `operator`s never self-recurse, per `Elaborator/Declarations.lean` — so only `function` bodies
+can cycle), records the resolution and, if it resolved to an `operator`/`function`, recurses into
+its body too (`path` extended by `name`). A `constant`/`variable` resolution is recorded but never
+recursed into. Resolutions after the first for an already-visited pair are no-ops for recursion —
+`visit` still runs on every node regardless, since some checks are per-reference, not
+per-declaration. -/
 partial def TypedTLAPlus.Expression.walkReachable {m' : Type → Type} [Monad m']
     [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
     (visit : List String → TypedPlusCal.Expression → m' Unit)
@@ -148,20 +136,19 @@ partial def TypedTLAPlus.Expression.walkReachable {m' : Type → Type} [Monad m'
   -- ever handed to a caller) — recurse defensively rather than special-case an impossible input.
   | .mvar _ e => recurse e
 
-/-- Visits every statement in `s`'s own tree — `visitStatement`, once per statement, before
-recursing into substructure (mirrors `Expression.walkReachable`'s own "`visit` then recurse"
-order) — and threads every expression position (`print`'s `e`, `assign`'s per-pair `e`, every
-`Ref.args` on every `Ref` position, …) through `Expression.walkReachable` via `visitExpr`, always
-with a fresh `[]` path (`path` only grows *inside* one expression's own walk, when it recurses
-into a resolved declaration's body — unchanged from before this was split out).
+/-- Visits every statement in `s`'s tree — `visitStatement` once per statement, before recursing
+into substructure — and threads every expression position (`print`'s `e`, `assign`'s per-pair
+`e`, every `Ref.args`, …) through `Expression.walkReachable` via `visitExpr`, always with a fresh
+`[]` path (`path` only grows inside one expression's own walk, when it recurses into a resolved
+declaration's body).
 
 `send`'s/`receive`'s channel-argument `Ref` (`c`) and any non-channel `Ref` position (`assign`'s
 LHS, `receive`'s destination `r`) are treated identically here — walking `args`, nothing else;
 `Restrictions.lean`'s asymmetric channel-likeness check between the two lives entirely in its own
-`visitStatement`, which sees the raw `Statement` and can tell them apart itself.
+`visitStatement`, which sees the raw `Statement` and can tell them apart.
 
-`partial`: same reason `Statement.bitraverse`/the old fused `Statement.checkRestrictions` were —
-recursion isn't visibly decreasing to Lean through the mutual `Block`/`Branches` nesting. -/
+`partial`: recursion isn't visibly decreasing to Lean through the mutual `Block`/`Branches`
+nesting. -/
 partial def TypedPlusCal.Statement.walkReachable {b : Bool} {m' : Type → Type} [Monad m']
     [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
     (visitStatement : ∀ {b}, TypedPlusCal.Statement b → m' Unit)
@@ -199,14 +186,12 @@ partial def TypedPlusCal.Statement.walkReachable {b : Bool} {m' : Type → Type}
     filter.binds.forM λ (_, _, _, e) ↦ walkExpr e
     walkExpr filter.val
 
-/-- Walks every expression embedded in `d` itself — every `variables` entry's initializer,
-every `channels`/`fifos` entry's index-type expressions. `Declarations` has no further
-substructure to recurse into beyond these. Found missing (`Typed2Computable` silently dropped a
-`CONSTANTS`/`VARIABLES` entry referenced only from a process's own `id`/`Declarations`, never from
-a statement body) while hand-verifying `Typed2Computable`'s output against the regression
-fixtures — widened here rather than left as a known gap, since it's the same root cause
-`Restrictions.lean`'s checks 1/2(c)/3 never covered either (a banned construct hiding in a process
-id/mailbox/declaration-initializer expression previously went unchecked too). -/
+/-- Walks every expression embedded in `d` — every `variables` entry's initializer, every
+`channels`/`fifos` entry's index-type expressions. `Declarations` has no further substructure to
+recurse into. Widened to cover this after `Typed2Computable` was found silently dropping a
+`CONSTANTS`/`VARIABLES` entry referenced only from a process's own `id`/`Declarations` and never
+from a statement body — the same root cause left a banned construct hiding in such positions
+unchecked by `Restrictions.lean` too. -/
 def TypedPlusCal.Declarations.walkReachable {m' : Type → Type} [Monad m']
     [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
     (visitExpr : List String → TypedPlusCal.Expression → m' Unit)
@@ -222,12 +207,9 @@ def TypedPlusCal.Declarations.walkReachable {m' : Type → Type} [Monad m']
 /-- Walks every expression reachable from `algo` — every statement (via `Statement
 .walkReachable`), every process's own `id`/`mailbox` index expressions, and both `globalState`'s
 and every process's own `localState`'s embedded expressions (`Declarations.walkReachable` above).
-`Algorithm.checkRestrictions`'s own former traversal, factored out (widened, per the module doc on
-`Declarations.walkReachable` above, to also cover `id`/`mailbox`/`Declarations` — previously only
-`p.threads`). Doesn't wrap its own `ReachabilityClosure` `StateT` layer, unlike the old fused
-version: callers choose `.run` (keep the closure — `Typed2Computable`'s own use) or `.run'`
-(discard — `Restrictions.lean`'s own use), same choice `Expression`/`Statement.walkReachable`
-already leave open. -/
+Doesn't wrap its own `ReachabilityClosure` `StateT` layer: callers choose `.run` (keep the closure
+— `Typed2Computable`'s use) or `.run'` (discard — `Restrictions.lean`'s use), same choice
+`Expression`/`Statement.walkReachable` leave open. -/
 def TypedPlusCal.Algorithm.walkReachable {m' : Type → Type} [Monad m']
     [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
     (visitStatement : ∀ {b}, TypedPlusCal.Statement b → m' Unit)

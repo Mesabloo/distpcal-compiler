@@ -7,11 +7,11 @@ public import Desugarer
 public section
 
 /-!
-  `Driver/Modules.lean`'s own errors/warnings — every way driving the pipeline up to and
-  including the checker can fail. Wraps each lower-level pass's own error type (`lex`/`parse`/
-  `annotation`/`desugar`/`typeCheck`) plus the resolution-specific conditions (`moduleNotFound`/
+  `Driver/Modules.lean`'s errors/warnings — every way driving the pipeline up to and including
+  the checker can fail. Wraps each lower-level pass's own error type (`lex`/`parse`/`annotation`/
+  `desugar`/`typeCheck`) plus the resolution-specific conditions (`moduleNotFound`/
   `ambiguousModule`/`cyclicExtends`), so `Fugue.lean` only has to handle one error type for the
-  driver's own portion of the pipeline. Passes past the checker (`WellFormedness`,
+  driver's portion of the pipeline. Passes past the checker (`WellFormedness`,
   `Typed2Computable`, everything after) run outside the driver, on its returned `TypedModule`, and
   report through their own error types directly — not wrapped here.
 -/

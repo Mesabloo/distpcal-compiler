@@ -18,8 +18,8 @@ def ParserT.mapStream {τ₁ τ₂ α : Type _} {m : Type _ → Type _} [Monad m
                               (f : τ₂ → Option τ₁) (g : τ₁ → τ₂) (p : SimpleParserT (Parser.Stream.OfList τ₁) τ₁ m α) : SimpleParserT (Parser.Stream.OfList τ₂) τ₂ m α := λ s ↦
   let n := s.past.length
   let s' : Parser.Stream.OfList τ₁ := { next := s.next.filterWhile f, past := [] }
-  -- Offsets in s' are computed from 0 since `past := []` in `s'`
-  -- Hence in `mapError` we have to offset all errors by the size of `s.past` (`n` above)
+  -- Offsets in `s'` start at 0 (`past := []`), so `mapError` must offset every error by
+  -- `n`, the size of `s.past`.
   p.run s' <&> λ | .error s' e => .error {next := s.next.drop s'.past.length, past := s'.past.map g ++ s.past} (mapError n e)
                  | .ok s' r => .ok {next := s.next.drop s'.past.length, past := s'.past.map g ++ s.past} r
 where
@@ -126,17 +126,16 @@ instance {α} [ToString α] : CompilerDiagnostic (Unexpected α) String where
   hintsOf err := err.hints
 
 /--
-  Warnings raised by the parser itself (as opposed to hard errors, `Unexpected`). Collected
+  Warnings raised by the parser itself, as opposed to hard errors (`Unexpected`). Collected
   out-of-band during parsing (`ParserWarningM`, below) rather than emitted immediately, and
   filtered/printed by the compiler driver once parsing returns.
 -/
 inductive ParserWarning : Type
   /-- `fair process`/`fair+` was parsed and round-tripped, but is never acted on. -/
   | fairIgnored (pos : SourceSpan)
-  /-- A comment parses as a well-formed annotation (`@type`/`@mailbox`/`@parameter`), but sits
-  somewhere no call site ever consumes it, so it is silently ignored. Distinct from a
-  *misplaced* annotation (captured, but attached to the wrong role), which is a hard error,
-  not a warning. -/
+  /-- A comment parses as a well-formed annotation (`@type`/`@mailbox`/`@parameter`) but sits
+  where no call site consumes it, so it is silently ignored. Distinct from a *misplaced*
+  annotation (captured, but attached to the wrong role), which is a hard error. -/
   | unusedAnnotation (pos : SourceSpan)
   deriving Repr, Inhabited, BEq
 
@@ -155,19 +154,15 @@ instance : CompilerDiagnostic ParserWarning String where
     | .fairIgnored pos
     | .unusedAnnotation pos => pos
 
-/-- The base monad every parser in `Parser_` runs against: plain `Id` plus a
-`List ParserWarning` accumulator. -/
+/-- The base monad every parser in `Parser_` runs against: `Id` plus a `List ParserWarning`
+accumulator. -/
 abbrev ParserWarningM := StateT (List ParserWarning) Id
 
 
 open Parser hiding takeMany1
 
-/--
-  `debug p` instruments `p` with some tracing information, outputted with `dbgTrace`.
-
-  Prints information regarding when `p` is applied on the input stream (with the current stream position),
-  and whether it succeeded or failed (along with the result/error).
--/
+/-- `debug p` instruments `p` with tracing via `dbgTrace`: when `p` is applied (with the current
+stream position), and whether it succeeded or failed (with the result/error). -/
 @[expose, never_extract, specialize, macro_inline]
 def debug {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [Repr ε] [Repr α] [Repr (Stream.Position σ)] (name : String) (p : ParserT ε σ τ m α) : ParserT ε σ τ m α := λ s ↦ do
   -- dbg_trace "{name}> Applying parser (stream position: {repr (Stream.getPosition s)})"
