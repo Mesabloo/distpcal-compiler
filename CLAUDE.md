@@ -7,8 +7,12 @@ on this project.
 
 - `INSTRUCTIONS.md` — working rules, conventions, check-in-first list. Read this before
   anything else.
-- `PLAN.md` — architecture, pipeline stage-by-stage, decisions made, open questions. Check
-  before any design call.
+- `PLAN.md` — architecture, pipeline stage-by-stage, decisions made. Check before any
+  design call.
+- `OPEN_QUESTIONS.md` — open questions/known issues, split out of `PLAN.md`'s old §9
+  (same `9.x` numbering, `PLAN.md` still cross-references entries as `§9.x`). Check
+  before treating an ambiguity as unlisted; resolved entries get deleted from here, not
+  left marked resolved — see `INSTRUCTIONS.md`.
 - `STRUCTURE.md` — directory-by-directory map of repo. Use instead of `ls`/`find`-ing
   around. Keep in sync when files move.
 - `.claude/plans/` — holds current in-flight plan document(s) alongside `PLAN.md`, one or

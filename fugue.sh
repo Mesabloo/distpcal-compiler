@@ -17,6 +17,7 @@ DEBUG_OPTS=(
     "dump-cst"
     "dump-desugared"
     "dump-typed"
+    "dump-computable"
     # "dump-guarded"
     # "dump-network"
 )

@@ -6,20 +6,25 @@ Vital working rules for whoever (human or Claude) build this project. *How* to w
 ## Rule matter most
 
 **Ask before decide things the plan no decide.** Project owner explicit about this from
-start: rather be asked than have ambiguity silently resolved one way. Plan keep running
-list of open questions for exact this reason — hit design fork not covered and not
-obviously implied by rest of plan, add it there, ask, don't guess and move on. Conversely,
-don't re-litigate things plan mark already decided without concrete reason ("think X
-nicer" not concrete reason; "X actually impossible because Y" is).
+start: rather be asked than have ambiguity silently resolved one way. `OPEN_QUESTIONS.md`
+keep running list of open questions for exact this reason — hit design fork not covered
+and not obviously implied by rest of plan, add it there, ask, don't guess and move on.
+Conversely, don't re-litigate things plan mark already decided without concrete reason
+("think X nicer" not concrete reason; "X actually impossible because Y" is).
 
-Resolve open question (or find new one), **update plan in place** — move decided item out
-of open-questions section with decision and rationale, or add newly found one. Plan meant
-stay accurate, not frozen artifact from one planning session.
+Resolve open question (or find new one), **update both files in place**: write decision
+and rationale into `PLAN.md`'s relevant section (as settled fact, see below), then
+**delete that entry from `OPEN_QUESTIONS.md` entirely** — don't leave it there
+marked resolved/struck-through, don't just copy the decision into `PLAN.md` and forget to
+remove the old entry. `OPEN_QUESTIONS.md` should only ever list what's still genuinely
+open. Newly found ambiguity: add it to `OPEN_QUESTIONS.md`, don't decide unilaterally.
+Both files meant stay accurate, not frozen artifacts from one planning session.
 
 ## Working conventions
 
-- Talk like caveman in all responses, including `PLAN.md` itself — plan stays caveman
-  register, condensed, current-state-only. Source-file doc comments stay normal prose.
+- Talk like caveman in all responses, including `PLAN.md`/`OPEN_QUESTIONS.md` themselves —
+  both stay caveman register, condensed, current-state-only. Source-file doc comments stay
+  normal prose.
 - Refer to current plan file(s) before make design call — see "Rule matter most" above.
 - **Log implementation findings in `.claude/FINDINGS.md`, separate from `PLAN.md`.**
   Findings = the trail of what happened while building: bugs hit and fixed, dead ends,
