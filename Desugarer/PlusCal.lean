@@ -52,7 +52,7 @@ namespace SurfacePlusCal
     deriving Inhabited
 
   variable {α β : Type} {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
-    [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
+    [MonadLiftT IO m] [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
     [MonadReaderOf SegmentContext m] [MonadWithReaderOf SegmentContext m]
 
   /-- The reserved sentinel `goto` target meaning "this thread has terminated" — never needs a
@@ -288,18 +288,21 @@ namespace SurfacePlusCal
         withTheReader SegmentContext (λ _ ↦ { ownLabel := some firstLabel, fallthrough := doneLabel }) (desugarSegment [] rest)
       pure ((firstLabel, block) :: extracted)
 
-  /-- Run `SurfaceTLAPlus.Expression.desugar` against a single, self-contained expression,
-  discarding the fresh-name counter. Used for `@mailbox`'s filter arguments
-  (`extractMailbox` below). -/
+  /-- Run `SurfaceTLAPlus.Expression.desugar` against a single, self-contained expression. Used
+  for `@mailbox`'s filter arguments (`extractMailbox` below). Fresh-name generation draws from
+  `Common/Fresh.lean`'s single process-wide `IO.Ref` counter, the same one every other pass
+  (including the rest of this algorithm's own statement desugaring) draws from — no longer its
+  own separate, `0`-restarted namespace the way a locally-threaded `StateT Nat` would give it. -/
   private def desugarMailboxArg (e : SurfaceTLAPlus.Expression (List Annotation)) :
-      DiagT DesugarWarning DesugarError Id (CoreTLAPlus.Expression (List Annotation)) :=
-    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (StateT Nat (DiagT DesugarWarning DesugarError Id)) _ := e.desugar
-    ((d.run none).run' 0).run
+      DiagT DesugarWarning DesugarError IO (CoreTLAPlus.Expression (List Annotation)) :=
+    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (DiagT DesugarWarning DesugarError IO) _ := e.desugar
+    d.run none
 
   /-- Validate and extract a `Process.ann` slot: at most one `@mailbox`, nothing else, with its
   filter arguments fully desugared (`desugarMailboxArg`). -/
   def extractMailbox {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
-      (anns : List Annotation) : m (Option (String × List (CoreTLAPlus.Expression (List Annotation)))) := do
+      [MonadLiftT IO m] (anns : List Annotation) :
+      m (Option (String × List (CoreTLAPlus.Expression (List Annotation)))) := do
     let mut mailbox : Option (String × List (SurfaceTLAPlus.Expression (List Annotation))) := none
     for ann in anns do
       match ann with
@@ -434,13 +437,14 @@ warning emitted before a later fatal error still survives (`PLAN.md` §9.14). Al
 returned `CorePlusCal.Algorithm` is fully checked with every annotation slot resolved to its
 actual content — both run after warnings are already extracted, since neither ever touches them. -/
 def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
-    DiagT DesugarWarning DesugarError Id (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) :=
-  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (DiagT DesugarWarning DesugarError Id)) _ :=
+    DiagT DesugarWarning DesugarError IO (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) := do
+  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (DiagT DesugarWarning DesugarError IO))
+      (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :=
     a.desugar
-  let (warnings, result) := ((desugar.run {}).run default).run
-  (warnings, do
-    let algo ← result
-    algo.checkAssignConflicts
-    algo.stripEmbeddedTypeAnnotations)
+  -- `DiagT` has its own `Monad`/`MonadExceptOf` instances (`Common/Errors.lean`) — bind directly,
+  -- no manual unwrapping of the underlying `List DesugarWarning × Except DesugarError _` pair.
+  let algo ← (desugar.run {}).run default
+  MonadExcept.ofExcept algo.checkAssignConflicts
+  MonadExcept.ofExcept algo.stripEmbeddedTypeAnnotations
 
 end

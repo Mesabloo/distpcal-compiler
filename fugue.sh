@@ -18,8 +18,8 @@ DEBUG_OPTS=(
     "dump-desugared"
     "dump-typed"
     "dump-computable"
-    # "dump-guarded"
-    # "dump-network"
+    "dump-guarded"
+    "dump-network"
 )
 
 FEATURE_OPTS=(
@@ -34,6 +34,8 @@ WARN_OPTS=(
 TARGET_OPTS=(
     "-t"
     "go"
+    # "-X"
+    # "go-package=main"
 )
 
 

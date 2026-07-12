@@ -9,6 +9,7 @@ public import Driver.Modules
 public import WellFormedness
 import Typed2Computable
 import Computable2Guarded
+import Guarded2Network
 import ProgressBar
 import Colorized
 
@@ -77,7 +78,7 @@ instance : ParseableType Target where
     | _ => none
 
 /-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
-private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-guarded", "dump-dir"]
+private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-guarded", "dump-network", "dump-dir"]
 
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
 private def knownFeatures : Array String := #["no-color", "no-progress"]
@@ -216,6 +217,25 @@ private def runPass {ε} [CompilerDiagnostic ε String] {α}
     IO.Process.exit 1
   | .ok a => pure a
 
+/-- `runPass`'s sibling for a pass that reports through `MonadDiagnostic` (a `DiagT`-based
+warnings-plus-error stack) rather than a bare `MonadExceptOf` — every warning gets rendered the
+same way `flushWarnings` renders the driver's own (plain `eprintln`, same as `runPass`'s own error
+rendering, not through the spinner), then the final result is handled exactly like `runPass`.
+Currently only `Guarded2Network` uses this (its `G2NError`/`Empty` warnings), but any future pass
+that grows real warnings can switch from `runPass` to this without changing its own monad-
+polymorphic shape at all — only its concrete instantiation at the call site changes. -/
+private def runPassDiag {α ε} [CompilerDiagnostic α String] [CompilerDiagnostic ε String] {γ}
+    (lines : List String.Slice) (colored : Bool) (act : DiagT α ε IO γ) : IO γ := do
+  let (warnings, result) ← act.run
+  -- TODO: this is missing a check whether we want to output the warning
+  warnings.forM λ w ↦ IO.eprintln <| CompilerDiagnostic.pretty w lines colored
+  match result with
+  | .error e =>
+    IO.eprintln <| CompilerDiagnostic.pretty e lines colored
+    IO.eprintln "Compilation failed."
+    IO.Process.exit 1
+  | .ok a => pure a
+
 private def runCli (p : Parsed) : IO UInt32 := do
   validateAndSetFlags p
 
@@ -229,6 +249,9 @@ private def runCli (p : Parsed) : IO UInt32 := do
     | .path path => path.parent
     | .stdin => none
 
+  -- TODO: every `runPass` in here should be a `runPassDiag`, and every compiler pass should
+  -- have a `MonadDiagnostic` constraint, not a `MonadExceptOf`.
+
   -- One spinner for the whole compile, Lean-`lake build`-style: no per-pass titles
   -- ("Lexing…"/"Parsing…"/…) — just `[<done>/<discovered>] Running on module '<name>'…`, `<done>`
   -- and `<discovered>` tracked here (not in `Driver/Modules.lean` — it only reports raw
@@ -236,7 +259,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
   -- `EXTENDS` pulls in modules not seen yet this run. Completed steps — reading the input, each
   -- `EXTENDS`ed module `Built`/`Replayed`, warnings — print as their own persisted lines via
   -- `Spinner.log` without interrupting the animation.
-  let (typedMod, lines) ← withProgress "Reading input…" λ spinner ↦ do
+  withProgress "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
         unless ← path.pathExists do
@@ -267,46 +290,50 @@ private def runCli (p : Parsed) : IO UInt32 := do
         spinner.setTitle s!"[{(← done.get).size}/{(← discovered.get).size}] Running on module '{name}'…")
       (logLine := λ line ↦ do spinner.log line)
     flushWarnings lines colored warnings (λ m ↦ spinner.log m)
-    match result with
+
+    let (typedMod, lines) ← match result with
     | .error e =>
       -- Print the actual error *before* ending the spinner — `Build failed` is the final
       -- word, not a banner ahead of the detail explaining it. `e` may have originated in an
       -- `EXTENDS`-ed dependency, not the main module read into `lines` above — render against
       -- the offending module's own source when it has one.
       spinner.log <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
-      spinner.fail "Build failed"
+      spinner.fail "Build failed."
       IO.Process.exit 1
     | .ok typedMod =>
-      spinner.success s!"Build done ({(← done.get).size})"
-      return (typedMod, lines)
+      pure (typedMod, lines)
 
-  let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim ".fugue/debug" (↑·)
+    let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim ".fugue/debug" (↑·)
 
-  -- Everything past this point runs *outside* the driver — `compileModule` only takes a module
-  -- through type checking and caches that result (`PLAN.md` §9); well-formedness checking and
-  -- the `Typed2Computable` translation are the first two passes of the real pipeline proper, and
-  -- run once here, against the driver's already-returned main module, not per-`EXTENDS`-dependency
-  -- inside the driver's own recursion.
-  runPass lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : ExceptT WellFormednessError IO Unit)
-  let computable ← runPass lines colored (TypedTLAPlus.Module.toComputable typedMod : ExceptT ComputableError IO _)
+    -- Everything past this point runs *outside* the driver — `compileModule` only takes a module
+    -- through type checking and caches that result (`PLAN.md` §9); well-formedness checking and
+    -- the `Typed2Computable` translation are the first two passes of the real pipeline proper, and
+    -- run once here, against the driver's already-returned main module, not per-`EXTENDS`-dependency
+    -- inside the driver's own recursion.
+    runPass lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : ExceptT WellFormednessError IO Unit)
+    let computable ← runPass lines colored (TypedTLAPlus.Module.toComputable typedMod : ExceptT ComputableError IO _)
 
-  if ← FlagsEnv.getDebugFlag "dump-computable" then
-    dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
+    if ← FlagsEnv.getDebugFlag "dump-computable" then
+      dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
 
-  -- `Computable2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
-  -- TLA⁺ module with none is done once `toComputable` above has checked it).
-  match computable.pcalAlgorithm with
-  | none => pure ()
-  | some algo =>
-    let guarded ← runPass lines colored
-      ((algo.toGuarded : StateT Nat (ExceptT GuardedError IO) _).run' 0)
-    if ← FlagsEnv.getDebugFlag "dump-guarded" then
-      dumpToFile (reprStr guarded) dumpDir s!"{dumpName}-guarded"
+    -- `Computable2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
+    -- TLA⁺ module with none is done once `toComputable` above has checked it).
+    if let some algo := computable.pcalAlgorithm then
+      let guarded ← runPass lines colored (algo.toGuarded : ExceptT GuardedError IO _)
+      if ← FlagsEnv.getDebugFlag "dump-guarded" then
+        dumpToFile (reprStr guarded) dumpDir s!"{dumpName}-guarded"
 
-  IO.println s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
-{typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
-declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
-algorithm). The rest of the pipeline (Guarded2Network onward) isn't implemented yet, so it stops here."
+      let network ← runPassDiag lines colored (guarded.toNetwork : DiagT Empty G2NError IO _)
+      if ← FlagsEnv.getDebugFlag "dump-network" then
+        dumpToFile (reprStr network) dumpDir s!"{dumpName}-network"
+
+    spinner.success s!"Build done ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
+
+    IO.println s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
+  {typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
+  declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
+  algorithm). The rest of the pipeline (the backends, Network2Go/Network2JoinCalculus) isn't \
+  implemented yet, so it stops after Guarded2Network."
   return 0
 
 private def cli : Cmd := `[Cli|

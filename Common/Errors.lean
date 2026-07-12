@@ -21,6 +21,17 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   msgOf : ε → α
   hintsOf : ε → List α := λ _ ↦ []
 
+/-- A pass that never emits any warning at all uses `MonadDiagnostic Empty ε m` (`Empty`, not a
+new bespoke singleton warning type) — this instance lets `List Empty`'s (always-empty, since
+nothing can construct an `Empty`) contents still satisfy a `runPass`-style caller's generic
+`[CompilerDiagnostic α String]` requirement uniformly, without that caller needing a special case
+for "this particular pass has no warnings." Every field is `Empty.elim`, since there's never a
+real `Empty` value to apply it to. -/
+instance : CompilerDiagnostic Empty String where
+  isError := true
+  posOf := Empty.elim
+  msgOf := Empty.elim
+
 /-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`, `PLAN.md` §2). Not
 `private`: `Fugue.lean` reuses it for its `Built`/`Replayed` progress lines, not just here. -/
 def colorizeIf {α} [Colorized α] (enabled : Bool) (c : Colorized.Color) (x : α) : α :=
