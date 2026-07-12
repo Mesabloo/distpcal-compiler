@@ -19,7 +19,7 @@ of every atomic block), rejecting a literal `"Done"` entry along the way — `"D
 reserved fallthrough target, never itself a real label. No better position exists for a
 `redefinedDone` error than the labelled block's own terminal statement: labels are bare strings
 paired with a block, not positioned nodes in their own right. -/
-def TypedPlusCal.Process.labels {m : Type → Type} [Monad m] [MonadExceptOf WellFormednessError m]
+def TypedPlusCal.Process.labels {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
     (p : TypedPlusCal.Process) : m (List String) := do
   let perThread ← p.threads.mapM λ thread ↦
     thread.mapM λ (label, blk) ↦ do
@@ -29,7 +29,7 @@ def TypedPlusCal.Process.labels {m : Type → Type} [Monad m] [MonadExceptOf Wel
 
 /-- Walks every `goto l` reachable from `s`, checking `l` against `labels ∪ {"Done"}`. -/
 partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (labels : List String) (s : TypedPlusCal.Statement b) : m Unit :=
+    [MonadDiagnostic Empty WellFormednessError m] (labels : List String) (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
   | .goto l, pos => unless labels.contains l ∨ l = "Done" do throw (.unknownLabel pos l)
   | .if _ B₁ B₂, _ => do
@@ -46,7 +46,7 @@ partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Mon
 across all of that process's threads, per `Process.labels` above), check every `goto` in every
 thread of that same process. -/
 def TypedPlusCal.Algorithm.checkLabelling {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
+    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
   for p in algo.processes do
     let labels ← TypedPlusCal.Process.labels p
     for thread in p.threads do

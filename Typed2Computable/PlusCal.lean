@@ -35,7 +35,7 @@ public section
   abbrev layer.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadExceptOf ComputableError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty ComputableError m]
 
 /-- `Ref.args`' `.inr` (index) entries delegated to `Expression.toComputable`; `.inl` (field)
 entries and `name`/`baseType` pass through unconverted. -/

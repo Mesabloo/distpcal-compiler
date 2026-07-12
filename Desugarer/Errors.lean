@@ -88,6 +88,7 @@ def DesugarWarning.name : DesugarWarning → String
 
 instance : CompilerDiagnostic DesugarWarning String where
   isError := false
+  name := DesugarWarning.name
   posOf | .duplicateParameterAnnotation pos => pos
   msgOf | .duplicateParameterAnnotation _ => "Only one '@parameter' is needed per variable; the extra one(s) have no additional effect."
 

@@ -37,4 +37,10 @@ run `TypedTLAPlus.Module.checkWellFormed` at `ExceptT WellFormednessError m`, ca
 instance {m ε} [Monad m] [MonadForeignLookup m] : MonadForeignLookup (ExceptT ε m) where
   lookupForeign name := liftM (lookupForeign name : m _)
 
+/-- Generic lift through `DiagT` — same rationale as the `ExceptT` lift above, for a caller
+running `TypedTLAPlus.Module.checkWellFormed`/`TypedTLAPlus.Expression.checkNode`'s own
+`MonadDiagnostic`-shaped stack (`Fugue.lean`'s `runPassDiag`) rather than a bare `ExceptT`. -/
+instance {m α β} [Monad m] [MonadForeignLookup m] : MonadForeignLookup (DiagT α β m) where
+  lookupForeign name := liftM (lookupForeign name : m _)
+
 end

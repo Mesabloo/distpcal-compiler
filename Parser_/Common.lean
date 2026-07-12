@@ -147,6 +147,7 @@ def ParserWarning.name : ParserWarning → String
 
 instance : CompilerDiagnostic ParserWarning String where
   isError := false
+  name := ParserWarning.name
   msgOf
     | .fairIgnored _ => "'fair'/'fair+' is parsed but ignored: this compiler does not act on fairness (neither the Go nor the Join Calculus backend's runtime is fairness-aware)."
     | .unusedAnnotation _ => "This annotation has no effect here and will be ignored."

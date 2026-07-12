@@ -109,6 +109,44 @@ private def lenGt (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty G2NError m]
 
+/-- `processPrecondition`'s per-statement accumulator, threaded through `stepStatement` via a
+local `StateT` layer (same "function-scoped `StateT`, `.run` at the end" shape `WellFormedness/
+Restrictions.lean`'s `checkRestrictions` already uses for its own memoization state) rather than
+imperative `let mut` bindings — `i`/`newInstrs`/`rxs` below are exactly the three-way `mut` state
+the old shape threaded by hand. -/
+private structure ReceiveState where
+  i : Nat := 0
+  newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression) := []
+  rxs : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ) := []
+
+/-- Substitutes every `receive` processed so far (`newInstrs`) into a later guard `e` — see the
+module doc's `foldr`/fold-direction explanation. -/
+private def substGuard (newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression))
+    (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
+  newInstrs.foldr (init := e) λ (r, rhs) e' ↦ ComputableTLAPlus.Expression.substRef r rhs e'
+
+/-- One statement of `processPrecondition`'s walk — `ReceiveState.i`'s value *before* this step's
+own increment is exactly the old shape's post-increment `i - 1` (the count of receives already
+consumed prior to this one). -/
+private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String) :
+    ComputableGuardedPlusCal.Statement true false → StateT ReceiveState m (ComputableNetworkPlusCal.Statement true false)
+  | .with x ann bound e => return .with x ann bound (substGuard (← get).newInstrs e)
+  | .await e => return .await (substGuard (← get).newInstrs e)
+  | .receive c r coe => do
+    let st ← get
+    match chans.lookup c.name with
+    | none =>
+      throw (.internalInvariantViolated SourceSpan.placeholder
+        s!"receive's channel '{c.name}' does not resolve to any declared channel or fifo")
+    | some τ =>
+      let inboxVar : ComputablePlusCal.Expression := .var inboxName (.seq τ) .binder
+      let inboxRef : ComputableGuardedPlusCal.Ref := { name := inboxName, args := [], baseType := .seq τ }
+      set { st with
+        i := st.i + 1
+        newInstrs := st.newInstrs ++ [(r, coe.applyComputable (head τ inboxVar)), (inboxRef, tail τ inboxVar)]
+        rxs := st.rxs.concat (c, τ) }
+      pure <| .await (lenGt τ inboxVar st.i)
+
 /-- Walk one branch's precondition block (`none` for a branch with no guards at all), threading
 substitution of every already-processed `receive` into later `await`/`with` guards — see the
 module doc above for the `foldr`/fold-direction explanation. Returns the rewritten precondition
@@ -124,34 +162,9 @@ private def processPrecondition (chans : Guarded2NetworkChans) (inboxName : Stri
          List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ))
   | none => pure (none, [], [])
   | some B => do
-    let mut i : Nat := 0
-    let mut newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression) := []
-    let mut rxs : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ) := []
-    let mut results : List (ComputableNetworkPlusCal.Statement true false) := []
-
-    let substGuard (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
-      newInstrs.foldr (init := e) λ (r, rhs) e' ↦ ComputableTLAPlus.Expression.substRef r rhs e'
-
-    for S in B.begin.concat B.last do
-      let S' : ComputableNetworkPlusCal.Statement true false ← match S with
-        | .with x ann bound e => pure <| .with x ann bound (substGuard e)
-        | .await e => pure <| .await (substGuard e)
-        | .receive c r coe =>
-          match chans.lookup c.name with
-          | none =>
-            throw (.internalInvariantViolated SourceSpan.placeholder
-              s!"receive's channel '{c.name}' does not resolve to any declared channel or fifo")
-          | some τ =>
-            let inboxVar : ComputablePlusCal.Expression := .var inboxName (.seq τ) .binder
-            let inboxRef : ComputableGuardedPlusCal.Ref := { name := inboxName, args := [], baseType := .seq τ }
-            newInstrs := newInstrs ++ [(r, coe.applyComputable (head τ inboxVar)), (inboxRef, tail τ inboxVar)]
-            i := i + 1
-            rxs := rxs.concat (c, τ)
-            pure <| .await (lenGt τ inboxVar (i - 1))
-      results := results.concat S'
-
+    let (results, st) ← ((B.begin.concat B.last).mapM (stepStatement chans inboxName)).run {}
     return (some { begin := results.dropLast, last := results.getLast! },
-      newInstrs.map λ (r, e) ↦ .assign r e, rxs)
+      st.newInstrs.map λ (r, e) ↦ .assign r e, st.rxs)
 
 /-- Every action-class constructor `GuardedPlusCal.Statement`/`NetworkPlusCal.Statement` share
 verbatim (all but `receive`, already compiled away above, and `with`, guard-class only) — `Ref`/
@@ -173,6 +186,42 @@ private def convertActionBlock (B : GuardedPlusCal.Block (ComputableGuardedPlusC
 
 variable [MonadFresh m]
 
+/-- `Thread.toNetwork`'s per-thread accumulator — `newLocals`/`rxThreads` are the two-way `mut`
+state the old shape threaded by hand across every block/branch of the thread; `blocks` itself
+needs no state slot at all (unlike the old shape's own `mut blocks`), since it's just
+`stepBlock`'s ordinary `mapM` result. -/
+private structure ThreadState where
+  newLocals : List (String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)) := []
+  rxThreads : List ComputableNetworkPlusCal.Thread := []
+
+/-- One branch of one block — walks its precondition (`processPrecondition`), prepends the
+resulting consumption assignments to its action block, and (the first time this call's thread
+encounters a not-yet-seen channel) registers the shared `inbox` local and a new `.rx` thread for
+that channel. -/
+private def stepBranch (chans : Guarded2NetworkChans) (inboxName : String)
+    (branch : ComputableGuardedPlusCal.AtomicBranch) : StateT ThreadState m ComputableNetworkPlusCal.AtomicBranch := do
+  let (precond, newInstrStmts, rxs) ← (processPrecondition chans inboxName branch.precondition : m _)
+  let action := convertActionBlock branch.action
+
+  if let (chan, τ) :: _ := rxs then
+    let st ← get
+    let newLocals :=
+      if st.newLocals.isEmpty then st.newLocals.concat (inboxName, .seq τ, false, some (true, .seq [] τ))
+      else st.newLocals
+    let rxThreads ←
+      if st.rxThreads.any (λ | .rx c' .. => c'.name == chan.name | .code _ => false) then
+        pure st.rxThreads
+      else do
+        let rxVar ← (freshName "rx" : m String)
+        pure (st.rxThreads.concat (.rx chan rxVar τ inboxName))
+    set ({ newLocals := newLocals, rxThreads := rxThreads } : ThreadState)
+
+  return { precondition := precond, action := { action with begin := newInstrStmts ++ action.begin } }
+
+private def stepBlock (chans : Guarded2NetworkChans) (inboxName : String)
+    (block : ComputableGuardedPlusCal.AtomicBlock) : StateT ThreadState m ComputableNetworkPlusCal.AtomicBlock := do
+  return { label := block.label, branches := ← block.branches.mapM (stepBranch chans inboxName) }
+
 /-- One process's channel table (already merged with that process's own local `channels`/`fifos`
 by `Process.toNetwork`) and its single shared `inbox` name (fresh once per process, shared by
 every one of the process's threads — same sharing prior art's own `inbox ++ procName` had, just
@@ -183,29 +232,8 @@ def ComputableGuardedPlusCal.Thread.toNetwork (chans : Guarded2NetworkChans) (in
     (T : ComputableGuardedPlusCal.Thread) :
     m (List (String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)) ×
        List ComputableNetworkPlusCal.Thread × ComputableNetworkPlusCal.Thread) := do
-  let mut newLocals : List (String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)) := []
-  let mut rxThreads : List ComputableNetworkPlusCal.Thread := []
-  let mut blocks : List ComputableNetworkPlusCal.AtomicBlock := []
-
-  for block in T do
-    let mut branches' : List ComputableNetworkPlusCal.AtomicBranch := []
-
-    for branch in block.branches do
-      let (precond, newInstrStmts, rxs) ← processPrecondition chans inboxName branch.precondition
-      let action := convertActionBlock branch.action
-
-      if let (chan, τ) :: _ := rxs then
-        if newLocals.isEmpty then
-          newLocals := newLocals.concat (inboxName, .seq τ, false, some (true, .seq [] τ))
-        unless rxThreads.any (λ | .rx c' .. => c'.name == chan.name | .code _ => false) do
-          let rxVar ← freshName "rx"
-          rxThreads := rxThreads.concat (.rx chan rxVar τ inboxName)
-
-      branches' := branches'.concat { precondition := precond, action := { action with begin := newInstrStmts ++ action.begin } }
-
-    blocks := blocks.concat { label := block.label, branches := branches' }
-
-  return (newLocals, rxThreads, .code blocks)
+  let (blocks, st) ← (T.mapM (stepBlock chans inboxName)).run {}
+  return (st.newLocals, st.rxThreads, .code blocks)
 
 /-- First occurrence per name wins — a process's several original threads may each independently
 propose the same single `(inboxName, ...)` local (every one of them shares that same fresh name,

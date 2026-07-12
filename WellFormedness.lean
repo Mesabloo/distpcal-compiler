@@ -22,7 +22,7 @@ reference without a `lookupForeign` round-trip) and `mod.name` (to tell a same-m
 apart from a foreign one) — hence this takes the whole `TypedModule` rather than just the
 algorithm, unlike the other three checks. -/
 def TypedTLAPlus.Module.checkWellFormed {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] [MonadForeignLookup m] (mod : TypedModule) : m Unit :=
+    [MonadDiagnostic Empty WellFormednessError m] [MonadForeignLookup m] (mod : TypedModule) : m Unit :=
   match mod.pcalAlgorithm with
   | none => pure ()
   | some algo => do

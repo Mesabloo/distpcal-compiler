@@ -51,7 +51,7 @@ private def TypedPlusCal.Declarations.namesWithPos (d : TypedPlusCal.Declaration
 
 /-- Rejects the first repeated name within one flat list — `duplicateName` at *that* repeat's
 own position, not the first occurrence's. -/
-private def checkNoDuplicates {m : Type → Type} [Monad m] [MonadExceptOf WellFormednessError m] :
+private def checkNoDuplicates {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m] :
     List (String × SourceSpan) → m Unit
   | [] => pure ()
   | (n, _) :: rest =>
@@ -61,7 +61,7 @@ private def checkNoDuplicates {m : Type → Type} [Monad m] [MonadExceptOf WellF
 
 /-- Rejects any of `names` already present in `inScope` — `shadowedName` at the shadowing
 entry's own position. -/
-private def checkNoShadow {m : Type → Type} [Monad m] [MonadExceptOf WellFormednessError m]
+private def checkNoShadow {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
     (inScope : List String) (names : List (String × SourceSpan)) : m Unit :=
   names.forM λ (n, pos) ↦ do
     if inScope.contains n then throw (.shadowedName pos n)
@@ -69,7 +69,7 @@ private def checkNoShadow {m : Type → Type} [Monad m] [MonadExceptOf WellForme
 /-- Walks every `with` binder reachable from `s`, checking it against `inScope` and extending
 it for the sub-block. No other statement introduces a PlusCal-visible name. -/
 partial def TypedPlusCal.Statement.checkWellScoped {b} {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (inScope : List String) (s : TypedPlusCal.Statement b) : m Unit :=
+    [MonadDiagnostic Empty WellFormednessError m] (inScope : List String) (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
   | .if _ B₁ B₂, _ => do
     ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) B₁
@@ -88,7 +88,7 @@ process's own local declarations fresh among themselves and not shadowing a glob
 `with` binder inside a process's threads fresh against global ++ that process's own locals ++
 whatever outer `with`s it's nested in. -/
 def TypedPlusCal.Algorithm.checkWellScoped {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
+    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
   let globalNames := TypedPlusCal.Declarations.namesWithPos algo.globalState
   checkNoDuplicates globalNames
   for p in algo.processes do

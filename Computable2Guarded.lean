@@ -31,7 +31,7 @@ def ComputablePlusCal.Declarations.toGuarded (d : ComputablePlusCal.Declarations
   { «variables» := d.variables, channels := d.channels, fifos := d.fifos }
 
 def ComputablePlusCal.Algorithm.toGuarded {m : Type → Type} [Monad m] [MonadFresh m]
-    [MonadExceptOf GuardedError m] (algo : ComputablePlusCal.Algorithm) : m ComputableGuardedPlusCal.Algorithm := do
+    [MonadDiagnostic Empty GuardedError m] (algo : ComputablePlusCal.Algorithm) : m ComputableGuardedPlusCal.Algorithm := do
   let algo ← algo.cflow
   let algo ← algo.par
   let processes ← algo.processes.mapM λ p ↦ do

@@ -76,7 +76,7 @@ independent of the walk's own memoized resolution (check 2(c) must fire on *ever
 global variable, not just the first, unlike check 3-transitive's into-the-body recursion, which
 the walk already memoizes for its own purposes). -/
 def TypedTLAPlus.Expression.checkNode {m' : Type → Type} [Monad m']
-    [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
+    [MonadDiagnostic Empty WellFormednessError m'] [MonadForeignLookup m']
     (currentModule : String) (ownDecls : List Decl) (path : List String)
     (e : TypedPlusCal.Expression) : m' Unit :=
   match_source e with
@@ -115,7 +115,7 @@ legitimately Channel-shaped and exempted — only its index expressions (`Ref.ar
 `walkReachable`'s `visitStatement`; the expression-position half (checks 1/2(c)/3 over every
 embedded `Expression`) is `Expression.checkNode`, supplied as its `visitExpr`. -/
 def TypedPlusCal.Statement.checkRefRestrictions {b} {m' : Type → Type} [Monad m']
-    [MonadExceptOf WellFormednessError m'] (s : TypedPlusCal.Statement b) : m' Unit :=
+    [MonadDiagnostic Empty WellFormednessError m'] (s : TypedPlusCal.Statement b) : m' Unit :=
   match_source s with
   | .assign asss, pos => asss.forM λ (r, _) ↦
       let τ := TypedPlusCal.Ref.resultType r
@@ -135,7 +135,7 @@ layer, run from `{}` and discarded (`.run'`) once this returns, invisible to cal
 operator was already walked while checking a *previous* module has no bearing on checking this
 one. -/
 def TypedPlusCal.Algorithm.checkRestrictions {m' : Type → Type} [Monad m']
-    [MonadExceptOf WellFormednessError m'] [MonadForeignLookup m']
+    [MonadDiagnostic Empty WellFormednessError m'] [MonadForeignLookup m']
     (currentModule : String) (ownDecls : List Decl) (algo : TypedPlusCal.Algorithm) : m' Unit :=
   let go : StateT ReachabilityClosure m' Unit :=
     TypedPlusCal.Algorithm.walkReachable TypedPlusCal.Statement.checkRefRestrictions

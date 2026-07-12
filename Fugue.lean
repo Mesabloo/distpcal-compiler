@@ -205,30 +205,19 @@ private def dumpToFile (content : String) (dir : System.FilePath) (name : String
   IO.FS.writeFile (dir / name) content
 
 /-- Run one of the passes past the driver (well-formedness checking, `Typed2Computable`, and
-whatever else `PLAN.md` §9 eventually adds outside `compileModule`); on `.error e`, render `e`
-against `lines` and exit. Every such pass fails the same way — plain `eprintln`, not through the
-spinner, which only wraps the driver's own portion of `runCli` below. -/
-private def runPass {ε} [CompilerDiagnostic ε String] {α}
-    (lines : List String.Slice) (colored : Bool) (act : ExceptT ε IO α) : IO α := do
-  match ← act.run with
-  | .error e =>
-    IO.eprintln <| CompilerDiagnostic.pretty e lines colored
-    IO.eprintln "Compilation failed."
-    IO.Process.exit 1
-  | .ok a => pure a
-
-/-- `runPass`'s sibling for a pass that reports through `MonadDiagnostic` (a `DiagT`-based
-warnings-plus-error stack) rather than a bare `MonadExceptOf` — every warning gets rendered the
-same way `flushWarnings` renders the driver's own (plain `eprintln`, same as `runPass`'s own error
-rendering, not through the spinner), then the final result is handled exactly like `runPass`.
-Currently only `Guarded2Network` uses this (its `G2NError`/`Empty` warnings), but any future pass
-that grows real warnings can switch from `runPass` to this without changing its own monad-
-polymorphic shape at all — only its concrete instantiation at the call site changes. -/
+whatever else `PLAN.md` §9 eventually adds outside `compileModule`) — every pass reports through
+`MonadDiagnostic` (a `DiagT`-based warnings-plus-error stack), never a bare `MonadExceptOf`, so
+this is the one runner every such pass goes through. Each warning not suppressed by
+`-Wno-<name>` (`CompilerDiagnostic.name`) is rendered the same way `flushWarnings` renders the
+driver's own — plain `eprintln`, not through the spinner, which only wraps the driver's own
+portion of `runCli` below — before the final result is handled: `.error e` renders `e` the same
+way and exits, `.ok a` returns. -/
 private def runPassDiag {α ε} [CompilerDiagnostic α String] [CompilerDiagnostic ε String] {γ}
     (lines : List String.Slice) (colored : Bool) (act : DiagT α ε IO γ) : IO γ := do
   let (warnings, result) ← act.run
-  -- TODO: this is missing a check whether we want to output the warning
-  warnings.forM λ w ↦ IO.eprintln <| CompilerDiagnostic.pretty w lines colored
+  warnings.forM λ w ↦ do
+    if ← FlagsEnv.isWarningEnabled (CompilerDiagnostic.name w) then
+      IO.eprintln <| CompilerDiagnostic.pretty w lines colored
   match result with
   | .error e =>
     IO.eprintln <| CompilerDiagnostic.pretty e lines colored
@@ -248,9 +237,6 @@ private def runCli (p : Parsed) : IO UInt32 := do
   let containingDir := match input with
     | .path path => path.parent
     | .stdin => none
-
-  -- TODO: every `runPass` in here should be a `runPassDiag`, and every compiler pass should
-  -- have a `MonadDiagnostic` constraint, not a `MonadExceptOf`.
 
   -- One spinner for the whole compile, Lean-`lake build`-style: no per-pass titles
   -- ("Lexing…"/"Parsing…"/…) — just `[<done>/<discovered>] Running on module '<name>'…`, `<done>`
@@ -310,8 +296,8 @@ private def runCli (p : Parsed) : IO UInt32 := do
     -- the `Typed2Computable` translation are the first two passes of the real pipeline proper, and
     -- run once here, against the driver's already-returned main module, not per-`EXTENDS`-dependency
     -- inside the driver's own recursion.
-    runPass lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : ExceptT WellFormednessError IO Unit)
-    let computable ← runPass lines colored (TypedTLAPlus.Module.toComputable typedMod : ExceptT ComputableError IO _)
+    runPassDiag lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : DiagT Empty WellFormednessError IO Unit)
+    let computable ← runPassDiag lines colored (TypedTLAPlus.Module.toComputable typedMod : DiagT Empty ComputableError IO _)
 
     if ← FlagsEnv.getDebugFlag "dump-computable" then
       dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
@@ -319,7 +305,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
     -- `Computable2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
     -- TLA⁺ module with none is done once `toComputable` above has checked it).
     if let some algo := computable.pcalAlgorithm then
-      let guarded ← runPass lines colored (algo.toGuarded : ExceptT GuardedError IO _)
+      let guarded ← runPassDiag lines colored (algo.toGuarded : DiagT Empty GuardedError IO _)
       if ← FlagsEnv.getDebugFlag "dump-guarded" then
         dumpToFile (reprStr guarded) dumpDir s!"{dumpName}-guarded"
 

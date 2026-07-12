@@ -20,10 +20,14 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   posOf : ε → SourceSpan
   msgOf : ε → α
   hintsOf : ε → List α := λ _ ↦ []
+  /-- The `-W<name>`/`-Wno-<name>` name this diagnostic is filtered under (`Fugue.lean`'s
+  `runPassDiag`/`flushWarnings`). Only meaningful for warnings — an error is never suppressed by
+  `-W`, so its instance leaves this at the default. -/
+  name : ε → String := λ _ ↦ ""
 
 /-- A pass that never emits any warning at all uses `MonadDiagnostic Empty ε m` (`Empty`, not a
 new bespoke singleton warning type) — this instance lets `List Empty`'s (always-empty, since
-nothing can construct an `Empty`) contents still satisfy a `runPass`-style caller's generic
+nothing can construct an `Empty`) contents still satisfy a `runPassDiag`-style caller's generic
 `[CompilerDiagnostic α String]` requirement uniformly, without that caller needing a special case
 for "this particular pass has no warnings." Every field is `Empty.elim`, since there's never a
 real `Empty` value to apply it to. -/

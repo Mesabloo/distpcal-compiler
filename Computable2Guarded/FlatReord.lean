@@ -54,7 +54,7 @@ public section
   stays correctly ordered after it.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadExceptOf GuardedError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty GuardedError m]
 
 abbrev Guard := ComputableGuardedPlusCal.Statement true false
 abbrev Action := ComputableGuardedPlusCal.Statement false false

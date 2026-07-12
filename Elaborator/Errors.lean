@@ -120,6 +120,7 @@ def TCWarning.name : TCWarning → String
 
 instance : CompilerDiagnostic TCWarning String where
   isError := false
+  name := TCWarning.name
   posOf | .todo pos _ => pos
   msgOf | .todo _ msg => msg
 

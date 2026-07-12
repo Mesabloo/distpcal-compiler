@@ -40,7 +40,7 @@ public section
   (`WellFormedness/WellFormedness.lean`); nothing here has anything to walk from.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadExceptOf ComputableError m] [MonadForeignLookup m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty ComputableError m] [MonadForeignLookup m]
 
 /-- Translates one `ReachabilityClosure` entry into the single declaration it contributes — `name`
 comes from the entry's own `(module, name)` key (not stored in `ResolvedDecl` itself, which only

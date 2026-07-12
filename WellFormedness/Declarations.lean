@@ -25,7 +25,7 @@ Position is the entry's own initializer expression if one exists, `SourceSpan.pl
 otherwise (matches `WellFormedness/WellScoped.lean`'s `namesWithPos`, same underlying gap —
 `variables` doesn't carry a position for the bare name token itself). -/
 private def checkNoChannelTypedVariables {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (d : TypedPlusCal.Declarations) : m Unit :=
+    [MonadDiagnostic Empty WellFormednessError m] (d : TypedPlusCal.Declarations) : m Unit :=
   d.variables.forM λ (x, τ, _, init) ↦ do
     if τ.isChannelLike then
       throw (.channelTypedVariable (init.elim SourceSpan.placeholder (posOf ·.2)) x)
@@ -34,7 +34,7 @@ private def checkNoChannelTypedVariables {m : Type → Type} [Monad m]
 `p.id`'s own — always present and always positioned (`Elaborator/PlusCal.lean` type-checks it
 via `checkExprR`), unlike the channel/fifo entries themselves (which don't exist to point at
 when the point is that there shouldn't be any). -/
-private def checkNoLocalChannels {m : Type → Type} [Monad m] [MonadExceptOf WellFormednessError m]
+private def checkNoLocalChannels {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
     (p : TypedPlusCal.Process) : m Unit :=
   unless p.localState.channels.isEmpty ∧ p.localState.fifos.isEmpty do
     throw (.nonEmptyLocalChannels (posOf p.id) p.name)
@@ -43,7 +43,7 @@ private def checkNoLocalChannels {m : Type → Type} [Monad m] [MonadExceptOf We
 `checkNoChannelTypedVariables`'s same position convention for consistency, even though every
 entry here is an error regardless of its type. -/
 private def checkNoGlobalPlusCalVariables {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit :=
+    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit :=
   algo.globalState.variables.forM λ (x, _, _, init) ↦
     throw (.globalPlusCalVariable (init.elim SourceSpan.placeholder (posOf ·.2)) x)
 
@@ -55,7 +55,7 @@ keyword at all is allowed here" — 2(a) still runs afterward for consistency wi
 "algorithm- and process-level" wording, but is a no-op by construction once 2(d) has already
 required the list to be empty. -/
 def TypedPlusCal.Algorithm.checkDeclarations {m : Type → Type} [Monad m]
-    [MonadExceptOf WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
+    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
   checkNoGlobalPlusCalVariables algo
   checkNoChannelTypedVariables algo.globalState
   for p in algo.processes do

@@ -45,7 +45,7 @@ private def negate (e : Expression) : Expression :=
 private def awaitPrepend (g : Expression) {b} (B : Block b) : Block b :=
   ⟨.await g :: B.begin, B.end⟩
 
-variable {m : Type → Type} [Monad m] [MonadExceptOf GuardedError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty GuardedError m]
 
 /-- Coerces `B` to end in an explicit `goto label`, iff it doesn't already — i.e. the two real
 cases from `ElaboratedPlusCal.Statement.while`'s own doc comment: a loop body already terminal

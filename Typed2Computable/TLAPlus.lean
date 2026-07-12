@@ -22,7 +22,7 @@ public section
   copy, so there's nothing to convert.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadExceptOf ComputableError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty ComputableError m]
 
 /-- See the module doc above. `partial`: structural recursion isn't visibly decreasing to Lean
 here, same reason `Expression.map`/`.traverse` are `partial` (nested `List`/`Option` occurrences

@@ -89,6 +89,7 @@ def DriverWarning.moduleId : DriverWarning → String
 
 instance : CompilerDiagnostic DriverWarning String where
   isError := false
+  name := DriverWarning.name
   posOf
     | .parser _ w => CompilerDiagnostic.posOf w
     | .desugar _ w => CompilerDiagnostic.posOf w
