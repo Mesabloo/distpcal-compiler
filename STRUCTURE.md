@@ -154,7 +154,7 @@ recursively for each dependency.
   (`moduleNotFound`, etc.).
 - `Builtins.lean` — standard-library operator table.
 
-## `Typed2Guarded/`
+## `Computable2Guarded/`
 Distributed → Guarded PlusCal desugaring (`PLAN.md` §3.2, ch. 3.2 of thesis) — not yet
 started.
 

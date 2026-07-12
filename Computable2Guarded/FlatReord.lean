@@ -3,7 +3,7 @@ module
 public import Core.ComputablePlusCal.Syntax
 public import Core.GuardedPlusCal.Syntax
 public import Core.ComputableTLAPlus.Subst
-public import Typed2Guarded.Errors
+public import Computable2Guarded.Errors
 
 public section
 
@@ -12,7 +12,7 @@ public section
   operation — a single left-to-right walk over a block's statements — so this file goes straight
   from `ComputablePlusCal.Block` to `List GuardedPlusCal.AtomicBranch`, with no intermediate AST
   (no separate `𝒞_flat`-output/`𝒞_reord`-input staging type). Runs after `𝒞_cflow`/`𝒞_par`
-  (`Typed2Guarded/CFlow.lean`/`Par.lean`), so no `if`/`while` survives anywhere in the tree
+  (`Computable2Guarded/CFlow.lean`/`Par.lean`), so no `if`/`while` survives anywhere in the tree
   (`𝒞_cflow` already rewrote every one into `either`/`await`), and every `assign` carries exactly
   one `(Ref, Expr)` pair (`𝒞_par` already reduced every parallel assignment) — both are runtime
   facts checked defensively (`GuardedError.internalInvariantViolated`), not type-level ones, same

@@ -88,7 +88,7 @@ lean_lib Fugue.T2C where
   roots := #[`Typed2Computable]
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
 lean_lib Fugue.T2G where
-  roots := #[`Typed2Guarded]
+  roots := #[`Computable2Guarded]
 /-- Compiler from Guarded PlusCal to Network PlusCal, including its refinement proof. -/
 lean_lib Fugue.G2N where
   roots := #[`Guarded2Network]
@@ -103,5 +103,5 @@ lean_lib Fugue.N2Go where
 lean_exe fugue where
   root := `Fugue
   moreLinkArgs := match buildType with
-    | .release => #["-Wl,-x"]
+    | .release => #["-Wl,-x,-dead_strip"]
     | _ => #[]

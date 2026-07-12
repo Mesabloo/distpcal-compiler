@@ -105,7 +105,7 @@ open question if so):
   proof for anything else, stop, confirm actually wanted before sink more time into it —
   may well be wanted, but scope expansion from what agreed, per rule above, worth
   check-in. One standing exception: well-scopedness preservation lemma over
-  Elaborator/Typed2Guarded *is* expected and in scope — narrow syntactic fact needed as
+  Elaborator/Computable2Guarded *is* expected and in scope — narrow syntactic fact needed as
   precondition for Guarded→Network's proof, not detour into that pass's full behavioral
   correctness (stays deferred).
 - Generic verification infrastructure (trace/relation/denotational framework) vendored as

@@ -12,9 +12,9 @@ public import Mathlib.Control.Bitraversable.Instances
 
 
 /-!
-  The output of `Typed2Guarded` (§5.4): every guard (`await`/`receive`/`with`) sits at the very
+  The output of `Computable2Guarded` (§5.4): every guard (`await`/`receive`/`with`) sits at the very
   start of its atomic branch. Reuses `ElaboratedPlusCal.Ref`/`.MulticastFilter` rather than
-  redefining them — `Typed2Guarded`'s `Ref` field-access fix (`Core/TypedPlusCal/Syntax.lean`)
+  redefining them — `Computable2Guarded`'s `Ref` field-access fix (`Core/TypedPlusCal/Syntax.lean`)
   flows through automatically. Unlike `ElaboratedPlusCal`, `Statement` here is genuinely flat: by
   this stage every `if`/`while`/`either` has already been rewritten away into `AtomicBranch`'s own
   precondition/action split (`𝒞_cflow`/`𝒞_flat`/`𝒞_reord`), so no constructor embeds a nested
@@ -228,7 +228,7 @@ instance : Bitraversable Algorithm where
 
 end GuardedPlusCal
 
--- Pinned for `Typed2Guarded`'s actual use, mirroring `Core/ComputablePlusCal/Syntax.lean`.
+-- Pinned for `Computable2Guarded`'s actual use, mirroring `Core/ComputablePlusCal/Syntax.lean`.
 namespace ComputableGuardedPlusCal
 
 abbrev Ref := GuardedPlusCal.Ref ComputableTLAPlus.Typ ComputablePlusCal.Expression

@@ -8,7 +8,7 @@ import Desugarer
 public import Driver.Modules
 public import WellFormedness
 import Typed2Computable
-import Typed2Guarded
+import Computable2Guarded
 import ProgressBar
 import Colorized
 
@@ -293,7 +293,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
   if ← FlagsEnv.getDebugFlag "dump-computable" then
     dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
 
-  -- `Typed2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
+  -- `Computable2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
   -- TLA⁺ module with none is done once `toComputable` above has checked it).
   match computable.pcalAlgorithm with
   | none => pure ()

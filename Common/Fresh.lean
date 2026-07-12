@@ -10,7 +10,7 @@ public section
   variable that must not collide with anything a user could have written (§2's identifier-hygiene
   discipline, cross-cutting across every pass — first needed by expression desugaring's
   tuple-pattern/multi-binder-collapse transformations, `Desugarer/TLAPlus.lean`, and expected to
-  recur at `Typed2Guarded`'s `𝒞_par`, §5.4).
+  recur at `Computable2Guarded`'s `𝒞_par`, §5.4).
 
   Kept as its own tiny effect class (like `MonadModuleCache`, not folded into `FlagsEnv`) since
   it's a genuine mutable-store effect, not a Reader.

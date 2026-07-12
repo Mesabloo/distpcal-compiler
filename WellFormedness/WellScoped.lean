@@ -26,13 +26,13 @@ public section
      the `CorePlusCal` stage — only already-elaborated `GuardedPlusCal`/`TypedSetTheory`
      versions do), modeled on the same scope-class shape. This is infrastructure for a later
      preservation lemma (`CorePlusCal.WellScoped p → GuardedPlusCal.Algorithm.WellScoped
-     (Typed2Guarded (Elaborator p))`, `PLAN.md` §2/§6.2/§9), not something (1) needs to invoke —
+     (Computable2Guarded (Elaborator p))`, `PLAN.md` §2/§6.2/§9), not something (1) needs to invoke —
      nothing proves anything about it yet.
 
   **Deferred port, flagged here so it isn't missed**: prior art's `Core/GuardedPlusCal/Syntax/
   WellScopedness.lean` and `Core/TypedSetTheory/Syntax/WellScopedness.lean` are the
   already-elaborated restatements of this same discipline — port them (with cleanup) once
-  whichever of Phase 8 (`TypedSetTheory`) / Phase 9 (`GuardedPlusCal`, via `Typed2Guarded`)
+  whichever of Phase 8 (`TypedSetTheory`) / Phase 9 (`GuardedPlusCal`, via `Computable2Guarded`)
   actually creates those types. Neither exists in this repo yet.
 -/
 

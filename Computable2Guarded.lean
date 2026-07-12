@@ -1,13 +1,13 @@
 module
 
-public import Typed2Guarded.CFlow
-public import Typed2Guarded.Par
-public import Typed2Guarded.FlatReord
+public import Computable2Guarded.CFlow
+public import Computable2Guarded.Par
+public import Computable2Guarded.FlatReord
 
 public section
 
 /-!
-  `Typed2Guarded`'s entry point — `𝒞_D→G := 𝒞_reord ∘ 𝒞_flat ∘ 𝒞_par ∘ 𝒞_cflow` (thesis §3.2.2),
+  `Computable2Guarded`'s entry point — `𝒞_D→G := 𝒞_reord ∘ 𝒞_flat ∘ 𝒞_par ∘ 𝒞_cflow` (thesis §3.2.2),
   matching the `<InputType>.<verb>` convention `Typed2Computable`/`WellFormedness` already use.
   `𝒞_cflow`/`𝒞_par` run first, both whole-`Algorithm` rewrites *within* `ComputablePlusCal`'s own
   type (order between them doesn't matter, thesis p. 21); only then does the merged `𝒞_flat`/

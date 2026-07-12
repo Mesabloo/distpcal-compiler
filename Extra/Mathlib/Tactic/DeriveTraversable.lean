@@ -275,7 +275,7 @@ def higherOrderDeriveHandler (cls : Name) (tac : MVarId → TermElabM Unit)
 def functorDeriveHandler : DerivingHandler :=
   higherOrderDeriveHandler ``Functor deriveFunctor []
 
-initialize registerDerivingHandler ``Functor functorDeriveHandler
+meta initialize registerDerivingHandler ``Functor functorDeriveHandler
 
 /-- Prove the functor laws and derive `LawfulFunctor`. -/
 def deriveLawfulFunctor (m : MVarId) : TermElabM Unit := do
@@ -314,7 +314,7 @@ def lawfulFunctorDeriveHandler : DerivingHandler :=
   higherOrderDeriveHandler ``LawfulFunctor deriveLawfulFunctor [functorDeriveHandler]
     (fun n arg => mkAppOptM n #[arg, none])
 
-initialize registerDerivingHandler ``LawfulFunctor lawfulFunctorDeriveHandler
+meta initialize registerDerivingHandler ``LawfulFunctor lawfulFunctorDeriveHandler
 
 /-- `nestedTraverse f α (List (Array (List α)))` synthesizes the expression
 `traverse (traverse (traverse f))`. `nestedTraverse` assumes that `α` appears in
@@ -439,7 +439,7 @@ def deriveTraversable (m : MVarId) : TermElabM Unit := do
 def traversableDeriveHandler : DerivingHandler :=
   higherOrderDeriveHandler ``Traversable deriveTraversable [functorDeriveHandler]
 
-initialize registerDerivingHandler ``Traversable traversableDeriveHandler
+meta initialize registerDerivingHandler ``Traversable traversableDeriveHandler
 
 /-- Simplify the goal `m` using `functor_norm`. -/
 def simpFunctorGoal (m : MVarId) (s : Simp.Context) (simprocs : Simp.SimprocsArray := {})
@@ -505,6 +505,6 @@ def lawfulTraversableDeriveHandler : DerivingHandler :=
   higherOrderDeriveHandler ``LawfulTraversable deriveLawfulTraversable
     [traversableDeriveHandler, lawfulFunctorDeriveHandler] (fun n arg => mkAppOptM n #[arg, none])
 
-initialize registerDerivingHandler ``LawfulTraversable lawfulTraversableDeriveHandler
+meta initialize registerDerivingHandler ``LawfulTraversable lawfulTraversableDeriveHandler
 
 end Mathlib.Deriving.Traversable

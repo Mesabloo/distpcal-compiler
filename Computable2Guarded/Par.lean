@@ -10,7 +10,7 @@ public section
   by hoisting every RHS, and every compound `Ref`'s own index expressions, into fresh `with`-bound
   temporaries evaluated up front, then re-emitting `n` ordinary single-target assignments in the
   original order. Same type in, same type out (`ComputablePlusCal.Statement`/`.Block`/
-  `.Branches`), same "only the producer maintains the invariant" precedent `Typed2Guarded/
+  `.Branches`), same "only the producer maintains the invariant" precedent `Computable2Guarded/
   CFlow.lean` already uses for `while`-must-be-block-front — here the invariant is
   `GuardedPlusCal.Statement.assign` taking a single `(Ref, Expr)` pair, which this pass
   establishes as a runtime fact about `ComputablePlusCal.Statement.assign`'s `List` rather than a
@@ -38,7 +38,7 @@ public section
   would be correct but pure noise.
 
   Every synthesized `with`'s own `ann : Typ` field is discarded before it can matter:
-  `GuardedPlusCal.Statement.with` — what `Typed2Guarded/FlatReord.lean`'s walk eventually lowers
+  `GuardedPlusCal.Statement.with` — what `Computable2Guarded/FlatReord.lean`'s walk eventually lowers
   this pass's output *into* — carries no `ann` field at all (only `name`/`bound`/`e`), and nothing
   in between reads it either. Reusing each write's own target `Ref.type` here (rather than
   inventing a second placeholder convention) is exact for the outer RHS bindings (`vᵢ`'s type
@@ -132,7 +132,7 @@ mutual
 end
 
 /-- `𝒞_par` over a whole algorithm: applied per `(label, Block)` pair, across every thread of
-every process — mirrors `Typed2Guarded/CFlow.lean`'s own `Algorithm.cflow` exactly. -/
+every process — mirrors `Computable2Guarded/CFlow.lean`'s own `Algorithm.cflow` exactly. -/
 def ComputablePlusCal.Algorithm.par (algo : ComputablePlusCal.Algorithm) : m ComputablePlusCal.Algorithm := do
   let processes ← algo.processes.mapM λ p ↦ do
     let threads ← p.threads.mapM (·.mapM λ (label, block) ↦ (label, ·) <$> Block.par block)

@@ -1,7 +1,7 @@
 module
 
 public import Core.ComputablePlusCal.Syntax
-public import Typed2Guarded.Errors
+public import Computable2Guarded.Errors
 
 public section
 

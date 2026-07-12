@@ -14,7 +14,7 @@ public import Core.TypedPlusCal.Syntax
   `stutter`, but an extra `seq` (checking-mode literal sequences, distinct from synthesis-mode
   `tuple`) that `CoreTLAPlus.Expression` has no equivalent of.
 
-  First consumer: `Typed2Guarded/FlatReord.lean`'s `𝒞_reord` case, substituting a preceding
+  First consumer: `Computable2Guarded/FlatReord.lean`'s `𝒞_reord` case, substituting a preceding
   action's effect into a guard expression being floated past it.
 -/
 
