@@ -32,7 +32,7 @@ above for why this can't reuse `Coercion.apply`. -/
 partial def Coercion.applyComputable : Coercion → CExpr → CExpr
   | .id, e => e
   | .strToSeq, e =>
-    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) .intrinsic) [e]
+    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences")) [e]
   | .seqToFun τ₀ i, e =>
     let range : CExpr := .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
       [.nat "1", .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences")) [e]]

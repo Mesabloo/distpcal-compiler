@@ -71,7 +71,7 @@ inductive Coercion : Type
 partial def Coercion.apply : Coercion → Expr → Expr
   | .id, e => e
   | .strToSeq, e =>
-    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) .intrinsic) [e]
+    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences")) [e]
   | .seqToFun τ₀ i, e =>
     let range : Expr := .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
       [.nat "1", .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences")) [e]]

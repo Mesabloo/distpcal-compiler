@@ -251,8 +251,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim defaultDumpDir (↑·)
 
   registerSource moduleId source
-  let lines := source.split (· == '\n') |>.toList
-  let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
+
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
     | .inl e => throw (.lex moduleId e)
     | .inr tokens => pure tokens
