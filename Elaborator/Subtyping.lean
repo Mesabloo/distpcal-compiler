@@ -17,7 +17,7 @@ correct `<:` relation recursively, but only returns a coercion when the sub-coer
 `.id`. `Channel` only supports subtyping via plain reflexivity (`τ = τ'`); a `receive`'s
 element-vs-reference coercion is computed directly rather than through `Channel(τ) <: Channel(τ')`. -/
 
-open TypedTLAPlus (Typ MVarId Expression Coercion Expr Origin)
+open TypedTLAPlus (Typ MVarId Coercion)
 
 /--
   The three outcomes of a subtyping check — not a plain success/failure, since an unresolved
@@ -59,56 +59,6 @@ instance {m} [Monad m] [MonadStateOf PendingBounds m] : MonadPendingBounds m whe
   pendingUpperBounds n := return (← getThe PendingBounds).bounds.getD n []
   addPendingUpperBound n τ := modify λ ⟨bounds⟩ ↦ ⟨bounds.insert n (τ :: bounds.getD n [])⟩
 
-/-- A builtin operator referenced as a value, tagged with its real owning module — `.intrinsic`
-for genuine core TLA⁺ syntax (never `EXTENDS`-gated), `.module name` for an operator that really
-does belong to a standard module (e.g. `Len`/`Sequences`, `..`/`Naturals`), even though this
-reference itself is synthesized by the coercion machinery rather than written by the user. -/
-private def builtin (name : String) (τ : Typ) (origin : Origin) : Expr := .var name τ origin
-
-/-- `Str <: Seq(Int)` — `"Str2Seq"` is a placeholder builtin name pending a real bundled-stub
-operator table, so it has no real owning module either. -/
-private def strToSeqCoercion (e : Expr) : Expr :=
-  .opCall (builtin "Str2Seq" (.operator [.str] (.seq .int)) .intrinsic) [e]
-
-/-- `Seq(τ) <: Int → τ` — `[i ∈ 1..Len(e) ↦ e[i]]`. `i` must already be a fresh name chosen by
-the caller. -/
-private def seqToFunCoercion (τ : Typ) (i : String) (e : Expr) : Expr :=
-  let range : Expr := .opCall (builtin ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
-    [.nat "1", .opCall (builtin "Len" (.operator [.seq τ] .int) (.module "Sequences")) [e]]
-  .fn i .int range (.fnCall e (.var i .int .binder))
-
-/-- `⟨τ,...,τ⟩ <: Seq(τ)` (uniform tuple only) — a tuple's arity `n` is static, so the result is
-just a literal `.seq` of the `n` projected, coerced components. -/
-private def tupleToSeqCoercion (n : Nat) (τ : Typ) (e : Expr) : Expr :=
-  .seq ((List.range n).map λ i ↦ .fnCall e (.nat (toString (i + 1)))) τ
-
-/-- `Set(τ) <: Set(τ')` — `{coerce(x) : x ∈ e}`. -/
-private def setCoercion (x : String) (τ : Typ) (c : Coercion) (e : Expr) : Expr :=
-  .map' (c.apply (.var x τ .binder)) x τ e
-
-/-- `⟨τ₁,...,τₙ⟩ <: ⟨τ₁',...,τₙ'⟩` — a new literal tuple, each component projected out of `e`
-(tuples being encoded as unary functions from naturals) and coerced. -/
-private def tupleCoercion (coes : List Coercion) (τs' : List Typ) (e : Expr) : Expr :=
-  .tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
-    (τ'ᵢ, c.apply (.fnCall e (.nat (toString (i + 1)))))
-
-/-- `[x₁:τ₁,...] <: [x₁:τ₁',...]` — a new literal record, each field projected out of `e` and
-coerced. -/
-private def recordCoercion (fields : List (String × Coercion × Typ)) (e : Expr) : Expr :=
-  .record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.apply (.recordAccess e name))
-
-/-- `τ₁ → τ₂ <: τ₁' → τ₂'` via a `CHOOSE`-based domain remap — `[y ∈ {coerceDom(x) : x ∈
-DOMAIN(f)} ↦ coerceRng(f[CHOOSE x ∈ DOMAIN(f) : coerceDom(x) = y])]`. -/
-private def functionCoercion
-    (x y : String) (dom rng dom' : Typ) (cDom cRng : Coercion) (f : Expr) : Expr :=
-  let domainExpr : Expr := .opCall (builtin "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic) [f]
-  let newDomain : Expr := .map' (cDom.apply (.var x dom .binder)) x dom domainExpr
-  let eqTy : Typ := .operator [dom', dom'] .bool
-  let recoveredArg : Expr :=
-    .choose x dom (some domainExpr)
-      (.opCall (builtin "=" eqTy .intrinsic) [cDom.apply (.var x dom .binder), .var y dom' .binder])
-  .fn y dom' newDomain (cRng.apply (.fnCall f recoveredArg))
-
 variable {m : Type → Type} [Monad m] [MonadMetavarContext Typ m] [MonadPendingBounds m]
   [MonadFresh m]
 
@@ -145,23 +95,23 @@ private partial def tryAxioms (subtypeRec : Typ → Typ → m SubtypeResult) (τ
     | .failure => return .failure
     | .pending n => return .pending n
     | .success .id => return .success axiomCoe
-    | .success (.fn g) => return .success <| .fn λ e ↦ g (axiomCoe.apply e)
+    | .success next => return .success (.comp axiomCoe next)
   match τ with
-  | .str => chainWith (.fn strToSeqCoercion) (.seq .int)
+  | .str => chainWith .strToSeq (.seq .int)
   | .seq τ₀ => do
     let i ← freshName "i"
-    chainWith (.fn (seqToFunCoercion τ₀ i)) (.function .int τ₀)
+    chainWith (.seqToFun τ₀ i) (.function .int τ₀)
   | .tuple (τ₀ :: rest) =>
     if rest.all (· == τ₀) then
-      chainWith (.fn (tupleToSeqCoercion (rest.length + 1) τ₀)) (.seq τ₀)
+      chainWith (.tupleToSeq (rest.length + 1) τ₀) (.seq τ₀)
     else return .failure
   | _ => return .failure
 
 /--
   The type checker's subtyping judgment — see the module doc for `Coercion`'s own
-  scope/limitations, and `tryAxioms`/each `*Coercion` helper above for the non-structural/
-  structural cases respectively. Also implements the direction-aware metavariable-solving
-  algorithm in the three `mvar` cases below.
+  scope/limitations, and `tryAxioms`/each structural case below for how `Coercion` data gets
+  built (discharge itself lives in `Core/TypedTLAPlus/Coercion.lean`'s `Coercion.apply`). Also
+  implements the direction-aware metavariable-solving algorithm in the three `mvar` cases below.
 
   `partial`: no structurally-decreasing measure across `tryAxioms`' recursive calls (its
   intermediate types can be *larger* than the input, e.g. `Str` to `Seq(Int)`).
@@ -205,12 +155,12 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
     | .failure => return .failure
     | .success c => do
       let x ← freshName "x"
-      return .success <| .fn (setCoercion x τ₀ c ·)
+      return .success (.set x τ₀ c)
   | .seq τ₀, .seq τ₀' => do
     match ← subtype τ₀ τ₀' with
     | .success .id => return .success .id
     | .pending n => return .pending n
-    | .failure | .success (.fn _) => return .failure
+    | _ => return .failure
   | .channel τ₀, .channel τ₀' => return if τ₀ == τ₀' then .success .id else .failure
   | .tuple τs, .tuple τs' => do
     if τs.length ≠ τs'.length then return .failure
@@ -219,7 +169,7 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
       | .error r => return r
       | .ok coes =>
         if coes.all (· matches .id) then return .success .id
-        else return .success <| .fn (tupleCoercion coes τs' ·)
+        else return .success (.tuple coes τs')
   | .record fs, .record fs' => do
     if fs.map Prod.fst ≠ fs'.map Prod.fst then return .failure
     else
@@ -230,7 +180,7 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
         else
           let fields := ((fs.map Prod.fst).zip coes).zip (fs'.map Prod.snd)
             |>.map λ ((name, c), τ') ↦ (name, c, τ')
-          return .success <| .fn (recordCoercion fields ·)
+          return .success (.record fields)
   | .operator τs τ₀, .operator τs' τ₀' => do
     if τs.length ≠ τs'.length then return .failure
     else
@@ -256,7 +206,7 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
         else do
           let x ← freshName "x"
           let y ← freshName "y"
-          return .success <| .fn (functionCoercion x y dom rng dom' cDom cRng ·)
+          return .success (.function x y dom rng dom' cDom cRng)
   | _, _ => tryAxioms subtype τ τ'
 
 /-- Whether `τ <: τ'` holds, ignoring the coercion payload — all `lub`/`glb` need. -/
