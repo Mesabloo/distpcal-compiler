@@ -1194,7 +1194,7 @@ every phase before starting the next one, regardless of whether that phase has a
 item riding on it — each is large enough (spans real time, touches a prior-art port or
 lands new design) to warrant its own check-in.
 
-**Current status: phases 1–8 done. Phase 9 (`Typed2Guarded`) is next.**
+**Current status: phases 1–9 done. Phase 10 (`Guarded2Network`) is next.**
 
 1. **Scaffolding — done.** `lakefile.lean` (package `Fugue`, targets per §4, current
    stable Lean toolchain per §2), vendored `Extra`/`VerifiedCompiler`/`ProgressBar`/
@@ -1244,9 +1244,16 @@ lands new design) to warrant its own check-in.
    transitively by phase 7's own check 3, so this pass treats both as already-guaranteed
    invariants, rejects only what `WellFormedness` doesn't already cover
    (`fnSet`/`recordSet`, no finite runtime representation).
-9. **`Typed2Guarded` — next up** (§5.4): four subpasses, in order, each independently
-   testable against the thesis's Two-Phase Commit worked example.
-10. **`Guarded2Network`** (§5.5): port pass + proof from prior art. Prove the
+9. **`Typed2Guarded` — done** (§5.4): the `Ref` field-access prerequisite (`.field` segments
+   interleaved with bracket-index groups, `Core/TypedPlusCal/Syntax.lean`'s `Ref.args : List
+   (String ⊕ ε)`) and the same-atomic-step assignment-conflict tightening, both ahead of the
+   four subpasses proper (`𝒞_cflow`/`𝒞_par` unchanged-type `ComputablePlusCal.Algorithm`
+   rewrites; `𝒞_flat`/`𝒞_reord` merged into one `Typed2Guarded/FlatReord.lean` walk straight to
+   `GuardedPlusCal.AtomicBranch`, no intermediate staging type). Hand-verified per-subpass
+   against the thesis's own worked examples, culminating in the Two-Phase Commit `c2` block
+   (`tests/examples/TwoPhaseCommit.tla`) against Listing 3.2.4. Wired into the CLI as
+   `-d dump-guarded`.
+10. **`Guarded2Network` — next up** (§5.5): port pass + proof from prior art. Prove the
     well-scopedness preservation lemma from phase 7 as this proof's precondition.
 11. **Backends, in either order (independent siblings, §2):**
     - **`Network2JoinCalculus`** (§5.6): new implementation, validate against the

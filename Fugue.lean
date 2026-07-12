@@ -8,6 +8,7 @@ import Desugarer.PlusCal
 import Driver.Modules
 import WellFormedness.WellFormedness
 import Typed2Computable.Typed2Computable
+import Typed2Guarded.Typed2Guarded
 import ProgressBar.Spinner
 import ProgressBar.Spinners
 import Colorized
@@ -74,7 +75,7 @@ instance : ParseableType Target where
     | _ => none
 
 /-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
-private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-dir"]
+private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-guarded", "dump-dir"]
 
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
 private def knownFeatures : Array String := #["no-color", "no-progress"]
@@ -266,15 +267,15 @@ private def runCli (p : Parsed) : IO UInt32 := do
     flushWarnings lines colored warnings (λ m ↦ spinner.log m)
     match result with
     | .error e =>
-      -- Print the actual error *before* ending the spinner — `Compilation failed.` is the final
+      -- Print the actual error *before* ending the spinner — `Build failed` is the final
       -- word, not a banner ahead of the detail explaining it. `e` may have originated in an
       -- `EXTENDS`-ed dependency, not the main module read into `lines` above — render against
       -- the offending module's own source when it has one.
       spinner.log <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
-      spinner.fail "Compilation failed."
+      spinner.fail "Build failed"
       IO.Process.exit 1
     | .ok typedMod =>
-      spinner.success "Compilation succeeded."
+      spinner.success s!"Build done ({(← done.get).size})"
       return (typedMod, lines)
 
   let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim ".fugue/debug" (↑·)
@@ -290,10 +291,20 @@ private def runCli (p : Parsed) : IO UInt32 := do
   if ← FlagsEnv.getDebugFlag "dump-computable" then
     dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
 
+  -- `Typed2Guarded`'s own pass, only when there's a PlusCal algorithm to run it on (an ordinary
+  -- TLA⁺ module with none is done once `toComputable` above has checked it).
+  match computable.pcalAlgorithm with
+  | none => pure ()
+  | some algo =>
+    let guarded ← runPass lines colored
+      ((algo.toGuarded : StateT Nat (ExceptT GuardedError IO) _).run' 0)
+    if ← FlagsEnv.getDebugFlag "dump-guarded" then
+      dumpToFile (reprStr guarded) dumpDir s!"{dumpName}-guarded"
+
   IO.println s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
 {typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
 declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
-algorithm). The rest of the pipeline (Typed2Guarded onward) isn't implemented yet, so it stops here."
+algorithm). The rest of the pipeline (Guarded2Network onward) isn't implemented yet, so it stops here."
   return 0
 
 private def cli : Cmd := `[Cli|
@@ -304,7 +315,7 @@ private def cli : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
+    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-guarded, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
     f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[=value]` pairs."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
 
