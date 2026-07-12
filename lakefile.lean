@@ -100,3 +100,6 @@ lean_lib Fugue.N2Go where
 @[default_target]
 lean_exe fugue where
   root := `Fugue
+  moreLinkArgs := match buildType with
+    | .release => #["-Wl,-x"]
+    | _ => #[]

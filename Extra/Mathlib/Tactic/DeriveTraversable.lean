@@ -17,10 +17,13 @@ Copyright (c) 2018 Simon Hudon. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Simon Hudon
 -/
-import Mathlib.Control.Traversable.Lemmas
-import Lean.Elab.Match
-import Lean.Elab.Deriving.Basic
-import Lean.Elab.PreDefinition.Main
+module
+
+public import Mathlib.Control.Traversable.Lemmas
+public import Lean.Elab.Match
+public import Lean.Elab.Deriving.Basic
+public import Lean.Elab.PreDefinition.Main
+public import Lean.Meta.Tactic.Refl
 
 namespace Lean.Elab
   -- always append `← Macro.getCurrNamespace` to the beginning of the name returned by `mkUnusedBaseName`

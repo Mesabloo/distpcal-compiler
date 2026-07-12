@@ -1,33 +1,35 @@
-import Batteries.CodeAction
+module
 
-import Aesop
+public import Batteries.CodeAction
 
-import Mathlib.Tactic.ApplyAt
-import Mathlib.Tactic.Conv
-import Mathlib.Tactic.Clean
-import Mathlib.Tactic.SimpRw
-import Mathlib.Tactic.Monotonicity
+public import Aesop
+
+public import Mathlib.Tactic.ApplyAt
+public import Mathlib.Tactic.Conv
+public import Mathlib.Tactic.Clean
+public import Mathlib.Tactic.SimpRw
+public import Mathlib.Tactic.Monotonicity
 -- TODO: when upgrading lean
 -- import Mathlib.Tactic.ByCases
 -- NOTE: do not import `Mathlib.Tactic.DeriveTraversable`, as it creates instances whose name
 -- are not scoped in the current namespace.
-import Extra.Mathlib.Tactic.DeriveTraversable
-import Mathlib.Tactic.FindSyntax
+public import Extra.Mathlib.Tactic.DeriveTraversable
+meta import Mathlib.Tactic.FindSyntax
 -- import Mathlib.Tactic.LiftLets
 -- import Mathlib.Tactic.ExtractLets
-import Batteries.Tactic.SeqFocus
-import Mathlib.Tactic.DefEqTransformations
-import Mathlib.Tactic.GuardGoalNums
+public import Batteries.Tactic.SeqFocus
+public import Mathlib.Tactic.DefEqTransformations
+public import Mathlib.Tactic.GuardGoalNums
 
-import Mathlib.Util.WhatsNew
-import Mathlib.Util.Delaborators
-import Mathlib.Util.Superscript
-import Mathlib.Util.AssertNoSorry
+meta import Mathlib.Util.WhatsNew
+public import Mathlib.Util.Delaborators
+public import Mathlib.Util.Superscript
+meta import Mathlib.Util.AssertNoSorry
 
-import Mathlib.Tactic.Linter
-import Mathlib.Tactic.Linter.UnusedTacticExtension
+meta import Mathlib.Tactic.Linter
+meta import Mathlib.Tactic.Linter.UnusedTacticExtension
 
-import LeanSearchClient
+meta import LeanSearchClient
 
 
 
@@ -42,7 +44,7 @@ infixl:100 " <$ " => Functor.mapConst
 macro "discard " e:term : doElem => `(doElem| Functor.discard ($e))
 
 open Lean Parser in
-private def default := leading_parser
+public meta def default := leading_parser
   atomic ("(" >> nonReservedSymbol "default" >> " := ") >> withoutPosition termParser >> ")" >> ppSpace
 
 open Lean in
@@ -54,8 +56,11 @@ open Lean in
  -/
 macro:lead withPosition("todo!") dflt:(default)? t:(term)? : term => do
   let f : TSyntax `term → MacroM (TSyntax `term) ← Option.elimM (pure dflt) (pure pure)
-    λ | `(default| (default := $e)) => pure λ x ↦ `(term| let _ : Inhabited (type_of% $e) := ⟨$e⟩; $x:term)
-      | _ => Macro.throwUnsupported
+    -- Structural destructure instead of `` `(default| (default := $e)) `` quotation-matching,
+    -- which needs an extra meta-eval capability on the matched value that direct indexing avoids.
+    λ stx ↦
+      let e : TSyntax `term := ⟨stx.raw[3]⟩
+      pure λ x ↦ `(term| let _ : Inhabited (type_of% $e) := ⟨$e⟩; $x:term)
   let msg : TSyntax `term ← Option.elimM (pure t) `(term| "Something has not yet been done")
     λ msg ↦ `(term| "TODO: " ++ $msg)
   f =<< `(term| panic! $msg)
@@ -104,7 +109,7 @@ namespace Lean.Parser.Tactic
     /-- Select the subgoals onto which to apply a given tactic sequence, Rocq style. -/
     syntax tac_selector ": " tacticSeq : tactic
 
-    def selectGoals (stx : TSyntax `tac_selector) (mvarIds : List MVarId) : MetaM ((List MVarId) × (List MVarId)) :=
+    meta def selectGoals (stx : TSyntax `tac_selector) (mvarIds : List MVarId) : MetaM ((List MVarId) × (List MVarId)) :=
       match stx with
         | `(tac_selector|all) => return (mvarIds,[])
         | `(tac_selector| $[$r:range_selector],* ) => do
