@@ -32,17 +32,18 @@ namespace CorePlusCal
 
   /-- `SurfacePlusCal.Ref`, but each bracket group's own index is unary: `x[e₁, …, eₙ]` (`n > 1`)
   desugars to `x[<<e₁, …, eₙ>>]`. `x[e₁][e₂]` (two separate bracket groups) is unaffected —
-  `args`' outer list (one entry per bracket group) doesn't change shape. -/
+  `args`' outer list (one entry per path segment) doesn't change shape. `.inl` for a `.field`
+  segment, `.inr` for a (now-unary) bracket-index segment. -/
   structure Ref (β : Type) : Type where
     name : String
-    args : List β
+    args : List (String ⊕ β)
     deriving Repr
 
   instance : Functor Ref where
-    map f r := { r with args := f <$> r.args }
+    map f r := { r with args := Sum.map id f <$> r.args }
 
   instance : Traversable Ref where
-    traverse f r := (λ args ↦ { r with args }) <$> traverse f r.args
+    traverse f r := (λ args ↦ { r with args }) <$> traverse (bitraverse pure f) r.args
 
   mutual
     inductive Statement (α β : Type) : Bool → Type

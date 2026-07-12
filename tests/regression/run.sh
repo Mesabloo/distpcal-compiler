@@ -5,14 +5,13 @@
 # pass/fail tally — for a fixture that's known-broken or deferred right now (e.g. exercises a
 # parser/pass gap tracked elsewhere) without deleting it or miscounting it as a failure.
 #
-# Scope note: right now this only exercises the pipeline through desugaring (Phase 5 and
-# later aren't implemented yet), so an `accept_*.tla` passing here means "gets past
-# desugaring," not "is a fully well-formed, type-correct program." As later passes (Phase 5
-# well-formedness, Phase 6 type checking, …) land, some current `accept_*` files may start
-# failing there for reasons unrelated to what they were originally written to test — that's
-# expected, not a naming-scheme bug; such a file's purpose was always "exercises pass X,"
-# and a later, unrelated pass rejecting it doesn't retroactively make pass X's behavior wrong.
-# Revisit/split affected files if and when that happens, rather than assuming a regression.
+# Scope note: an `accept_*.tla` passing here only means "gets past whatever pipeline stages
+# are currently wired into the CLI," not "is a fully well-formed, type-correct program." As
+# new passes land, some current `accept_*` files may start failing there for reasons unrelated
+# to what they were originally written to test — that's expected, not a naming-scheme bug;
+# such a file's purpose was always "exercises pass X," and a later, unrelated pass rejecting it
+# doesn't retroactively make pass X's behavior wrong. Revisit/split affected files if and when
+# that happens, rather than assuming a regression.
 #
 # Fixtures run in parallel (one `fugue` invocation per file, backgrounded, then `wait`ed on) —
 # they're fully independent (each just reads its own file and exits), so there's no reason to

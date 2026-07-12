@@ -29,10 +29,12 @@ import Core.CorePlusCal.Syntax
 -- monomorphic copy per stage.
 namespace ElaboratedPlusCal
 
-/-- Carries its own resolved `type` (unlike `CorePlusCal.Ref`) — see the module doc above. -/
+/-- Carries its own resolved `type` (unlike `CorePlusCal.Ref`) — see the module doc above.
+`args` follows `CorePlusCal.Ref`'s shape: one entry per path segment, `.inl` for a `.field`
+segment, `.inr` for a (unary) bracket-index segment. -/
 structure Ref (τ ε : Type) : Type where
   name : String
-  args : List ε
+  args : List (String ⊕ ε)
   type : τ
   deriving Repr
 

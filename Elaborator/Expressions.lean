@@ -61,10 +61,10 @@ private def lubAll (pos : SourceSpan) : List Typ → m Typ
 
 /-- Needed for the `partial def`s below to type-check at all (an arbitrary `m` isn't otherwise
 known nonempty). -/
-local instance : Inhabited (m Expr) := ⟨pure default⟩
-private local instance : Inhabited (m (Typ × Expr)) := ⟨pure default⟩
-private local instance : Inhabited (m (Typ × (String ⊕ Expr))) := ⟨pure default⟩
-private local instance : Inhabited (m (Typ × List (String ⊕ Expr))) := ⟨pure default⟩
+private local instance {α} [Inhabited α] : Inhabited (m α) := ⟨pure default⟩
+-- private local instance : Inhabited (m (Typ × Expr)) := ⟨pure default⟩
+-- private local instance : Inhabited (m (Typ × (String ⊕ Expr))) := ⟨pure default⟩
+-- private local instance : Inhabited (m (Typ × List (String ⊕ Expr))) := ⟨pure default⟩
 
 mutual
   /--

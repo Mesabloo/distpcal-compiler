@@ -58,9 +58,10 @@ namespace SurfacePlusCal
   private abbrev CoreExpr := CoreTLAPlus.Expression (List Annotation)
 
   /-- `x[e₁, …, eₙ]`'s indices, per bracket group, collapsed to `CorePlusCal.Ref`'s own unary
-  shape via `SurfaceTLAPlus.wrapIndices`. `pos` is the enclosing statement's own position. -/
+  shape via `SurfaceTLAPlus.wrapIndices`; `.field` segments pass through unchanged. `pos` is the
+  enclosing statement's own position. -/
   def Ref.desugarRef (pos : SourceSpan) (r : SurfacePlusCal.Ref CoreExpr) : CorePlusCal.Ref CoreExpr :=
-    { name := r.name, args := r.args.map (SurfaceTLAPlus.wrapIndices pos) }
+    { name := r.name, args := r.args.map (Sum.map id (SurfaceTLAPlus.wrapIndices pos)) }
 
   mutual
     /--
@@ -351,22 +352,22 @@ namespace SurfacePlusCal
 
 end SurfacePlusCal
 
-/-- If `r` is a *bare* reference (`r.args` empty — `x`, never `x[…]`), record it as a write
-against `seen`, throwing `DesugarError.conflictingAssignment` if it's already there; an indexed
-reference is never tracked at all. -/
+/-- Records `r`'s *base variable* (`r.name`) as a write against `seen`, throwing
+`DesugarError.conflictingAssignment` if it's already there — regardless of indexing, since
+deciding whether two indexed writes to the same base variable actually alias is out of scope
+for this purely syntactic check; `x[0] := 3` and `x[1] := 4` conflict by this rule even though
+they touch different elements. -/
 private def checkWrite {β} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
     (seen : List String) (r : CorePlusCal.Ref β) (pos : SourceSpan) : m (List String) :=
-  if r.args.isEmpty then
-    if seen.contains r.name then throw (.conflictingAssignment pos r.name)
-    else pure (r.name :: seen)
-  else pure seen
+  if seen.contains r.name then throw (.conflictingAssignment pos r.name)
+  else pure (r.name :: seen)
 
 /-!
-  Checks that no two assignments write the same variable within one atomic step, on the same
-  control path. Purely syntactic, only tracks *bare* variable writes (`checkWrite` above) from
-  `assign` and `receive`'s *both* `Ref`s (the channel counts as a write too, not just the
-  target). `if`/`either`'s branches are separate control paths, checked independently from the
-  same starting set, but their writes are unioned into what continues past them.
+  Checks that no two assignments write the same *base* variable within one atomic step, on the
+  same control path, regardless of indexing (`checkWrite` above) from `assign` and `receive`'s
+  *both* `Ref`s (the channel counts as a write too, not just the target). `if`/`either`'s
+  branches are separate control paths, checked independently from the same starting set, but
+  their writes are unioned into what continues past them.
 -/
 mutual
   partial def CorePlusCal.Statement.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]

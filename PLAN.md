@@ -469,17 +469,36 @@ Two independent halves:
     `wrapIndices : List (Expression α) → Expression α` (`[e] => e`, `es => .tuple es`)
     alongside the pre-existing `tupleProj`.
   - **`SurfacePlusCal`/`CorePlusCal.Ref` (a PlusCal assignment target, `f[e₁, …, eₙ] :=
-    v`) gets the same unary treatment.** `Ref.args : List (List β)` (one entry per bracket
-    group, `x[i][j]` vs. `x[i, j]`), not `List β` — same "always unary, `n > 1` wraps in a
-    tuple" rule applies per bracket group: `f[e₁, …, eₙ] := v` (`n > 1`, one group)
-    desugars to `f[<<e₁, …, eₙ>>] := v`; `f[e₁][e₂] := v` (two groups) unaffected either
-    way, each group still single-index; `f[e] := v` stays exactly that. `CorePlusCal.Ref
-    (β : Type)` (`args : List β`, unary per group) is distinct from `SurfacePlusCal.Ref
-    (β : Type)` (`args : List (List β)`, matching real surface syntax), own `Functor`/
-    `Traversable` instance. `CorePlusCal.Statement.assign`/`.receive`/`.send` reference
-    `CorePlusCal.Ref`. The conversion (`SurfacePlusCal.Ref → CorePlusCal.Ref`,
-    `Desugarer/PlusCal.lean`'s `Ref.desugarRef`, reusing `SurfaceTLAPlus.wrapIndices`)
-    happens inline in `Statement.desugarLabelFree`'s `.assign`/`.receive`/`.send` cases.
+    v`, or a `receive`/`send`'s channel argument) gets the same unary treatment, plus real
+    field-access support.** `Ref.args` is `List (String ⊕ List β)` at the Surface layer
+    and `List (String ⊕ β)` everywhere past desugaring (`CorePlusCal.Ref`,
+    `ElaboratedPlusCal.Ref` shared by `TypedPlusCal`/`ComputablePlusCal`) — one entry per
+    path segment, in left-to-right textual order, `.inl` for a `.field` segment and `.inr`
+    for a `[e₁, …, eₙ]` bracket-index group (mirroring the same `String ⊕ _` shape
+    `ComputableTLAPlus.Expression.except`'s update-path already uses, rather than
+    inventing a different one). The same "always unary, `n > 1` wraps in a tuple" rule
+    applies per `.inr` group: `f[e₁, …, eₙ] := v` (`n > 1`, one group) desugars to
+    `f[<<e₁, …, eₙ>>] := v`; `f[e₁][e₂] := v` (two groups) unaffected either way, each
+    group still single-index; `f[e] := v` stays exactly that; `r.field := v` is a bare
+    `.inl` segment, no unary treatment needed. `SurfacePlusCal.Ref`/`CorePlusCal.Ref`/
+    `ElaboratedPlusCal.Ref` each keep their own `Functor`/`Traversable` instance (or, for
+    `ElaboratedPlusCal.Ref`, hand-written per-caller mapping — it carries its own resolved
+    `type : τ` field so isn't itself `Functor`/`Traversable`), mapping/traversing only the
+    `.inr` side, `.inl` field names passed through untouched. `CorePlusCal.Statement.
+    assign`/`.receive`/`.send` reference `CorePlusCal.Ref`. The conversion
+    (`SurfacePlusCal.Ref → CorePlusCal.Ref`, `Desugarer/PlusCal.lean`'s `Ref.desugarRef`,
+    reusing `SurfaceTLAPlus.wrapIndices` on each `.inr` group via `Sum.map id`) happens
+    inline in `Statement.desugarLabelFree`'s `.assign`/`.receive`/`.send` cases.
+    `Parser_/PlusCal.lean`'s `parseRef` parses `.`-segments interleaved with bracket
+    groups by reusing the same `.`-token machinery `SurfaceTLAPlus.Parser.parseExcept`'s
+    own path parser already has. `Elaborator/PlusCal.lean`'s `inferRef` (the `Ref`-typing
+    judgment, a `Γ`-lookup on `name` followed by one step per path segment) reuses
+    `Elaborator/Expressions.lean`'s `stepInto` directly — the same `.inl`
+    record-field-access/`.inr` index-into dispatch `EXCEPT` paths already use — rather
+    than duplicating that rule. `WellFormedness/Reachability.lean`'s `walkRefArgs` and
+    `Core/SurfacePlusCal/Pretty.lean`'s `Ref` formatter both walk `.inr` entries only,
+    rendering/recursing into a `.inl` field name being meaningless (`.inl f` prints as
+    `.f`, `.inr e` as `[e]`, interleaved in path order).
 
 ### 5.2a Well-formedness checking
 **Input/output:** `CoreTLAPlus`/`CorePlusCal` — checking pass, not a transform: accepts
@@ -522,16 +541,18 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
       `Desugarer/PlusCal.lean`'s `CorePlusCal.{Statement,Block,Branches}.
       checkAssignConflicts`, mutually recursive over the three types, run from
       `SurfacePlusCal.Algorithm.runDesugarer` right after goto-explicitization, before
-      `stripEmbeddedTypeAnnotations`. Tracks only *bare* variable writes (`Ref.args`
-      empty) from `assign` (every entry of a `||`-list) and `receive`'s — **both** `Ref`s,
-      the channel `c` as well as the target `x` (`receive(x, a); receive(x, b)` errors,
-      same as re-assigning/re-receiving into `x` itself). Explicitly does not track
-      indexed writes (`x[0] := …` never conflicts with anything — deciding whether two
-      indexed writes actually conflict needs index comparison, out of scope for this
-      purely syntactic pass). `if`/`either` branches checked independently (starting from
-      the same already-seen set) but their writes unioned into what continues past them.
-      `while`/`with` bodies checked sequentially, merged with everything around them. New
-      `DesugarError.conflictingAssignment (pos) (name)`.
+      `stripEmbeddedTypeAnnotations`. Tracks writes by *base variable* (`Ref.name`),
+      regardless of indexing, from `assign` (every entry of a `||`-list) and `receive`'s —
+      **both** `Ref`s, the channel `c` as well as the target `x` (`receive(x, a);
+      receive(x, b)` errors, same as re-assigning/re-receiving into `x` itself).
+      `x[0] := 3; x[1] := 4` conflicts under this rule even though the two writes touch
+      different elements — deciding whether two indexed writes actually alias needs index
+      comparison, out of scope for this purely syntactic pass, so it conservatively treats
+      any two writes to the same base variable as a conflict regardless of indexing.
+      `if`/`either` branches checked independently (starting from the same already-seen
+      set) but their writes unioned into what continues past them. `while`/`with` bodies
+      checked sequentially, merged with everything around them. New `DesugarError.
+      conflictingAssignment (pos) (name)`.
     - *The reserved label `"Done"` is never redefined as an actual, user-written label*
       (§3.7) — `"Error"`'s equivalent restriction doesn't apply (no procedures exist in
       this language subset, §3.4/§8, no implicit `Error` label to collide with).
@@ -1173,7 +1194,7 @@ every phase before starting the next one, regardless of whether that phase has a
 item riding on it — each is large enough (spans real time, touches a prior-art port or
 lands new design) to warrant its own check-in.
 
-**Current status: phases 1–5 done. Phase 6 (type checker) is next.**
+**Current status: phases 1–8 done. Phase 9 (`Typed2Guarded`) is next.**
 
 1. **Scaffolding — done.** `lakefile.lean` (package `Fugue`, targets per §4, current
    stable Lean toolchain per §2), vendored `Extra`/`VerifiedCompiler`/`ProgressBar`/
@@ -1200,31 +1221,31 @@ lands new design) to warrant its own check-in.
    written fresh; expression desugaring (`Desugarer/TLAPlus.lean`) and statement
    desugaring (`Desugarer/PlusCal.lean`, basic-block extraction into `CorePlusCal`'s
    `Bool`-indexed terminal encoding) both implemented and wired into the CLI.
-6. **Type checker — next up** (§5.3): implement the bidirectional rules from thesis §3.1
-   essentially verbatim, with the direction-aware metavariable-solving deviation (§2) —
-   treat that as its own sub-effort within the phase, the most intricate single piece of
-   this plan. `Ξ` as a `MonadModuleCache m`-backed in-memory cache (§2), eager/transitive
-   module resolution over `EXTENDS` only, cycle detection. Sequenced ahead of
-   well-formedness checking (phase 7) since type checking already forces variable
-   well-scopedness as a side effect of succeeding — see §2, §5.2a.
-7. **Well-formedness checking** (§5.2a): well-labelledness, variable well-scopedness, the
-   no-bare-temporal/action-operator check, over `CoreTLAPlus`/`CorePlusCal` — purely
-   syntactic, no dependency on the type checker (phase 6) either way, free to run after
-   it. Of the well-scopedness sub-check, only the freshness/no-duplicate-names half is
-   still genuinely load-bearing here (reference resolution already guaranteed by phase 6
-   — see §5.2a's breakdown). Port the two `WellScopedness.lean` files here too, even
-   though their primary use shifts to proof-support at phases 9 and 10. Author
-   `CorePlusCal.WellScoped` fresh — it doesn't exist in prior art at any stage.
-8. **`TypedTLAPlus`/`TypedPlusCal` → `ComputableTLAPlus`/`ComputablePlusCal`**
-   (`Typed2Computable`, §5.3): separate pass from the type checker itself — collect every
+6. **Type checker — done** (§5.3): bidirectional rules from thesis §3.1 implemented
+   essentially verbatim, with the direction-aware metavariable-solving deviation (§2).
+   `Ξ` as a `MonadModuleCache m`-backed in-memory cache (§2), eager/transitive module
+   resolution over `EXTENDS` only, cycle detection. Sequenced ahead of well-formedness
+   checking (phase 7) since type checking already forces variable well-scopedness as a
+   side effect of succeeding — see §2, §5.2a.
+7. **Well-formedness checking — done** (§5.2a): well-labelledness, variable
+   well-scopedness, the no-bare-temporal/action-operator check, over
+   `CoreTLAPlus`/`CorePlusCal` — purely syntactic, no dependency on the type checker
+   (phase 6) either way, runs after it. Of the well-scopedness sub-check, only the
+   freshness/no-duplicate-names half is genuinely load-bearing here (reference
+   resolution already guaranteed by phase 6 — see §5.2a's breakdown). The two
+   `WellScopedness.lean` files ported here too, primary use as proof-support at phases 9
+   and 10. `CorePlusCal.WellScoped` authored fresh — it doesn't exist in prior art at any
+   stage.
+8. **`TypedTLAPlus`/`TypedPlusCal` → `ComputableTLAPlus`/`ComputablePlusCal` — done**
+   (`Typed2Computable`, §5.3): separate pass from the type checker itself — collects every
    constant/variable/operator/function transitively reachable from the algorithm and
-   translate each, plus the algorithm itself. Depends on phase 7, not just phase 6: its
+   translates each, plus the algorithm itself. Depends on phase 7, not just phase 6: its
    temporal/action-freedom and bounded-quantifier guarantees are already established
    transitively by phase 7's own check 3, so this pass treats both as already-guaranteed
    invariants, rejects only what `WellFormedness` doesn't already cover
    (`fnSet`/`recordSet`, no finite runtime representation).
-9. **`Typed2Guarded`** (§5.4): four subpasses, in order, each independently testable
-   against the thesis's Two-Phase Commit worked example.
+9. **`Typed2Guarded` — next up** (§5.4): four subpasses, in order, each independently
+   testable against the thesis's Two-Phase Commit worked example.
 10. **`Guarded2Network`** (§5.5): port pass + proof from prior art. Prove the
     well-scopedness preservation lemma from phase 7 as this proof's precondition.
 11. **Backends, in either order (independent siblings, §2):**

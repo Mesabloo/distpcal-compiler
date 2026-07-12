@@ -15,7 +15,9 @@ private def formatBlock {α} (f : α → Std.Format) (t : List (String ⊕ α)) 
   Std.Format.sbracket <| .indent 2 <| .joinSep (fmt <$> t) .line
 
 instance {β} [Std.ToFormat β] : Std.ToFormat (Ref β) where
-  format r := f!"{r.name}" ++ .join (r.args.map λ arg ↦ .sbracket (.joinSep (Std.format <$> arg) ","))
+  format r := f!"{r.name}" ++ .join (r.args.map λ
+    | .inl field => f!".{field}"
+    | .inr idx => .sbracket (.joinSep (Std.format <$> idx) ","))
 
 instance {α β} [Std.ToFormat α] [Std.ToFormat β] : Std.ToFormat (MulticastFilter α β) where
   format f := .sbracket (.joinSep (f.binds.map λ (x, ann, eq, e) ↦

@@ -167,7 +167,9 @@ partial def TypedPlusCal.Statement.walkReachable {b : Bool} {m' : Type → Type}
   visitStatement s
   let walkExpr (e : TypedPlusCal.Expression) : m' Unit :=
     TypedTLAPlus.Expression.walkReachable visitExpr currentModule ownDecls [] e
-  let walkRefArgs (r : TypedPlusCal.Ref) : m' Unit := r.args.forM walkExpr
+  let walkRefArgs (r : TypedPlusCal.Ref) : m' Unit := r.args.forM λ
+    | .inl _ => pure ()
+    | .inr e => walkExpr e
   let recurse : ∀ {b}, TypedPlusCal.Statement b → m' Unit :=
     TypedPlusCal.Statement.walkReachable visitStatement visitExpr currentModule ownDecls
   match s with

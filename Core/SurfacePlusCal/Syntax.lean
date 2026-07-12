@@ -15,18 +15,20 @@ import Mathlib.Control.Bitraversable.Instances
 
 namespace SurfacePlusCal
 
-/-- A reference to a (possibly indexed/field-accessed) variable, e.g. `x[1][2].y`. -/
+/-- A reference to a (possibly indexed/field-accessed) variable, e.g. `x[1][2].y`. One entry
+per path segment, in left-to-right textual order: `.inl` for a `.field` segment, `.inr` for a
+`[e₁, …, eₙ]` bracket-index group. -/
 structure Ref (β : Type) : Type where
   name : String
-  args : List (List β)
+  args : List (String ⊕ List β)
   deriving Repr
 
 -- `deriving Functor, Traversable` doesn't apply to structures here -- written by hand instead.
 instance : Functor Ref where
-  map f r := { r with args := (f <$> ·) <$> r.args }
+  map f r := { r with args := (Sum.map id (f <$> ·)) <$> r.args }
 
 instance : Traversable Ref where
-  traverse f r := ({r with args := ·}) <$> traverse (traverse f) r.args
+  traverse f r := ({r with args := ·}) <$> traverse (bitraverse pure (traverse f)) r.args
 
 /--
   The filter/value expression of a `multicast`, e.g.

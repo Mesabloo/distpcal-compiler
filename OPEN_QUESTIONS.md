@@ -33,7 +33,7 @@ Not blockers, none hit by §8's language subset, but real known gaps in `Parser_
   `Core/SurfacePlusCal/Syntax.lean` has no AST nodes for them. None appear in §8's
   subset.
 - `parseChannels`/`parseFifos` (`PlusCal.lean`) only accept a single bracket-index group
-  (`chan[S]`), unlike `Ref.args : List (List β)` which supports the multi-dimensional
+  (`chan[S]`), unlike `Ref.args : List (String ⊕ List β)` which supports the multi-dimensional
   form (`x[i][j]`) used elsewhere (e.g. `parseRef`) — a narrow grammar gap for any future
   program wanting a multi-dimensional channel/fifo declaration.
 - `Expression.choose` (`CHOOSE`) and `LET`/`IN` are lexed (`.choose`/`.let`/`.in` tokens

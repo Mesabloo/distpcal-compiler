@@ -90,17 +90,20 @@ local instance {b} : Inhabited (m (TypedPlusCal.Block b)) := ⟨pure default⟩
 local instance {b} : Inhabited (m (TypedPlusCal.Branches b)) := ⟨pure default⟩
 
 /-- Synthesize a `Ref`'s type: a `Γ`-lookup on `name`, then `Elaborator/Expressions.lean`'s own
-`indexInto` once per bracket group. `pos` is borrowed from the enclosing statement — a `Ref`
-carries no position of its own. -/
+`stepInto` once per path segment — the same `.inl` field/`.inr` index dispatch `EXCEPT` paths use,
+reused as-is rather than duplicating the record-field-access rule. `pos` is borrowed from the
+enclosing statement — a `Ref` carries no position of its own. -/
 private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Ref) := do
   match (← readThe Context).get? r.name with
   | none => throw (.unboundVariable pos r.name)
   | some { type := τ₀, .. } => do
-    let (τ, args') ← r.args.foldlM (init := (τ₀, ([] : List TypedPlusCal.Expression)))
-      λ (τ, acc) idx ↦ do
-        let (τ', idx') ← indexInto pos τ idx
-        let idx' ← resolveMVars idx'
-        return (τ', acc ++ [idx'])
+    let (τ, args') ← r.args.foldlM (init := (τ₀, ([] : List (String ⊕ TypedPlusCal.Expression))))
+      λ (τ, acc) seg ↦ do
+        let (τ', seg') ← stepInto pos τ seg
+        let seg' ← match seg' with
+          | .inl field => pure (Sum.inl field)
+          | .inr idx' => Sum.inr <$> resolveMVars idx'
+        return (τ', acc ++ [seg'])
     return (τ, { name := r.name, args := args', type := τ })
 
 /-- One `Declarations.variables` entry, checked: absent initializer, the annotation is mandatory

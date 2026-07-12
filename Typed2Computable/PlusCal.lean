@@ -33,10 +33,12 @@ import Core.ComputablePlusCal.Syntax
 
 variable {m : Type → Type} [Monad m] [MonadExceptOf ComputableError m]
 
-/-- `Ref.args` (a `List` of leaf expressions) delegated to `Expression.toComputable`; `name`/`type`
-pass through unconverted. -/
+/-- `Ref.args`' `.inr` (index) entries delegated to `Expression.toComputable`; `.inl` (field)
+entries and `name`/`type` pass through unconverted. -/
 def TypedPlusCal.Ref.toComputable (r : TypedPlusCal.Ref) : m ComputablePlusCal.Ref := do
-  let args ← r.args.mapM TypedTLAPlus.Expression.toComputable
+  let args ← r.args.mapM λ
+    | .inl field => pure (Sum.inl field)
+    | .inr e => Sum.inr <$> TypedTLAPlus.Expression.toComputable e
   pure { r with args }
 
 /-- `SurfacePlusCal.MulticastFilter`'s own registered `Bitraversable` instance, with the `τ`-side

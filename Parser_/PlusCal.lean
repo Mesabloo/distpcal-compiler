@@ -264,8 +264,11 @@ namespace SurfacePlusCal.Parser
 
     private def parseRef : PlusCalParser (Ref (Expression (List CommentAnnotation))) := do
       let name ← parseIdentifier
-      let indices ← takeMany <| brackets <| sepBy1 (lexeme comma) (patchTLAParser parseExpression)
-      return { name, args := indices.toList.map Array.toList }
+      let segments ← takeMany <| first [
+        Sum.inl <$> (token (.tla <| .infix .«.») *> parseIdentifier),
+        Sum.inr <$> (Array.toList <$> brackets (sepBy1 (lexeme comma) (patchTLAParser parseExpression))),
+      ]
+      return { name, args := segments.toList }
 
     private def parseAssign : PlusCalParser (Statement (List CommentAnnotation) (Expression (List CommentAnnotation))) := do
       let assigns ← sepNoEndBy1 (lexeme <| token .barbar) do
