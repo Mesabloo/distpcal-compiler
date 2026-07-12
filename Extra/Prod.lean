@@ -1,7 +1,6 @@
 module
 
-
-@[expose] public section
+public section
 
 namespace Prod
   def mapM {m : Type → Type} {α β δ γ : Type} [Monad m] (f : α → m β) (g : δ → m γ) (x : α × δ) : m (β × γ)

@@ -2,15 +2,14 @@ module
 
 public import Batteries.Data.HashMap.Basic
 public import Mathlib.Data.List.Defs
-public import Std.Data.DHashMap.Lemmas
-public import Std.Data.DHashMap.RawLemmas
+import all Std.Data.DHashMap.Lemmas
+import all Std.Data.DHashMap.RawLemmas
 meta import CustomPrelude
 public import Mathlib.Data.List.Dedup
 public import Extra.List
-public import Mathlib.Data.Multiset.Dedup
+import Mathlib.Data.Multiset.Dedup
 
-@[expose] public section
-
+public section
 
 namespace Std.Internal.List
   theorem keys_dedup_of_distinct.{u, v} {α : Type u} {β : α → Type v} [DecidableEq α] {l : List ((a : α) × β a)}
@@ -21,7 +20,8 @@ namespace Std.Internal.List
 
   theorem keys_perm_of_perm {α} {β : α → _} {xs ys : List ((a : α) × β a)} (h : xs.Perm ys) : (keys xs).Perm (keys ys) := by
     induction h with
-    | nil => exact .nil
+    | nil =>
+      rw [← Multiset.coe_eq_coe]
     | cons x _ IH =>
       rw [keys_cons, keys_cons]
       apply List.Perm.cons
@@ -36,16 +36,17 @@ namespace Std.Internal.List
     (h : containsKey k l = true) (h' : DistinctKeys l) :
       keys (replaceEntry k v l) = keys l := by
     induction l with
-    | nil => rfl
+    | nil =>
+      rw [replaceEntry_nil]
     | cons x l IH =>
       let ⟨k', v'⟩ := x
 
-      unfold replaceEntry
+      rw [replaceEntry_cons]
       by_cases h'' : k' == k
       · rw [h'', cond_true]
         rw [beq_iff_eq] at h''
         subst k'
-        rfl
+        rw [keys_cons, keys_cons]
       · apply eq_false_of_ne_true at h''
         rw [h'', cond_false]
         rw [beq_eq_false_iff_ne] at h''
@@ -80,7 +81,7 @@ namespace Std.DHashMap
     unfold keys toList
     rw [toList_eq_toListModel, keys_eq_keys_toListModel, ← Internal.List.keys_eq_map]
 
-  attribute [local instance 5] instDecidableEqOfLawfulBEq
+  attribute [local implicit_reducible, local instance 5] instDecidableEqOfLawfulBEq
 
   theorem keys_insert_perm_dedup {α} {β : α → _} [DecidableEq α] [Hashable α] [LawfulHashable α] {k : α} {v : β k} (t : DHashMap α β) :
       (t.insert k v).keys.Perm (t.keys ++ [k]).dedup := by
@@ -122,7 +123,7 @@ namespace Std.HashMap
     let t' : m (List (α × γ)) := t'.traverse λ ⟨k, v⟩ ↦ Prod.mk k <$> f k v
     HashMap.ofList <$> t'
 
-  attribute [local instance 5] instDecidableEqOfLawfulBEq
+  attribute [local implicit_reducible, local instance 5] instDecidableEqOfLawfulBEq
 
   theorem keys_eq_map_fst_toList {α β} [BEq α] [LawfulBEq α] [Hashable α] {t : HashMap α β} : t.keys = t.toList.map Prod.fst :=
     Std.HashMap.map_fst_toList_eq_keys.symm
@@ -218,5 +219,6 @@ namespace Std.HashMap
   theorem keys_mergeWith_perm {α β} [DecidableEq α] [Hashable α] {t u : HashMap α β} (f : α → β → β → β) : (t.mergeWith f u).keys.Perm (t.keys ++ u.keys).dedup := by
     rw [List.dedup_append, List.Nodup.dedup (keys_Nodup _)]
     apply keys_mergeWith_perm_union _
+end Std.HashMap
 
 end

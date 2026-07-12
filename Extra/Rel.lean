@@ -2,13 +2,12 @@ module
 
 meta import CustomPrelude
 public import Mathlib.Data.Rel
+public import Mathlib.Algebra.Group.Defs
 public import Mathlib.Order.FixedPoints
 public import Mathlib.Order.OmegaCompletePartialOrder
-public import Mathlib.Order.CompletePartialOrder
-public import Extra.Set
+import Extra.Set
 
-@[expose] public section
-
+public section
 
 theorem todo_rename {α β γ : Type*} (f : SetRel α β) (g : SetRel β γ) (A : Set α) (B : Set β) (C : Set γ)
   (h₁ : B ⊆ f.image A) (h₂ : C ⊆ g.image B) : C ⊆ (f.comp g).image A := by

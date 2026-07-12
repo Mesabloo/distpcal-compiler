@@ -2,8 +2,7 @@ module
 
 meta import CustomPrelude
 
-@[expose] public section
-
+public section
 
 namespace String
   def escape : String → String := String.foldl escapeAux ""
@@ -175,116 +174,49 @@ namespace String
         unfold startPos endPos
         grind
 
-      unfold isEmpty utf8ByteSize Pos.Raw.byteDistance at h
+      rw [String.Slice.isEmpty_iff] at h
       unfold rawEndPos
       grind only [Pos.Raw.mk_zero, utf8ByteSize_eq]
-
-    -- theorem satisfies_pos_of_satisfies_all {s : Slice} {p : Char → Bool} (h : s.all p) :
-    --     ∀ pos, (h' : pos ≠ s.endPos) → p (pos.get h') := by
-    --   unfold «all» dropWhile at h
-    --   intros pos h'
-
-    --   -- fun_induction String.Slice.dropWhile.go s p s.startPos
-    --   refine String.Slice.Pos.prev_induction (C := λ pos ↦ (h : pos ≠ s.endPos) → p (pos.get h)) pos ?_ ?_ h'
-    --   · intros pos pos_ne_start IH pos_ne_end
-    --     admit
-    --   · intros start_ne_end
-
-    --     admit
   end Slice
 
-  theorem singleton_not_empty {c : Char} : (singleton c).isEmpty = false := by
-    rw [singleton_eq_ofList]
-    unfold isEmpty
-    simp
-    exact (Char.utf8Size_pos c).ne'
+  -- theorem singleton_not_empty {c : Char} : (singleton c).isEmpty = false := by
+  --   rw [singleton_eq_ofList]
+  --   unfold isEmpty
+  --   simp
+  --   exact (Char.utf8Size_pos c).ne'
 
-  theorem isEmpty_append_iff {s s' : String} : (s ++ s').isEmpty = (s.isEmpty && s'.isEmpty) := by
-    unfold isEmpty
-    grind only [utf8ByteSize_append, utf8ByteSize_empty, utf8ByteSize_eq_zero_iff]
+  -- theorem isEmpty_append_iff {s s' : String} : (s ++ s').isEmpty = (s.isEmpty && s'.isEmpty) := by
+  --   unfold isEmpty
+  --   grind only [utf8ByteSize_append, utf8ByteSize_empty, utf8ByteSize_eq_zero_iff]
 
-  theorem ofList_isEmpty_eq {cs : List Char} : (String.ofList cs).isEmpty = cs.isEmpty := by
-    cases cs with
-    | nil =>
-      rfl
-    | cons c cs =>
-      rw [ofList_cons, isEmpty_append_iff, singleton_not_empty, Bool.false_and, List.isEmpty_cons]
+  -- theorem ofList_isEmpty_eq {cs : List Char} : (String.ofList cs).isEmpty = cs.isEmpty := by
+  --   cases cs with
+  --   | nil =>
+  --     rfl
+  --   | cons c cs =>
+  --     rw [ofList_cons, isEmpty_append_iff, singleton_not_empty, Bool.false_and, List.isEmpty_cons]
 
-  theorem toSlice_front? {s : String} : s.toSlice.front? = s.front? := rfl
+  -- theorem front?_append_of_not_empty {s s' : String} (h : ¬s.isEmpty) : (s ++ s').front? = s.front? := by
 
-  theorem front?_append_of_not_empty {s s' : String} (h : ¬s.isEmpty) : (s ++ s').front? = s.front? := by
-    unfold front?
-
-    admit
-
-  theorem front?_singleton {c : Char} : (singleton c).front? = some c := by
-
-    admit
-
-  theorem front?_ofList {cs : List Char} : (ofList cs).front? = cs.head? := by
-    cases cs with
-    | nil =>
-      rfl
-    | cons c cs =>
-      rw [List.head?_cons, ofList_cons, front?_append_of_not_empty (ne_true_of_eq_false singleton_not_empty), front?_singleton]
-
-  theorem toSlice_singleton {c : Char} : (singleton c).toSlice = ⟨singleton c, ⟨0, by simp⟩, ⟨⟨c.utf8Size⟩, by simp⟩, of_decide_eq_true rfl⟩ := by
-    unfold toSlice startPos endPos rawEndPos
-    simp
-
-  theorem singleton_eq' {c : Char} : singleton c = "".push c := rfl
-
-  theorem toSlice_isNat {s : String} : s.toSlice.isNat = s.isNat := rfl
-
-  theorem toSlice_foldl {α} {s : String} {f : α → Char → α} {b : α} : String.Slice.foldl f b s.toSlice = String.foldl f b s := by
-    admit
-
-  theorem foldl_append {α} {s s' : String} {f : α → Char → α} {b : α} : String.foldl f b (s ++ s') = String.foldl f (String.foldl f b s) s' := by
-    admit
-
-  theorem foldl_singleton {α} {c : Char} {f : α → Char → α} {b : α} : String.foldl f b (singleton c) = f b c := by
-    admit
-
-  -- theorem all_of_empty {ρ : Type} {p : ρ} [Slice.Pattern.ForwardPattern p] : "".all p = true := by
-  --   apply Slice.all_of_empty
-  --   rfl
-
-  -- theorem startPos_push {s : String} {c : Char} : (s.push c).startPos = s.startPos.appendRight (singleton c) := rfl
-
-  -- theorem all_push {p : Char → Bool} {s : String} {c : Char} : (s.push c).all p = (s.all p && p c) := by
-  --   unfold «all» toSlice
   --   admit
 
-  -- theorem all_singleton {p : Char → Bool} {c : Char} : (singleton c).all p = p c := by
-  --   rw [singleton_eq', all_push, all_of_empty, Bool.true_and]
+  -- theorem front?_singleton {c : Char} : (singleton c).front? = some c := by
 
-  -- theorem append_push {s s' : String} {c : Char} : s ++ s'.push c = (s ++ s').push c := by
-  --   grind only [push_eq_append, append_assoc]
+  --   admit
 
-  -- theorem all_append {p : Char → Bool} {s s' : String} : (s ++ s').all p = (s.all p && s'.all p) := by
-  --   induction s' using String.push_induction generalizing s with
-  --   | empty =>
-  --     rw [append_empty, String.all_of_empty, Bool.and_true]
-  --   | push b c IH =>
-  --     rw [append_push, all_push, all_push, IH, Bool.and_assoc]
-
-  -- theorem all_ofList_of_all {cs : List Char} {p : Char → Bool} : (String.ofList cs).all p = cs.all p := by
-  --   induction cs with
+  -- theorem front?_ofList {cs : List Char} : (ofList cs).front? = cs.head? := by
+  --   cases cs with
   --   | nil =>
-  --     apply Slice.all_of_empty
+  --     rw [front?_eq]
   --     rfl
-  --   | cons c cs IH =>
-  --     rw [List.all_cons, ← IH, ofList_cons, all_append, all_singleton]
+  --   | cons c cs =>
+  --     rw [List.head?_cons, ofList_cons, front?_append_of_not_empty (ne_true_of_eq_false singleton_not_empty), front?_singleton]
 
-  -- theorem all_toSlice {p : Char → Bool} {s : String} : s.toSlice.all p = s.all p := rfl
+  -- theorem toSlice_singleton {c : Char} : (singleton c).toSlice = ⟨singleton c, ⟨0, by simp⟩, ⟨⟨c.utf8Size⟩, by simp⟩, of_decide_eq_true rfl⟩ := by
+  --   unfold toSlice startPos endPos rawEndPos
+  --   simp
 
-  -- theorem front?_toSlice {s : String} : s.toSlice.front? = s.front? := rfl
-
-  -- theorem satisfies_pos_of_satisfies_all {s : String} {p : Char → Bool} (h : s.all p) :
-  --     ∀ pos, (h : pos ≠ s.endPos) → p (pos.get h) := by
-  --   intros _ _
-  --   apply Slice.satisfies_pos_of_satisfies_all
-  --   assumption
+  -- theorem singleton_eq' {c : Char} : singleton c = "".push c := rfl
 end String
 
 end

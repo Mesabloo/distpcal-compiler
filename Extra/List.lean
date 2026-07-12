@@ -1,20 +1,18 @@
 module
 
 public import Mathlib.Data.List.Basic
-public import Init.Data.List.Attach
-public import Init.Data.List.Zip
-public import Extra.Prod
-public import Mathlib.Algebra.Group.Defs
---import Init.Tactics
 public import Mathlib.Data.List.Sigma
+import Init.Data.List.Attach
+import Init.Data.List.Zip
+import Extra.Prod
+import Mathlib.Algebra.Group.Defs
 meta import CustomPrelude
 public import Mathlib.Algebra.Ring.Parity
-public import Mathlib.Data.List.Dedup
+import Mathlib.Data.List.Dedup
 public import Mathlib.Order.Lattice
 public import Mathlib.Order.BoundedOrder.Basic
 
-@[expose] public section
-
+public section
 
 namespace List
   variable {α β γ : Type _}

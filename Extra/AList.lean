@@ -1,14 +1,12 @@
 module
 
 public import Mathlib.Data.List.AList
-public import Mathlib.Data.Finmap
-public import Mathlib.Data.List.Fold
-public import Extra.List
-public import Batteries.Classes.SatisfiesM
+import Mathlib.Data.Finmap
+import Mathlib.Data.List.Fold
+import Extra.List
 meta import CustomPrelude
 
-@[expose] public section
-
+public section
 
 namespace AList
   def merge.{u, v} {α : Type u} [DecidableEq α] {β : α → Type v} (x y : AList β) (f : (x : α) → β x → β x → β x) : AList β :=

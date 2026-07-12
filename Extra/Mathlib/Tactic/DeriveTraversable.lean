@@ -1,35 +1,15 @@
 /-
-This is a file copied from [https://github.com/leanprover-community/mathlib4/blob/41ff1f7899c971f91362710d4444e338b8acd644/Mathlib/Tactic/DeriveTraversable.lean].
-
-The original file suffers from scoping problems: instances that are created are not created within the current namespace.
-This means that two types with the same name that are `deriving Functor` (or `deriving Traversable`, for that matter) in different namespaces
-will generate the same exact instance name in the same scope (the `_root_` namespace).
-
-The fix is very easy and is implemented as a function `Lean.Elab.mkUnusedNSName` at the top of the file, which is used in
-place of `Lean.Elab.mkUnusedBaseName` in the `Mathlib.Deriving.Traversable.mkInstanceNameForTypeExpr` function
-(somewhere around line 224).
--/
-
----------------------------------------------------------------
-
-/-
 Copyright (c) 2018 Simon Hudon. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Simon Hudon
 -/
 module
 
+public meta import Lean.Elab.Match
+public meta import Lean.Elab.Deriving.Basic
+public meta import Lean.Elab.PreDefinition.Main
 public import Mathlib.Control.Traversable.Lemmas
-public import Lean.Elab.Match
-public import Lean.Elab.Deriving.Basic
-public import Lean.Elab.PreDefinition.Main
-public import Lean.Meta.Tactic.Refl
-
-namespace Lean.Elab
-  -- always append `← Macro.getCurrNamespace` to the beginning of the name returned by `mkUnusedBaseName`
-  def mkUnusedNSName (baseName : Name) : MacroM Name :=
-    (· ++ ·) <$> Macro.getCurrNamespace <*> mkUnusedBaseName baseName
-end Lean.Elab
+public meta import Mathlib.Tactic.ToAdditive
 
 /-!
 # Deriving handler for `Traversable` instances
@@ -38,6 +18,8 @@ This module gives deriving handlers for `Functor`, `LawfulFunctor`, `Traversable
 `LawfulTraversable`. These deriving handlers automatically derive their dependencies, for
 example `deriving LawfulTraversable` all by itself gives all four.
 -/
+
+public meta section
 
 namespace Mathlib.Deriving.Traversable
 
@@ -226,7 +208,7 @@ def mkInstanceNameForTypeExpr (type : Expr) : TermElabM Name := do
               ref.modify (· ++ str)
         | _ => pure ()
     ref.get
-  liftMacroM <| mkUnusedNSName <| Name.mkSimple ("inst" ++ result)
+  liftMacroM <| mkUnusedBaseName <| Name.mkSimple ("inst" ++ result)
 
 /-- Derive the `cls` instance for the inductive type constructor `n` using the `tac` tactic. -/
 def mkOneInstance (n cls : Name) (tac : MVarId → TermElabM Unit)
@@ -268,6 +250,9 @@ def mkOneInstance (n cls : Name) (tac : MVarId → TermElabM Unit)
             { isUnsafe
               attrs :=
                 #[{ kind := .global
+                    name := `instance_reducible
+                    stx := ← `(attr| instance_reducible) },
+                  { kind := .global
                     name := `instance
                     stx := ← `(attr| instance) }] }
           declName := instN
@@ -367,7 +352,7 @@ def traverseField (n : Name) (cl f v e : Expr) : TermElabM (Bool × Expr) := do
 /--
 For a sum type `inductive Foo (α : Type) | foo1 : List α → ℕ → Foo α | ...`
 ``traverseConstructor `foo1 `Foo applInst f `α `β [`(x : List α), `(y : ℕ)]``
-synthesizes `foo1 <$> traverse f x <*> pure y.` -/
+synthesizes `foo1 <$> traverse f x <*> pure y`. -/
 def traverseConstructor (c n : Name) (applInst f α β : Expr) (args₀ : List Expr)
     (args₁ : List (Bool × Expr)) (m : MVarId) : TermElabM Unit := do
   let ad ← getAuxDefOfDeclName

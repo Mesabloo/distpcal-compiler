@@ -2,8 +2,7 @@ module
 
 meta import CustomPrelude
 
-@[expose] public section
-
+public section
 
 namespace Option
   theorem isSome_iff_exists_some {α} {x : Option α} : x.isSome = true ↔ ∃ y, x = some y := by

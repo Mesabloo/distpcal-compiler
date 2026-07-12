@@ -1,10 +1,9 @@
 module
 
 public import Mathlib.Data.Set.Basic
-public import Mathlib.Data.Set.Image
+import Mathlib.Data.Set.Image
 
-@[expose] public section
-
+public section
 
 namespace Set
   theorem mem_pair {α} {a b : α} {x : α} : x ∈ ({a, b} : Set α) ↔ x = a ∨ x = b := by

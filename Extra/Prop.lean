@@ -1,7 +1,6 @@
 module
 
-
-@[expose] public section
+public section
 
 theorem And.equiv {a b : Prop} : a ∧ b ↔ a ∧ (a → b) where
   mp := λ ⟨a, b⟩ => ⟨a, λ _ => b⟩

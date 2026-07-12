@@ -2,8 +2,7 @@ module
 
 public import Mathlib.Data.Finset.Basic
 
-@[expose] public section
-
+public section
 
 namespace Finset
   theorem disjoint_sdiff_sdiff_of_disjoint.{u} {α : Type u} [DecidableEq α] {s t u : Finset α} (h : Disjoint s u) : Disjoint (s \ t) (u \ t) := by
@@ -13,5 +12,6 @@ namespace Finset
 
   theorem not_mem_of_not_mem_sdiff.{u} {α : Type u} [DecidableEq α] {x : α} {t u : Finset α} (h : x ∉ t) (h' : x ∉ u \ t) : x ∉ u := by
     simp_all
+end Finset
 
 end
