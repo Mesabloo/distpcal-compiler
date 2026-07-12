@@ -1,8 +1,12 @@
-import Desugarer.Monad
-import Core.SurfaceTLAPlus.Syntax
-import Core.CoreTLAPlus.Syntax
-import Core.SurfacePlusCal.Syntax
-import Parser_.Annotations
+module
+
+public import Desugarer.Monad
+public import Core.SurfaceTLAPlus.Syntax
+public import Core.CoreTLAPlus.Syntax
+public import Core.SurfacePlusCal.Syntax
+public import Parser_.Annotations
+
+public section
 
 namespace SurfaceTLAPlus
   /-- The canonical (single-spelling) name a builtin prefix operator becomes as a
@@ -314,3 +318,5 @@ one (`extractType` above), and is replaced by the `Option Typ` it names. Runs af
 def CoreTLAPlus.Module.stripTLAPlusAnnotations {γ} (mod : CoreTLAPlus.Module γ (List Annotation)) :
     Except DesugarError (CoreTLAPlus.Module γ (Option SurfaceTLAPlus.Typ)) :=
   bitraverse pure extractType mod
+
+end

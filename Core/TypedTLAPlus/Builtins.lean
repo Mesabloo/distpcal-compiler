@@ -1,4 +1,9 @@
-import Core.TypedTLAPlus.Syntax
+module
+
+public import Core.TypedTLAPlus.Syntax
+
+@[expose] public section
+
 
 /-!
   The single shared table of builtin operators — every name `builtinContext`
@@ -99,3 +104,5 @@ def reservedTemporalActionNames : List String :=
   ["[]", "<>", "ENABLED", "UNCHANGED", "'", "^+", "^*", "^#"]
 
 end TypedTLAPlus
+
+end

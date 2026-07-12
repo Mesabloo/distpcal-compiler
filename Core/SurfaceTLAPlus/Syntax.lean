@@ -1,11 +1,16 @@
-import Common.Position
-import Core.Declaration
-import Mathlib.Control.Bifunctor
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Control.Traversable.Instances
-import Mathlib.Control.Bitraversable.Basic
-import Mathlib.Control.Bitraversable.Instances
-import Extra.Prod
+module
+
+public import Common.Position
+public import Core.Declaration
+public import Mathlib.Control.Bifunctor
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Control.Traversable.Instances
+public import Mathlib.Control.Bitraversable.Basic
+public import Mathlib.Control.Bitraversable.Instances
+public import Extra.Prod
+
+@[expose] public section
+
 
 /-!
   The surface syntax of TLA⁺ modules, as accepted by the parser — a CST close to the concrete
@@ -569,3 +574,5 @@ export _root_.Module (mk)
 end Module
 
 end SurfaceTLAPlus
+
+end

@@ -1,5 +1,10 @@
-import Core.TypedPlusCal.Syntax
-import Core.ComputableTLAPlus.Syntax
+module
+
+public import Core.TypedPlusCal.Syntax
+public import Core.ComputableTLAPlus.Syntax
+
+@[expose] public section
+
 
 /-!
   `ElaboratedPlusCal` (`Core/TypedPlusCal/Syntax.lean`) pinned at `Typed2Computable`'s own
@@ -25,3 +30,5 @@ abbrev Process := ElaboratedPlusCal.Process ComputableTLAPlus.Typ Expression
 abbrev Algorithm := ElaboratedPlusCal.Algorithm ComputableTLAPlus.Typ Expression
 
 end ComputablePlusCal
+
+end

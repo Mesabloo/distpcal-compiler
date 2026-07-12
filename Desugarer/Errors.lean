@@ -1,5 +1,9 @@
+module
+
 import Common.Position
-import Common.Errors
+public import Common.Errors
+
+public section
 
 /-- Errors produced while desugaring `SurfaceTLAPlus`/`SurfacePlusCal` into `CoreTLAPlus`/`CorePlusCal`. -/
 inductive DesugarError : Type
@@ -86,3 +90,5 @@ instance : CompilerDiagnostic DesugarWarning String where
   isError := false
   posOf | .duplicateParameterAnnotation pos => pos
   msgOf | .duplicateParameterAnnotation _ => "Only one '@parameter' is needed per variable; the extra one(s) have no additional effect."
+
+end

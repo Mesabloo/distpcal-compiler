@@ -1,6 +1,10 @@
-import Typed2Computable.TLAPlus
-import Core.TypedPlusCal.Syntax
-import Core.ComputablePlusCal.Syntax
+module
+
+public import Typed2Computable.TLAPlus
+public import Core.TypedPlusCal.Syntax
+public import Core.ComputablePlusCal.Syntax
+
+public section
 
 /-!
   `TypedPlusCal.{Ref,MulticastFilter,Statement,Block,Branches,Declarations,Process,Algorithm}
@@ -118,3 +122,5 @@ def TypedPlusCal.Algorithm.toComputable (algo : TypedPlusCal.Algorithm) :
   let globalState ← TypedPlusCal.Declarations.toComputable algo.globalState
   let processes ← algo.processes.mapM TypedPlusCal.Process.toComputable
   pure { algo with globalState, processes }
+
+end

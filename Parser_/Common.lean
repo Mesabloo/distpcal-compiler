@@ -1,12 +1,19 @@
-import Parser
+module
+
+public import Parser
 import Extra.List
-import Common.Position
-import Common.Errors
+public import Common.Position
+public import Common.Errors
+meta import CustomPrelude
+
+public section
+
 
 def Parser.Stream.OfList.map {α β : Type _} (f : α → β) (s : Parser.Stream.OfList α) : Parser.Stream.OfList β where
   next := s.next.map f
   past := s.past.map f
 
+@[nospecialize]
 def ParserT.mapStream {τ₁ τ₂ α : Type _} {m : Type _ → Type _} [Monad m]
                               (f : τ₂ → Option τ₁) (g : τ₁ → τ₂) (p : SimpleParserT (Parser.Stream.OfList τ₁) τ₁ m α) : SimpleParserT (Parser.Stream.OfList τ₂) τ₂ m α := λ s ↦
   let n := s.past.length
@@ -160,7 +167,7 @@ open Parser hiding takeMany1
   Prints information regarding when `p` is applied on the input stream (with the current stream position),
   and whether it succeeded or failed (along with the result/error).
 -/
-@[never_extract, specialize, macro_inline]
+@[expose, never_extract, specialize, macro_inline]
 def debug {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [Repr ε] [Repr α] [Repr (Stream.Position σ)] (name : String) (p : ParserT ε σ τ m α) : ParserT ε σ τ m α := λ s ↦ do
   -- dbg_trace "{name}> Applying parser (stream position: {repr (Stream.getPosition s)})"
   let res ← p.run s
@@ -258,3 +265,5 @@ where
       decreasing_trivial
     · apply Prod.Lex.left
       decreasing_trivial
+
+end

@@ -1,4 +1,9 @@
-import CustomPrelude
+module
+
+meta import CustomPrelude
+
+@[expose] public section
+
 
 namespace Option
   theorem isSome_iff_exists_some {α} {x : Option α} : x.isSome = true ↔ ∃ y, x = some y := by
@@ -13,3 +18,5 @@ namespace Option
     change (do let f ← f; f <$> g) = Option.some x ↔ _
     simp_rw [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.map_eq_map, Option.map_eq_some_iff]
 end Option
+
+end

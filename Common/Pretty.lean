@@ -1,3 +1,8 @@
+module
+
+
+@[expose] public section
+
 universe u v
 variable {α : Type u} {β : Type v}
 
@@ -21,3 +26,5 @@ namespace Std.Format
   /-- Curly brackets. -/
   @[inline] def cbracket (f : Std.Format) : Std.Format :=
     .bracket "{" f "}"
+
+end

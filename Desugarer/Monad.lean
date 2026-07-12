@@ -1,6 +1,10 @@
-import Desugarer.Errors
-import Core.CoreTLAPlus.Syntax
-import Common.Fresh
+module
+
+public import Desugarer.Errors
+public import Core.CoreTLAPlus.Syntax
+public import Common.Fresh
+
+public section
 
 /-- The effects expression desugaring needs: a `Reader` of "what `@` currently refers to" (`none`
 outside any `EXCEPT` update), error reporting, and fresh-name generation (for the tuple-pattern
@@ -10,3 +14,5 @@ class abbrev MonadDesugarerExpr (α : outParam Type) (m : Type → Type) :=
   MonadWithReaderOf (Option (CoreTLAPlus.Expression α)) m,
   MonadDiagnostic DesugarWarning DesugarError m,
   MonadFresh m
+
+end

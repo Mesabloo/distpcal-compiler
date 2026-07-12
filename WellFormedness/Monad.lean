@@ -1,4 +1,9 @@
-import Elaborator.Elaborator
+module
+
+public import Elaborator
+
+public section
+
 
 /-! The one effect the well-formedness pass needs beyond ordinary monadic error-reporting:
 fetching a module's checked declarations by name, to resolve what a `.var`'s `Origin.module`
@@ -31,3 +36,5 @@ run `TypedTLAPlus.Module.checkWellFormed` at `ExceptT WellFormednessError m`, ca
 `WellFormednessError`s locally without `m` itself needing to know about that error type. -/
 instance {m ε} [Monad m] [MonadForeignLookup m] : MonadForeignLookup (ExceptT ε m) where
   lookupForeign name := liftM (lookupForeign name : m _)
+
+end

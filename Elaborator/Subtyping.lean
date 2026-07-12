@@ -1,5 +1,9 @@
-import Elaborator.Monad
-import Core.TypedTLAPlus.Coercion
+module
+
+public import Elaborator.Monad
+public import Core.TypedTLAPlus.Coercion
+
+public section
 
 /-! `<:`, `lub`, `glb`, and term-level coercion, plus the direction-aware metavariable-solving
 algorithm used in place of a literal `Specialize` rule.
@@ -38,7 +42,7 @@ inductive SubtypeResult : Type
   staying `<:`-related.
 -/
 structure PendingBounds : Type where
-  private bounds : Std.HashMap MVarId (List Typ)
+  protected bounds : Std.HashMap MVarId (List Typ)
 
 instance : EmptyCollection PendingBounds := ⟨⟨{}⟩⟩
 
@@ -271,3 +275,5 @@ def glb (τ τ' : Typ) : m (Option Typ) := do
   if ← isSubtype τ τ' then return some τ
   else if ← isSubtype τ' τ then return some τ'
   else return none
+
+end

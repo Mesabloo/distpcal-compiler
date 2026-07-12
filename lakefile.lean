@@ -8,7 +8,9 @@ require "fgdorais" / "UnicodeBasic" @ git "v2.0.1"
 require "fgdorais" / "Parser" @ git "4a9f45abc119e9a03e9ae41ee80b1cd15ed66467"
 require "leanprover" / "Cli" @ git s!"v{Lean.versionString}"
 require "leanprover-community" / "LeanSearchClient" @ git "c5d5b8fe6e5158def25cd28eb94e4141ad97c843"
-require "algebraic-dev" / "Colorized" @ git "e631ffd114535e1ace876e1b7062d672f718454f"
+require Colorized
+  from git "https://github.com/anzenlang/Colorized" @ "b59df24859e41dc1aecb46c004d8295e0bb3e2c1"
+-- "anzenlang" / "Colorized" @ git "b59df24859e41dc1aecb46c004d8295e0bb3e2c1"
 
 ------ Options
 

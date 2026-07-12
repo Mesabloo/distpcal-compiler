@@ -1,27 +1,29 @@
-import Cli.Basic
-import Common.Flags
+module
+
+public import Cli.Basic
+public import Common.Flags
 import Common.Errors
-import Parser_.TLAPlus
-import Parser_.Annotations
-import Desugarer.TLAPlus
-import Desugarer.PlusCal
-import Driver.Modules
-import WellFormedness.WellFormedness
-import Typed2Computable.Typed2Computable
-import Typed2Guarded.Typed2Guarded
-import ProgressBar.Spinner
-import ProgressBar.Spinners
+import Parser_
+import Desugarer
+public import Driver.Modules
+public import WellFormedness
+import Typed2Computable
+import Typed2Guarded
+import ProgressBar
 import Colorized
+
+public section
 
 open Cli
 open Colorized (Colorized)
 
 /-- The input source: a file path, or `-` to read from standard input. -/
-private inductive Input : Type
+inductive Input : Type
   | path : System.FilePath → Input
   | stdin
   deriving Inhabited
 
+@[no_expose]
 instance : ToString Input where
   toString
     | .path p => toString p
@@ -38,7 +40,7 @@ instance : ParseableType Input where
     | str => some (.path ↑str)
 
 /-- The `<name>[=<value>]` shape shared by `-d`/`-f`'s options. -/
-private structure NamedOption : Type where
+structure NamedOption : Type where
   name : String
   value : Option String
   deriving Inhabited
@@ -51,7 +53,7 @@ instance : ParseableType NamedOption where
     | _ => none
 
 /-- The `<name>` (enable) / `no-<name>` (disable) shape of `-W`'s per-warning toggles. -/
-private structure WarningToggle : Type where
+structure WarningToggle : Type where
   name : String
   enabled : Bool
   deriving Inhabited
@@ -325,3 +327,5 @@ private def cli : Cmd := `[Cli|
 
 /-- The `fugue` executable's entry point. -/
 def main (args : List String) : IO UInt32 := cli.validate args
+
+end

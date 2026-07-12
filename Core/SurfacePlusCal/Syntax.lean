@@ -1,9 +1,14 @@
-import Common.Position
-import Mathlib.Control.Bifunctor
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Control.Traversable.Instances
-import Mathlib.Control.Bitraversable.Basic
-import Mathlib.Control.Bitraversable.Instances
+module
+
+public import Common.Position
+public import Mathlib.Control.Bifunctor
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Control.Traversable.Instances
+public import Mathlib.Control.Bitraversable.Basic
+public import Mathlib.Control.Bitraversable.Instances
+
+@[expose] public section
+
 
 /-!
   The surface syntax of Distributed PlusCal algorithms, as accepted by the parser — not yet
@@ -192,3 +197,5 @@ instance : Bitraversable Algorithm where
       <*> traverse (bitraverse f g) a.processes
 
 end SurfacePlusCal
+
+end

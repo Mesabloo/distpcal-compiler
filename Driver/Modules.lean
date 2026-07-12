@@ -1,8 +1,12 @@
-import Driver.Errors
-import Driver.Builtins
-import Common.Flags
-import Extra.Monad
-import WellFormedness.Monad
+module
+
+public import Driver.Errors
+public import Driver.Builtins
+public import Common.Flags
+public import Extra.Monad
+public import WellFormedness.Monad
+
+public section
 
 open Colorized (Colorized)
 
@@ -362,4 +366,6 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
         (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
       storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
       return (true, recomputed)
+end
+
 end

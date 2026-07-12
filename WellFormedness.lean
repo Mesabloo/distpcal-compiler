@@ -1,8 +1,12 @@
-import WellFormedness.Labelling
-import WellFormedness.WellScoped
-import WellFormedness.Declarations
-import WellFormedness.Restrictions
-import Elaborator.Elaborator
+module
+
+public import WellFormedness.Labelling
+public import WellFormedness.WellScoped
+public import WellFormedness.Declarations
+public import WellFormedness.Restrictions
+public import Elaborator
+
+public section
 
 /-! Ties `WellFormedness/`'s four checks together, mirroring `Elaborator/Elaborator.lean`'s own
 role for type checking: one entry point, called on `Driver/Modules.lean`'s `compileModule` output
@@ -26,3 +30,5 @@ def TypedTLAPlus.Module.checkWellFormed {m : Type → Type} [Monad m]
     TypedPlusCal.Algorithm.checkWellScoped algo
     TypedPlusCal.Algorithm.checkDeclarations algo
     TypedPlusCal.Algorithm.checkRestrictions mod.name (mod.declarations₁ ++ mod.declarations₂) algo
+
+end

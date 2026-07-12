@@ -1,13 +1,20 @@
-import Mathlib.Data.List.Basic
-import Init.Data.List.Attach
-import Init.Data.List.Zip
-import Extra.Prod
-import Mathlib.Algebra.Group.Defs
+module
+
+public import Mathlib.Data.List.Basic
+public import Init.Data.List.Attach
+public import Init.Data.List.Zip
+public import Extra.Prod
+public import Mathlib.Algebra.Group.Defs
 --import Init.Tactics
-import Mathlib.Data.List.Sigma
-import CustomPrelude
-import Mathlib.Algebra.Ring.Parity
-import Mathlib.Data.List.Dedup
+public import Mathlib.Data.List.Sigma
+meta import CustomPrelude
+public import Mathlib.Algebra.Ring.Parity
+public import Mathlib.Data.List.Dedup
+public import Mathlib.Order.Lattice
+public import Mathlib.Order.BoundedOrder.Basic
+
+@[expose] public section
+
 
 namespace List
   variable {α β γ : Type _}
@@ -738,7 +745,7 @@ namespace List
     else
       grind only
 
-  private lemma even_len_cons_cons_of_even_len {ys : List α} {y₁ y₂ : α} (even_ys_len : Even ys.length) : Even (y₁ :: y₂ :: ys).length := by
+  lemma even_len_cons_cons_of_even_len {ys : List α} {y₁ y₂ : α} (even_ys_len : Even ys.length) : Even (y₁ :: y₂ :: ys).length := by
     grind only [= Nat.even_iff, = length_cons]
 
   def zipperEvenInduction {motive : (xs : List α) → (ys : List α) → Even xs.length → Even ys.length → Prop} (xs ys : List α) (even_xs_len : Even xs.length) (even_ys_len : Even ys.length)
@@ -794,3 +801,5 @@ namespace List
       · intros x x_in
         apply h _ <| List.mem_cons_of_mem _ x_in
 end List
+
+end

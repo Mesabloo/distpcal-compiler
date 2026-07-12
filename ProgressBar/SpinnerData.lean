@@ -1,6 +1,8 @@
+module
+
 /-- A spinner is a set of frames together with an update interval. -/
 @[unbox]
-structure SpinnerData : Type where
+public structure SpinnerData : Type where
   /-- The frames of the spinner (which ideally are all of the same size). -/
   frames : Array String
   /-- The update interval, in milliseconds. -/

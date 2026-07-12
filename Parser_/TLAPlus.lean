@@ -1,16 +1,20 @@
-import Parser_.Tokens.TLAPlus
-import Parser_.Tokens.PlusCal
-import Core.SurfaceTLAPlus.Syntax
-import Core.SurfacePlusCal.Syntax
-import Common.Position
+module
+
+public import Parser_.Tokens.TLAPlus
+public import Parser_.Tokens.PlusCal
+public import Core.SurfaceTLAPlus.Syntax
+public import Core.SurfacePlusCal.Syntax
+public import Common.Position
 import Parser
-import CustomPrelude
+meta import CustomPrelude
 import Parser_.PlusCal
 import Mathlib.Data.List.Basic
-import Parser_.Common
+public import Parser_.Common
+public import Parser_.Monad
 import Common.Errors
 import Mathlib.Logic.Function.Basic
 
+public section
 
 /-! # A small lexer for TLA⁺ -/
 
@@ -1148,3 +1152,5 @@ namespace SurfaceTLAPlus.Parser
       | .unexpected _ (.some ⟨pos, tk⟩) => { token := .some tk, pos, hints := [] }
       | .addMessage err _ msg => let err := errToUnexpected err; { err with hints := err.hints.concat msg }
 end SurfaceTLAPlus.Parser
+
+end

@@ -1,8 +1,12 @@
-import Elaborator.Subtyping
-import Elaborator.TypeUtils
-import Elaborator.Resolution
-import Elaborator.Context
-import Core.CoreTLAPlus.Syntax
+module
+
+public import Elaborator.Subtyping
+public import Elaborator.TypeUtils
+public import Elaborator.Resolution
+public import Elaborator.Context
+public import Core.CoreTLAPlus.Syntax
+
+public section
 
 /-!
   Bidirectional expression checking: `checkExpr` (`Γ ⊢ e ⇓ τ`) and `inferExpr` (`Γ ⊢ e ⇑ τ`),
@@ -449,4 +453,6 @@ mutual
     | .set [], pos =>
       throw (.cannotInferType pos
         "an empty set literal has no element type to synthesize — check it against an expected `Set(τ)` instead")
+end
+
 end

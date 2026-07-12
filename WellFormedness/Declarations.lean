@@ -1,5 +1,9 @@
-import WellFormedness.Errors
-import Core.TypedPlusCal.Syntax
+module
+
+public import WellFormedness.Errors
+public import Core.TypedPlusCal.Syntax
+
+public section
 
 /-!
   Pure structural/type-shape checks over a `TypedPlusCal.Algorithm`'s declarations, no
@@ -57,3 +61,5 @@ def TypedPlusCal.Algorithm.checkDeclarations {m : Type → Type} [Monad m]
   for p in algo.processes do
     checkNoChannelTypedVariables p.localState
     checkNoLocalChannels p
+
+end

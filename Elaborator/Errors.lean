@@ -1,5 +1,9 @@
-import Common.Errors
-import Core.TypedTLAPlus.Syntax
+module
+
+public import Common.Errors
+public import Core.TypedTLAPlus.Syntax
+
+public section
 
 /-! The type checker's diagnostics: one named error/warning variant per violation. -/
 
@@ -118,3 +122,5 @@ instance : CompilerDiagnostic TCWarning String where
   isError := false
   posOf | .todo pos _ => pos
   msgOf | .todo _ msg => msg
+
+end

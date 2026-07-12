@@ -1,7 +1,12 @@
-import CustomPrelude
-import Mathlib.Data.List.Induction
-import Batteries.Data.String.Lemmas
-import Extra.String
+module
+
+meta import CustomPrelude
+public import Mathlib.Data.List.Induction
+public import Batteries.Data.String.Lemmas
+public import Extra.String
+
+@[expose] public section
+
 
 namespace Nat
   theorem succ_le_exists_succ {m n : Nat} : m.succ ≤ n → ∃ n' : Nat, n = n'.succ := by
@@ -343,3 +348,5 @@ namespace Nat
     unfold String.toInt! String.Slice.toInt!
     rw [← String.toInt?, Nat.repr_toInt?]
 end Nat
+
+end

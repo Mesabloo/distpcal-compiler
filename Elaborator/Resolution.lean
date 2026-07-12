@@ -1,4 +1,8 @@
-import Elaborator.Subtyping
+module
+
+public import Elaborator.Subtyping
+
+public section
 
 open TypedTLAPlus (Typ MVarId Expr)
 
@@ -6,7 +10,7 @@ variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m
 
 /-- Needed for the `partial def`s below to type-check at all (an arbitrary `m` isn't otherwise
 known nonempty). -/
-local instance : Inhabited (m Expr) := ⟨pure default⟩
+private local instance {α} [Inhabited α] : Inhabited (m α) := ⟨pure default⟩
 
 /--
   Eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` is resolved
@@ -124,3 +128,5 @@ type field. -/
 partial def resolveMVars (e : Expr) : m Expr := do
   let e' ← resolveExprMVars e
   TypedTLAPlus.Expression.traverse (resolveTypeMVars (posOf e')) e'
+
+end

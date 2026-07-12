@@ -1,8 +1,13 @@
-import Mathlib.Control.Bifunctor
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Control.Traversable.Instances
-import Mathlib.Control.Bitraversable.Basic
-import Mathlib.Control.Bitraversable.Instances
+module
+
+public import Mathlib.Control.Bifunctor
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Control.Traversable.Instances
+public import Mathlib.Control.Bitraversable.Basic
+public import Mathlib.Control.Bitraversable.Instances
+
+@[expose] public section
+
 
 /-!
   The shape of a TLA⁺ declaration/module, shared verbatim by `SurfaceTLAPlus`, `CoreTLAPlus`,
@@ -89,3 +94,5 @@ instance {E} [Traversable E] : Bitraversable (Module E) where
       <$> traverse (traverse g) m.declarations₁
       <*> traverse f m.pcalAlgorithm
       <*> traverse (traverse g) m.declarations₂
+
+end

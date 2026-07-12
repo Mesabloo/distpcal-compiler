@@ -1,5 +1,9 @@
-import Common.Errors
-import Core.TypedTLAPlus.Syntax
+module
+
+public import Common.Errors
+public import Core.TypedTLAPlus.Syntax
+
+public section
 
 /-! `Typed2Guarded`'s diagnostics — a single defense-in-depth catch-all, mirroring
 `Typed2Computable/Errors.lean:34`'s `ComputableError.internalInvariantViolated` exactly. Every
@@ -26,3 +30,5 @@ instance : CompilerDiagnostic GuardedError String where
   msgOf
     | .internalInvariantViolated _ description =>
       s!"Internal invariant violated: {description}. This should be unreachable — please report this as a bug."
+
+end

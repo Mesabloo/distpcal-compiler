@@ -1,8 +1,12 @@
-import Common.Position
+module
+
+public import Common.Position
 import Mathlib.Data.String.Defs
-import Mathlib.Control.Monad.Writer
-import Colorized
-import CustomPrelude
+public import Mathlib.Control.Monad.Writer
+public import Colorized
+meta import CustomPrelude
+
+public section
 
 open Colorized (Colorized)
 
@@ -28,6 +32,7 @@ def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) 
   if enabled then Colorized.style s x else x
 
 /-- Pretty basic error pretty printing. `colored := false` (driven by `-fno-color`) disables ANSI styling. -/
+@[nospecialize]
 def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String.Slice) (colored : Bool := true) : String :=
   let header := if CompilerDiagnostic.isError ε then "error" else "warning"
   let color := if CompilerDiagnostic.isError ε then Colorized.Color.Red else .Yellow
@@ -70,7 +75,7 @@ wrapping the pair from outside — so a `throw` is just `pure ([], .error e)`, a
 generic `ExceptT ε N` composition would be: there, `listen`'s own `N (α × ω)` shape has nowhere
 to put `ω` once `α` disappears on a throw, whereas here the `List α` component never lives inside
 the `Except` in the first place. -/
-def DiagT (α β : Type _) (m : Type _ → Type _) (γ : Type _) : Type _ :=
+@[expose] def DiagT (α β : Type _) (m : Type _ → Type _) (γ : Type _) : Type _ :=
   m (List α × Except β γ)
 
 namespace DiagT
@@ -81,10 +86,10 @@ variable {α β γ : Type _} {m : Type _ → Type _}
 against it with the final `Except`-wrapped result — regardless of which branch that result took.
 The one place the main driver needs to reach into, to flush a pass's warnings whether or not that
 pass ultimately threw. -/
-def run (x : DiagT α β m γ) : m (List α × Except β γ) := x
+@[expose] def run (x : DiagT α β m γ) : m (List α × Except β γ) := x
 
 /-- Wrap an `m` action already in the right shape back up as a `DiagT`. -/
-def mk (x : m (List α × Except β γ)) : DiagT α β m γ := x
+@[expose] def mk (x : m (List α × Except β γ)) : DiagT α β m γ := x
 
 variable [Monad m]
 
@@ -168,10 +173,12 @@ runner — `Parser_.TLAPlus.parseModule`, `Desugarer`'s `runDesugarer`s, `Elabor
 lifted into `m` via ordinary `MonadLiftT`, so nothing about `x`'s own concrete stack needs to leak
 into the caller. The one primitive that lets the main driver `let`-bind straight through a
 sub-pass's result without ever unwrapping its `DiagT`/`Except` by hand. -/
-def DiagT.lift {α α' β β' γ : Type _} {n m : Type _ → Type _} [Monad m] [MonadLiftT n m]
+@[expose] def DiagT.lift {α α' β β' γ : Type _} {n m : Type _ → Type _} [Monad m] [MonadLiftT n m]
     [MonadDiagnostic α' β' m] (f : α → α') (g : β → β') (x : DiagT α β n γ) : m γ := do
   let (warnings, result) ← (liftM (DiagT.run x) : m (List α × Except β γ))
   tell (warnings.map f)
   match result with
   | .error e => throw (g e)
   | .ok a => pure a
+
+end

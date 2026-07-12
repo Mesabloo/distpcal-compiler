@@ -1,4 +1,8 @@
-import Elaborator.Elaborator
+module
+
+public import Elaborator
+
+public section
 
 /-!
   Standard TLA⁺ modules (`Sequences`, `TLC`, `Naturals`, `FiniteSets`, …) — a hardcoded table of
@@ -122,3 +126,5 @@ def builtinModules : Std.HashMap String TypedModule := Std.HashMap.ofList <|
       pcalAlgorithm := none
       declarations₂ := []
     } : TypedModule))
+
+end

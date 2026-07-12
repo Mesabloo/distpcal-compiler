@@ -1,7 +1,12 @@
-import Parser
-import Parser_.Common
-import Parser_.Tokens.PlusCal
-import Parser_.Tokens.TLAPlus
+module
+
+public import Parser
+public import Parser_.Common
+public import Parser_.Tokens.PlusCal
+public import Parser_.Tokens.TLAPlus
+
+@[expose] public section
+
 
 /-! # TLA+ -/
 
@@ -28,3 +33,5 @@ abbrev PlusCalParser := SimpleParserT (Parser.Stream.OfList (Located' SurfacePlu
 
 private local instance {α} : Inhabited (PlusCalParser α) where
   default := Parser.throwUnexpected none
+
+end

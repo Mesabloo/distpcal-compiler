@@ -1,7 +1,11 @@
-import VerifiedCompiler.Trace
+module
+
+public import VerifiedCompiler.Trace
 import Mathlib.Logic.Relation
 import Mathlib.Data.Prod.Basic
 import Mathlib.Data.Set.Basic
+
+public section
 
 inductive Relation.TraceReflGen {α ε} [Trace ε] (R : α → ε → α → Prop) : α → ε → α → Prop
   | refl : ∀ {x}, Relation.TraceReflGen R x Trace.τ x
@@ -170,3 +174,5 @@ private theorem Relation.Eventually_implies_Eventually? {α} (R : α → Set α 
       apply Relation.Eventually?.step? P' _ RxP'
       · exact x'_in_P'
       · exact IH _ x'_in_P'
+
+end

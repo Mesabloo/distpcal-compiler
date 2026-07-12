@@ -1,5 +1,9 @@
-import Mathlib.Algebra.Group.Basic
-import Mathlib.Order.Defs.PartialOrder
+module
+
+public import Mathlib.Algebra.Group.Basic
+public import Mathlib.Order.Defs.PartialOrder
+
+public section
 
 /-- A type can be used to model event traces if it is a partially ordered monoid. -/
 class Trace (ε : Type _) extends Monoid ε, PartialOrder ε where
@@ -12,3 +16,5 @@ abbrev Trace.τ {ε : Type _} [Trace ε] : ε := One.one
 theorem append_τ_eq {ε} (a : ε) [Trace ε] : a * Trace.τ = a := mul_one a
 
 theorem τ_append_eq {ε} (a : ε) [Trace ε] : Trace.τ * a = a := one_mul a
+
+end

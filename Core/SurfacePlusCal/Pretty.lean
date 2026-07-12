@@ -1,5 +1,10 @@
-import Core.SurfacePlusCal.Syntax
-import Common.Pretty
+module
+
+public import Core.SurfacePlusCal.Syntax
+public import Common.Pretty
+
+@[expose] public section
+
 
 /-! Pretty-printing for `SurfacePlusCal`, used by `-d`-style AST dumps. -/
 
@@ -76,3 +81,5 @@ instance {α β} [Std.ToFormat α] [Std.ToFormat β] : Std.ToFormat (Algorithm �
       .joinSep (Std.format <$> alg.processes) .line)
 
 end SurfacePlusCal
+
+end

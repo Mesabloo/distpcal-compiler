@@ -1,3 +1,8 @@
+module
+
+
+@[expose] public section
+
 namespace Sum
   def hasDecEq {α β} [DecidableEq α] [DecidableEq β] : DecidableEq (α ⊕ β)
     | .inl x, .inl y | .inr x, .inr y =>
@@ -9,3 +14,5 @@ namespace Sum
     (f : α → m α') (g : β → m β') : α ⊕ β → m (α' ⊕ β')
       | .inl x => Sum.inl <$> f x
       | .inr x => Sum.inr <$> g x
+
+end

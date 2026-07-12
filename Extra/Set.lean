@@ -1,5 +1,10 @@
-import Mathlib.Data.Set.Basic
-import Mathlib.Data.Set.Image
+module
+
+public import Mathlib.Data.Set.Basic
+public import Mathlib.Data.Set.Image
+
+@[expose] public section
+
 
 namespace Set
   theorem mem_pair {α} {a b : α} {x : α} : x ∈ ({a, b} : Set α) ↔ x = a ∨ x = b := by
@@ -21,3 +26,5 @@ namespace Set
       ∃ x, (x, y) ∈ S := by
     grind only [= mem_image, cases eager Prod]
 end Set
+
+end

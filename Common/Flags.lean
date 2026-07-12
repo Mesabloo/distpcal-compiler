@@ -1,4 +1,9 @@
-import CustomPrelude
+module
+
+meta import CustomPrelude
+public import Std.Data.HashMap.Basic
+
+public section
 
 /-- Which backend the compiler is asked to target, per the `-t`/`--target` flag (§2). -/
 inductive Target
@@ -64,3 +69,5 @@ initialize flagsRef : IO.Ref FlagsEnv ← IO.mkRef {}
 
 instance : MonadReaderOf FlagsEnv IO where
   read := flagsRef.get
+
+end

@@ -1,7 +1,11 @@
-import Typed2Computable.PlusCal
-import Core.TypedTLAPlus.Builtins
-import WellFormedness.Reachability
-import Elaborator.Elaborator
+module
+
+public import Typed2Computable.PlusCal
+public import Core.TypedTLAPlus.Builtins
+public import WellFormedness.Reachability
+public import Elaborator
+
+public section
 
 /-!
   `TypedTLAPlus.Module.toComputable` — the `Typed2Computable` entry point. Given a checked,
@@ -104,3 +108,5 @@ def TypedTLAPlus.Module.toComputable (mod : TypedModule) :
       name := mod.name, «extends» := mod.extends
       declarations₁, pcalAlgorithm := some algo', declarations₂ := []
     }
+
+end

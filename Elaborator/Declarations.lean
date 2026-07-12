@@ -1,4 +1,8 @@
-import Elaborator.Expressions
+module
+
+public import Elaborator.Expressions
+
+public section
 
 /-!
   Declaration/module-level checking: `checkDeclaration`/`checkDeclarations`, threading `Γ` across
@@ -170,3 +174,5 @@ def checkDeclarations (moduleName : String) : List SrcDecl → m (List Decl × L
     let (d', bindings) ← checkDeclaration moduleName d
     let (ds', restBindings) ← extendAllBindings bindings (checkDeclarations moduleName ds)
     return (d' :: ds', bindings ++ restBindings)
+
+end

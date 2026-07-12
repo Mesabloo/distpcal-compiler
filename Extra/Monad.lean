@@ -1,3 +1,8 @@
+module
+
+
+@[expose] public section
+
 /--
   Execute a guard `p` in the monad `m`.
   If its result is `false`, fail with `Alternative.failure`, otherwise return `Unit.unit`.
@@ -11,3 +16,5 @@ def IO.Ref.toMonadStateOf {α} (ref : IO.Ref α) : MonadStateOf α IO where
   get := ref.get
   set := ref.set
   modifyGet := ref.modifyGet
+
+end

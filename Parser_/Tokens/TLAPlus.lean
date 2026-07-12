@@ -1,6 +1,10 @@
-import CustomPrelude
-import Mathlib.Data.String.Defs
-import Core.SurfaceTLAPlus.Syntax
+module
+
+meta import CustomPrelude
+public import Mathlib.Data.String.Defs
+public import Core.SurfaceTLAPlus.Syntax
+
+public section
 
 namespace SurfaceTLAPlus
   /--
@@ -136,3 +140,5 @@ namespace SurfaceTLAPlus
   -- Why does this fail when put in the `deriving` clause?
   deriving instance Functor for Token
 end SurfaceTLAPlus
+
+end

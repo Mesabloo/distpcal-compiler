@@ -1,9 +1,13 @@
-import WellFormedness.Errors
-import WellFormedness.Monad
-import WellFormedness.Reachability
-import Elaborator.Declarations
-import Core.TypedPlusCal.Syntax
-import Core.TypedTLAPlus.Builtins
+module
+
+public import WellFormedness.Errors
+public import WellFormedness.Monad
+public import WellFormedness.Reachability
+public import Elaborator.Declarations
+public import Core.TypedPlusCal.Syntax
+public import Core.TypedTLAPlus.Builtins
+
+public section
 
 /-!
   The expression walker (`PLAN.md` §5.2a's checks 1, 2(c), 3): one unified recursive walk over
@@ -133,3 +137,5 @@ def TypedPlusCal.Algorithm.checkRestrictions {m' : Type → Type} [Monad m']
     TypedPlusCal.Algorithm.walkReachable TypedPlusCal.Statement.checkRefRestrictions
       (TypedTLAPlus.Expression.checkNode currentModule ownDecls) currentModule ownDecls algo
   go.run' {}
+
+end

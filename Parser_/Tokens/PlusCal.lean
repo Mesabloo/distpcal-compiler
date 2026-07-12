@@ -1,4 +1,8 @@
-import Parser_.Tokens.TLAPlus
+module
+
+public import Parser_.Tokens.TLAPlus
+
+public section
 
 namespace SurfacePlusCal
   inductive Token : Type
@@ -68,3 +72,5 @@ namespace SurfacePlusCal
 
   instance : ToString Token := ⟨Token.toString⟩
 end SurfacePlusCal
+
+end

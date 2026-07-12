@@ -1,5 +1,10 @@
-import Common.Pretty
-import Core.SurfaceTLAPlus.Syntax
+module
+
+public import Common.Pretty
+public import Core.SurfaceTLAPlus.Syntax
+
+@[expose] public section
+
 
 /-! Pretty-printing for `SurfaceTLAPlus`, used by `-d`-style AST dumps. -/
 
@@ -109,3 +114,5 @@ instance {α β} [Std.ToFormat α] [Std.ToFormat β] : Std.ToFormat (Module α �
     "===="
 
 end SurfaceTLAPlus
+
+end

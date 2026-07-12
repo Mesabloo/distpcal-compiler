@@ -1,2 +1,4 @@
-import ProgressBar.Spinners
-import ProgressBar.Spinner
+module
+
+public import ProgressBar.Spinner
+public import ProgressBar.Spinners

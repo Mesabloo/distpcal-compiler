@@ -1,5 +1,9 @@
-import Common.Errors
-import Core.TypedTLAPlus.Syntax
+module
+
+public import Common.Errors
+public import Core.TypedTLAPlus.Syntax
+
+public section
 
 /-! `Typed2Computable`'s diagnostics — one named error variant per genuinely new restriction this
 pass introduces beyond `WellFormedness` (`PLAN.md` §5.2a), plus a defense-in-depth catch-all for
@@ -46,3 +50,5 @@ instance : CompilerDiagnostic ComputableError String where
       "`[a : A, ...]` (the set of all records shaped that way) is not computable under this compiler's finite-sets assumption."
     | .internalInvariantViolated _ description =>
       s!"Internal invariant violated: {description}. This should be unreachable — please report this as a bug."
+
+end

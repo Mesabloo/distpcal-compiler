@@ -1,5 +1,9 @@
-import Core.ComputablePlusCal.Syntax
-import Typed2Guarded.Errors
+module
+
+public import Core.ComputablePlusCal.Syntax
+public import Typed2Guarded.Errors
+
+public section
 
 /-!
   `𝒞_cflow` (thesis §3.2.2, `PLAN.md` §5.4): eliminates `if`/`while` by rewriting them into
@@ -113,3 +117,5 @@ def ComputablePlusCal.Algorithm.cflow (algo : ComputablePlusCal.Algorithm) : m C
     let threads ← p.threads.mapM (·.mapM λ (label, block) ↦ (label, ·) <$> Block.cflow label block)
     pure { p with threads }
   pure { algo with processes }
+
+end

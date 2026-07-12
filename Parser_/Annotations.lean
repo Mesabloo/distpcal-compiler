@@ -1,9 +1,14 @@
+module
+
 import Common.Position
-import Core.SurfaceTLAPlus.Syntax
+public import Core.SurfaceTLAPlus.Syntax
 import Common.Errors
 import Parser
-import Parser_.Common
-import Parser_.TLAPlus
+public import Parser_.Common
+public import Parser_.TLAPlus
+meta import CustomPrelude
+
+public section
 
 section
   inductive ResolverError
@@ -175,4 +180,6 @@ section
       Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation) →
       Except ResolverError (Module (SurfacePlusCal.Algorithm (List Annotation) (Expression (List Annotation))) (List Annotation)) :=
     resolveAnnotations'
+end
+
 end

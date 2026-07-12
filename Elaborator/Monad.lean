@@ -1,6 +1,11 @@
-import Elaborator.Errors
-import Core.TypedTLAPlus.Syntax
-import Common.Fresh
+module
+
+public import Elaborator.Errors
+public import Core.TypedTLAPlus.Syntax
+public import Common.Fresh
+
+public section
+
 
 /-! The effects the type checker needs: a local typing context `Γ`, a metavariable context,
 error reporting, and fresh-name generation. -/
@@ -40,7 +45,7 @@ export MonadMetavarContext (mkFreshMVar assignMVar assigned?)
 /-- Backing store for the generic `MonadMetavarContext` instance below: index `n` holds `?n`'s
 resolved value, or `none` while still unresolved. -/
 structure MetavarContext (α : Type) : Type where
-  private mvars : Array (Option α)
+  protected mvars : Array (Option α)
 
 instance {α} : EmptyCollection (MetavarContext α) where
   emptyCollection := ⟨#[]⟩
@@ -60,3 +65,5 @@ class abbrev MonadElaborator (m : Type → Type) :=
   MonadMetavarContext TypedTLAPlus.Typ m,
   MonadDiagnostic TCWarning TCError m,
   MonadFresh m
+
+end

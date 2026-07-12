@@ -1,5 +1,9 @@
-import Elaborator.Declarations
-import Core.TypedPlusCal.Syntax
+module
+
+public import Elaborator.Declarations
+public import Core.TypedPlusCal.Syntax
+
+public section
 
 /-!
   Statement/showable/process/algorithm checking: `checkStatement`/`checkBlock`/`checkBranches`/
@@ -421,3 +425,5 @@ def checkAlgorithm (algo : SrcAlgorithm) : m TypedPlusCal.Algorithm := do
     globalState := globalState'
     processes := processes'
   } @@ posOf algo
+
+end

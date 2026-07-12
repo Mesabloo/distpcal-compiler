@@ -1,11 +1,15 @@
-import Parser_.Tokens.PlusCal
-import Core.SurfacePlusCal.Syntax
+module
+
+public import Parser_.Tokens.PlusCal
+public import Core.SurfacePlusCal.Syntax
 import Parser
-import CustomPrelude
-import Common.Position
+meta import CustomPrelude
+public import Common.Position
 import Extra.List
 import Parser_.Common
-import Parser_.Monad
+public import Parser_.Monad
+
+public section
 
 namespace SurfacePlusCal.Lexer
   open Parser hiding eoption takeMany1 takeMany first
@@ -429,3 +433,5 @@ namespace SurfacePlusCal.Parser
       }
   end
 end SurfacePlusCal.Parser
+
+end

@@ -1,6 +1,11 @@
-import VerifiedCompiler.Trace
-import Mathlib.Data.Rel
-import Extra.Rel
+module
+
+public import VerifiedCompiler.Trace
+public import Mathlib.Data.Rel
+public import Extra.Rel
+meta import CustomPrelude
+
+public section
 
 namespace StrongRefinement
   variable {τ : Type _} [Trace τ] {α β : Type _} (R : Rel α β)
@@ -12,6 +17,7 @@ namespace StrongRefinement
     - `semₛ'` is the aborting semantics for the source language.
     - `semₜ` is the reducing semantics for the target language.
   -/
+  @[expose]
   protected def Terminating (semₛ : Set (α × τ × α)) (semₛ' : Set (α × τ)) (semₜ : Set (β × τ × β)) : Prop :=
     ∀ (σₜ σₜ' : β) (ε : τ) (σₛ : α), R σₛ σₜ → (σₜ, ε, σₜ') ∈ semₜ →
       (∃ (σₛ' : α), R σₛ' σₜ' ∧ (σₛ, ε, σₛ') ∈ semₛ) ∨ (∃ ε' ≤ ε, (σₛ, ε') ∈ semₛ')
@@ -97,6 +103,7 @@ namespace StrongRefinement
     - `semₛ'` is the aborting semantics for the source language.
     - `semₜ` is the diverging semantics for the target language.
   -/
+  @[expose]
   protected def Diverging (semₛ semₛ' : Set (α × τ)) (semₜ : Set (β × τ)) : Prop :=
     ∀ (σₜ : β) (ε : τ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ →
       ((σₛ, ε) ∈ semₛ) ∨ (∃ ε' ≤ ε, (σₛ, ε') ∈ semₛ')
@@ -191,6 +198,7 @@ namespace StrongRefinement
     - `semₛ'` is the aborting semantics for the source language.
     - `semₛ'` is the aborting semantics for the source language.
   -/
+  @[expose]
   protected def Aborting (semₛ' : Set (α × τ)) (semₜ' : Set (β × τ)) : Prop :=
     ∀ (σₜ : β) (ε : τ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ' → ∃ ε' ≤ ε, (σₛ, ε') ∈ semₛ'
 
@@ -382,3 +390,5 @@ namespace StrongRefinement
     · exact Aborting.lfp _ IH₂
     · exact Diverging.gfp _ IH₃
 end StrongRefinement
+
+end

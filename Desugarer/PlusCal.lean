@@ -1,8 +1,13 @@
-import Desugarer.Errors
-import Core.SurfacePlusCal.Syntax
-import Core.CorePlusCal.Syntax
-import Desugarer.TLAPlus
-import Parser_.Annotations
+module
+
+public import Desugarer.Errors
+public import Core.SurfacePlusCal.Syntax
+public import Core.CorePlusCal.Syntax
+public import Desugarer.TLAPlus
+public import Parser_.Annotations
+
+public section
+
 
 /-!
   Statement desugaring: `SurfacePlusCal`'s implicit-fallthrough statement lists become
@@ -52,10 +57,10 @@ namespace SurfacePlusCal
 
   /-- The reserved sentinel `goto` target meaning "this thread has terminated" — never needs a
   matching label. -/
-  def doneLabel : String := "Done"
+  private def doneLabel : String := "Done"
 
   /-- The concrete expression type used once `β` is fixed to `CoreTLAPlus.Expression`. -/
-  private abbrev CoreExpr := CoreTLAPlus.Expression (List Annotation)
+  abbrev CoreExpr := CoreTLAPlus.Expression (List Annotation)
 
   /-- `x[e₁, …, eₙ]`'s indices, per bracket group, collapsed to `CorePlusCal.Ref`'s own unary
   shape via `SurfaceTLAPlus.wrapIndices`; `.field` segments pass through unchanged. `pos` is the
@@ -437,3 +442,5 @@ def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List An
     let algo ← result
     algo.checkAssignConflicts
     algo.stripEmbeddedTypeAnnotations)
+
+end

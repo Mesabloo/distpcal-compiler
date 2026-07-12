@@ -1,35 +1,35 @@
 module
 
-public import Batteries.CodeAction
+public meta import Batteries.CodeAction
 
-public import Aesop
+public meta import Aesop
 
-public import Mathlib.Tactic.ApplyAt
-public import Mathlib.Tactic.Conv
-public import Mathlib.Tactic.Clean
-public import Mathlib.Tactic.SimpRw
-public import Mathlib.Tactic.Monotonicity
+public meta import Mathlib.Tactic.ApplyAt
+public meta import Mathlib.Tactic.Conv
+public meta import Mathlib.Tactic.Clean
+public meta import Mathlib.Tactic.SimpRw
+public meta import Mathlib.Tactic.Monotonicity
 -- TODO: when upgrading lean
 -- import Mathlib.Tactic.ByCases
 -- NOTE: do not import `Mathlib.Tactic.DeriveTraversable`, as it creates instances whose name
 -- are not scoped in the current namespace.
-public import Extra.Mathlib.Tactic.DeriveTraversable
-meta import Mathlib.Tactic.FindSyntax
+public meta import Extra.Mathlib.Tactic.DeriveTraversable
+public meta import Mathlib.Tactic.FindSyntax
 -- import Mathlib.Tactic.LiftLets
 -- import Mathlib.Tactic.ExtractLets
-public import Batteries.Tactic.SeqFocus
-public import Mathlib.Tactic.DefEqTransformations
-public import Mathlib.Tactic.GuardGoalNums
+public meta import Batteries.Tactic.SeqFocus
+public meta import Mathlib.Tactic.DefEqTransformations
+public meta import Mathlib.Tactic.GuardGoalNums
 
-meta import Mathlib.Util.WhatsNew
-public import Mathlib.Util.Delaborators
-public import Mathlib.Util.Superscript
-meta import Mathlib.Util.AssertNoSorry
+public meta import Mathlib.Util.WhatsNew
+public meta import Mathlib.Util.Delaborators
+public meta import Mathlib.Util.Superscript
+public meta import Mathlib.Util.AssertNoSorry
 
-meta import Mathlib.Tactic.Linter
-meta import Mathlib.Tactic.Linter.UnusedTacticExtension
+public meta import Mathlib.Tactic.Linter
+public meta import Mathlib.Tactic.Linter.UnusedTacticExtension
 
-meta import LeanSearchClient
+public meta import LeanSearchClient
 
 
 

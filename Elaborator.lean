@@ -1,4 +1,8 @@
-import Elaborator.PlusCal
+module
+
+public import Elaborator.PlusCal
+
+public section
 
 /-!
   Ties the whole checker together: `CoreTLAPlus.Module.check`, threading `Γ` across
@@ -49,3 +53,5 @@ def CoreTLAPlus.Module.runChecker (Γ₀ : Context) (mod : CoreTLAPlus.Module Sr
       (StateT (MetavarContext Typ) (StateT PendingBounds (StateT Nat (DiagT TCWarning TCError Id)))) TypedModule :=
     mod.check
   ((((check.run Γ₀).run' ∅).run' ∅).run' 0).run
+
+end

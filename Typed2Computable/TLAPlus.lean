@@ -1,6 +1,10 @@
-import Typed2Computable.Errors
-import Core.TypedTLAPlus.Syntax
-import Core.ComputableTLAPlus.Syntax
+module
+
+public import Typed2Computable.Errors
+public import Core.TypedTLAPlus.Syntax
+public import Core.ComputableTLAPlus.Syntax
+
+public section
 
 /-!
   `TypedTLAPlus.Expression.toComputable` — translates a checked TLA⁺ expression into its
@@ -74,3 +78,5 @@ partial def TypedTLAPlus.Expression.toComputable :
       "a bare [A]_e (stuttering-allowed action) — already banned transitively-reachable-from-the-algorithm by WellFormedness/Restrictions.lean's check 3")
   | .mvar _ _, pos => throw (.internalInvariantViolated pos
       "a pending coercion placeholder (mvar) — every mvar node is substituted away before the type checker's own output is ever handed to a caller (Core/TypedTLAPlus/Syntax.lean's own guarantee)")
+
+end

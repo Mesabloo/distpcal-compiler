@@ -1,4 +1,9 @@
-import CustomPrelude
+module
+
+meta import CustomPrelude
+
+public section
+
 
 /--
   A monotonic counter for generating hygienic fresh names, needed wherever a pass introduces a
@@ -19,7 +24,7 @@ class MonadFresh (m : Type → Type) where
   digits, and `_`), so no scope-tracking is needed to avoid collisions — a syntactic argument,
   not a runtime check.
 -/
-def freshName {m} [Monad m] [MonadFresh m] (namePrefix := "fresh") : m String := do
+@[expose] def freshName {m} [Monad m] [MonadFresh m] (namePrefix := "fresh") : m String := do
   return s!"{namePrefix}${← MonadFresh.fresh}"
 
 instance {m} [Monad m] [MonadStateOf Nat m] : MonadFresh m where
@@ -27,3 +32,5 @@ instance {m} [Monad m] [MonadStateOf Nat m] : MonadFresh m where
     let n ← get
     set (n + 1)
     return n
+
+end

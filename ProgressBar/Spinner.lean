@@ -1,8 +1,11 @@
-import ProgressBar.SpinnerData
-import Std.Sync.Channel
+module
+
+public import ProgressBar.SpinnerData
+public import Std.Sync.Channel
+
 
 /-- What must be done when stopping the spinner? -/
-inductive CancelAction : Type
+public inductive CancelAction : Type
   /--
     Keep the spinner visible, replace the spinner by the symbol `sym`, and optionally change the
     message to `msg` (if not `none`).
@@ -21,7 +24,7 @@ private inductive Spinner.Msg : Type
   | setTitle (title : String)
   | log (line : String)
 
-structure Spinner : Type where
+public structure Spinner : Type where
   private mk ::
   /-- A way to transmit new messages to be shown next to the spinner. -/
   private chan : Std.CloseableChannel Spinner.Msg
@@ -32,7 +35,7 @@ structure Spinner : Type where
   /-- The task to be performed when cancelling the spinner. -/
   private cancelAction : IO.Ref CancelAction
 
-private def Spinner.newInner (spinner : SpinnerData) (message : Option String) (stream : Option IO.FS.Stream) : IO Spinner := do
+public def Spinner.newInner (spinner : SpinnerData) (message : Option String) (stream : Option IO.FS.Stream) : IO Spinner := do
   let stream ← match stream with | some s => pure s | none => IO.getStdout
   let chan : Std.CloseableChannel Spinner.Msg ← BaseIO.toIO Std.CloseableChannel.new
   let cancelAction : IO.Ref CancelAction ← IO.mkRef .erase
@@ -87,16 +90,16 @@ private def Spinner.newInner (spinner : SpinnerData) (message : Option String) (
   }
 
 /-- Change the title of the spinner. -/
-protected def Spinner.setTitle (spinner : Spinner) (title : String) : IO Unit := BaseIO.toIO do
+public protected def Spinner.setTitle (spinner : Spinner) (title : String) : IO Unit := BaseIO.toIO do
   let _ ← spinner.chan.send (.setTitle title)
 
 /-- Print `line` as its own persisted line above the spinner, without stopping it — unlike
 `Spinner.cancel .persist`, which ends the spinner for good. -/
-protected def Spinner.log (spinner : Spinner) (line : String) : IO Unit := BaseIO.toIO do
+public protected def Spinner.log (spinner : Spinner) (line : String) : IO Unit := BaseIO.toIO do
   let _ ← spinner.chan.send (.log line)
 
 /-- Stops the spinner, erasing the spinner and its message. -/
-protected def Spinner.cancel (spinner : Spinner) (act : CancelAction := .erase) : IO Unit := do
+public protected def Spinner.cancel (spinner : Spinner) (act : CancelAction := .erase) : IO Unit := do
   spinner.cancelAction.set act
   spinner.chan.close
   IO.cancel spinner.task
@@ -106,12 +109,12 @@ protected def Spinner.cancel (spinner : Spinner) (act : CancelAction := .erase) 
   | .error e => throw e
 
 /-- Check if a call to `Spinner.cancel` has already been done or not. -/
-protected def Spinner.isCancelled (spinner : Spinner) : IO Bool := IO.hasFinished spinner.task
+public protected def Spinner.isCancelled (spinner : Spinner) : IO Bool := IO.hasFinished spinner.task
 
 /-- Create a new spinner on `stdout` that will execute `endAction` when cancelled. -/
-protected abbrev Spinner.new (spinner : SpinnerData) (message : Option String) : IO Spinner :=
+public protected abbrev Spinner.new (spinner : SpinnerData) (message : Option String) : IO Spinner :=
   Spinner.newInner spinner message none
 
 /-- Create a new spinner on the provided `stream` that will execute `endAction` when cancelled. -/
-protected abbrev Spinner.newOnStream (spinner : SpinnerData) (message : Option String) (stream : IO.FS.Stream) : IO Spinner :=
+public protected abbrev Spinner.newOnStream (spinner : SpinnerData) (message : Option String) (stream : IO.FS.Stream) : IO Spinner :=
   Spinner.newInner spinner message (some stream)

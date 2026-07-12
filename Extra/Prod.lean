@@ -1,3 +1,8 @@
+module
+
+
+@[expose] public section
+
 namespace Prod
   def mapM {m : Type → Type} {α β δ γ : Type} [Monad m] (f : α → m β) (g : δ → m γ) (x : α × δ) : m (β × γ)
     := .mk <$> f x.fst <*> g x.snd
@@ -23,3 +28,5 @@ namespace MProd
     obtain ⟨⟩ := y
     simp_all only
 end MProd
+
+end

@@ -1,5 +1,10 @@
-import Core.TypedTLAPlus.Coercion
-import Core.CorePlusCal.Syntax
+module
+
+public import Core.TypedTLAPlus.Coercion
+public import Core.CorePlusCal.Syntax
+
+@[expose] public section
+
 
 /-!
   The output of PlusCal statement checking — `ElaboratedPlusCal.Statement`/`Block`/`Branches`/
@@ -156,3 +161,5 @@ abbrev Process := ElaboratedPlusCal.Process TypedTLAPlus.Typ Expression
 abbrev Algorithm := ElaboratedPlusCal.Algorithm TypedTLAPlus.Typ Expression
 
 end TypedPlusCal
+
+end

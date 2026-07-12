@@ -1,10 +1,15 @@
-import Core.TypedPlusCal.Syntax
-import Core.TypedTLAPlus.Coercion
-import Core.ComputablePlusCal.Syntax
-import Mathlib.Control.Bifunctor
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Control.Bitraversable.Basic
-import Mathlib.Control.Bitraversable.Instances
+module
+
+public import Core.TypedPlusCal.Syntax
+public import Core.TypedTLAPlus.Coercion
+public import Core.ComputablePlusCal.Syntax
+public import Mathlib.Control.Bifunctor
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Control.Bitraversable.Basic
+public import Mathlib.Control.Bitraversable.Instances
+
+@[expose] public section
+
 
 /-!
   The output of `Typed2Guarded` (§5.4): every guard (`await`/`receive`/`with`) sits at the very
@@ -237,3 +242,5 @@ abbrev Process := GuardedPlusCal.Process ComputableTLAPlus.Typ ComputablePlusCal
 abbrev Algorithm := GuardedPlusCal.Algorithm ComputableTLAPlus.Typ ComputablePlusCal.Expression
 
 end ComputableGuardedPlusCal
+
+end

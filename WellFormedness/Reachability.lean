@@ -1,6 +1,10 @@
-import WellFormedness.Monad
+module
+
+public import WellFormedness.Monad
 import Elaborator.Declarations
 import Core.TypedPlusCal.Syntax
+
+public section
 
 /-!
   The shared reachability walk: given a starting `TypedTLAPlus.Expression`, resolves every
@@ -241,3 +245,5 @@ def TypedPlusCal.Algorithm.walkReachable {m' : Type → Type} [Monad m']
       for (_, blk) in thread do
         ElaboratedPlusCal.Block.forStatements
           (TypedPlusCal.Statement.walkReachable visitStatement visitExpr currentModule ownDecls) blk
+
+end

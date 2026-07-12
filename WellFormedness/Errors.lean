@@ -1,5 +1,9 @@
-import Common.Errors
-import Core.TypedTLAPlus.Syntax
+module
+
+public import Common.Errors
+public import Core.TypedTLAPlus.Syntax
+
+public section
 
 /-! The well-formedness pass's diagnostics: one named error variant per violation (`PLAN.md`
 §5.2a). All six checks are hard errors — no `WellFormednessWarning` needed (current
@@ -53,6 +57,7 @@ private def renderPath : List String → String
   | [] => "directly in a statement"
   | path@(_ :: _) => "reachable via " ++ String.intercalate " → " (path.map λ op ↦ s!"`{op}`")
 
+@[no_expose]
 instance : CompilerDiagnostic WellFormednessError String where
   isError := true
   posOf
@@ -79,3 +84,5 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .globalTLAPlusVariable _ name definedIn => s!"`{name}` is a `VARIABLE` declared in module `{definedIn}` — a Distributed PlusCal algorithm may not reference module-level `VARIABLE`s."
     | .bareTemporalOrAction _ op path => s!"`{op}` is a temporal/action operator, {renderPath path} — not allowed anywhere in a Distributed PlusCal algorithm."
     | .unboundedQuantifier _ path => s!"Unbounded quantifier (no domain), {renderPath path} — not allowed anywhere in a Distributed PlusCal algorithm."
+
+end

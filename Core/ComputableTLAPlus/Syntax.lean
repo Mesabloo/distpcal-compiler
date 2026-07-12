@@ -1,12 +1,17 @@
-import Common.Position
-import Core.Declaration
-import Core.TypedTLAPlus.Syntax
-import Mathlib.Control.Bifunctor
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Control.Traversable.Instances
-import Mathlib.Control.Bitraversable.Basic
-import Mathlib.Control.Bitraversable.Instances
-import Extra.Prod
+module
+
+public import Common.Position
+public import Core.Declaration
+public import Core.TypedTLAPlus.Syntax
+public import Mathlib.Control.Bifunctor
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Control.Traversable.Instances
+public import Mathlib.Control.Bitraversable.Basic
+public import Mathlib.Control.Bitraversable.Instances
+public import Extra.Prod
+
+@[expose] public section
+
 
 /-!
   The output of `Typed2Computable` — `TypedTLAPlus.Expression` restricted to what a backend can
@@ -176,3 +181,5 @@ export _root_.Module (mk)
 end Module
 
 end ComputableTLAPlus
+
+end

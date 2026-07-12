@@ -1,4 +1,9 @@
-import Core.TypedTLAPlus.Syntax
+module
+
+public import Core.TypedTLAPlus.Syntax
+
+@[expose] public section
+
 
 /-!
   `Coercion` — a term-level witness of `<:`, realized as `Expr → Expr`. Lives in `Core/` (not
@@ -37,3 +42,5 @@ def Coercion.apply : Coercion → Expr → Expr
 instance : Repr Coercion := ⟨fun _ _ => "<coercion>"⟩
 
 end TypedTLAPlus
+
+end

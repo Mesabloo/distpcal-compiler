@@ -1,7 +1,11 @@
-import Core.ComputablePlusCal.Syntax
-import Core.GuardedPlusCal.Syntax
-import Core.ComputableTLAPlus.Subst
-import Typed2Guarded.Errors
+module
+
+public import Core.ComputablePlusCal.Syntax
+public import Core.GuardedPlusCal.Syntax
+public import Core.ComputableTLAPlus.Subst
+public import Typed2Guarded.Errors
+
+public section
 
 /-!
   The merged `𝒞_flat`/`𝒞_reord` (thesis §3.2.2, `PLAN.md` §5.4): both are the same kind of
@@ -52,8 +56,8 @@ import Typed2Guarded.Errors
 
 variable {m : Type → Type} [Monad m] [MonadExceptOf GuardedError m]
 
-private abbrev Guard := ComputableGuardedPlusCal.Statement true false
-private abbrev Action := ComputableGuardedPlusCal.Statement false false
+abbrev Guard := ComputableGuardedPlusCal.Statement true false
+abbrev Action := ComputableGuardedPlusCal.Statement false false
 
 /-- Sequences a non-terminal block `B₁` in front of whatever continues afterward (`B₂`) — the
 type-safe form of the thesis's `Bi.begin ++ [Bi.end] ++ rest` splicing (`𝒞_flat`'s `either`-hoist,
@@ -154,3 +158,5 @@ terminate in one")
 end
 
 end FlatReord
+
+end

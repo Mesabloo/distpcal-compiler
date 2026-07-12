@@ -1,5 +1,10 @@
-import Core.ComputableTLAPlus.Syntax
-import Core.TypedPlusCal.Syntax
+module
+
+public import Core.ComputableTLAPlus.Syntax
+public import Core.TypedPlusCal.Syntax
+
+@[expose] public section
+
 
 /-!
   `ComputableTLAPlus.Expression.subst` — no substitution helper exists yet for this expression
@@ -54,3 +59,5 @@ def Expression.substRef {α} (r : ElaboratedPlusCal.Ref α (Expression α)) (rhs
     Expression.subst r.name (.except (.var r.name r.type .binder) [(r.args, rhs)]) e'
 
 end ComputableTLAPlus
+
+end

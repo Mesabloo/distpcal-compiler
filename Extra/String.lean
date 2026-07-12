@@ -1,4 +1,9 @@
-import CustomPrelude
+module
+
+meta import CustomPrelude
+
+@[expose] public section
+
 
 namespace String
   def escape : String → String := String.foldl escapeAux ""
@@ -281,3 +286,5 @@ namespace String
   --   apply Slice.satisfies_pos_of_satisfies_all
   --   assumption
 end String
+
+end

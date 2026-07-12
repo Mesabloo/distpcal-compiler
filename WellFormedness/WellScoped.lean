@@ -1,6 +1,11 @@
-import WellFormedness.Errors
-import Core.TypedPlusCal.Syntax
-import Core.CorePlusCal.Syntax
+module
+
+public import WellFormedness.Errors
+public import Core.TypedPlusCal.Syntax
+public import Core.CorePlusCal.Syntax
+
+public section
+
 
 /-!
   Well-scopedness (`PLAN.md` §5.2a): every name is fresh in the scope it's declared in — no
@@ -133,3 +138,5 @@ def CorePlusCal.WellScoped {α β} (algo : CorePlusCal.Algorithm α β) : Prop :
     (∀ n ∈ p.localState.names, n ∉ algo.globalState.names) ∧
     ∀ thread ∈ p.threads, ∀ pair ∈ thread,
       CorePlusCal.Block.WellScopedIn (algo.globalState.names ++ p.localState.names) pair.2
+
+end

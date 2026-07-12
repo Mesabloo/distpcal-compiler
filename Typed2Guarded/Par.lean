@@ -1,5 +1,9 @@
-import Core.ComputablePlusCal.Syntax
-import Common.Fresh
+module
+
+public import Core.ComputablePlusCal.Syntax
+public import Common.Fresh
+
+public section
 
 /-!
   `𝒞_par` (thesis §3.2.2.2, `PLAN.md` §5.4): eliminates parallel assignment (`r1≔e1 ‖ … ‖ rn≔en`)
@@ -134,3 +138,5 @@ def ComputablePlusCal.Algorithm.par (algo : ComputablePlusCal.Algorithm) : m Com
     let threads ← p.threads.mapM (·.mapM λ (label, block) ↦ (label, ·) <$> Block.par block)
     pure { p with threads }
   pure { algo with processes }
+
+end

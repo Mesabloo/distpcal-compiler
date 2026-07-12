@@ -1,11 +1,16 @@
-import Batteries.Data.HashMap.Basic
-import Mathlib.Data.List.Defs
-import Std.Data.DHashMap.Lemmas
-import Std.Data.DHashMap.RawLemmas
-import CustomPrelude
-import Mathlib.Data.List.Dedup
-import Extra.List
-import Mathlib.Data.Multiset.Dedup
+module
+
+public import Batteries.Data.HashMap.Basic
+public import Mathlib.Data.List.Defs
+public import Std.Data.DHashMap.Lemmas
+public import Std.Data.DHashMap.RawLemmas
+meta import CustomPrelude
+public import Mathlib.Data.List.Dedup
+public import Extra.List
+public import Mathlib.Data.Multiset.Dedup
+
+@[expose] public section
+
 
 namespace Std.Internal.List
   theorem keys_dedup_of_distinct.{u, v} {α : Type u} {β : α → Type v} [DecidableEq α] {l : List ((a : α) × β a)}
@@ -213,3 +218,5 @@ namespace Std.HashMap
   theorem keys_mergeWith_perm {α β} [DecidableEq α] [Hashable α] {t u : HashMap α β} (f : α → β → β → β) : (t.mergeWith f u).keys.Perm (t.keys ++ u.keys).dedup := by
     rw [List.dedup_append, List.Nodup.dedup (keys_Nodup _)]
     apply keys_mergeWith_perm_union _
+
+end

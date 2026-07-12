@@ -1,9 +1,14 @@
-import CustomPrelude
-import Mathlib.Data.Rel
-import Mathlib.Order.FixedPoints
-import Mathlib.Order.OmegaCompletePartialOrder
-import Mathlib.Order.CompletePartialOrder
-import Extra.Set
+module
+
+meta import CustomPrelude
+public import Mathlib.Data.Rel
+public import Mathlib.Order.FixedPoints
+public import Mathlib.Order.OmegaCompletePartialOrder
+public import Mathlib.Order.CompletePartialOrder
+public import Extra.Set
+
+@[expose] public section
+
 
 theorem todo_rename {α β γ : Type*} (f : SetRel α β) (g : SetRel β γ) (A : Set α) (B : Set β) (C : Set γ)
   (h₁ : B ⊆ f.image A) (h₂ : C ⊆ g.image B) : C ⊆ (f.comp g).image A := by
@@ -302,3 +307,5 @@ theorem OrderHom.lfp_induction₃ {α β γ : Type _} [CompleteLattice α] [Comp
       apply le_sSup
       apply Set.mem_image_snd_of_mem
       exact Set.mem_image_snd_of_mem _ this
+
+end

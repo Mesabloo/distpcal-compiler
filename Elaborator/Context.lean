@@ -1,4 +1,9 @@
-import Elaborator.Monad
+module
+
+public import Elaborator.Monad
+
+@[expose] public section
+
 
 open TypedTLAPlus (Typ)
 
@@ -27,3 +32,5 @@ def extendAllBindings {α} (bindings : List (String × Binding)) (act : m α) : 
 def requireAnnotation (pos : SourceSpan) (what : String) : Option Typ → m Typ
   | some τ => return τ
   | none => throw (.expectedTypeAnnotation pos what)
+
+end

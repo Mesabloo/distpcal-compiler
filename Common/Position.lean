@@ -1,5 +1,10 @@
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Logic.Function.Basic
+module
+
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Logic.Function.Basic
+
+@[expose] public section
+
 
 /--
   A position, expressed as a pair of numbers of UTF-8 codepoints (rather than byte indices).
@@ -136,7 +141,7 @@ infix:60 " @@ " => registerSource
 abbrev posOf {α : Type} (x : α) : SourceSpan := default_or_ofNonempty%
 
 open Lean Parser Term in section
-  def posIndices : Parser := leading_parser
+  meta def posIndices : Parser := leading_parser
     atomic ("(" >> nonReservedSymbol "indices") >> " := " >> "[" >> many numLit >> "]" >> ")" >> ppSpace
 
   /--
@@ -145,7 +150,7 @@ open Lean Parser Term in section
     only match on the positions of the `nᵢ`-th discriminant (`1`-based indexing).
   -/
   @[term_parser]
-  def matchSource : Parser := leading_parser:leadPrec
+  public meta def matchSource : Parser := leading_parser:leadPrec
     "match_source " >> optional generalizingParam >> optional motive >> optional posIndices >> sepBy1 matchDiscr "," >>
     " with " >> ppDedent matchAlts
 
@@ -194,3 +199,5 @@ end
 
 --   #guard unsafe __
 -- end
+
+end

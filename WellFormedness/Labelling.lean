@@ -1,5 +1,9 @@
-import WellFormedness.Errors
-import Core.TypedPlusCal.Syntax
+module
+
+public import WellFormedness.Errors
+public import Core.TypedPlusCal.Syntax
+
+public section
 
 /-!
   Well-labelledness (`PLAN.md` §5.2a): every `goto` targets a label its process actually
@@ -48,3 +52,5 @@ def TypedPlusCal.Algorithm.checkLabelling {m : Type → Type} [Monad m]
     for thread in p.threads do
       for (_, blk) in thread do
         ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) blk
+
+end

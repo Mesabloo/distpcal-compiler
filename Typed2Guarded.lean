@@ -1,6 +1,10 @@
-import Typed2Guarded.CFlow
-import Typed2Guarded.Par
-import Typed2Guarded.FlatReord
+module
+
+public import Typed2Guarded.CFlow
+public import Typed2Guarded.Par
+public import Typed2Guarded.FlatReord
+
+public section
 
 /-!
   `Typed2Guarded`'s entry point — `𝒞_D→G := 𝒞_reord ∘ 𝒞_flat ∘ 𝒞_par ∘ 𝒞_cflow` (thesis §3.2.2),
@@ -38,3 +42,5 @@ def ComputablePlusCal.Algorithm.toGuarded {m : Type → Type} [Monad m] [MonadFr
       : ComputableGuardedPlusCal.Process)
   pure { isFair := algo.isFair, name := algo.name,
          globalState := ComputablePlusCal.Declarations.toGuarded algo.globalState, processes }
+
+end

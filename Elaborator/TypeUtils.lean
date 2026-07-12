@@ -1,4 +1,8 @@
-import Elaborator.Monad
+module
+
+public import Elaborator.Monad
+
+public section
 
 open TypedTLAPlus (Typ MVarId)
 
@@ -47,3 +51,5 @@ def specializeType (τ : Typ) : m Typ := do
   let vars := (typeFreeVars τ).eraseDups
   let σ ← vars.mapM λ v ↦ return (v, ← mkFreshMVar)
   return substTypeVars σ τ
+
+end

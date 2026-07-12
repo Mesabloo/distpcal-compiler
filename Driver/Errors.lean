@@ -1,8 +1,10 @@
-import Elaborator.Elaborator
-import Parser_.TLAPlus
-import Parser_.Annotations
-import Desugarer.TLAPlus
-import Desugarer.PlusCal
+module
+
+public import Elaborator
+public import Parser_
+public import Desugarer
+
+public section
 
 /-!
   `Driver/Modules.lean`'s own errors/warnings — every way driving the pipeline up to and
@@ -45,6 +47,7 @@ private instance : ToString Char := ⟨λ c ↦ s!"'{c}'"⟩
 -- Needed for `DriverError.parse`'s wrapped `Unexpected (Token (Located' SurfacePlusCal.Token))`.
 private instance {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toString x.data⟩
 
+@[no_expose]
 instance : CompilerDiagnostic DriverError String where
   isError := true
   posOf
@@ -94,3 +97,5 @@ instance : CompilerDiagnostic DriverWarning String where
     | .parser _ w => CompilerDiagnostic.msgOf w
     | .desugar _ w => CompilerDiagnostic.msgOf w
     | .typeCheck _ w => CompilerDiagnostic.msgOf w
+
+end

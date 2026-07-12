@@ -1,13 +1,18 @@
-import CustomPrelude
-import Extra.Array
-import Mathlib.Control.Bifunctor
-import Mathlib.Control.Traversable.Basic
-import Mathlib.Control.Traversable.Instances
-import Mathlib.Control.Bitraversable.Basic
-import Mathlib.Control.Bitraversable.Instances
-import Common.Position
-import Core.SurfaceTLAPlus.Syntax
-import Core.SurfacePlusCal.Syntax
+module
+
+meta import CustomPrelude
+public import Extra.Array
+public import Mathlib.Control.Bifunctor
+public import Mathlib.Control.Traversable.Basic
+public import Mathlib.Control.Traversable.Instances
+public import Mathlib.Control.Bitraversable.Basic
+public import Mathlib.Control.Bitraversable.Instances
+public import Common.Position
+public import Core.SurfaceTLAPlus.Syntax
+public import Core.SurfacePlusCal.Syntax
+
+@[expose] public section
+
 
 /-!
   `SurfacePlusCal`, but with every `goto` explicit and at the end of a block — the output of
@@ -253,3 +258,5 @@ namespace CorePlusCal
         <$> bitraverse f g a.globalState
         <*> traverse (bitraverse f g) a.processes
 end CorePlusCal
+
+end
