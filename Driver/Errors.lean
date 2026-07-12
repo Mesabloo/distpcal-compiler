@@ -3,15 +3,15 @@ import Parser_.TLAPlus
 import Parser_.Annotations
 import Desugarer.TLAPlus
 import Desugarer.PlusCal
-import WellFormedness.WellFormedness
-import Typed2Computable.Typed2Computable
 
 /-!
-  `Driver/Modules.lean`'s own errors/warnings — every way driving the pipeline up to and around
-  the checker can fail. Wraps each lower-level pass's own error type (`lex`/`parse`/`annotation`/
-  `desugar`/`typeCheck`) plus the resolution-specific conditions (`moduleNotFound`/
-  `ambiguousModule`/`cyclicExtends`), so `Fugue.lean` only has to handle one error type across
-  the whole pipeline.
+  `Driver/Modules.lean`'s own errors/warnings — every way driving the pipeline up to and
+  including the checker can fail. Wraps each lower-level pass's own error type (`lex`/`parse`/
+  `annotation`/`desugar`/`typeCheck`) plus the resolution-specific conditions (`moduleNotFound`/
+  `ambiguousModule`/`cyclicExtends`), so `Fugue.lean` only has to handle one error type for the
+  driver's own portion of the pipeline. Passes past the checker (`WellFormedness`,
+  `Typed2Computable`, everything after) run outside the driver, on its returned `TypedModule`, and
+  report through their own error types directly — not wrapped here.
 -/
 
 /-- `moduleId` is the *offending module's own* key into the source registry
@@ -37,10 +37,6 @@ inductive DriverError : Type
   | cyclicExtends (chain : List String)
   /-- A real type-checking failure. -/
   | typeCheck (moduleId : String) (e : TCError)
-  /-- A well-formedness violation (`PLAN.md` §5.2a) — runs right after type checking succeeds. -/
-  | wellFormedness (moduleId : String) (e : WellFormednessError)
-  /-- A `Typed2Computable` translation failure — runs right after well-formedness succeeds. -/
-  | computability (moduleId : String) (e : ComputableError)
 
 -- Needed for `DriverError.lex`'s wrapped `Unexpected Char` — no global `ToString Char` exists on
 -- purpose (`Fugue.lean` needs the identical local instance for the same reason).
@@ -58,8 +54,6 @@ instance : CompilerDiagnostic DriverError String where
     | .desugar _ e => CompilerDiagnostic.posOf e
     | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => SourceSpan.placeholder
     | .typeCheck _ e => CompilerDiagnostic.posOf e
-    | .wellFormedness _ e => CompilerDiagnostic.posOf e
-    | .computability _ e => CompilerDiagnostic.posOf e
   msgOf
     | .lex _ e => CompilerDiagnostic.msgOf e
     | .parse _ e => CompilerDiagnostic.msgOf e
@@ -70,8 +64,6 @@ instance : CompilerDiagnostic DriverError String where
       s!"Module '{name}' is ambiguous: found at {String.intercalate ", " foundAt}."
     | .cyclicExtends chain => s!"Cyclic EXTENDS: {String.intercalate " -> " chain}."
     | .typeCheck _ e => CompilerDiagnostic.msgOf e
-    | .wellFormedness _ e => CompilerDiagnostic.msgOf e
-    | .computability _ e => CompilerDiagnostic.msgOf e
 
 /-- `DriverError`'s non-fatal counterpart — carries a warning from any pass, plus its owning
 `moduleId`, through `Driver/Modules.lean`'s accumulate-then-flush machinery. -/

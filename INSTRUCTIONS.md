@@ -37,6 +37,10 @@ stay accurate, not frozen artifact from one planning session.
   current, not snapshot from whenever last touched.
 - **Always use `lean-lsp` connector when edit `.lean` files.** Reserve plain `lake build`
   (not `lean-lsp`) for final build at end of task.
+- **Search mathlib/Lean for existing lemmas/defs via `lean-lsp`'s `Loogle` tool, not
+  `grep`ping through `.lake`.** `Loogle` searches by type/name/pattern properly indexed —
+  faster, more precise, no wading through vendored source. Reserve raw `grep`/`ls` over
+  `.lake` for cases `Loogle` genuinely can't answer (e.g. reading one specific known file).
 - **Wait for explicit approval before start next task from task list or plan.** Finish one
   task, stop, tell owner what done, wait for go-ahead before pick up next item — don't
   chain through list on own steam.

@@ -1435,28 +1435,6 @@ already-successfully-parsed AST, has none of this problem, §5.1). The "nothing 
 this at all" half stays out of scope until `first`/`orElse`'s backtracking semantics are
 revisited.
 
-### 9.9 Warnings that precede a hard error within the same pass call are lost
-
-`Driver/Modules.lean`'s `compileModule` accumulates every stage's warnings into one local
-list, flushes them all at once when a module's outcome (`Built`/`Replayed`/`Failed`)
-becomes known — matching `lake build`'s own timing instead of printing warnings
-interleaved as produced. This fixes ordering *across* stages/modules only: warnings from
-an already-finished stage correctly survive a *later* stage's failure. It does **not**
-fix loss *within* a single stage: `parseModule` (`Parser_/TLAPlus.lean`) and
-`algo.runDesugarer` (`Desugarer/PlusCal.lean`) both return `Error ⊕ (Value × List
-Warning)` — the error branch carries no warnings, so any warnings that same call
-accumulated before hitting a fatal error in the *same* call are structurally unreachable
-from the driver, no matter how `compileModule` threads its own local list around the
-call.
-
-Fixing this for real needs `parseModule`/`algo.runDesugarer`'s own signatures changed so
-warnings ride alongside *both* outcomes — e.g. `(Unexpected e ⊕ Module) × List
-ParserWarning` instead of `Unexpected e ⊕ (Module × List ParserWarning)` — plus updating
-`compileModule`'s match arms to pull warnings out of both branches. Not fixed — filed as
-longer-term. A module whose source has both a warning-worthy construct and a later hard
-parse/desugar error in the same pass call will not show that warning until this is
-revisited.
-
 ### 9.10 `LAMBDA` — designed, not implemented
 
 Thesis has typing rules for `LAMBDA` (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression`

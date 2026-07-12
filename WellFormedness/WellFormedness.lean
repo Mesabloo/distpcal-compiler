@@ -5,8 +5,9 @@ import WellFormedness.Restrictions
 import Elaborator.Elaborator
 
 /-! Ties `WellFormedness/`'s four checks together, mirroring `Elaborator/Elaborator.lean`'s own
-role for type checking: one entry point `Driver/Modules.lean`'s `compileModule` calls right
-after `mod.runChecker` succeeds. -/
+role for type checking: one entry point, called on `Driver/Modules.lean`'s `compileModule` output
+right after type checking succeeds — from outside the driver itself (`Fugue.lean`), not from
+inside `compileModule`; the driver's own job stops at type checking plus caching. -/
 
 /-- `Labelling` → `WellScoped` → `Declarations` → `Restrictions`, in that order, against a
 module's own embedded `pcalAlgorithm` — a no-op if it has none (an ordinary TLA⁺ module with no

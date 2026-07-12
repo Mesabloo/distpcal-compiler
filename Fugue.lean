@@ -6,6 +6,8 @@ import Parser_.Annotations
 import Desugarer.TLAPlus
 import Desugarer.PlusCal
 import Driver.Modules
+import WellFormedness.WellFormedness
+import Typed2Computable.Typed2Computable
 import ProgressBar.Spinner
 import ProgressBar.Spinners
 import Colorized
@@ -179,6 +181,38 @@ private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT I
     if ← FlagsEnv.isWarningEnabled warning.name then
       logLine <| CompilerDiagnostic.pretty warning ((← warning.sourceLines).getD lines) colored
 
+/-- `MonadForeignLookup`'s instance for plain `IO` — needed by `WellFormedness.checkWellFormed`/
+`Typed2Computable.toComputable` below, both of which run here, after the driver has already
+returned its checked module, rather than inside `Driver/Modules.lean`'s own `M`. All they need is
+`Ξ`'s cache (already fully populated by the driver's recursive `EXTENDS` resolution by this point)
+and the builtin table — same lookup `Driver/Modules.lean`'s own instance does, just against `IO`
+directly instead of `M`. -/
+instance : MonadForeignLookup IO where
+  lookupForeign name := do
+    match ← lookupModule name with
+    | some entry => return some entry.value
+    | none => return builtinModules[name]?
+
+/-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. Mirrors
+`Driver/Modules.lean`'s own private `dumpToFile` — kept as its own copy rather than exported,
+since it's a three-line helper and the two files dump different things at different stages. -/
+private def dumpToFile (content : String) (dir : System.FilePath) (name : String) : IO Unit := do
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir / name) content
+
+/-- Run one of the passes past the driver (well-formedness checking, `Typed2Computable`, and
+whatever else `PLAN.md` §9 eventually adds outside `compileModule`); on `.error e`, render `e`
+against `lines` and exit. Every such pass fails the same way — plain `eprintln`, not through the
+spinner, which only wraps the driver's own portion of `runCli` below. -/
+private def runPass {ε} [CompilerDiagnostic ε String] {α}
+    (lines : List String.Slice) (colored : Bool) (act : ExceptT ε IO α) : IO α := do
+  match ← act.run with
+  | .error e =>
+    IO.eprintln <| CompilerDiagnostic.pretty e lines colored
+    IO.eprintln "Compilation failed."
+    IO.Process.exit 1
+  | .ok a => pure a
+
 private def runCli (p : Parsed) : IO UInt32 := do
   validateAndSetFlags p
 
@@ -199,7 +233,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
   -- `EXTENDS` pulls in modules not seen yet this run. Completed steps — reading the input, each
   -- `EXTENDS`ed module `Built`/`Replayed`, warnings — print as their own persisted lines via
   -- `Spinner.log` without interrupting the animation.
-  let typedMod ← withProgress "Reading input…" λ spinner ↦ do
+  let (typedMod, lines) ← withProgress "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
         unless ← path.pathExists do
@@ -241,12 +275,25 @@ private def runCli (p : Parsed) : IO UInt32 := do
       IO.Process.exit 1
     | .ok typedMod =>
       spinner.success "Compilation succeeded."
-      return typedMod
+      return (typedMod, lines)
 
-  IO.println s!"Fugue: type-checked module '{typedMod.name}' (extends {typedMod.extends.length} module(s), \
-{typedMod.declarations₁.length + typedMod.declarations₂.length} declaration(s), \
-{if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal algorithm). \
-The rest of the pipeline (Phase 6 onward) isn't implemented yet, so it stops here."
+  let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim ".fugue/debug" (↑·)
+
+  -- Everything past this point runs *outside* the driver — `compileModule` only takes a module
+  -- through type checking and caches that result (`PLAN.md` §9); well-formedness checking and
+  -- the `Typed2Computable` translation are the first two passes of the real pipeline proper, and
+  -- run once here, against the driver's already-returned main module, not per-`EXTENDS`-dependency
+  -- inside the driver's own recursion.
+  runPass lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : ExceptT WellFormednessError IO Unit)
+  let computable ← runPass lines colored (TypedTLAPlus.Module.toComputable typedMod : ExceptT ComputableError IO _)
+
+  if ← FlagsEnv.getDebugFlag "dump-computable" then
+    dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
+
+  IO.println s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
+{typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
+declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
+algorithm). The rest of the pipeline (Typed2Guarded onward) isn't implemented yet, so it stops here."
   return 0
 
 private def cli : Cmd := `[Cli|
