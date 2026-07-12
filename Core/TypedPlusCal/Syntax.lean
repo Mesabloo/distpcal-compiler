@@ -34,13 +34,24 @@ public import Core.CorePlusCal.Syntax
 -- monomorphic copy per stage.
 namespace ElaboratedPlusCal
 
-/-- Carries its own resolved `type` (unlike `CorePlusCal.Ref`) — see the module doc above.
+/-- Carries its own resolved `baseType` (unlike `CorePlusCal.Ref`) — see the module doc above.
 `args` follows `CorePlusCal.Ref`'s shape: one entry per path segment, `.inl` for a `.field`
-segment, `.inr` for a (unary) bracket-index segment. -/
+segment, `.inr` for a (unary) bracket-index segment.
+
+`baseType` is the *base variable*'s own type (`name`'s `Γ`-lookup result), before any `.args`
+segment is applied — not the reference's final/result type. Kept this way rather than the other
+way around because the base type is the one direction recovery can't go: given `baseType` plus
+`args`, the result type (and every intermediate step's own type) is always cheap to recompute
+(`Ref.stepType`/`.resultType` below, one per pinned instantiation — same structural step-rule
+`Elaborator/Expressions.lean`'s `stepInto`/`indexInto` use at check time, replayed without
+re-checking since every segment is already elaborated), but going the other way — recovering an
+intermediate step's type, or the base type itself, from just the final result type — isn't
+possible in general (a record access or tuple projection isn't invertible without knowing what
+was accessed). -/
 structure Ref (τ ε : Type) : Type where
   name : String
   args : List (String ⊕ ε)
-  type : τ
+  baseType : τ
   deriving Repr
 
 /-- `SurfacePlusCal.MulticastFilter`, reused generically. -/
@@ -159,6 +170,28 @@ abbrev Branches := ElaboratedPlusCal.Branches TypedTLAPlus.Typ Expression
 abbrev Declarations := ElaboratedPlusCal.Declarations TypedTLAPlus.Typ Expression
 abbrev Process := ElaboratedPlusCal.Process TypedTLAPlus.Typ Expression
 abbrev Algorithm := ElaboratedPlusCal.Algorithm TypedTLAPlus.Typ Expression
+
+/-- The type after one `Ref` path segment, given the type before it — see `Ref.baseType`'s own
+doc comment (`ElaboratedPlusCal`, above) for why this is always cheap: every segment is already
+elaborated, so this is a pure structural pattern match, the same rule `Elaborator/
+Expressions.lean`'s `stepInto`/`indexInto` use at check time, just not re-checking anything.
+Total: the fallback (`τ` unchanged) only triggers on a `Ref` no well-typed input can produce. -/
+def Ref.stepType (τ : TypedTLAPlus.Typ) : String ⊕ Expression → TypedTLAPlus.Typ
+  | .inl field => match τ with
+    | .record fs => (fs.lookup field).getD τ
+    | _ => τ
+  | .inr idx => match τ with
+    | .function _ rng => rng
+    | .seq elem => elem
+    | .tuple τs => match idx with
+      | .nat n => (n.toNat?.bind (τs[· - 1]?)).getD τ
+      | _ => τ
+    | _ => τ
+
+/-- A `Ref`'s own final/result type — the type of the value it denotes as an expression (what
+`assign r e`/`receive c r` check `e`'s type against) — recomputed from `baseType` by walking
+`args` left to right via `stepType`. -/
+def Ref.resultType (r : Ref) : TypedTLAPlus.Typ := r.args.foldl Ref.stepType r.baseType
 
 end TypedPlusCal
 

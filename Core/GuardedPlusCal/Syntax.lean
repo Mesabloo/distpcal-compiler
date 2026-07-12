@@ -60,24 +60,26 @@ abbrev Ref (Typ Expr : Type) := ElaboratedPlusCal.Ref Typ Expr
 abbrev MulticastFilter (Typ Expr : Type) := SurfacePlusCal.MulticastFilter Typ Expr
 
 /-- `ElaboratedPlusCal.Ref` carries no `Bifunctor`/`Bitraversable` instance of its own (it has an
-extra `type : τ` field, same reason `Typed2Computable/PlusCal.lean`'s `Ref.toComputable` is
+extra `baseType : τ` field, same reason `Typed2Computable/PlusCal.lean`'s `Ref.toComputable` is
 hand-written rather than a generic `bitraverse` call) — small local helpers instead, used only by
 `Statement`'s own instances below, not registered as global instances. -/
 def Ref.bimap {Typ Typ' Expr Expr'} (f : Typ → Typ') (g : Expr → Expr') (r : Ref Typ Expr) :
     Ref Typ' Expr' :=
-  { name := r.name, args := Sum.map id g <$> r.args, type := f r.type }
+  { name := r.name, args := Sum.map id g <$> r.args, baseType := f r.baseType }
 
 def Ref.bitraverse {Typ Typ' Expr Expr'} {m : Type → Type} [Applicative m]
     (f : Typ → m Typ') (g : Expr → m Expr') (r : Ref Typ Expr) : m (Ref Typ' Expr') :=
-  (λ args type ↦ { name := r.name, args, type }) <$> traverse (Sum.bitraverse pure g) r.args <*> f r.type
+  (λ args baseType ↦ { name := r.name, args, baseType }) <$> traverse (Sum.bitraverse pure g) r.args <*> f r.baseType
 
 /-- A statement in the Guarded PlusCal language. The first `Bool` (`guardClass`) is `true` for a
 statement allowed in a branch's precondition (`with`/`await`/`receive`); the second (`terminal`)
 is `true` only for `goto`, which always ends a branch's action block. -/
 inductive Statement (Typ Expr : Type) : Bool → Bool → Type
   /-- Body-less: a `with`'s nested body is un-nested into flat sequencing by `𝒞_flat`/`𝒞_reord`
-  before reaching this type (`bound` is `true` for `=`, `false` for `∈`). -/
-  | «with» (name : String) (bound : Bool) (e : Expr) : Statement Typ Expr true false
+  before reaching this type (`bound` is `true` for `=`, `false` for `∈`). `ann` carries `name`'s
+  type through unchanged from `ComputablePlusCal.Statement.with` — every earlier pass keeps a
+  fresh binder's type available this way, so this stage shouldn't be the one that drops it. -/
+  | «with» (name : String) (ann : Typ) (bound : Bool) (e : Expr) : Statement Typ Expr true false
   | await (e : Expr) : Statement Typ Expr true false
   | receive (c r : Ref Typ Expr) (coe : TypedTLAPlus.Coercion) : Statement Typ Expr true false
   | skip : Statement Typ Expr false false
@@ -101,7 +103,7 @@ instance {Typ Expr} : Inhabited (Statement Typ Expr false false) where
 
 instance instBifunctorStatement {b b'} : Bifunctor (Statement · · b b') where
   bimap f g := λ
-    | .with name bound e => .with name bound (g e)
+    | .with name ann bound e => .with name (f ann) bound (g e)
     | .await e => .await (g e)
     | .receive c r coe => .receive (Ref.bimap f g c) (Ref.bimap f g r) coe
     | .skip => .skip
@@ -114,7 +116,7 @@ instance instBifunctorStatement {b b'} : Bifunctor (Statement · · b b') where
 
 instance instBitraversableStatement {b b'} : Bitraversable (Statement · · b b') where
   bitraverse f g := λ
-    | .with name bound e => (.with name bound ·) <$> g e
+    | .with name ann bound e => (.with name · bound ·) <$> f ann <*> g e
     | .await e => .await <$> g e
     | .receive c r coe => (.receive · · coe) <$> Ref.bitraverse f g c <*> Ref.bitraverse f g r
     | .skip => pure .skip

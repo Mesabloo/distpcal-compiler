@@ -107,18 +107,22 @@ def TypedTLAPlus.Expression.checkNode {m' : Type → Type} [Monad m']
 
 /-- Check 1 over `s`'s own non-expression positions — `assign`'s LHS `Ref`s and `receive`'s
 destination `Ref` `r`, neither of which is an `Expression` node the shared walk's `visitExpr`
-would ever see (`Ref` carries its own resolved `type` precisely so this can check it directly,
-without needing `Γ`). `send`'s/`receive`'s channel argument `c` is legitimately Channel-shaped and
-exempted — only its index expressions (`Ref.args`, walked by `TypedPlusCal.Statement
-.walkReachable` itself, not here) are subject to check 1. Supplied as `walkReachable`'s
-`visitStatement`; the expression-position half (checks 1/2(c)/3 over every embedded `Expression`)
-is `Expression.checkNode`, supplied as its `visitExpr`. -/
+would ever see (`Ref` carries its own resolved `baseType` precisely so `Ref.resultType` can
+recompute the reference's own result type directly, without needing `Γ` — see that def's own doc
+comment, `Core/TypedPlusCal/Syntax.lean`). `send`'s/`receive`'s channel argument `c` is
+legitimately Channel-shaped and exempted — only its index expressions (`Ref.args`, walked by
+`TypedPlusCal.Statement.walkReachable` itself, not here) are subject to check 1. Supplied as
+`walkReachable`'s `visitStatement`; the expression-position half (checks 1/2(c)/3 over every
+embedded `Expression`) is `Expression.checkNode`, supplied as its `visitExpr`. -/
 def TypedPlusCal.Statement.checkRefRestrictions {b} {m' : Type → Type} [Monad m']
     [MonadExceptOf WellFormednessError m'] (s : TypedPlusCal.Statement b) : m' Unit :=
   match_source s with
   | .assign asss, pos => asss.forM λ (r, _) ↦
-      if r.type.isChannelLike then throw (.channelInExpression pos r.type) else pure ()
-  | .receive _ r _, pos => if r.type.isChannelLike then throw (.channelInExpression pos r.type) else pure ()
+      let τ := TypedPlusCal.Ref.resultType r
+      if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+  | .receive _ r _, pos =>
+      let τ := TypedPlusCal.Ref.resultType r
+      if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
   | _, _ => pure ()
 
 /-- Checks 1/2(c)/3 over a whole algorithm, via the shared `TypedPlusCal.Algorithm.walkReachable`

@@ -382,3 +382,19 @@ one absolute), or resolve each candidate to a canonical/real path first (needs a
 Whichever, `locate`'s final `match found with | [] | [_] | multiple` needs the dedup
 applied before that match, not after — a false ambiguity is user-visible as a hard compile
 error, not a warning.
+
+### 9.17 No proof `subtype` and `Coercion.apply`/`.applyComputable` agree on type
+
+Since Phase 10 item 0 (`Core/TypedTLAPlus/Coercion.lean`, `Elaborator/Subtyping.lean`),
+`Coercion` real closed data, not opaque closure — makes stating a real theorem about it
+possible, none written yet. Checked so far only empirically, `tests/regression/` fixtures
+plus one hand-verified dump (`.claude/FINDINGS.md`, Phase 10 item 0 entry).
+
+**Open:** what to actually prove, roughly `subtype τ τ' = .success c → ∀ e, Γ ⊢ e : τ →
+Γ ⊢ c.apply e : τ'` (soundness of discharge against `subtype`'s own judgment) — likely two
+separate statements, one per `apply`/`.applyComputable`, since they discharge against
+different `Expression` types. Also open whether this belongs to this phase's own
+well-scopedness-preservation exception (§ item 5 of `.claude/tasklist.md`, "one standing
+exception" per `INSTRUCTIONS.md`'s verification-scope rule) or is a separate ask needing
+its own check-in — `INSTRUCTIONS.md` only names well-scopedness preservation as in-scope,
+not this. Don't start without check-in first.

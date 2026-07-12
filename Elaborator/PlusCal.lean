@@ -96,7 +96,10 @@ local instance {b} : Inhabited (m (TypedPlusCal.Branches b)) := ⟨pure default�
 /-- Synthesize a `Ref`'s type: a `Γ`-lookup on `name`, then `Elaborator/Expressions.lean`'s own
 `stepInto` once per path segment — the same `.inl` field/`.inr` index dispatch `EXCEPT` paths use,
 reused as-is rather than duplicating the record-field-access rule. `pos` is borrowed from the
-enclosing statement — a `Ref` carries no position of its own. -/
+enclosing statement — a `Ref` carries no position of its own. Returns the reference's own
+*result* type (`τ`, after every segment) for the caller to check against directly — the built
+`TypedPlusCal.Ref` itself keeps only `baseType` (`τ₀`, before any segment): see `Ref.baseType`'s
+doc comment (`Core/TypedPlusCal/Syntax.lean`) for why. -/
 private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Ref) := do
   match (← readThe Context).get? r.name with
   | none => throw (.unboundVariable pos r.name)
@@ -108,7 +111,7 @@ private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Re
           | .inl field => pure (Sum.inl field)
           | .inr idx' => Sum.inr <$> resolveMVars idx'
         return (τ', acc ++ [seg'])
-    return (τ, { name := r.name, args := args', type := τ })
+    return (τ, { name := r.name, args := args', baseType := τ₀ })
 
 /-- One `Declarations.variables` entry, checked: absent initializer, the annotation is mandatory
 (nothing else could pin the type down); `=`-initialized, infer/check the value directly;

@@ -483,8 +483,14 @@ Two independent halves:
     `.inl` segment, no unary treatment needed. `SurfacePlusCal.Ref`/`CorePlusCal.Ref`/
     `ElaboratedPlusCal.Ref` each keep their own `Functor`/`Traversable` instance (or, for
     `ElaboratedPlusCal.Ref`, hand-written per-caller mapping — it carries its own resolved
-    `type : τ` field so isn't itself `Functor`/`Traversable`), mapping/traversing only the
-    `.inr` side, `.inl` field names passed through untouched. `CorePlusCal.Statement.
+    `baseType : τ` field (the *base variable*'s own type, from `Γ`, before any `.args`
+    segment is applied — not the reference's final/result type, which is always cheap to
+    recompute from `baseType` plus `args` via `Ref.stepType`/`.resultType`, walking the same
+    structural step-rule `stepInto`/`indexInto` use at check time, and which the reverse
+    direction can't do: an intermediate step's own type isn't recoverable from just the
+    final result type without the base type to begin with) so isn't itself `Functor`/
+    `Traversable`), mapping/traversing only the `.inr` side, `.inl` field names passed
+    through untouched. `CorePlusCal.Statement.
     assign`/`.receive`/`.send` reference `CorePlusCal.Ref`. The conversion
     (`SurfacePlusCal.Ref → CorePlusCal.Ref`, `Desugarer/PlusCal.lean`'s `Ref.desugarRef`,
     reusing `SurfaceTLAPlus.wrapIndices` on each `.inr` group via `Sum.map id`) happens

@@ -37,34 +37,37 @@ public section
   *multiple* simultaneous writes; running the general temp-var recipe on a single assignment
   would be correct but pure noise.
 
-  Every synthesized `with`'s own `ann : Typ` field is discarded before it can matter:
-  `GuardedPlusCal.Statement.with` — what `Computable2Guarded/FlatReord.lean`'s walk eventually lowers
-  this pass's output *into* — carries no `ann` field at all (only `name`/`bound`/`e`), and nothing
-  in between reads it either. Reusing each write's own target `Ref.type` here (rather than
-  inventing a second placeholder convention) is exact for the outer RHS bindings (`vᵢ`'s type
-  must match `rᵢ.type` for `rᵢ := vᵢ` to be well-typed) and merely inert for the inner index-temp
-  bindings (an index expression's own type isn't recoverable here without re-running inference,
-  and is never observed either way).
+  Every synthesized `with`'s own `ann : Typ` field survives past this pass now (`Computable2Guarded/
+  FlatReord.lean`'s walk carries it, unchanged, into `GuardedPlusCal.Statement.with`'s own `ann`
+  field — see that type's doc comment). The outer RHS bindings (`vᵢ`'s type must match `rᵢ`'s own
+  result type for `rᵢ := vᵢ` to be well-typed) and the inner index-temp bindings (each index
+  expression's own type) both get their real type now, via `Ref.resultType`/`.indexType`
+  respectively (`Core/ComputablePlusCal/Syntax.lean`) — cheap structural recomputation from
+  `Ref.baseType`, no re-running inference needed (`Ref.baseType`'s own doc comment, `Core/
+  TypedPlusCal/Syntax.lean`, explains why).
 -/
 
-open ComputablePlusCal (Expression Ref Statement Block Branches)
+open ComputablePlusCal (Expression Ref Statement Block Branches Ref.stepType Ref.indexType Ref.resultType)
 
 variable {m : Type → Type} [Monad m] [MonadFresh m]
 
 /-- `𝒞_par`'s per-`Ref` recursion: walks `r.args` left to right, binding one fresh temp per
 `.inr` (bracket-index) segment via a `with`, leaving every `.inl` (field-access) segment
-untouched, then hands the reconstructed `Ref` to `k`. -/
+untouched, then hands the reconstructed `Ref` to `k`. Threads the type-so-far explicitly
+(starting at `r.baseType`, stepped via `Ref.stepType`) so each hoisted index-temp gets its own
+correct type (`Ref.indexType`), not the unrelated referenced `Ref`'s own result type. -/
 private partial def parRef (r : Ref) (k : Ref → m (Block false)) : m (Block false) :=
-  go r.args []
+  go r.baseType r.args []
 where
-  go (remaining seen : List (String ⊕ Expression)) : m (Block false) :=
+  go (τ : ComputableTLAPlus.Typ) (remaining seen : List (String ⊕ Expression)) : m (Block false) :=
     match remaining with
     | [] => k { r with args := seen.reverse }
-    | .inl field :: rest => go rest (.inl field :: seen)
+    | .inl field :: rest => go (Ref.stepType τ (.inl field)) rest (.inl field :: seen)
     | .inr e :: rest => do
+      let idxTy := Ref.indexType τ
       let y ← freshName "idx"
-      let body ← go rest (.inr (.var y r.type .binder) :: seen)
-      pure ⟨[], .with y r.type true e body⟩
+      let body ← go (Ref.stepType τ (.inr e)) rest (.inr (.var y idxTy .binder) :: seen)
+      pure ⟨[], .with y idxTy true e body⟩
 
 /-- Threads `parRef` across every `(rᵢ, vᵢ)` pair in turn (`r1` outermost, matching the thesis's
 own left-to-right `𝒞_par(r1,f1) … 𝒞_par(rn,fn)` nesting) to bind *every* `Ref`'s own index temps
@@ -81,18 +84,18 @@ private partial def parRefsAll (rs : List (Ref × String)) (k : List (Ref × Str
 already had its own index temps bound by `parRefsAll`. -/
 private def buildAssigns : List (Ref × String) → Block false
   | [] => unreachable! -- only ever called from `buildParChain` with `pairs.length ≥ 2`
-  | [(r, v)] => ⟨[], .assign [(r, .var v r.type .binder)]⟩
+  | [(r, v)] => ⟨[], .assign [(r, .var v (Ref.resultType r) .binder)]⟩
   | (r, v) :: rest =>
     let ⟨begin, «end»⟩ := buildAssigns rest
-    ⟨.assign [(r, .var v r.type .binder)] :: begin, «end»⟩
+    ⟨.assign [(r, .var v (Ref.resultType r) .binder)] :: begin, «end»⟩
 
 /-- The outer `with v1=e1 do … with vn=en do body` chain, `v1` outermost — same nested-`⟨[], ·⟩`
 idiom `Desugarer/PlusCal.lean`'s `buildWithChain` already uses for a multi-binder surface
 `with`. -/
 private def valueChain : List (String × Ref × Expression) → Block false → Statement false
   | [], _ => unreachable! -- only ever called from `buildParChain` with `pairs.length ≥ 2`
-  | [(v, r, e)], body => .with v r.type true e body
-  | (v, r, e) :: rest, body => .with v r.type true e ⟨[], valueChain rest body⟩
+  | [(v, r, e)], body => .with v (Ref.resultType r) true e body
+  | (v, r, e) :: rest, body => .with v (Ref.resultType r) true e ⟨[], valueChain rest body⟩
 
 /-- `𝒞_par` proper, applied to one parallel-assignment statement's own `(Ref × Expr)` list
 (`pairs.length ≥ 2` — the length-≤1 case is handled by `Statement.par` before reaching here). -/

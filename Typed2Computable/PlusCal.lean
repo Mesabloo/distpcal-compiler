@@ -10,7 +10,7 @@ public section
   `TypedPlusCal.{Ref,MulticastFilter,Statement,Block,Branches,Declarations,Process,Algorithm}
   .toComputable` — translates a checked PlusCal algorithm (and its pieces) into `ComputablePlusCal`,
   delegating every leaf `TypedTLAPlus.Expression` to `Expression.toComputable`
-  (`Typed2Computable/TLAPlus.lean`). `τ` fields (`Ref.type`, `Statement.with`'s `ann`,
+  (`Typed2Computable/TLAPlus.lean`). `τ` fields (`Ref.baseType`, `Statement.with`'s `ann`,
   `Declarations`'s per-binding annotations, …) pass through unconverted, same reason as
   `Typed2Computable/TLAPlus.lean`'s own note: `ComputableTLAPlus.Typ` is a literal reuse of
   `TypedTLAPlus.Typ`, not a second copy.
@@ -38,7 +38,7 @@ public section
 variable {m : Type → Type} [Monad m] [MonadExceptOf ComputableError m]
 
 /-- `Ref.args`' `.inr` (index) entries delegated to `Expression.toComputable`; `.inl` (field)
-entries and `name`/`type` pass through unconverted. -/
+entries and `name`/`baseType` pass through unconverted. -/
 def TypedPlusCal.Ref.toComputable (r : TypedPlusCal.Ref) : m ComputablePlusCal.Ref := do
   let args ← r.args.mapM λ
     | .inl field => pure (Sum.inl field)

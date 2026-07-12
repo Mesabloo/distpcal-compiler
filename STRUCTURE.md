@@ -72,6 +72,17 @@ constructs with no finite runtime representation (`PLAN.md` §5.3).
 - `Syntax.lean` (`ComputablePlusCal/`) — pins `ElaboratedPlusCal` (`Core/TypedPlusCal/
   Syntax.lean`) at `ComputableTLAPlus`'s types.
 
+## `Core/GuardedPlusCal/`, `Core/NetworkPlusCal/`
+`Computable2Guarded`'s and `Guarded2Network`'s output ASTs, respectively (`PLAN.md` §5.4/§5.5).
+- `Syntax.lean` (`GuardedPlusCal/`) — `Statement` flat (10 constructors, no nested `Block`/
+  `Branches` — every `if`/`while`/`either` already rewritten into `AtomicBranch`'s precondition/
+  action split by this stage), reuses `ElaboratedPlusCal.Ref`/`.MulticastFilter`. Also pins itself
+  at `ComputableTLAPlus`'s types as `ComputableGuardedPlusCal`.
+- `Syntax.lean` (`NetworkPlusCal/`) — `Statement` identical to `GuardedPlusCal.Statement` minus
+  `receive` (compiled into a new `Thread.rx` constructor instead — a real second kind of thread,
+  not folded into `.code`); reuses `GuardedPlusCal.Block`/`Ref`/`MulticastFilter`/`Declarations`
+  unchanged. Also pins itself at `ComputableTLAPlus`'s types as `ComputableNetworkPlusCal`.
+
 ## `Desugarer/`
 Surface → Core lowering (`PLAN.md` §3.2).
 - `PlusCal.lean` — statement/process desugaring, `with`-chain building, well-labelledness
@@ -160,7 +171,7 @@ started.
 
 ## `Guarded2Network/`
 Guarded → Network PlusCal, one pass with full refinement proof planned (`PLAN.md` §5.5,
-§6.2) — not yet started.
+§6.2) — AST landed (`Core/NetworkPlusCal/Syntax.lean`), pass itself not yet started.
 
 ## `Network2Go/`, `Network2JoinCalculus/`
 Network PlusCal → Go, and Network PlusCal → Join Calculus backends (`PLAN.md` §8) — not

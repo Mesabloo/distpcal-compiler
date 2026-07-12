@@ -125,8 +125,8 @@ reduced every parallel assignment to single targets")
     | .await e => walkBlock (guards ++ [.await (substActionsInExpr actions e)]) actions rest
     | .receive c r coe =>
       walkBlock (guards ++ [.receive (substActionsInRef actions c) (substActionsInRef actions r) coe]) actions rest
-    | .with var _ann «=|∈» val B =>
-      walkBlock (guards ++ [.with var «=|∈» val]) actions (ComputablePlusCal.Block.append B rest)
+    | .with var ann «=|∈» val B =>
+      walkBlock (guards ++ [.with var ann «=|∈» val]) actions (ComputablePlusCal.Block.append B rest)
     | .either branches => do
       let results ← (ComputablePlusCal.Branches.toList branches).mapM
         λ Bi ↦ walkBlock guards actions (ComputablePlusCal.Block.append Bi rest)

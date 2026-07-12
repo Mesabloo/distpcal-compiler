@@ -56,7 +56,7 @@ def Expression.substRef {α} (r : ElaboratedPlusCal.Ref α (Expression α)) (rhs
   if r.args.isEmpty then
     Expression.subst r.name rhs e'
   else
-    Expression.subst r.name (.except (.var r.name r.type .binder) [(r.args, rhs)]) e'
+    Expression.subst r.name (.except (.var r.name r.baseType .binder) [(r.args, rhs)]) e'
 
 end ComputableTLAPlus
 
