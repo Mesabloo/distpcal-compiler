@@ -108,9 +108,14 @@ ahead of its own phase slot, and isn't duplicated here.
   `Typed2Computable` supplies no-ops and just keeps the closure).
 - `Labelling.lean` — every `goto` targets a label its process actually defines, or `"Done"`;
   `"Done"` itself is never redefined.
-- `WellScoped.lean` — no duplicate/shadowed names in any scope (global, process-local,
-  block-local `with`); also `CorePlusCal.WellScoped`, a fresh `Prop` (not yet proved or used)
-  modeling the same discipline for a later `GuardedPlusCal` preservation lemma.
+- `WellScoped.lean` — thin re-export of `WellScoped/`, one file per `PlusCal` stage: no
+  duplicate/shadowed names in any scope (global, process-local, block-local `with`).
+  `WellScoped/TypedPlusCal.lean` is the **executable** check the driver runs;
+  `WellScoped/CorePlusCal.lean` and `WellScoped/GuardedPlusCal.lean` are `Prop`-side
+  counterparts modeling the same discipline over each of those stages' own ASTs, authored fresh
+  and not executed by anything — infrastructure for a future preservation lemma
+  (`CorePlusCal.WellScoped`) or proof precondition (`GuardedPlusCal.Algorithm.WellScoped`,
+  `Guarded2Network`'s refinement proof, phase 10 item 5).
 - `Declarations.lean` — structural/type-shape checks: no Channel-typed `variables` entry, no
   process-local `channels`/`fifos` (defense-in-depth), no algorithm-level `variables`.
 - `Restrictions.lean` — supplies `Reachability.lean`'s shared walk its actual checks (as
