@@ -224,9 +224,14 @@ Network PlusCal → Go backend (`PLAN.md` §5.7) — in progress (phase 11). Tar
 generator landed (`Core/Go/`); the compilation passes themselves aren't written yet.
 - `Errors.lean` — `N2GError` variants (currently just the `internalInvariantViolated`
   defense-in-depth catch-all).
+- `Naming.lean` — naming policy: the runtime packages' qualifiers (`tlaplus`/`comm`/`locks`)
+  and §7.2.2's capitalization of definitions, record fields and tuple `Proj`ections.
+- `Typ.lean` — `compileTyp : ComputableTLAPlus.Typ → m Go.Typ` (§7.2.1.1). Primitives go to
+  the runtime newtypes, not Go builtins; record fields are sorted so that source order can't
+  change the compiled type; `Channel(τ)` throws.
 - Entry point: `Network2Go.lean` (top-level re-export).
-- Still missing: the TLA⁺ → Go type/expression compilation, the PlusCal-side pass
-  (`PlusCal.lean`, `network.toGo`), lock inference, and `runtime/tlaplus/`.
+- Still missing: TLA⁺ → Go *expression* compilation and definition compilation (§7.2.1.2/
+  §7.2.2), the PlusCal-side pass (`PlusCal.lean`, `network.toGo`), and lock inference.
 
 ## `Network2JoinCalculus/`
 Network PlusCal → Join Calculus backend (`PLAN.md` §8) — not yet started.
