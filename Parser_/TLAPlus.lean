@@ -861,6 +861,13 @@ namespace SurfaceTLAPlus.Parser
     section
       variable (ws : TLAPlusParser PUnit) (expr : TLAPlusParser PUnit → TLAPlusParser (Expression (List CommentAnnotation)))
 
+      private def parseIdentifierOrTuple : TLAPlusParser (IdentifierOrTuple String) := do
+        -- TODO: parse annotations
+        ws *> first [
+          Sum.inl <$> parseIdentifier,
+          (Sum.inr ∘ Array.toList) <$> (token .langle *> ws *> sepBy1 (ws *> comma) parseIdentifier <* ws <* token .rangle)
+        ]
+
       private def parseIfThenElse : TLAPlusParser (Expression (List CommentAnnotation)) := located do
         let _ ← ws *> token .if
         let cond ← expr ws
@@ -954,6 +961,14 @@ namespace SurfaceTLAPlus.Parser
         let qs ← sepBy1 (ws *> comma) (parseQuantifierBound ws expr)
         return .map' e qs.toList
 
+      private def parseSetCollect : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> braces do
+        let xs ← parseIdentifierOrTuple ws
+        let _ ← ws *> token (.infix .«\in»)
+        let e₁ ← expr ws
+        let _ ← ws *> token .colon
+        let e₂ ← expr ws
+        return .collect xs e₁ e₂
+
       private def parseFunctionSet : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> brackets do
         let e₁ ← expr ws
         let _ ← ws *> token .«->»
@@ -991,8 +1006,9 @@ namespace SurfaceTLAPlus.Parser
         parseSetLiteral ws (parseExpression · inUpdate),
         parseQuantifier ws (parseExpression · inUpdate),
         parseExcept ws (parseExpression · inUpdate) (parseExpression · ·),
-        -- parse collect BEFORE map because, as stated in "Specifying Systems",
+        -- NOTE: parse collect BEFORE map because, as stated in "Specifying Systems",
         -- `{x ∈ S : x ∈ T}` should be parsed as a collect, not a map
+        parseSetCollect ws (parseExpression · inUpdate),
         parseSetMap ws (parseExpression · inUpdate),
         parseFunctionSet ws (parseExpression · inUpdate),
         parseCase ws (parseExpression · inUpdate),
