@@ -23,13 +23,23 @@ public section
   - **Blocks are `List Statement`**, not §6.6's `; S` continuation style, so `var`/`make` are
     ordinary statements scoped by position rather than by a syntactic continuation. Nothing in the
     semantics depends on the difference — a denotation folds over the list.
-  - **Beyond §6.6:** composite literals (`structLit`/`sliceLit`/`mapLit`/`make`) and
-    `Typ.named`/`Typ.var`. §7.2's listings need `Lock[struct {…}]`, `Receiver[T]`, `Set[T]`,
-    `LazyFunction[T, U]`, `Address`, `Network`; without them the generated code has to route
-    around its own runtime library.
-  - `Ref` is Go's own (`_`, `x`, `r[e]`, `r.x`, Definition 6.6.11), generic over `Expr` alone —
-    unlike `GuardedPlusCal.Ref` it carries no type annotation, so it gets `Functor`/`Traversable`
-    rather than the bifunctor pair.
+  - **Beyond §6.6:** composite literals (`structLit`/`sliceLit`/`mapLit`/`make`), function literals
+    (`funcLit`), and `Typ.named`/`Typ.var`. §7.2's listings need `Lock[struct {…}]`, `Receiver[T]`,
+    `Set[T]`, `LazyFunction[T, U]`, `Address`, `Network`; without them the generated code has to
+    route around its own runtime library.
+  - **`Expression` and `Statement` are one `mutual` family, parameterized by a single `α`** (the
+    type annotations expressions carry) rather than `Statement` being generic over its expression
+    type. `funcLit` forces this: every callback the runtime library takes (`SetFilter`/`SetMap`/
+    `Choose`'s predicates, `FnConstructor`/`MkRecFn`'s generators — §7.2.1.2) has a *statement*
+    body, and so does the only faithful compilation of `IF`/`CASE`, Go having no conditional
+    expression and an eager helper being wrong (`IF x # 0 THEN 1/x ELSE 0` must not evaluate both
+    arms). A `Statement` generic over `Expr` cannot tie that knot. The cost is the
+    `Bifunctor`/`Bitraversable` pair on `Statement`/`Function`, which become `Functor`/`Traversable`
+    over `α`; nothing was instantiating either parameter independently, Go being the terminal AST.
+  - `Ref` is Go's own (`_`, `x`, `r[e]`, `r.x`, Definition 6.6.11), and stays generic over `Expr`
+    alone — it is not part of the mutual family, since a reference contains expressions but no
+    statements. Unlike `GuardedPlusCal.Ref` it carries no type annotation, so it gets
+    `Functor`/`Traversable` rather than the bifunctor pair.
   - `&&`/`||` are ordinary `BinaryOperator` cases, even though Definition 6.6.9 gives them
     short-circuiting semantics: that is a property of their semantic rule, which case-splits on the
     operator regardless, not of the syntax. Splitting them out bought nothing and cost a case in
@@ -38,11 +48,12 @@ public section
     optional, since a blocking `select` with no default is exactly what §7.2.3's scheduling loops
     emit.
   - Instances follow `Core/CorePlusCal/Syntax.lean`'s shape for a *nested* statement type
-    (`mutual`-free `partial def` + explicit instance) rather than `Core/NetworkPlusCal/Syntax.lean`'s
-    derived-style ones, which only work because its `Statement` is flat.
-  - Pinned at `Go.Typ`/`Go.Expression Go.Typ` in `ComputableGo` below, mirroring how
-    `Core/ComputablePlusCal/Syntax.lean` pins its own shared layer. This file imports nothing from
-    `Core/` — the Go AST doesn't mention TLA⁺.
+    (`partial def` + explicit instance) rather than `Core/NetworkPlusCal/Syntax.lean`'s
+    derived-style ones, which only work because its `Statement` is flat; the mutual family's
+    traversals are one `mutual` block of `partial def`s, mirroring the type declarations.
+  - Pinned at `Go.Typ` in `ComputableGo` below, mirroring how `Core/ComputablePlusCal/Syntax.lean`
+    pins its own shared layer. This file imports nothing from `Core/` — the Go AST doesn't mention
+    TLA⁺.
 -/
 
 namespace Go
@@ -100,35 +111,10 @@ inductive Builtin : Type
   | append
   deriving Repr, Inhabited, BEq
 
-/-- Go expressions (§6.6.2). `α` carries type annotations at the sites that need one — the same
-role it plays in `ComputableTLAPlus.Expression`. -/
-inductive Expression (α : Type) : Type
-  /-- An integer literal, kept as its source text (same as `ComputableTLAPlus.Expression.nat`). -/
-  | nat (n : String)
-  | str (s : String)
-  | «true»
-  | «false»
-  | var (name : String)
-  | unary (op : UnaryOperator) (e : Expression α)
-  | binary (op : BinaryOperator) (e₁ e₂ : Expression α)
-  /-- `e[i]` -/
-  | index (e i : Expression α)
-  /-- `e.x` -/
-  | field (e : Expression α) (name : String)
-  | call (f : Expression α) (args : List (Expression α))
-  | builtin (b : Builtin) (args : List (Expression α))
-  /-- `τ{x₁: e₁, …}` — also covers named composite literals like `LazyFunction{…}`. -/
-  | structLit (τ : α) (fields : List (String × Expression α))
-  /-- `τ{e₁, …, eₙ}` -/
-  | sliceLit (τ : α) (elems : List (Expression α))
-  /-- `τ{k₁: v₁, …}` -/
-  | mapLit (τ : α) (entries : List (Expression α × Expression α))
-  /-- `make(τ, e₁, …)` — the expression form (`make(map[K]V)`); channel creation has its own
-  statement, `Statement.make`. -/
-  | make (τ : α) (args : List (Expression α))
-  deriving Repr, Inhabited
+/-- An assignable reference (Definition 6.6.11). No type annotation, unlike `GuardedPlusCal.Ref`.
 
-/-- An assignable reference (Definition 6.6.11). No type annotation, unlike `GuardedPlusCal.Ref`. -/
+Generic over `Expr` rather than a member of the `Expression`/`Statement` mutual family below: a
+reference contains expressions but never statements, so nothing in it needs the knot tied. -/
 inductive Ref (Expr : Type) : Type
   /-- `_` -/
   | wildcard
@@ -153,44 +139,88 @@ structure SwitchClause (Expr α : Type) : Type where
   body : List α
   deriving Repr, Inhabited
 
+mutual
+
+/-- Go expressions (§6.6.2), plus `funcLit`. `α` carries type annotations at the sites that need
+one — the same role it plays in `ComputableTLAPlus.Expression`. -/
+inductive Expression (α : Type) : Type
+  /-- An integer literal, kept as its source text (same as `ComputableTLAPlus.Expression.nat`). -/
+  | nat (n : String)
+  | str (s : String)
+  | «true»
+  | «false»
+  | var (name : String)
+  | unary (op : UnaryOperator) (e : Expression α)
+  | binary (op : BinaryOperator) (e₁ e₂ : Expression α)
+  /-- `e[i]` -/
+  | index (e i : Expression α)
+  /-- `e.x` -/
+  | field (e : Expression α) (name : String)
+  | call (f : Expression α) (args : List (Expression α))
+  | builtin (b : Builtin) (args : List (Expression α))
+  /-- `τ{x₁: e₁, …}` — also covers named composite literals like `LazyFunction{…}`. -/
+  | structLit (τ : α) (fields : List (String × Expression α))
+  /-- `τ{e₁, …, eₙ}` -/
+  | sliceLit (τ : α) (elems : List (Expression α))
+  /-- `τ{k₁: v₁, …}` -/
+  | mapLit (τ : α) (entries : List (Expression α × Expression α))
+  /-- `make(τ, e₁, …)` — the expression form (`make(map[K]V)`); channel creation has its own
+  statement, `Statement.make`. -/
+  | make (τ : α) (args : List (Expression α))
+  /-- `func(x₁ τ₁, …) (τ'₁, …) { S }` — an anonymous function, closing over whatever is in scope
+  at the site it appears.
+
+  Not in §6.6, which has only top-level functions, but §7.2.1.2 cannot be compiled without it:
+  `{x ∈ S : P}`, `{e : x ∈ S}`, `CHOOSE x ∈ S : P` and `[x ∈ S ↦ e]` all compile to a runtime
+  call taking a callback, and `IF`/`CASE` compile to an immediately-applied literal, Go having no
+  conditional expression. Lambda-lifting these to `Function`s is not an alternative: they capture
+  the enclosing block's variables, and Go has no partial application to re-supply them with. -/
+  | funcLit (params : List (String × α)) (returns : List α) (body : List (Statement α))
+  deriving Repr
+
 /-- Go statements (§6.6.3.4). Blocks are `List Statement` — see the module doc. -/
-inductive Statement (Typ Expr : Type) : Type
+inductive Statement (α : Type) : Type
   | skip
-  | print (e : Expr)
-  | panic (e : Expr)
+  | print (e : Expression α)
+  | panic (e : Expression α)
   /-- `return e₁, …, eₙ` — Go's multi-valued return, widened from §6.6.12's single `e`. -/
-  | «return» (es : List Expr)
+  | «return» (es : List (Expression α))
   /-- `var x τ`, zero-initialized. -/
-  | var (name : String) (τ : Typ)
+  | var (name : String) (τ : α)
   /-- `r₁, …, rₙ = e₁, …, eₘ` — covers both `a, b = 1, 2` and `a, b = f()`. -/
-  | assign (lhs : List (Ref Expr)) (rhs : List Expr)
+  | assign (lhs : List (Ref (Expression α))) (rhs : List (Expression α))
   /-- `c := make(chan τ, k)`; `capacity` absent means a synchronous (unbuffered) channel. -/
-  | make (name : String) (τ : Typ) (capacity : Option Expr)
-  | close (c : Expr)
+  | make (name : String) (τ : α) (capacity : Option (Expression α))
+  | close (c : Expression α)
   /-- `c <- e` -/
-  | send (c : Expr) (e : Expr)
+  | send (c : Expression α) (e : Expression α)
   /-- `x, ok = <-c`; `ok` absent for the single-valued form. -/
-  | receive (c : Expr) (x : Ref Expr) (ok : Option (Ref Expr))
-  | go (body : List (Statement Typ Expr))
-  | «if» (cond : Expr) (thenBranch elseBranch : List (Statement Typ Expr))
+  | receive (c : Expression α) (x : Ref (Expression α)) (ok : Option (Ref (Expression α)))
+  | go (body : List (Statement α))
+  | «if» (cond : Expression α) (thenBranch elseBranch : List (Statement α))
   /-- `for e do {S}` — Go's conditional loop. -/
-  | «for» (cond : Expr) (body : List (Statement Typ Expr))
-  | «switch» (e : Expr) (cases : List (SwitchClause Expr (Statement Typ Expr)))
-      («default» : List (Statement Typ Expr))
+  | «for» (cond : Expression α) (body : List (Statement α))
+  | «switch» (e : Expression α) (cases : List (SwitchClause (Expression α) (Statement α)))
+      («default» : List (Statement α))
   /-- A `default`-less `select` blocks until some guard fires. -/
-  | select (cases : List (SelectClause (Statement Typ Expr)))
-      («default» : Option (List (Statement Typ Expr)))
-  deriving Repr, Inhabited
+  | select (cases : List (SelectClause (Statement α)))
+      («default» : Option (List (Statement α)))
+  deriving Repr
+
+end
+
+instance {α} : Inhabited (Expression α) := ⟨.true⟩
+instance {α} : Inhabited (Statement α) := ⟨.skip⟩
 
 /-- A top-level function (Definition 6.6.20), plus `typeParams` for the generic functions §7.2
 emits. Each type parameter carries its constraint, which is an ordinary type: `any`,
 `comparable`, or one of the runtime library's own interfaces (`Eq[T]`, `Ord[T]` — §7.2.1.2). -/
-structure Function (Typ Expr : Type) : Type where
+structure Function (α : Type) : Type where
   name : String
-  typeParams : List (String × Typ)
-  params : List (String × Typ)
-  returnType : List Typ
-  body : List (Statement Typ Expr)
+  typeParams : List (String × α)
+  params : List (String × α)
+  returnType : List α
+  body : List (Statement α)
   deriving Repr, Inhabited
 
 def Ref.map {Expr Expr'} (g : Expr → Expr') : Ref Expr → Ref Expr'
@@ -212,8 +242,11 @@ instance : Functor Ref where
 instance : Traversable Ref where
   traverse := Ref.traverse
 
+mutual
+
 /-- `partial` rather than structurally recursive: `α` occurs under `List`/`Prod` in most
-constructors, the same situation `Core/CorePlusCal/Syntax.lean`'s own instances are `partial` for. -/
+constructors, the same situation `Core/CorePlusCal/Syntax.lean`'s own instances are `partial`
+for. -/
 partial def Expression.map {α β} (f : α → β) : Expression α → Expression β
   | .nat n => .nat n
   | .str s => .str s
@@ -230,12 +263,50 @@ partial def Expression.map {α β} (f : α → β) : Expression α → Expressio
   | .sliceLit τ elems => .sliceLit (f τ) (Expression.map f <$> elems)
   | .mapLit τ entries => .mapLit (f τ) (Prod.map (Expression.map f) (Expression.map f) <$> entries)
   | .make τ args => .make (f τ) (Expression.map f <$> args)
+  | .funcLit params returns body =>
+    .funcLit (Prod.map id f <$> params) (f <$> returns) (Statement.map f <$> body)
+
+partial def Statement.map {α β} (f : α → β) : Statement α → Statement β
+  | .skip => .skip
+  | .print e => .print (Expression.map f e)
+  | .panic e => .panic (Expression.map f e)
+  | .return es => .return (Expression.map f <$> es)
+  | .var name τ => .var name (f τ)
+  | .assign lhs rhs =>
+    .assign (Ref.map (Expression.map f) <$> lhs) (Expression.map f <$> rhs)
+  | .make name τ capacity => .make name (f τ) (Expression.map f <$> capacity)
+  | .close c => .close (Expression.map f c)
+  | .send c e => .send (Expression.map f c) (Expression.map f e)
+  | .receive c x ok =>
+    .receive (Expression.map f c) (Ref.map (Expression.map f) x)
+      (Ref.map (Expression.map f) <$> ok)
+  | .go body => .go (Statement.map f <$> body)
+  | .if cond B₁ B₂ => .if (Expression.map f cond) (Statement.map f <$> B₁) (Statement.map f <$> B₂)
+  | .for cond body => .for (Expression.map f cond) (Statement.map f <$> body)
+  | .switch e cases «default» =>
+    .switch (Expression.map f e)
+      ((λ c ↦ { head := Expression.map f c.head, body := Statement.map f <$> c.body }) <$> cases)
+      (Statement.map f <$> «default»)
+  | .select cases «default» =>
+    .select
+      ((λ c ↦ { guard := Statement.map f c.guard, body := Statement.map f <$> c.body }) <$> cases)
+      ((Statement.map f <$> ·) <$> «default»)
+
+end
 
 instance : Functor Expression where
   map := Expression.map
 
+instance : Functor Statement where
+  map := Statement.map
+
+section Traverse
+
 local instance {F : Type _ → Type _} [Applicative F] {α} [Inhabited α] : Inhabited (F α) :=
-  ⟨pure default⟩ in
+  ⟨pure default⟩
+
+mutual
+
 partial def Expression.traverse {F : Type _ → Type _} [Applicative F] {α β} (f : α → F β) :
     Expression α → F (Expression β)
   | .nat n => pure (.nat n)
@@ -259,105 +330,94 @@ partial def Expression.traverse {F : Type _ → Type _} [Applicative F] {α β} 
       <*> Traversable.traverse
         (bitraverse (Expression.traverse f) (Expression.traverse f)) entries
   | .make τ args => .make <$> f τ <*> Traversable.traverse (Expression.traverse f) args
+  | .funcLit params returns body =>
+    .funcLit
+      <$> Traversable.traverse (bitraverse pure f) params
+      <*> Traversable.traverse f returns
+      <*> Traversable.traverse (Statement.traverse f) body
+
+partial def Statement.traverse {F : Type _ → Type _} [Applicative F] {α β} (f : α → F β) :
+    Statement α → F (Statement β)
+  | .skip => pure .skip
+  | .print e => .print <$> Expression.traverse f e
+  | .panic e => .panic <$> Expression.traverse f e
+  | .return es => .return <$> Traversable.traverse (Expression.traverse f) es
+  | .var name τ => .var name <$> f τ
+  | .assign lhs rhs =>
+    .assign
+      <$> Traversable.traverse (Ref.traverse (Expression.traverse f)) lhs
+      <*> Traversable.traverse (Expression.traverse f) rhs
+  | .make name τ capacity =>
+    .make name <$> f τ <*> Traversable.traverse (Expression.traverse f) capacity
+  | .close c => .close <$> Expression.traverse f c
+  | .send c e => .send <$> Expression.traverse f c <*> Expression.traverse f e
+  | .receive c x ok =>
+    .receive
+      <$> Expression.traverse f c
+      <*> Ref.traverse (Expression.traverse f) x
+      <*> Traversable.traverse (Ref.traverse (Expression.traverse f)) ok
+  | .go body => .go <$> Traversable.traverse (Statement.traverse f) body
+  | .if cond B₁ B₂ =>
+    .if <$> Expression.traverse f cond
+      <*> Traversable.traverse (Statement.traverse f) B₁
+      <*> Traversable.traverse (Statement.traverse f) B₂
+  | .for cond body =>
+    .for <$> Expression.traverse f cond <*> Traversable.traverse (Statement.traverse f) body
+  | .switch e cases «default» =>
+    .switch <$> Expression.traverse f e
+      <*> Traversable.traverse
+        (λ c ↦ SwitchClause.mk
+          <$> Expression.traverse f c.head
+          <*> Traversable.traverse (Statement.traverse f) c.body) cases
+      <*> Traversable.traverse (Statement.traverse f) «default»
+  | .select cases «default» =>
+    .select
+      <$> Traversable.traverse
+        (λ c ↦ SelectClause.mk
+          <$> Statement.traverse f c.guard
+          <*> Traversable.traverse (Statement.traverse f) c.body) cases
+      <*> Traversable.traverse (Traversable.traverse (Statement.traverse f)) «default»
+
+end
+
+end Traverse
 
 instance : Traversable Expression where
   traverse := Expression.traverse
 
-partial def Statement.bimap {Typ Typ' Expr Expr'} (f : Typ → Typ') (g : Expr → Expr') :
-    Statement Typ Expr → Statement Typ' Expr'
-  | .skip => .skip
-  | .print e => .print (g e)
-  | .panic e => .panic (g e)
-  | .return es => .return (g <$> es)
-  | .var name τ => .var name (f τ)
-  | .assign lhs rhs => .assign (Ref.map g <$> lhs) (g <$> rhs)
-  | .make name τ capacity => .make name (f τ) (g <$> capacity)
-  | .close c => .close (g c)
-  | .send c e => .send (g c) (g e)
-  | .receive c x ok => .receive (g c) (Ref.map g x) (Ref.map g <$> ok)
-  | .go body => .go (Statement.bimap f g <$> body)
-  | .if cond B₁ B₂ => .if (g cond) (Statement.bimap f g <$> B₁) (Statement.bimap f g <$> B₂)
-  | .for cond body => .for (g cond) (Statement.bimap f g <$> body)
-  | .switch e cases «default» =>
-    .switch (g e)
-      ((λ c ↦ { head := g c.head, body := Statement.bimap f g <$> c.body }) <$> cases)
-      (Statement.bimap f g <$> «default»)
-  | .select cases «default» =>
-    .select
-      ((λ c ↦ { guard := Statement.bimap f g c.guard, body := Statement.bimap f g <$> c.body })
-        <$> cases)
-      ((Statement.bimap f g <$> ·) <$> «default»)
+instance : Traversable Statement where
+  traverse := Statement.traverse
 
-instance : Bifunctor Statement where
-  bimap := Statement.bimap
-
-local instance {F : Type _ → Type _} [Applicative F] {α} [Inhabited α] : Inhabited (F α) :=
-  ⟨pure default⟩ in
-partial def Statement.bitraverse {F : Type _ → Type _} [Applicative F] {Typ Typ' Expr Expr'}
-    (f : Typ → F Typ') (g : Expr → F Expr') : Statement Typ Expr → F (Statement Typ' Expr')
-  | .skip => pure .skip
-  | .print e => .print <$> g e
-  | .panic e => .panic <$> g e
-  | .return es => .return <$> traverse g es
-  | .var name τ => .var name <$> f τ
-  | .assign lhs rhs => .assign <$> traverse (Ref.traverse g) lhs <*> traverse g rhs
-  | .make name τ capacity => .make name <$> f τ <*> traverse g capacity
-  | .close c => .close <$> g c
-  | .send c e => .send <$> g c <*> g e
-  | .receive c x ok =>
-    .receive <$> g c <*> Ref.traverse g x <*> traverse (Ref.traverse g) ok
-  | .go body => .go <$> traverse (Statement.bitraverse f g) body
-  | .if cond B₁ B₂ =>
-    .if <$> g cond
-      <*> traverse (Statement.bitraverse f g) B₁
-      <*> traverse (Statement.bitraverse f g) B₂
-  | .for cond body => .for <$> g cond <*> traverse (Statement.bitraverse f g) body
-  | .switch e cases «default» =>
-    .switch <$> g e
-      <*> traverse
-        (λ c ↦ SwitchClause.mk <$> g c.head <*> traverse (Statement.bitraverse f g) c.body) cases
-      <*> traverse (Statement.bitraverse f g) «default»
-  | .select cases «default» =>
-    .select
-      <$> traverse
-        (λ c ↦ SelectClause.mk
-          <$> Statement.bitraverse f g c.guard
-          <*> traverse (Statement.bitraverse f g) c.body) cases
-      <*> traverse (traverse (Statement.bitraverse f g)) «default»
-
-instance : Bitraversable Statement where
-  bitraverse := Statement.bitraverse
-
-instance : Bifunctor Function where
-  bimap f g F := { F with
+instance : Functor Function where
+  map f F := { F with
     typeParams := Prod.map id f <$> F.typeParams
     params := Prod.map id f <$> F.params
     returnType := f <$> F.returnType
-    body := Statement.bimap f g <$> F.body
+    body := Statement.map f <$> F.body
   }
 
-instance : Bitraversable Function where
-  bitraverse f g F :=
+instance : Traversable Function where
+  traverse f F :=
     (Function.mk F.name · · · ·)
-      <$> traverse (bitraverse pure f) F.typeParams
-      <*> traverse (bitraverse pure f) F.params
-      <*> traverse f F.returnType
-      <*> traverse (Statement.bitraverse f g) F.body
+      <$> Traversable.traverse (bitraverse pure f) F.typeParams
+      <*> Traversable.traverse (bitraverse pure f) F.params
+      <*> Traversable.traverse f F.returnType
+      <*> Traversable.traverse (Statement.traverse f) F.body
 
 end Go
 
 -- Pinned for `Network2Go`'s use, mirroring `Core/NetworkPlusCal/Syntax.lean`'s
--- `ComputableNetworkPlusCal` pinning. Unlike every other layer's pinning, the parameters are
--- instantiated at this language's *own* types: a Go expression is annotated with Go types.
+-- `ComputableNetworkPlusCal` pinning. Unlike every other layer's pinning, the parameter is
+-- instantiated at this language's *own* type: a Go expression is annotated with Go types.
 namespace ComputableGo
 
 abbrev Typ := Go.Typ
 abbrev Expression := Go.Expression Go.Typ
 abbrev Ref := Go.Ref Expression
-abbrev Statement := Go.Statement Typ Expression
+abbrev Statement := Go.Statement Go.Typ
 abbrev SelectClause := Go.SelectClause Statement
 abbrev SwitchClause := Go.SwitchClause Expression Statement
-abbrev Function := Go.Function Typ Expression
+abbrev Function := Go.Function Go.Typ
 
 end ComputableGo
 

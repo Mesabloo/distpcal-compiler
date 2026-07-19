@@ -3,6 +3,7 @@ module
 public import Network2Go.Errors
 public import Network2Go.Naming
 public import Network2Go.Typ
+public import Network2Go.Expression
 
 public section
 

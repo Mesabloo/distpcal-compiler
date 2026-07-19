@@ -80,6 +80,96 @@ func SetMap[T any, U Ord[U]](s Set[T], f func(y T) U) Set[U] {
 	return normalize(out)
 }
 
+// SetUnion compiles s \cup other, SetIntersect s \cap other, and
+// SetDifference s \ other.
+//
+// All three merge the two sorted representations in one pass rather than
+// building a result and renormalizing it: the operands are sorted and
+// duplicate-free, so the output comes out that way by construction. None of
+// them writes through either operand, both of which the caller still holds.
+func SetUnion[T Ord[T]](s, other Set[T]) Set[T] {
+	out := make(Set[T], 0, len(s)+len(other))
+	i, j := 0, 0
+	for i < len(s) && j < len(other) {
+		switch c := Cmp(s[i], other[j]); {
+		case c < 0:
+			out = append(out, s[i])
+			i++
+		case c > 0:
+			out = append(out, other[j])
+			j++
+		default:
+			out = append(out, s[i])
+			i++
+			j++
+		}
+	}
+	out = append(out, s[i:]...)
+	return append(out, other[j:]...)
+}
+
+func SetIntersect[T Ord[T]](s, other Set[T]) Set[T] {
+	out := make(Set[T], 0, min(len(s), len(other)))
+	i, j := 0, 0
+	for i < len(s) && j < len(other) {
+		switch c := Cmp(s[i], other[j]); {
+		case c < 0:
+			i++
+		case c > 0:
+			j++
+		default:
+			out = append(out, s[i])
+			i++
+			j++
+		}
+	}
+	return out
+}
+
+func SetDifference[T Ord[T]](s, other Set[T]) Set[T] {
+	out := make(Set[T], 0, len(s))
+	i, j := 0, 0
+	for i < len(s) && j < len(other) {
+		switch c := Cmp(s[i], other[j]); {
+		case c < 0:
+			out = append(out, s[i])
+			i++
+		case c > 0:
+			j++
+		default:
+			i++
+			j++
+		}
+	}
+	return append(out, s[i:]...)
+}
+
+// SetSubseteq compiles s \subseteq other.
+//
+// Walks both sorted representations once looking for an element of s that other
+// does not have, rather than doing len(s) binary searches.
+func SetSubseteq[T Ord[T]](s, other Set[T]) bool {
+	j := 0
+	for i := 0; i < len(s); i++ {
+		for j < len(other) && Cmp(other[j], s[i]) < 0 {
+			j++
+		}
+		if j == len(other) || !other[j].Eq(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// Cardinality compiles FiniteSets!Cardinality(s). The representation is
+// duplicate-free, so the element count is the slice length.
+//
+// FiniteSets!IsFiniteSet needs no counterpart here: every Set is finite by
+// construction, so it compiles to the constant true.
+func Cardinality[T any](s Set[T]) Int {
+	return MkInt(len(s))
+}
+
 // Choose compiles CHOOSE x \in s : p(x).
 //
 // Hilbert's choice operator is deterministic — (CHOOSE x \in s : p) = (CHOOSE x

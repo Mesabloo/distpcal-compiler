@@ -26,6 +26,9 @@ public section
   - Blocks always break (`Std.Format.indent` without a surrounding `group`): generated Go is read
     and `gofmt`-ed by whoever consumes it, so a stable one-statement-per-line layout is worth more
     than a compact one.
+  - Expressions and statements print from one `mutual` block, since `Expression.funcLit` carries a
+    statement body. Statement cases therefore call `Expression.pretty · 0` directly rather than
+    going through the `Std.ToFormat` instance, which is only available once the block closes.
   - String literals print as Go raw strings (`` `…` ``), same as prior art — no escaping pass
     needed. A source string containing a backtick would break this; TLA⁺'s own string syntax has no
     way to write one.
@@ -129,6 +132,45 @@ def Builtin.name : Builtin → String
   | .cap => "cap"
   | .append => "append"
 
+/-- Go's return-type syntax, shared by `Typ.func`, `Expression.funcLit` and `Function`: nothing when
+there is none, bare when there is exactly one, parenthesized when there are several. -/
+private def formatReturns {α} [Std.ToFormat α] : List α → Std.Format
+  | [] => .nil
+  | [τ] => " " ++ Std.format τ
+  | τs => " " ++ .paren (.joinSep (Std.format <$> τs) ", ")
+
+/-- Takes the expression formatter as an argument rather than resolving it from `Std.ToFormat`:
+`Ref` is printed from inside the `Expression`/`Statement` mutual block below, where the instance
+for `Expression` does not exist yet. -/
+partial def Ref.pretty {Expr} (f : Expr → Std.Format) : Ref Expr → Std.Format
+  | .wildcard => "_"
+  | .var name => sanitize name
+  | .index r e => Ref.pretty f r ++ .sbracket (f e)
+  | .field r name => Ref.pretty f r ++ "." ++ sanitize name
+
+instance {Expr} [Std.ToFormat Expr] : Std.ToFormat (Ref Expr) := ⟨Ref.pretty Std.format⟩
+
+/-- `skip` has no Go counterpart, so it prints as nothing and is dropped from every block rather
+than left behind as a stray empty statement. -/
+private def isSkip {α} : Statement α → Bool
+  | .skip => true
+  | _ => false
+
+/-- Statements, one per line. Go terminates statements with the newline itself, so no `;`. -/
+private def formatStatements {α} (f : Statement α → Std.Format) (B : List (Statement α)) :
+    Std.Format :=
+  .joinSep (f <$> B.filter (!isSkip ·)) .line
+
+private def formatBlock {α} (f : Statement α → Std.Format) (B : List (Statement α)) : Std.Format :=
+  if B.all isSkip then "{}" else cblock (formatStatements f B)
+
+/-- A `case`/`default` arm's body: no braces of its own, since Go's `case` already delimits it, and
+nothing at all (not even an indented blank line) when the arm is empty. -/
+private def formatCase {α} (f : Statement α → Std.Format) (B : List (Statement α)) : Std.Format :=
+  if B.all isSkip then .nil else Std.Format.indent 4 (formatStatements f B)
+
+mutual
+
 partial def Expression.pretty {α} [Std.ToFormat α] (e : Expression α) (prec : Nat) : Std.Format :=
   match e with
   | .nat n => f!"{n}"
@@ -156,88 +198,64 @@ partial def Expression.pretty {α} [Std.ToFormat α] (e : Expression α) (prec :
         Expression.pretty k 0 ++ ": " ++ Expression.pretty v 0) ", ")
   | .make τ args =>
     "make" ++ .paren (.joinSep (Std.format τ :: args.map (Expression.pretty · 0)) ", ")
+  -- No parentheses around the literal itself: Go accepts `func() T { … }()` in call position and
+  -- in every argument position, and a bare literal never starts a statement in emitted code (the
+  -- immediately-applied ones are always an operand of something).
+  | .funcLit params returns body =>
+    "func" ++ .paren (.joinSep (params.map λ (x, τ) ↦ f!"{sanitize x} {τ}") ", ")
+      ++ formatReturns returns ++ " " ++ formatBlock Statement.pretty body
 
-instance {α} [Std.ToFormat α] : Std.ToFormat (Expression α) := ⟨(Expression.pretty · 0)⟩
-
-partial def Ref.pretty {Expr} [Std.ToFormat Expr] : Ref Expr → Std.Format
-  | .wildcard => "_"
-  | .var name => sanitize name
-  | .index r e => Ref.pretty r ++ .sbracket (Std.format e)
-  | .field r name => Ref.pretty r ++ "." ++ sanitize name
-
-instance {Expr} [Std.ToFormat Expr] : Std.ToFormat (Ref Expr) := ⟨Ref.pretty⟩
-
-/-- `skip` has no Go counterpart, so it prints as nothing and is dropped from every block rather
-than left behind as a stray empty statement. -/
-private def isSkip {Typ Expr} : Statement Typ Expr → Bool
-  | .skip => true
-  | _ => false
-
-/-- Statements, one per line. Go terminates statements with the newline itself, so no `;`. -/
-private def formatStatements {Typ Expr} (f : Statement Typ Expr → Std.Format)
-    (B : List (Statement Typ Expr)) : Std.Format :=
-  .joinSep (f <$> B.filter (!isSkip ·)) .line
-
-private def formatBlock {Typ Expr} (f : Statement Typ Expr → Std.Format)
-    (B : List (Statement Typ Expr)) : Std.Format :=
-  if B.all isSkip then "{}" else cblock (formatStatements f B)
-
-partial def Statement.pretty {Typ Expr} [Std.ToFormat Typ] [Std.ToFormat Expr] :
-    Statement Typ Expr → Std.Format
+partial def Statement.pretty {α} [Std.ToFormat α] : Statement α → Std.Format
   | .skip => .nil
-  | .print e => f!"println({e})"
-  | .panic e => f!"panic({e})"
-  | .return es => "return " ++ .joinSep (Std.format <$> es) ", "
+  | .print e => "println" ++ .paren (Expression.pretty e 0)
+  | .panic e => "panic" ++ .paren (Expression.pretty e 0)
+  | .return es => "return " ++ .joinSep (es.map (Expression.pretty · 0)) ", "
   | .var name τ => f!"var {sanitize name} {τ}"
   | .assign lhs rhs =>
-    .joinSep (Std.format <$> lhs) ", " ++ " = " ++ .joinSep (Std.format <$> rhs) ", "
+    .joinSep (lhs.map (Ref.pretty (Expression.pretty · 0))) ", " ++ " = "
+      ++ .joinSep (rhs.map (Expression.pretty · 0)) ", "
   | .make name τ capacity =>
-    f!"{sanitize name} := make({τ}" ++ (capacity.elim .nil (f!", {·}")) ++ ")"
-  | .close c => f!"close({c})"
-  | .send c e => f!"{c} <- {e}"
+    f!"{sanitize name} := make({τ}"
+      ++ (capacity.elim .nil (λ e ↦ ", " ++ Expression.pretty e 0)) ++ ")"
+  | .close c => "close" ++ .paren (Expression.pretty c 0)
+  | .send c e => Expression.pretty c 0 ++ " <- " ++ Expression.pretty e 0
   | .receive c x ok =>
-    Std.format x ++ (ok.elim .nil (f!", {·}")) ++ f!" = <-{c}"
+    Ref.pretty (Expression.pretty · 0) x
+      ++ (ok.elim .nil (λ r ↦ ", " ++ Ref.pretty (Expression.pretty · 0) r))
+      ++ " = <-" ++ Expression.pretty c 0
   | .go body => "go func() " ++ formatBlock Statement.pretty body ++ "()"
   | .if cond thenBranch elseBranch =>
-    f!"if {cond} " ++ formatBlock Statement.pretty thenBranch
+    "if " ++ Expression.pretty cond 0 ++ " " ++ formatBlock Statement.pretty thenBranch
       ++ if elseBranch.isEmpty then .nil else " else " ++ formatBlock Statement.pretty elseBranch
-  | .for cond body => f!"for {cond} " ++ formatBlock Statement.pretty body
+  | .for cond body =>
+    "for " ++ Expression.pretty cond 0 ++ " " ++ formatBlock Statement.pretty body
   | .switch e cases «default» =>
-    f!"switch {e} " ++ cblock (.joinSep
-      ((cases.map λ c ↦ f!"case {c.head}:" ++ (formatCase c.body))
-        ++ [f!"default:" ++ (formatCase «default»)]) .line)
+    "switch " ++ Expression.pretty e 0 ++ " " ++ cblock (.joinSep
+      ((cases.map λ c ↦
+        "case " ++ Expression.pretty c.head 0 ++ ":" ++ formatCase Statement.pretty c.body)
+        ++ [f!"default:" ++ formatCase Statement.pretty «default»]) .line)
   | .select cases «default» =>
     "select " ++ cblock (.joinSep
       ((cases.map λ c ↦
-        f!"case " ++ Statement.pretty c.guard ++ f!":" ++ (formatCase c.body))
-        ++ («default».elim [] (λ B ↦ [f!"default:" ++ (formatCase B)]))) .line)
-where
-  /-- A `case`/`default` arm's body: no braces of its own, since Go's `case` already delimits it,
-  and nothing at all (not even an indented blank line) when the arm is empty. -/
-  formatCase (B : List (Statement Typ Expr)) : Std.Format :=
-    if B.all isSkip then .nil
-    else Std.Format.indent 4 (formatStatements Statement.pretty B)
+        f!"case " ++ Statement.pretty c.guard ++ f!":" ++ formatCase Statement.pretty c.body)
+        ++ («default».elim [] (λ B ↦ [f!"default:" ++ formatCase Statement.pretty B]))) .line)
 
-instance {Typ Expr} [Std.ToFormat Typ] [Std.ToFormat Expr] : Std.ToFormat (Statement Typ Expr) :=
-  ⟨Statement.pretty⟩
+end
 
-def Function.pretty {Typ Expr} [Std.ToFormat Typ] [Std.ToFormat Expr]
-    (F : Function Typ Expr) : Std.Format :=
+instance {α} [Std.ToFormat α] : Std.ToFormat (Expression α) := ⟨(Expression.pretty · 0)⟩
+
+instance {α} [Std.ToFormat α] : Std.ToFormat (Statement α) := ⟨Statement.pretty⟩
+
+def Function.pretty {α} [Std.ToFormat α] (F : Function α) : Std.Format :=
   -- Each type parameter's constraint sits next to it: `[T comparable, U Ord[U]]`.
   let typeParams :=
     if F.typeParams.isEmpty then .nil
     else .sbracket (.joinSep (F.typeParams.map λ (T, c) ↦ f!"{sanitize T} {c}") ", ")
   let params := .joinSep (F.params.map λ (x, τ) ↦ f!"{sanitize x} {τ}") ", "
-  let returns :=
-    match F.returnType with
-    | [] => Std.Format.nil
-    | [τ] => " " ++ Std.format τ
-    | τs => " " ++ .paren (.joinSep (Std.format <$> τs) ", ")
-  f!"func {sanitize F.name}" ++ typeParams ++ .paren params ++ returns ++ " "
+  f!"func {sanitize F.name}" ++ typeParams ++ .paren params ++ formatReturns F.returnType ++ " "
     ++ formatBlock Statement.pretty F.body
 
-instance {Typ Expr} [Std.ToFormat Typ] [Std.ToFormat Expr] : Std.ToFormat (Function Typ Expr) :=
-  ⟨Function.pretty⟩
+instance {α} [Std.ToFormat α] : Std.ToFormat (Function α) := ⟨Function.pretty⟩
 
 end Go
 

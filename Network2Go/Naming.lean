@@ -51,6 +51,21 @@ def commTyp (name : String) (args : List Go.Typ := []) : Go.Typ :=
 def locksTyp (name : String) (args : List Go.Typ := []) : Go.Typ :=
   .named (qualified locksPkg name) args
 
+/-- A reference to a `runtime/tlaplus` function or type-conversion, as an expression:
+`tlaplus.MkSet`, `tlaplus.Bool`. Applying it is `Go.Expression.call`, which also covers Go's
+conversion syntax — `tlaplus.Bool(true)` is a call as far as this AST is concerned. -/
+def tlaplusVar {α} (name : String) : Go.Expression α := .var (qualified tlaplusPkg name)
+
+/-- A reference to a `runtime/comm` function. -/
+def commVar {α} (name : String) : Go.Expression α := .var (qualified commPkg name)
+
+/-- A reference to a `runtime/locks` function: `locks.Acquire`, `locks.MkLock`. -/
+def locksVar {α} (name : String) : Go.Expression α := .var (qualified locksPkg name)
+
+/-- `tlaplus.f(e₁, …, eₙ)`. -/
+def tlaplusCall {α} (name : String) (args : List (Go.Expression α)) : Go.Expression α :=
+  .call (tlaplusVar name) args
+
 /-- The Go name of a top-level TLA⁺ definition (§7.2.2).
 
 Capitalized so that the definition is exported, which is what lets generated code spread over

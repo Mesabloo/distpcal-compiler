@@ -227,3 +227,142 @@ func TestOrdDerivations(t *testing.T) {
 		t.Errorf("Cmp(FALSE, TRUE) = %d, want -1", Cmp(Bool(false), Bool(true)))
 	}
 }
+
+// TestSetUnion, TestSetIntersect and TestSetDifference check the answers and,
+// just as importantly, that the merge produces a representation the rest of the
+// package may rely on: sorted and duplicate-free without a renormalization pass.
+func TestSetUnion(t *testing.T) {
+	cases := []struct {
+		name     string
+		s, other Set[Int]
+		want     []Int
+	}{
+		{"disjoint", intSet(1, 3, 5), intSet(2, 4), ints(1, 2, 3, 4, 5)},
+		{"overlapping", intSet(1, 2, 3), intSet(2, 3, 4), ints(1, 2, 3, 4)},
+		{"identical", intSet(1, 2), intSet(1, 2), ints(1, 2)},
+		{"left empty", intSet(), intSet(1, 2), ints(1, 2)},
+		{"right empty", intSet(1, 2), intSet(), ints(1, 2)},
+		{"both empty", intSet(), intSet(), ints()},
+		{"left exhausted first", intSet(1), intSet(2, 3, 4), ints(1, 2, 3, 4)},
+		{"right exhausted first", intSet(1, 2, 3), intSet(0), ints(0, 1, 2, 3)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SetUnion(c.s, c.other); !intsEqual(got, c.want) {
+				t.Errorf("SetUnion(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
+			}
+		})
+	}
+}
+
+func TestSetIntersect(t *testing.T) {
+	cases := []struct {
+		name     string
+		s, other Set[Int]
+		want     []Int
+	}{
+		{"disjoint", intSet(1, 3, 5), intSet(2, 4), ints()},
+		{"overlapping", intSet(1, 2, 3), intSet(2, 3, 4), ints(2, 3)},
+		{"identical", intSet(1, 2), intSet(1, 2), ints(1, 2)},
+		{"left empty", intSet(), intSet(1, 2), ints()},
+		{"right empty", intSet(1, 2), intSet(), ints()},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SetIntersect(c.s, c.other); !intsEqual(got, c.want) {
+				t.Errorf("SetIntersect(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
+			}
+		})
+	}
+}
+
+func TestSetDifference(t *testing.T) {
+	cases := []struct {
+		name     string
+		s, other Set[Int]
+		want     []Int
+	}{
+		{"disjoint", intSet(1, 3, 5), intSet(2, 4), ints(1, 3, 5)},
+		{"overlapping", intSet(1, 2, 3), intSet(2, 3, 4), ints(1)},
+		{"identical", intSet(1, 2), intSet(1, 2), ints()},
+		{"left empty", intSet(), intSet(1, 2), ints()},
+		{"right empty", intSet(1, 2), intSet(), ints(1, 2)},
+		{"tail survives", intSet(1, 2, 3, 4), intSet(1), ints(2, 3, 4)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SetDifference(c.s, c.other); !intsEqual(got, c.want) {
+				t.Errorf("SetDifference(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSetOpsDoNotMutate covers all three at once. They append into a freshly
+// allocated slice, but the cheap implementation of union — append other's tail
+// onto s and return it — would alias, so the property is worth pinning.
+func TestSetOpsDoNotMutate(t *testing.T) {
+	ops := map[string]func(s, other Set[Int]) Set[Int]{
+		"SetUnion":      SetUnion[Int],
+		"SetIntersect":  SetIntersect[Int],
+		"SetDifference": SetDifference[Int],
+	}
+	for name, op := range ops {
+		t.Run(name, func(t *testing.T) {
+			s, other := intSet(1, 2, 3), intSet(2, 3, 4)
+			sBefore, otherBefore := slices.Clone(s), slices.Clone(other)
+
+			got := op(s, other)
+			// Writing through the result must not reach either operand.
+			for i := range got {
+				got[i] = MkInt(-1)
+			}
+
+			if !intsEqual(s, sBefore) {
+				t.Errorf("%s mutated its left operand: %v, was %v", name, s, sBefore)
+			}
+			if !intsEqual(other, otherBefore) {
+				t.Errorf("%s mutated its right operand: %v, was %v", name, other, otherBefore)
+			}
+		})
+	}
+}
+
+// TestSetSubseteq pins the reflexive and empty-set edges alongside the ordinary
+// cases: the walk advances two cursors, so an element of s past everything in
+// other is exactly where an off-by-one shows up.
+func TestSetSubseteq(t *testing.T) {
+	cases := []struct {
+		name     string
+		s, other Set[Int]
+		want     bool
+	}{
+		{"proper subset", intSet(1, 3), intSet(1, 2, 3), true},
+		{"equal", intSet(1, 2), intSet(1, 2), true},
+		{"empty is subset of anything", intSet(), intSet(1), true},
+		{"empty subset of empty", intSet(), intSet(), true},
+		{"nothing is a subset of empty", intSet(1), intSet(), false},
+		{"missing element", intSet(1, 4), intSet(1, 2, 3), false},
+		{"element below the range", intSet(0), intSet(1, 2), false},
+		{"element above the range", intSet(3), intSet(1, 2), false},
+		{"superset", intSet(1, 2, 3), intSet(1, 2), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SetSubseteq(c.s, c.other); got != c.want {
+				t.Errorf("SetSubseteq(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
+			}
+		})
+	}
+}
+
+// TestCardinality relies on the duplicate-free invariant: the count is the slice
+// length only because MkSet already removed the repeats.
+func TestCardinality(t *testing.T) {
+	if got := Cardinality(MkSet(ints(3, 1, 2, 1, 3)...)); !eqInt(got, 3) {
+		t.Errorf("Cardinality({3, 1, 2, 1, 3}) = %v, want 3", got)
+	}
+	if got := Cardinality(intSet()); !eqInt(got, 0) {
+		t.Errorf("Cardinality({}) = %v, want 0", got)
+	}
+}

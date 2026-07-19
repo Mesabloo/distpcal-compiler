@@ -21,14 +21,22 @@ inductive N2GError : Type
   `SourceSpan.placeholder` at callers past the point a real position is still available
   (`NetworkPlusCal.Statement` carries none), matching `Guarded2Network`'s precedent. -/
   | internalInvariantViolated (pos : SourceSpan) (description : String)
+  /-- A construct the Go backend cannot compile. Unlike `internalInvariantViolated` this is a real
+  user-facing failure on well-formed, well-typed input: `Nat`/`Int` denote infinite sets no finite
+  representation captures (§9.15), the `Bags` module has no runtime counterpart, and function
+  equality would have to compare two lazy maps entry by entry. `construct` names what was written,
+  `reason` says why it cannot be compiled. -/
+  | unsupported (pos : SourceSpan) (construct : String) (reason : String)
   deriving Repr, Inhabited, BEq
 
 instance : CompilerDiagnostic N2GError String where
   isError := true
   posOf
-    | .internalInvariantViolated pos _ => pos
+    | .internalInvariantViolated pos _ | .unsupported pos _ _ => pos
   msgOf
     | .internalInvariantViolated _ description =>
       s!"Internal invariant violated: {description}. This should be unreachable — please report this as a bug."
+    | .unsupported _ construct reason =>
+      s!"'{construct}' cannot be compiled to Go: {reason}."
 
 end
