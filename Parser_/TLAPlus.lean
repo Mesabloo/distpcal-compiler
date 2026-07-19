@@ -861,12 +861,20 @@ namespace SurfaceTLAPlus.Parser
     section
       variable (ws : TLAPlusParser PUnit) (expr : TLAPlusParser PUnit → TLAPlusParser (Expression (List CommentAnnotation)))
 
-      private def parseIdentifierOrTuple : TLAPlusParser (IdentifierOrTuple String) := do
-        -- TODO: parse annotations
-        ws *> first [
-          Sum.inl <$> parseIdentifier,
-          (Sum.inr ∘ Array.toList) <$> (token .langle *> ws *> sepBy1 (ws *> comma) parseIdentifier <* ws <* token .rangle)
+      private def parseIdentifierOrTuple : TLAPlusParser (IdentifierOrTuple (List CommentAnnotation)) := do
+        first [
+          Function.uncurry .var <$> parseId,
+          .tuple <$> do
+            let _ ← ws *> token .langle
+            let xs ← sepBy1 (ws *> comma) parseId
+            let _ ← ws *> token .rangle
+            pure xs.toList
         ]
+      where
+        parseId := do
+          let anns ← tryParseAnnotations
+          let x ← ws *> parseIdentifier
+          pure ⟨anns, x⟩
 
       private def parseIfThenElse : TLAPlusParser (Expression (List CommentAnnotation)) := located do
         let _ ← ws *> token .if
@@ -901,7 +909,6 @@ namespace SurfaceTLAPlus.Parser
         return .record fields.toList
 
       private def parseQuantifierBound : TLAPlusParser (QuantifierBound (List CommentAnnotation) (Expression (List CommentAnnotation))) := first [
-        -- TODO: parse annotations
         .varTuple <$> angles (Array.toList <$> sepBy1 (ws *> comma) ((·, ·)
           <$> (ws *> tryParseAnnotations)
           <*> (ws *> parseIdentifier))),

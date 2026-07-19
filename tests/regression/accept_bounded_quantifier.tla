@@ -10,7 +10,7 @@ CONSTANTS
 
 (*--algorithm AcceptBoundedQuantifier {
     process (P = PID) {
-    p1: assert \A y \in {1, 2} : y > 0;
+    p1: assert \A (* @type: Int; *) y \in {1, 2} : y > 0;
         goto Done;
     }
 }*)

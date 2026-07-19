@@ -385,21 +385,35 @@ protected def QuantifierBound.bitraverse {G : Type → Type} [Applicative G] {α
 instance : Bitraversable QuantifierBound where
   bitraverse := QuantifierBound.bitraverse
 
-/-- Either a single bound variable `x`, or a tuple of them `⟨x, y, …, z⟩`. -/
-def IdentifierOrTuple (𝒱 : Type) := 𝒱 ⊕ List 𝒱
+/-- Either a single bound variable `x`, or a tuple of them `⟨x, y, …, z⟩`.
 
-instance {𝒱} [Repr 𝒱] : Repr (IdentifierOrTuple 𝒱) := inferInstanceAs (Repr (_ ⊕ _))
-instance {𝒱} [DecidableEq 𝒱] : DecidableEq (IdentifierOrTuple 𝒱) := inferInstanceAs (DecidableEq (_ ⊕ _))
+An inductive rather than an alias for `𝒱 ⊕ List 𝒱`, for the same reason `QuantifierBound` is one.
+`Expression.choose`/`.collect` instantiate this at `α × String`, and `α` is itself a datatype being
+declared wherever `Expression` is nested inside one — `Parser_/Annotations.lean`'s `Annotation`
+holds `Expression (List Annotation)`. Lean's nested-inductive compiler inspects constructor
+argument types syntactically, and a recursive occurrence may sit under `List`/`Prod`/`Sum` or
+another *inductive*, but not under a definition, whose head stays opaque; reducibility does not
+help, an `abbrev` fails exactly as a `def` does ("contains a non valid occurrence of the datatypes
+being declared"). This was invisible while the element type was plain `String`: no `α`, hence no
+occurrence to check. -/
+inductive IdentifierOrTuple (α : Type) : Type
+  | var (ann : α) (x : String)
+  | tuple (xs : List (α × String))
+  deriving Repr, BEq, DecidableEq
+
+/-- Independent of `α` — the empty tuple needs no annotation. -/
+instance {α} : Inhabited (IdentifierOrTuple α) := ⟨.tuple []⟩
 
 instance : Functor IdentifierOrTuple where
   map f
-    | .inl x => .inl (f x)
-    | .inr xs => .inr (f <$> xs)
+    | .var ann x => .var (f ann) x
+    | .tuple xs => .tuple (Prod.map f id <$> xs)
 
 instance : Traversable IdentifierOrTuple where
   traverse f
-    | .inl x => .inl <$> f x
-    | .inr xs => .inr <$> traverse f xs
+    | .var ann x => (.var · x) <$> f ann
+    | .tuple xs => .tuple <$> traverse (bitraverse f pure) xs
+
 
 /-- General annotations, as [supported in Apalache](https://apalache-mc.org/docs/adr/004adr-annotations.html). -/
 abbrev CommentAnnotation := String × List (String ⊕ Int ⊕ Bool ⊕ String)
@@ -430,12 +444,13 @@ inductive Expression (α : Type) : Type
   | fforall : List String → Expression α → Expression α
   /-- Temporal existential quantification `\EE x, y, …, z : p`. -/
   | eexists : List String → Expression α → Expression α
-  /-- Hilbert's epsilon operator `CHOOSE x \in A : p`. -/
-  | choose : IdentifierOrTuple String → Option (Expression α) → Expression α → Expression α
+  /-- Hilbert's epsilon operator `CHOOSE x \in A : p`. Each bound name carries its own annotation,
+  the same way `QuantifierBound` does — a binder here is as annotatable as one in `\A`/`\E`. -/
+  | choose : IdentifierOrTuple α → Option (Expression α) → Expression α → Expression α
   /-- A literal set `{e₁, …, eₙ}`. -/
   | set : List (Expression α) → Expression α
-  /-- Set collection/filtering `{x \in A : p}`. -/
-  | collect : IdentifierOrTuple String → Expression α → Expression α → Expression α
+  /-- Set collection/filtering `{x \in A : p}`. Bound names carry annotations, as in `choose`. -/
+  | collect : IdentifierOrTuple α → Expression α → Expression α → Expression α
   /-- The image of a function by a set `{e : x \in A}`. -/
   | map' : Expression α → List (QuantifierBound α (Expression α)) → Expression α
   /-- A function call `f[e₁, …, eₙ]`. -/
@@ -492,9 +507,11 @@ protected partial def Expression.map {α β} (f : α → β) (e : Expression α)
   | .exists vs e, pos => .exists vs (Expression.map f e) @@ pos
   | .fforall vs e, pos => .fforall vs (Expression.map f e) @@ pos
   | .eexists vs e, pos => .eexists vs (Expression.map f e) @@ pos
-  | .choose vs e₁ e₂, pos => .choose vs (Expression.map f <$> e₁) (Expression.map f e₂) @@ pos
+  | .choose vs e₁ e₂, pos =>
+    .choose (f <$> vs) (Expression.map f <$> e₁) (Expression.map f e₂) @@ pos
   | .set es, pos => .set (Expression.map f <$> es) @@ pos
-  | .collect vs e₁ e₂, pos => .collect vs (Expression.map f e₁) (Expression.map f e₂) @@ pos
+  | .collect vs e₁ e₂, pos =>
+    .collect (f <$> vs) (Expression.map f e₁) (Expression.map f e₂) @@ pos
   | .map' e qs, pos => .map' (Expression.map f e) (bimap f (Expression.map f) <$> qs) @@ pos
   | .fnCall e es, pos => .fnCall (Expression.map f e) (Expression.map f <$> es) @@ pos
   | .fn qs e, pos => .fn (bimap f (Expression.map f) <$> qs) (Expression.map f e) @@ pos
@@ -532,9 +549,13 @@ protected partial def Expression.traverse {F : Type → Type} [Applicative F] {�
   | .exists vs e, pos => (.exists vs · @@ pos) <$> Expression.traverse f e
   | .fforall vs e, pos => (.fforall vs · @@ pos) <$> Expression.traverse f e
   | .eexists vs e, pos => (.eexists vs · @@ pos) <$> Expression.traverse f e
-  | .choose vs e₁ e₂, pos => (.choose vs · · @@ pos) <$> traverse (Expression.traverse f) e₁ <*> Expression.traverse f e₂
+  | .choose vs e₁ e₂, pos =>
+    (.choose · · · @@ pos) <$> traverse f vs
+      <*> traverse (Expression.traverse f) e₁ <*> Expression.traverse f e₂
   | .set es, pos => (.set · @@ pos) <$> traverse (Expression.traverse f) es
-  | .collect vs e₁ e₂, pos => (.collect vs · · @@ pos) <$> Expression.traverse f e₁ <*> Expression.traverse f e₂
+  | .collect vs e₁ e₂, pos =>
+    (.collect · · · @@ pos) <$> traverse f vs
+      <*> Expression.traverse f e₁ <*> Expression.traverse f e₂
   | .map' e qs, pos => (.map' · · @@ pos) <$> Expression.traverse f e <*> traverse (bitraverse f (Expression.traverse f)) qs
   | .fnCall e es, pos => (.fnCall · · @@ pos) <$> Expression.traverse f e <*> traverse (Expression.traverse f) es
   | .fn qs e, pos => (.fn · · @@ pos) <$> traverse (bitraverse f (Expression.traverse f)) qs <*> Expression.traverse f e

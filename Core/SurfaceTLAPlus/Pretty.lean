@@ -3,8 +3,7 @@ module
 public import Common.Pretty
 public import Core.SurfaceTLAPlus.Syntax
 
-@[expose] public section
-
+public section
 
 /-! Pretty-printing for `SurfaceTLAPlus`, used by `-d`-style AST dumps. -/
 
@@ -35,8 +34,8 @@ instance : Std.ToFormat PostfixOperator := ⟨.text ∘ toString⟩
 
 instance {α} [Std.ToFormat α] : Std.ToFormat (IdentifierOrTuple α) where
   format
-    | .inl x => Std.format x
-    | .inr xs => .bracket "<<" (.joinSep xs ",") ">>"
+    | .var _ x => Std.format x
+    | .tuple xs => .bracket "<<" (.joinSep (xs.map (Std.format ∘ Prod.snd)) ",") ">>"
 
 partial def QuantifierBound.pretty {α β} [Std.ToFormat α] (f : β → Std.Format) : QuantifierBound α β → Std.Format
   | .var ann x e => Std.format ann ++ f!" {x} \\in " ++ f e

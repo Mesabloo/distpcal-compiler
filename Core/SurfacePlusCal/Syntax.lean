@@ -7,7 +7,7 @@ public import Mathlib.Control.Traversable.Instances
 public import Mathlib.Control.Bitraversable.Basic
 public import Mathlib.Control.Bitraversable.Instances
 
-@[expose] public section
+public section
 
 
 /-!

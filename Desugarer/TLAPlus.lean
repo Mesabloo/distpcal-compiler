@@ -193,21 +193,25 @@ namespace SurfaceTLAPlus
       let A ← traverse Expression.desugar A
       let e ← e.desugar
       match vs with
-      | .inl x => return .choose x default A e @@ pos
-      | .inr xs => do
+      | .var ann x => return .choose x ann A e @@ pos
+      | .tuple xs => do
         let z ← freshName "tuple"
-        let e := xs.zipIdx.foldr (init := e) λ (x, i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) e
-        return .choose z default A e @@ pos
+        let e := xs.zipIdx.foldr (init := e) λ ((_, x), i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) e
+        -- The fresh variable stands for the whole tuple, so it takes the first component's
+        -- annotation — the same choice `flattenBound` makes for `QuantifierBound.varTuple`.
+        let ann := xs.head?.map Prod.fst |>.getD default
+        return .choose z ann A e @@ pos
     | .set es, pos => (.set · @@ pos) <$> traverse Expression.desugar es
     | .collect vs A e, pos => do
       let A ← A.desugar
       let e ← e.desugar
       match vs with
-      | .inl x => return .collect x default A e @@ pos
-      | .inr xs => do
+      | .var ann x => return .collect x ann A e @@ pos
+      | .tuple xs => do
         let z ← freshName "tuple"
-        let e := xs.zipIdx.foldr (init := e) λ (x, i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) e
-        return .collect z default A e @@ pos
+        let e := xs.zipIdx.foldr (init := e) λ ((_, x), i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) e
+        let ann := xs.head?.map Prod.fst |>.getD default
+        return .collect z ann A e @@ pos
     | .map' e qs, pos => do
       let e ← e.desugar
       let (bindings, e) ← qs.foldrM (init := ([], e)) λ qb (bindings, e) ↦ do
