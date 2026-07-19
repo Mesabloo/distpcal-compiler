@@ -420,3 +420,56 @@ well-scopedness-preservation exception (§ item 5 of `.claude/tasklist.md`, "one
 exception" per `INSTRUCTIONS.md`'s verification-scope rule) or is a separate ask needing
 its own check-in — `INSTRUCTIONS.md` only names well-scopedness preservation as in-scope,
 not this. Don't start without check-in first.
+
+### 9.18 `lub` isn't a real join, so `IF`/`CASE`/set-literal *synthesis* over incomparable branches fails
+
+`Elaborator/Subtyping.lean`'s `lub` returns the wider of its two arguments, or `none` when
+neither is a subtype of the other. It can therefore only ever return a type that was
+already handed to it — it cannot name a common upper bound that isn't one of the two
+inputs. `lubAll` (`Elaborator/Expressions.lean`) folds it left across the branches, so
+`IF`/`CASE`/`{e₁,…,eₙ}` in *synthesis* position succeed only when the join happens to *be*
+one of the branch types, and otherwise report `TCError.ambiguousType`.
+
+Concretely: `IF c THEN "ab" ELSE <<1, 2>>` has two incomparable branch types (`Str`,
+`⟨Int,Int⟩`) whose common upper bounds are `Seq(Int)` and `Int → Int` — neither of which
+`lub` can produce, so the fold fails on the very first pair. It is also order-sensitive for
+the same reason: the same three branches with an `Int → Int` one placed *first* succeed,
+because then every subsequent `lub` has the join already sitting in its accumulator. Note
+`lub` itself is symmetric (it tries both directions); the order-sensitivity is the fold's,
+not `lub`'s.
+
+Distinguish this from `lub`'s *partiality*, which is correct and stays: `lub Int Str` is
+genuinely `none` — `Int` has no axiom out of it, so the two share no upper bound at all,
+and `ambiguousType` is the right answer. The gap is only about pairs that do have a least
+upper bound and get rejected anyway.
+
+**Not a blocker, by design.** §5.3 already commits to the matching trade on the
+metavariable side ("error and require an explicit annotation instead of implementing
+`lub`"), and thesis §3.1.3.6's *checking* rules for `IF`/`CASE` — both implemented in
+`Elaborator/Expressions.lean` — are what make that escape hatch reachable here: given an
+expected type, each branch is checked against it directly and picks up its own coercion,
+no join needed. The example above type-checks fine the moment it appears under an
+annotation (`tests/regression/accept_if_checked_heterogeneous_branches.tla`,
+`accept_case_checked_heterogeneous_branches.tla`). So the limitation only bites in a
+genuinely annotation-free synthesis position.
+
+**Open, and quite possibly permanently:** whether to make `lub` a real join at all.
+Doing it means a structural recursion mirroring `subtype`'s own case split but producing a
+type rather than a `Coercion` (`join (Set a) (Set b) = Set (join a b)`, records/tuples
+pointwise on matching shapes, an axiom-widening fallback), plus a mutually-recursive `glb`
+for `function`'s contravariant domain — roughly duplicating `subtype`'s ~90-line shape for
+a case no fixture currently needs. There is also an unchecked prerequisite: folding a
+partial join pairwise is only order-independent if the subtype order is **bounded-complete**
+(any two types with some common upper bound have a least one). That has not been verified;
+`function`'s contravariant domain is where a counterexample would most likely hide. If it
+holds, fixing `lub` alone suffices and `lubAll` stays a plain fold; if it doesn't, the join
+has to become genuinely n-ary and `lubAll` goes away. Don't start either without checking
+bounded-completeness first, and don't start at all unless a real program hits this — the
+annotation workaround is cheap.
+
+Cheap adjacent improvement, unclaimed: `TCError.ambiguousType`'s message
+(`Elaborator/Errors.lean`) is currently just "Ambiguous type: the branches/elements here
+don't share a common type", which states the symptom without naming the fix. Pointing it at
+"annotate the expected type" would make the workaround discoverable at the point it's
+needed. Safe to do in isolation: both of `ambiguousType`'s throw sites are inside `lubAll`
+itself, so the message has no other caller whose wording it has to stay neutral for.

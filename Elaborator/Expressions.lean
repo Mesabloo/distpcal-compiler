@@ -18,7 +18,14 @@ public section
   A few constructs synthesize only in certain cases:
   - `∅` is checking-only (`lub` over zero elements is undefined); a nonempty `{e1,...,en}`
     synthesizes `Set(lub(τ1,...,τn))`.
-  - `IF`/`CASE` both synthesize `lub` over their branches.
+  - `IF`/`CASE` are both bidirectional (thesis §3.1.3.6 gives each a checking *and* a synthesis
+    rule). Checked against an expected `τ`, every branch is checked against `τ` directly, so each
+    branch picks up its own coercion from `[Subtype]`. In synthesis position they fall back to
+    `lub` over the branches — which only succeeds when the join happens to *be* one of the branch
+    types, `lub` being able to return only one of its two arguments (`Elaborator/Subtyping.lean`).
+    Heterogeneous branches with no common branch type therefore need an expected type to flow in;
+    that is the deliberate "require an annotation instead of implementing a real `lub`" trade of
+    `PLAN.md` §5.3, and the checking rules above are what make it reachable.
   - `⟨e1,...,en⟩` dispatches by mode: checked against an expected `Seq(τ)` it uses the sequence
     constructor (each element checks against `τ`); everywhere else it synthesizes as a tuple. The
     elaborated term keeps the distinction (`.tuple` vs. `.seq`).
@@ -61,6 +68,21 @@ private def lubAll (pos : SourceSpan) : List Typ → m Typ
     match ← lub acc τ' with
     | some τ'' => return τ''
     | none => throw (.ambiguousType pos)
+
+/-- Coerce an already-elaborated `e : τ'` into a known supertype `τ` — the synthesis-side
+counterpart of `checkExpr`'s `[Subtype]` case, for the rules that join already-inferred branches
+via `lubAll` rather than checking each branch against `τ` up front. Re-running `subtype` is what
+recovers the `Coercion` `lub` discarded (it goes through `isSubtype`, which keeps only the
+yes/no); each branch gets its own, including the `.comp` chains `tryAxioms` builds for
+transitivity. `.failure` is unreachable whenever `τ` came from `lubAll` over these very types,
+but is reported rather than asserted away. -/
+private def coerceInto (pos : SourceSpan) (τ : Typ) : Typ × Expr → m Expr
+  | (τ', e) => do
+    match ← subtype τ' τ with
+    | .success coe => return coe.apply e @@ pos
+    | .pending n => return .mvar n e @@ pos
+    | .failure => throw (.failedToConvertTypes pos
+        (← resolveTypeMVarsForDisplay τ) (← resolveTypeMVarsForDisplay τ'))
 
 /-- Needed for the `partial def`s below to type-check at all (an arbitrary `m` isn't otherwise
 known nonempty). -/
@@ -154,6 +176,26 @@ mutual
     | .tuple es, .seq τ₀, pos => do
       let es' ← es.mapM (checkExpr · τ₀)
       return .seq es' τ₀ @@ pos
+    /-
+       Γ ⊢ e₁ ⇓ Bool       Γ ⊢ e₂ ⇓ τ       Γ ⊢ e₃ ⇓ τ
+      ──────────────────────────────────────────────── [Conditional]
+               Γ ⊢ IF e₁ THEN e₂ ELSE e₃ ⇓ τ
+    -/
+    | .if c t f, τ, pos => do
+      let c' ← checkExpr c .bool
+      let t' ← checkExpr t τ
+      let f' ← checkExpr f τ
+      return .if c' t' f' @@ pos
+    /-
+       ∀ 1 ≤ i ≤ n, Γ ⊢ pᵢ ⇓ Bool       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇓ τ       Γ ⊢ eₙ₊₁ ⇓ τ
+      ───────────────────────────────────────────────────────────────────────────── [Conditional choice]
+             Γ ⊢ CASE p₁ -> e₁ [] … [] pₙ -> eₙ [] OTHER -> eₙ₊₁ ⇓ τ
+    -/
+    | .case branches other, τ, pos => do
+      let branches' ← branches.mapM λ (p, e) ↦
+        return (← checkExpr p .bool, ← checkExpr e τ)
+      let other' ← other.mapM (checkExpr · τ)
+      return .case branches' other' @@ pos
     /-
        Γ ⊢ e ⇑ τ'       τ' <: τ
       ─────────────────────────── [Subtype]
@@ -340,7 +382,7 @@ mutual
       let (τt, t') ← inferExpr t
       let (τf, f') ← inferExpr f
       let τ ← lubAll pos [τt, τf]
-      return (τ, .if c' t' f' @@ pos)
+      return (τ, .if c' (← coerceInto pos τ (τt, t')) (← coerceInto pos τ (τf, f')) @@ pos)
     /-
        ∀ 1 ≤ i ≤ n, Γ ⊢ pᵢ ⇓ Bool       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇑ τᵢ       Γ ⊢ eₙ₊₁ ⇑ τₙ₊₁
       ──────────────────────────────────────────────────────────────────────────────── [Conditional choice]
@@ -353,7 +395,9 @@ mutual
         return (τ, p', e')
       let other' ← other.mapM inferExpr
       let τ ← lubAll pos (branches'.map (·.1) ++ (other'.map Prod.fst).toList)
-      return (τ, .case (branches'.map λ (_, p, e) ↦ (p, e)) (other'.map Prod.snd) @@ pos)
+      let branches'' ← branches'.mapM λ (τᵢ, p, e) ↦ return (p, ← coerceInto pos τ (τᵢ, e))
+      let other'' ← other'.mapM (coerceInto pos τ)
+      return (τ, .case branches'' other'' @@ pos)
     /-
        Γ ⊢ e ⇑ τ       Γ ⊢ A ⇓ Bool
       ────────────────────────────── [Stuttering]
@@ -442,7 +486,8 @@ mutual
     | .set (e₀ :: es), pos => do
       let pairs ← (e₀ :: es).mapM inferExpr
       let τ ← lubAll pos (pairs.map Prod.fst)
-      return (.set τ, .set (pairs.map Prod.snd) τ @@ pos)
+      let es' ← pairs.mapM (coerceInto pos τ)
+      return (.set τ, .set es' τ @@ pos)
     /-
        (no synthesis rule — `lub` over zero elements is undefined)
     -/

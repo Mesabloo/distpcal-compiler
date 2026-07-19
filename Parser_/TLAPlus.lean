@@ -969,6 +969,8 @@ namespace SurfaceTLAPlus.Parser
           return ⟨cond, e⟩
         let other ← eoption do
           let _ ← ws *> token (.prefix .«[]»)
+          let _ ← ws *> token .other
+          let _ ← ws *> token .«->»
           expr ws
         return .case branches.toList other
     end
