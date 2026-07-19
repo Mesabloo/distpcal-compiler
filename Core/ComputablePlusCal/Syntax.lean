@@ -3,7 +3,7 @@ module
 public import Core.TypedPlusCal.Syntax
 public import Core.ComputableTLAPlus.Syntax
 
-@[expose] public section
+public section
 
 
 /-!

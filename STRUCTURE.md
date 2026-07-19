@@ -4,6 +4,13 @@ Quick map of repo, directory by directory. Not exhaustive — sample of files pe
 enough to orient. See `PLAN.md` for what each pass actually do. Keep this file in sync
 whenever file get added, removed, or moved (`CLAUDE.md`).
 
+## Root modules
+One per `lean_lib` in `lakefile.lean`, each just re-exporting its directory's modules
+(`Desugarer.lean`, `Elaborator.lean`, `Core.lean`, …). Nothing in the compiler imports them —
+passes import the individual modules they need. They exist so each `lean_lib` target resolves
+(making `lake build Fugue.<Lib>` a usable per-library check) and so `doc-gen4` has one entry
+point per library. `Fugue.lean` is the exception: it's the actual `lean_exe` root, the CLI.
+
 ## `Common/`
 Shared infrastructure used across whole pipeline.
 - `Errors.lean` — shared error-reporting typeclasses.
@@ -82,6 +89,23 @@ constructs with no finite runtime representation (`PLAN.md` §5.3).
   `receive` (compiled into a new `Thread.rx` constructor instead — a real second kind of thread,
   not folded into `.code`); reuses `GuardedPlusCal.Block`/`Ref`/`MulticastFilter`/`Declarations`
   unchanged. Also pins itself at `ComputableTLAPlus`'s types as `ComputableNetworkPlusCal`.
+
+## `Core/Go/`
+`Network2Go`'s target AST (`PLAN.md` §5.7) — the Go fragment of thesis §6.6, plus what §7.2's
+listings emit. Imports nothing from `Core/`: Go types and expressions are its own, so TLA⁺ types
+and expressions are *compiled* into them by the pass rather than carried through as parameters
+(unlike prior art's `GoCal`, which had no Go type/expression AST at all).
+- `Syntax.lean` — `Typ` (Go types, incl. `named`/`var` for §7.2's generic runtime types),
+  `Expression` (annotation carrier `α`, short-circuit `and`/`or` distinct from strict `binary`,
+  composite literals), `Ref` (§6.6.11, no type annotation, so `Functor`/`Traversable` not the
+  bifunctor pair), `Statement` (blocks are `List Statement`), `SelectClause`/`SwitchClause`,
+  `Function`. Instances are `partial def` + explicit instance, `Core/CorePlusCal/Syntax.lean`'s
+  shape for a nested statement type. Pins itself as `ComputableGo` — at its *own* `Go.Typ`, not
+  at `ComputableTLAPlus`'s.
+- `Pretty.lean` — **the code generator**, not a debug dump like every other `Pretty.lean` here:
+  the shipped `.go` file is what this prints. Go's own operator precedence, always-breaking
+  blocks, and `keywords`/`sanitize` (the one part of prior art's `Pretty.lean` that ports
+  verbatim), applied at every identifier-print site.
 
 ## `Desugarer/`
 Surface → Core lowering (`PLAN.md` §3.2).
@@ -171,16 +195,105 @@ recursively for each dependency.
 - `Builtins.lean` — standard-library operator table.
 
 ## `Computable2Guarded/`
-Distributed → Guarded PlusCal desugaring (`PLAN.md` §3.2, ch. 3.2 of thesis) — not yet
-started.
+Distributed → Guarded PlusCal desugaring (`PLAN.md` §5.4, ch. 3.2 of thesis) — **done**
+(phase 9).
+- `CFlow.lean` — `𝒞_cflow`, rewrites `if`/conditional-`while` into `either`/`await`.
+- `Par.lean` — `𝒞_par`, sequentializes parallel assignments.
+- `FlatReord.lean` — `𝒞_flat`/`𝒞_reord` merged into one walk straight to
+  `GuardedPlusCal.AtomicBranch`; floats `await` **and `receive`** guards to the front of
+  each branch (§5.4).
+- `Errors.lean` — `GuardedError` variants.
+- Entry point: `Computable2Guarded.lean` (top-level re-export).
 
 ## `Guarded2Network/`
 Guarded → Network PlusCal, one pass with full refinement proof planned (`PLAN.md` §5.5,
-§6.2) — AST landed (`Core/NetworkPlusCal/Syntax.lean`), pass itself not yet started.
+§6.2) — **pass implemented, proof still pending** (phase 10, current work). AST landed
+(`Core/NetworkPlusCal/Syntax.lean`).
+- `PlusCal.lean` — the pass itself (`guarded.toNetwork`), not split into subpasses like
+  `Computable2Guarded` — this file is the whole thing.
+- `Errors.lean` — `G2NError` variants.
+- Entry point: `Guarded2Network.lean` (top-level re-export).
+- Still missing: `Semantics/Denotational.lean`/`Semantics/Lemmas.lean` for both
+  `GuardedPlusCal`/`NetworkPlusCal` and the `Guarded2Network/Lemmas.lean` refinement proof
+  itself (§6.2) — the well-scopedness preservation lemma this proof needs as precondition
+  is ported (`WellFormedness/WellScoped/GuardedPlusCal.lean`), the proof consuming it isn't
+  written yet.
 
-## `Network2Go/`, `Network2JoinCalculus/`
-Network PlusCal → Go, and Network PlusCal → Join Calculus backends (`PLAN.md` §8) — not
-yet started.
+## `Network2Go/`
+Network PlusCal → Go backend (`PLAN.md` §5.7) — in progress (phase 11). Target AST and code
+generator landed (`Core/Go/`); the compilation passes themselves aren't written yet.
+- `Errors.lean` — `N2GError` variants (currently just the `internalInvariantViolated`
+  defense-in-depth catch-all).
+- Entry point: `Network2Go.lean` (top-level re-export).
+- Still missing: the TLA⁺ → Go type/expression compilation, the PlusCal-side pass
+  (`PlusCal.lean`, `network.toGo`), lock inference, and `runtime/tlaplus/`.
+
+## `Network2JoinCalculus/`
+Network PlusCal → Join Calculus backend (`PLAN.md` §8) — not yet started.
+
+## `runtime/`
+Go, not Lean — the runtime library generated code links against (`PLAN.md` §5.7).
+Signatures come from thesis Listings 7.2.1–7.2.11. **The directory itself holds no code**:
+every package is a subdirectory, deliberately, so that nothing is `package runtime` — that
+name is Go's own, and generated code naming it constantly would read as the stdlib package.
+
+### `runtime/comm/`
+Message passing between processes: the endpoints, and who is at the other end.
+- `comm.go` — `Sender[T]`/`Receiver[T]` (Listings 7.2.9/7.2.10). Interfaces, not concrete
+  types: a Distributed PlusCal channel has no runtime representation of its own (never
+  stored or passed as a value), so what generated code holds is an endpoint supplied by
+  whoever wires the system — Go channel, Unix socket, TCP connection. `Multicast` lands
+  here next to `Sender` once tasklist item 4 settles its signature (§9.5).
+- `address.go` — `Address`, deliberately unspecified beyond `tlaplus.Ord`. Here rather than
+  in `tlaplus/` because an address exists to name the peer a `Sender` reaches.
+
+### `runtime/locks/`
+- `locks.go` — `Lock[T]` (a capacity-1 channel *holding* the guarded value, so it can't be
+  read without being held), `MkLock`/`Acquire`/`Release`. Generated code never touches the
+  channel directly. Non-reentrancy and acquisition order are lock inference's obligations,
+  not enforced here.
+
+### `runtime/tlaplus/`
+TLA⁺'s own value types, one file per concept/stdlib module.
+- `eq.go` — `Eq[T]` and the derived `Neq`.
+- `sequences.go` — `Seq[T]` (`[]T`, 1-indexed with slot 0 unused), with `MkSeq`/
+  `Len`/`SeqIndex`/`SeqUpdate`/`Head`/`Tail`/`Append`/`SeqEq`/`SeqCmp`. `SeqUpdate` backs
+  `EXCEPT`/`:=` on a sequence. Covers exactly the operators
+  `Driver/Builtins.lean`'s `sequencesDeclarations` exports. Sequence literals must be built
+  with `MkSeq`.
+- `ord.go` — `Ord[T]` (super-interface of `Eq`), with `Le`/`Ge`/`Cmp` derived once
+  generically rather than per type.
+- `{bool,str}.go` — one file per primitive TLA⁺ type: the `Bool`/`Str` newtypes and
+  their `Eq`/`Gt`/`Lt`. Newtypes because Go forbids implementing an interface for a
+  non-local type, so `bool`/`string` can't satisfy `Eq` directly.
+- `int_big.go`, `int_machine.go` — the two `Int` representations, selected
+  by build tag. **`int_big.go` (`math/big`) is the default**; `go build -tags
+  fugue_machint` selects the machine-integer one. Each carries `Int`, its `Eq`/`Gt`/`Lt`,
+  `MkInt`/`ToInt`, and `Add`/`Sub`/`Neg`/`Mul` — the whole representation-dependent surface,
+  so nothing else in the tree varies. See `PLAN.md` §5.7 for why arbitrary precision is the
+  default and why `Int` must be a struct.
+- `sets.go` — `Set[T]` (`[]T` plus two invariants Go can't express: sorted by the
+  element ordering, and duplicate-free), with `MkSet`/`SetIn`/`SetEq`/`SetFilter`/`SetMap`/
+  `Choose`. `Choose` returns the smallest satisfying element, not a random pick, so that
+  Hilbert's choice stays deterministic. Set literals must be built with `MkSet`.
+- `functions.go` — `LazyFunction[T, U]` and `FnConstructor`/`FnOverload`/`FnApply`/
+  `MkRecFn`/`Domain`.
+- `naturals.go` — `IntRange` (`..`), written against `Le`/`Add` so it holds for
+  either `Int` representation. The arithmetic operators live with the representation, in
+  `int_big.go`/`int_machine.go`; comparisons in `ord.go`. `Nat` is absent (infinite, §9.15).
+- Still missing: `records.go` here, and `comm/multicast.go` (blocked on tasklist item 4).
+
+## `persistent/`
+Go, not Lean — data structures the runtime library needs, versioned with the compiler
+(`PLAN.md` §5.7). Root `go.mod`, module `github.com/mesabloo/fugue`, covering both this
+directory and `runtime/`.
+- `treemap/` — persistent (immutable, structurally shared) ordered map with a
+  caller-supplied `Compare`, so keys need not be Go-`comparable`. Backs `LazyFunction`'s
+  cache in `runtime/tlaplus/functions.go`, where `EXCEPT`'s copy-before-write discipline
+  needs `Clone` to be O(1). Weight-balanced (Adams), per
+  `.claude/plans/persistent-collections-plan.md`.
+  - `node.go` (node type, `insert`/`remove`/`lookup`), `balance.go` (rotations),
+    `treemap.go` (public API), `iter.go` (ordered traversal), `treemap_test.go`.
 
 ## `VerifiedCompiler/`
 Vendored generic proof infrastructure — reused as-is, shouldn't need domain-specific

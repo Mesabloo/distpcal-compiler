@@ -4,3 +4,4 @@ reference/
 .DS_Store
 .fugue/
 .caveman.json
+.mcp.json

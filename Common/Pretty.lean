@@ -27,4 +27,4 @@ namespace Std.Format
   @[inline] def cbracket (f : Std.Format) : Std.Format :=
     .bracket "{" f "}"
 
-end
+end Format

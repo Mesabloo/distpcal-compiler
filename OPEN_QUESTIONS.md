@@ -43,21 +43,20 @@ Not blockers, none hit by §8's language subset, but real known gaps in `Parser_
   agent: Address})`) syntax is supported — a pre-Apalache-format dialect
   (`Channel[{type: string, agent: T}]`, square brackets, lowercase generic names) is not.
 
-### 9.3 CLI / UX — two remaining details
-Flag surface settled (§2). Two details still open:
+### 9.3 CLI / UX — remaining details
+Flag surface settled (§2), including the `-X<name>` target-option category — which
+currently has **no members**, `-Xgo-bigint` having been replaced by a Go build tag (§5.7).
+Still open:
 - **Join Calculus "flavors"** (e.g. `-t join[jocaml]`, `-t join[jerlang]`) — possible way
   to select between different lowerings/encodings of the guarded-reaction dialect for
   different existing Join Calculus runtimes, ties into §9.1. Flagged as possibly not
   worth the complexity — don't build unless asked.
 - **`-p` (Go package name)** — whether this stays its own flag or folds into something
   like `-t go[package=...]`, or is specified another way, still open.
-- **`Int` machine-`int`-vs-`math/big` flag name** (mechanism resolved, §2) — likely fits
-  the existing `-f<name>` category alongside `-fno-color`, but exact spelling (and
-  whether boolean toggle or value-taking) not pinned down.
 
 Also open: whether `-o`/`--output` names a file or a directory — matters more once two
 backends have potentially different output shapes (Go may eventually emit more than one
-file).
+file). Revisit once `Network2Go`'s actual output shape is concrete (phase 11 item 7).
 
 ### 9.4 Join Calculus operational semantics — low priority
 §5.6 points at where `Core/JoinCalculus/Semantics/` (RCHAM heating/cooling + reaction
@@ -78,12 +77,18 @@ reaction body, which the target calculus doesn't obviously support) or something
 inference, doesn't say whether multicast codegen is included in that "everything" or
 still needs new work — worth confirming by reading the actual pass.
 
+Thesis §7.2.3.1 (newly written) confirms the Go side stays unaddressed at the compiled-
+form level: it explicitly omits multicast from the statement-compilation rules, only
+saying in prose that it's "a simple 'iterated send'" — no loop construct, no compiled
+Go shown, so still needs real design (over which set-comprehension form, sequential vs.
+concurrent sends, etc.) before item 3/6 of the `Network2Go` tasklist can implement it.
+
 ### 9.6 Runtime value representation in Go: numeric representation is the real open piece
 TLA+ `Int`/`Nat` are unbounded, FIFOs are (as far as §8's grammar says) uncapacitated;
 Go's integer types and channels are inherently bounded (`int64` wraps on overflow; a Go
 `chan` is either unbuffered/synchronous or has fixed capacity — never truly unbounded).
-The dispatch mechanism between machine `int` and `math/big` is resolved (§2, §5.7): a
-whole-program compiler flag. Exact flag name still open (§9.3).
+The numeric side is resolved (§2, §5.7): arbitrary precision by default, machine integers
+behind the `fugue_machint` Go build tag, with no Fugue-level flag at all.
 
 The channel-capacity side is a real, unverified hypothesis, not a settled non-issue:
 because lock-inference (§5.7) already serializes atomic blocks touching shared state, a
@@ -148,6 +153,23 @@ all (cannot cross OS processes, let alone machines) — has to go through the
 nameserver-plus-network path above instead. §9.6's Go-channel-capacity discussion should
 be re-read with this split in mind — its reasoning was worked out assuming a literal Go
 `chan`, at best half the picture.
+
+Thesis §7.2.3.1 (newly written) pins the *local* call-site shape at least: `send(c[e1],
+e2)` compiles to `net.c[e1].Send(e2)` (indexed channel), `send(c, e2)` to `net.c.Send(e2)`
+(non-indexed) — `Network`'s fields are per-channel, each with an indexable `.Send`
+method. That's the generated-code-side API surface item 4's design work has to target;
+it says nothing about what `.Send` does internally (connection lifecycle, serialization,
+address-to-connection lookup) — this section's actual open question is unchanged.
+
+Thesis §7.2.3.2 (also newly written) pins the *receiving* side's generated-code contract
+too: each compiled process is a function `func p(net Network, mailbox Receiver[τ], self
+Address) (chan struct{})` — `mailbox` (`Receiver[T]` — `Recv() (T, bool)`, blocking) is a
+**caller-supplied parameter**, not something the generated code constructs or listens on
+itself. So the generated code's obligation on the receiving end is just "accept something
+implementing `Receiver[τ]`" — everything about how a real implementation of that interface
+actually accepts connections/deserializes/demultiplexes by channel identity is still
+outside the compiler's output, same open question as the sending side above, just now
+scoped to a concrete interface boundary rather than an unbounded one.
 
 ### 9.8 A "floating annotation" warning is blocked by the parser combinator library's backtracking
 

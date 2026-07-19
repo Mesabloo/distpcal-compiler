@@ -3,7 +3,7 @@ module
 public import Core.SurfacePlusCal.Syntax
 public import Common.Pretty
 
-@[expose] public section
+public section
 
 
 /-! Pretty-printing for `SurfacePlusCal`, used by `-d`-style AST dumps. -/
@@ -68,12 +68,14 @@ instance {α β} [Std.ToFormat α] [Std.ToFormat β] : Std.ToFormat (Declaration
       "fifos " ++ .joinSep (d.fifos.map λ (x, ann, es) ↦
         f!"{x} {ann}" ++ if es.isEmpty then Std.Format.nil else .join (es.map λ e ↦ .sbracket f!"{e}")) ", ")
 
+@[no_expose]
 instance {α β} [Std.ToFormat α] [Std.ToFormat β] : Std.ToFormat (Process α β) where
   format p := Std.format p.ann ++ f!" {formatFairness p.isFair}process ({p.name} {if p.«=|∈» then " = " else " ∈ "} {p.id})" ++ .indent 2 (
     .nest 2 (Std.format p.localState) ++ .line ++
     .joinSep (formatBlock Std.format <$> p.threads) .line
   )
 
+@[no_expose]
 instance {α β} [Std.ToFormat α] [Std.ToFormat β] : Std.ToFormat (Algorithm α β) where
   format alg :=
     f!"(*--{formatFairness alg.isFair}algorithm {alg.name}" ++ .cbracket (.indent 2 <|
