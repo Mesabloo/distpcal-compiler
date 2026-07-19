@@ -28,9 +28,9 @@ private def emptySetOfVarA : TypedTLAPlus.Expression TypedTLAPlus.Typ := .set []
 domain witnesses any codomain. Used as the placeholder body for every `Bags` operator returning a
 bag. -/
 private def emptyFnOfVarAToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
-  .fn "x" (.var "a") emptySetOfVarA intZero
+  .fn "x" (.var "a") .int emptySetOfVarA intZero
 private def emptyFnOfVarBToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
-  .fn "x" (.var "b") (.set [] (.var "b")) intZero
+  .fn "x" (.var "b") .int (.set [] (.var "b")) intZero
 private def emptySetOfFnVarAToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
   .set [] (.function (.var "a") .int)
 

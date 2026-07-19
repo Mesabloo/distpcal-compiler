@@ -185,7 +185,7 @@ mutual
       let c' ← checkExpr c .bool
       let t' ← checkExpr t τ
       let f' ← checkExpr f τ
-      return .if c' t' f' @@ pos
+      return .if c' t' f' τ @@ pos
     /-
        ∀ 1 ≤ i ≤ n, Γ ⊢ pᵢ ⇓ Bool       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇓ τ       Γ ⊢ eₙ₊₁ ⇓ τ
       ───────────────────────────────────────────────────────────────────────────── [Conditional choice]
@@ -195,7 +195,7 @@ mutual
       let branches' ← branches.mapM λ (p, e) ↦
         return (← checkExpr p .bool, ← checkExpr e τ)
       let other' ← other.mapM (checkExpr · τ)
-      return .case branches' other' @@ pos
+      return .case branches' other' τ @@ pos
     /-
        Γ ⊢ e ⇑ τ'       τ' <: τ
       ─────────────────────────── [Subtype]
@@ -280,7 +280,7 @@ mutual
       match domTy with
       | .set τ => do
         let (τ', body') ← extend x τ (inferExpr body)
-        return (.set τ', .map' body' x τ domE' @@ pos)
+        return (.set τ', .map' body' x τ τ' domE' @@ pos)
       | _ => throw (.notASetType pos domTy)
     /-
        Γ ⊢ e ⇑ τ₁ → τ       Γ ⊢ e' ⇓ τ₁
@@ -290,7 +290,7 @@ mutual
     | .fnCall e idx, pos => do
       let (τ, e') ← inferExpr e
       let (resTy, idx') ← indexInto pos τ idx
-      return (resTy, .fnCall e' idx' @@ pos)
+      return (resTy, .fnCall e' τ idx' @@ pos)
     /-
        Γ ⊢ S ⇑ Set(τ)       Γ, x : τ ⊢ e ⇑ τ'
       ────────────────────────────────────────── [Function constructor]
@@ -301,7 +301,7 @@ mutual
       match domTy with
       | .set τ => do
         let (τ', body') ← extend x τ (inferExpr body)
-        return (.function τ τ', .fn x τ domE' body' @@ pos)
+        return (.function τ τ', .fn x τ τ' domE' body' @@ pos)
       | _ => throw (.notASetType pos domTy)
     /-
        Γ ⊢ S ⇑ Set(τ)       Γ ⊢ T ⇑ Set(τ')
@@ -351,7 +351,7 @@ mutual
         let (finalTy, path') ← checkExceptPath pos τ path
         let newVal' ← checkExpr newVal finalTy
         return (path', newVal')
-      return (τ, .except e' updates' @@ pos)
+      return (τ, .except e' τ updates' @@ pos)
     /-
        Γ ⊢ e ⇑ [x₀ : τ₀, …, xₙ : τₙ]       y = xᵢ
       ────────────────────────────────────────────── [Record field access]
@@ -382,7 +382,7 @@ mutual
       let (τt, t') ← inferExpr t
       let (τf, f') ← inferExpr f
       let τ ← lubAll pos [τt, τf]
-      return (τ, .if c' (← coerceInto pos τ (τt, t')) (← coerceInto pos τ (τf, f')) @@ pos)
+      return (τ, .if c' (← coerceInto pos τ (τt, t')) (← coerceInto pos τ (τf, f')) τ @@ pos)
     /-
        ∀ 1 ≤ i ≤ n, Γ ⊢ pᵢ ⇓ Bool       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇑ τᵢ       Γ ⊢ eₙ₊₁ ⇑ τₙ₊₁
       ──────────────────────────────────────────────────────────────────────────────── [Conditional choice]
@@ -397,7 +397,7 @@ mutual
       let τ ← lubAll pos (branches'.map (·.1) ++ (other'.map Prod.fst).toList)
       let branches'' ← branches'.mapM λ (τᵢ, p, e) ↦ return (p, ← coerceInto pos τ (τᵢ, e))
       let other'' ← other'.mapM (coerceInto pos τ)
-      return (τ, .case branches'' other'' @@ pos)
+      return (τ, .case branches'' other'' τ @@ pos)
     /-
        Γ ⊢ e ⇑ τ       Γ ⊢ A ⇓ Bool
       ────────────────────────────── [Stuttering]

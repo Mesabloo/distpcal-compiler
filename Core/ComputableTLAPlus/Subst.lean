@@ -29,16 +29,20 @@ partial def Expression.subst {α} (x : String) (e : Expression α) : Expression 
   | .choose y ann dom body => .choose y ann (subst x e dom) (if y == x then body else subst x e body)
   | .set es τ => .set (subst x e <$> es) τ
   | .collect y ann dom pred => .collect y ann (subst x e dom) (if y == x then pred else subst x e pred)
-  | .map' body y ann dom => .map' (if y == x then body else subst x e body) y ann (subst x e dom)
-  | .fnCall f e' => .fnCall (subst x e f) (subst x e e')
-  | .fn y ann dom body => .fn y ann (subst x e dom) (if y == x then body else subst x e body)
+  | .map' body y ann cod dom =>
+    .map' (if y == x then body else subst x e body) y ann cod (subst x e dom)
+  | .fnCall f fnTyp e' => .fnCall (subst x e f) fnTyp (subst x e e')
+  | .fn y ann cod dom body =>
+    .fn y ann cod (subst x e dom) (if y == x then body else subst x e body)
   | .record fs => .record (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v))
-  | .except f upds => .except (subst x e f) (upds.map λ (path, v) ↦ (path.map (Sum.map id (subst x e)), subst x e v))
+  | .except f τ upds =>
+    .except (subst x e f) τ (upds.map λ (path, v) ↦ (path.map (Sum.map id (subst x e)), subst x e v))
   | .recordAccess f name => .recordAccess (subst x e f) name
   | .tuple es => .tuple (es.map λ (τ, e') ↦ (τ, subst x e e'))
   | .seq es τ => .seq (subst x e <$> es) τ
-  | .if e₁ e₂ e₃ => .if (subst x e e₁) (subst x e e₂) (subst x e e₃)
-  | .case bs other => .case (bs.map (Bifunctor.bimap (subst x e) (subst x e))) (subst x e <$> other)
+  | .if e₁ e₂ e₃ τ => .if (subst x e e₁) (subst x e e₂) (subst x e e₃) τ
+  | .case bs other τ =>
+    .case (bs.map (Bifunctor.bimap (subst x e) (subst x e))) (subst x e <$> other) τ
   | .nat n => .nat n
   | .str s => .str s
   | .true => .true
@@ -54,7 +58,7 @@ def Expression.substRef {α} (r : ElaboratedPlusCal.Ref α (Expression α)) (rhs
   if r.args.isEmpty then
     Expression.subst r.name rhs e'
   else
-    Expression.subst r.name (.except (.var r.name r.baseType .binder) [(r.args, rhs)]) e'
+    Expression.subst r.name (.except (.var r.name r.baseType .binder) r.baseType [(r.args, rhs)]) e'
 
 end ComputableTLAPlus
 

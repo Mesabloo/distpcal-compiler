@@ -50,16 +50,22 @@ inductive Coercion : Type
   /-- `⟨τ,...,τ⟩ <: Seq(τ)` (uniform tuple only) — a tuple's arity `n` is static, so discharge is
   just a literal `.seq` of the `n` projected components. -/
   | tupleToSeq (n : Nat) (τ : Typ)
-  /-- `Set(τ) <: Set(τ')` — `{coerce(x) : x ∈ e}`. `x` a fresh binder name. -/
-  | set (x : String) (τ : Typ) (c : Coercion)
+  /-- `Set(τ) <: Set(τ')` — `{coerce(x) : x ∈ e}`. `x` a fresh binder name. `τ'` is carried
+  alongside the source `τ` because the `.map'` this discharges to records its codomain, and the
+  coerced body's type is exactly `τ'`. -/
+  | set (x : String) (τ τ' : Typ) (c : Coercion)
   /-- `⟨τ₁,...,τₙ⟩ <: ⟨τ₁',...,τₙ'⟩` — a new literal tuple, each component projected out of the
-  source (tuples being encoded as unary functions from naturals) and coerced. -/
-  | tuple (coes : List Coercion) (τs' : List Typ)
+  source (tuples being encoded as unary functions from naturals) and coerced. `τs` is the *source*
+  component list, needed because each projection discharges to a `.fnCall`, which records the type
+  of its head — here the source tuple. -/
+  | tuple (coes : List Coercion) (τs τs' : List Typ)
   /-- `[x₁:τ₁,...] <: [x₁:τ₁',...]` — a new literal record, each field projected out of the source
   and coerced. -/
   | record (fields : List (String × Coercion × Typ))
-  /-- `τ₁ → τ₂ <: τ₁' → τ₂'` via a `CHOOSE`-based domain remap. `x`/`y` fresh binder names. -/
-  | function (x y : String) (dom rng dom' : Typ) (cDom cRng : Coercion)
+  /-- `τ₁ → τ₂ <: τ₁' → τ₂'` via a `CHOOSE`-based domain remap. `x`/`y` fresh binder names. `rng'`
+  is carried for the same reason `set` carries `τ'`: the `.fn` this discharges to records its
+  codomain, which is the *target* range, not the source's. -/
+  | function (x y : String) (dom rng dom' rng' : Typ) (cDom cRng : Coercion)
   /-- Sequential composition — discharge `c₁` then `c₂` on the result. Realizes `<:`'s
   transitivity for `tryAxioms`' chained-axiom case (e.g. `Str <: Seq(Int) <: Int → Int`). -/
   | comp (c₁ c₂ : Coercion)
@@ -75,24 +81,25 @@ partial def Coercion.apply : Coercion → Expr → Expr
   | .seqToFun τ₀ i, e =>
     let range : Expr := .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
       [.nat "1", .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences")) [e]]
-    .fn i .int range (.fnCall e (.var i .int .binder))
+    .fn i .int τ₀ range (.fnCall e (.seq τ₀) (.var i .int .binder))
   | .tupleToSeq n τ, e =>
-    .seq ((List.range n).map λ i ↦ .fnCall e (.nat (toString (i + 1)))) τ
-  | .set x τ c, e =>
-    .map' (c.apply (.var x τ .binder)) x τ e
-  | .tuple coes τs', e =>
+    .seq ((List.range n).map λ i ↦
+      .fnCall e (.tuple (List.replicate n τ)) (.nat (toString (i + 1)))) τ
+  | .set x τ τ' c, e =>
+    .map' (c.apply (.var x τ .binder)) x τ τ' e
+  | .tuple coes τs τs', e =>
     .tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
-      (τ'ᵢ, c.apply (.fnCall e (.nat (toString (i + 1)))))
+      (τ'ᵢ, c.apply (.fnCall e (.tuple τs) (.nat (toString (i + 1)))))
   | .record fields, e =>
     .record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.apply (.recordAccess e name))
-  | .function x y dom rng dom' cDom cRng, e =>
+  | .function x y dom rng dom' rng' cDom cRng, e =>
     let domainExpr : Expr := .opCall (.var "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic) [e]
-    let newDomain : Expr := .map' (cDom.apply (.var x dom .binder)) x dom domainExpr
+    let newDomain : Expr := .map' (cDom.apply (.var x dom .binder)) x dom dom' domainExpr
     let eqTy : Typ := .operator [dom', dom'] .bool
     let recoveredArg : Expr :=
       .choose x dom (some domainExpr)
         (.opCall (.var "=" eqTy .intrinsic) [cDom.apply (.var x dom .binder), .var y dom' .binder])
-    .fn y dom' newDomain (cRng.apply (.fnCall e recoveredArg))
+    .fn y dom' rng' newDomain (cRng.apply (.fnCall e (.function dom rng) recoveredArg))
   | .comp c₁ c₂, e => c₂.apply (c₁.apply e)
 
 /-- A placeholder rendering (module doc). -/

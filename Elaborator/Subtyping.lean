@@ -152,7 +152,7 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
     | .failure => return .failure
     | .success c => do
       let x ← freshName "x"
-      return .success (.set x τ₀ c)
+      return .success (.set x τ₀ τ₀' c)
   | .seq τ₀, .seq τ₀' => do
     match ← subtype τ₀ τ₀' with
     | .success .id => return .success .id
@@ -166,7 +166,7 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
       | .error r => return r
       | .ok coes =>
         if coes.all (· matches .id) then return .success .id
-        else return .success (.tuple coes τs')
+        else return .success (.tuple coes τs τs')
   | .record fs, .record fs' => do
     if fs.map Prod.fst ≠ fs'.map Prod.fst then return .failure
     else
@@ -203,7 +203,7 @@ partial def subtype (τ τ' : Typ) : m SubtypeResult := do
         else do
           let x ← freshName "x"
           let y ← freshName "y"
-          return .success (.function x y dom rng dom' cDom cRng)
+          return .success (.function x y dom rng dom' rng' cDom cRng)
   | _, _ => tryAxioms subtype τ τ'
 
 /-- Whether `τ <: τ'` holds, ignoring the coercion payload — all `lub`/`glb` need. -/

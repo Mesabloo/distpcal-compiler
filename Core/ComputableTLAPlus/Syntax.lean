@@ -68,18 +68,20 @@ inductive Expression (α : Type) : Type
   | set : List (Expression α) → α → Expression α
   /-- Set filtering `{x ∈ A : P}`. -/
   | collect : String → α → Expression α → Expression α → Expression α
-  /-- The image of a function by a set `{e : x ∈ A}`. -/
-  | map' : Expression α → String → α → Expression α → Expression α
-  /-- A function call `f[e]` — always unary. -/
-  | fnCall : Expression α → Expression α → Expression α
-  /-- A function literal `[x ∈ A ↦ e]`. -/
-  | fn : String → α → Expression α → Expression α → Expression α
+  /-- The image of a function by a set `{e : x ∈ A}`. `ann`/`cod` as in
+  `TypedTLAPlus.Expression.map'`. -/
+  | map' : Expression α → String → (ann : α) → (cod : α) → Expression α → Expression α
+  /-- A function call `f[e]` — always unary, carrying its head's type so that a backend can tell a
+  function application from a sequence index from a tuple projection. -/
+  | fnCall : Expression α → (fnTyp : α) → Expression α → Expression α
+  /-- A function literal `[x ∈ A ↦ e]`. `ann`/`cod` as in `map'`. -/
+  | fn : String → (ann : α) → (cod : α) → Expression α → Expression α → Expression α
   /-- A literal record `[a |-> e₁, …, z |-> eₙ]`, each field's own `α` its (ascribed or inferred)
   type. -/
   | record : List (α × String × Expression α) → Expression α
-  /-- Function update `[f EXCEPT ![e] = e₂]` — each path step's index is unary, same as
-  `fnCall`. -/
-  | except : Expression α → List (List (String ⊕ Expression α) × Expression α) → Expression α
+  /-- Function update `[f EXCEPT ![e] = e₂]`, carrying the target's type — see
+  `TypedTLAPlus.Expression.except`. -/
+  | except : Expression α → (τ : α) → List (List (String ⊕ Expression α) × Expression α) → Expression α
   /-- Record access `r.x`. -/
   | recordAccess : Expression α → String → Expression α
   /-- A literal tuple `<<e₁, …, eₙ>>`, synthesis-mode. Each component pairs its own type with
@@ -89,10 +91,11 @@ inductive Expression (α : Type) : Type
   /-- A literal sequence `<<e₁, …, eₙ>>`, checking-mode only. `α` the element type `τ` every `eᵢ`
   was checked against — kept because an empty `<<>>` gives nothing to reconstruct it from. -/
   | seq : List (Expression α) → α → Expression α
-  /-- Conditional `IF e₁ THEN e₂ ELSE e₃`. -/
-  | «if» : Expression α → Expression α → Expression α → Expression α
-  /-- Case distinction `CASE p₁ -> e₁ [] … [] OTHER -> eₙ₊₁`. -/
-  | case : List (Expression α × Expression α) → Option (Expression α) → Expression α
+  /-- Conditional `IF e₁ THEN e₂ ELSE e₃`, carrying its own type — see
+  `TypedTLAPlus.Expression.if` for why no branch answers for it. -/
+  | «if» : Expression α → Expression α → Expression α → (τ : α) → Expression α
+  /-- Case distinction `CASE p₁ -> e₁ [] … [] OTHER -> eₙ₊₁`, carrying its own type. -/
+  | case : List (Expression α × Expression α) → Option (Expression α) → (τ : α) → Expression α
   | nat : String → Expression α
   | str : String → Expression α
   | «true» : Expression α
@@ -113,18 +116,23 @@ protected partial def Expression.map {α β} (f : α → β) (e : Expression α)
   | .choose x ann dom e, pos => .choose x (f ann) (Expression.map f dom) (Expression.map f e) @@ pos
   | .set es τ, pos => .set (Expression.map f <$> es) (f τ) @@ pos
   | .collect x ann dom e, pos => .collect x (f ann) (Expression.map f dom) (Expression.map f e) @@ pos
-  | .map' e x ann dom, pos => .map' (Expression.map f e) x (f ann) (Expression.map f dom) @@ pos
-  | .fnCall e e', pos => .fnCall (Expression.map f e) (Expression.map f e') @@ pos
-  | .fn x ann dom e, pos => .fn x (f ann) (Expression.map f dom) (Expression.map f e) @@ pos
+  | .map' e x ann cod dom, pos =>
+    .map' (Expression.map f e) x (f ann) (f cod) (Expression.map f dom) @@ pos
+  | .fnCall e fnTyp e', pos =>
+    .fnCall (Expression.map f e) (f fnTyp) (Expression.map f e') @@ pos
+  | .fn x ann cod dom e, pos =>
+    .fn x (f ann) (f cod) (Expression.map f dom) (Expression.map f e) @@ pos
   | .record fs, pos => .record (Prod.map₃ f id (Expression.map f) <$> fs) @@ pos
-  | .except e upds, pos =>
-    .except (Expression.map f e)
+  | .except e τ upds, pos =>
+    .except (Expression.map f e) (f τ)
       (Bifunctor.bimap (·.map (Sum.map id (Expression.map f))) (Expression.map f) <$> upds) @@ pos
   | .recordAccess e v, pos => .recordAccess (Expression.map f e) v @@ pos
   | .tuple es, pos => .tuple (Bifunctor.bimap f (Expression.map f) <$> es) @@ pos
   | .seq es τ, pos => .seq (Expression.map f <$> es) (f τ) @@ pos
-  | .if e₁ e₂ e₃, pos => .if (Expression.map f e₁) (Expression.map f e₂) (Expression.map f e₃) @@ pos
-  | .case es e, pos => .case (Bifunctor.bimap (Expression.map f) (Expression.map f) <$> es) (Expression.map f <$> e) @@ pos
+  | .if e₁ e₂ e₃ τ, pos =>
+    .if (Expression.map f e₁) (Expression.map f e₂) (Expression.map f e₃) (f τ) @@ pos
+  | .case es e τ, pos =>
+    .case (Bifunctor.bimap (Expression.map f) (Expression.map f) <$> es) (Expression.map f <$> e) (f τ) @@ pos
 
 instance : Functor Expression where
   map := Expression.map
@@ -146,20 +154,27 @@ protected partial def Expression.traverse {F : Type → Type} [Applicative F] {�
   | .set es τ, pos => (.set · · @@ pos) <$> traverse (Expression.traverse f) es <*> f τ
   | .collect x ann dom e, pos =>
     (.collect x · · · @@ pos) <$> f ann <*> Expression.traverse f dom <*> Expression.traverse f e
-  | .map' e x ann dom, pos =>
-    (.map' · x · · @@ pos) <$> Expression.traverse f e <*> f ann <*> Expression.traverse f dom
-  | .fnCall e e', pos => (.fnCall · · @@ pos) <$> Expression.traverse f e <*> Expression.traverse f e'
-  | .fn x ann dom e, pos =>
-    (.fn x · · · @@ pos) <$> f ann <*> Expression.traverse f dom <*> Expression.traverse f e
+  | .map' e x ann cod dom, pos =>
+    (.map' · x · · · @@ pos)
+      <$> Expression.traverse f e <*> f ann <*> f cod <*> Expression.traverse f dom
+  | .fnCall e fnTyp e', pos =>
+    (.fnCall · · · @@ pos) <$> Expression.traverse f e <*> f fnTyp <*> Expression.traverse f e'
+  | .fn x ann cod dom e, pos =>
+    (.fn x · · · · @@ pos)
+      <$> f ann <*> f cod <*> Expression.traverse f dom <*> Expression.traverse f e
   | .record fs, pos => (.record · @@ pos) <$> traverse (Prod.traverse₃ f pure (Expression.traverse f)) fs
-  | .except e upds, pos =>
-    (.except · · @@ pos) <$> Expression.traverse f e
+  | .except e τ upds, pos =>
+    (.except · · · @@ pos) <$> Expression.traverse f e <*> f τ
       <*> traverse (bitraverse (traverse (bitraverse pure (Expression.traverse f))) (Expression.traverse f)) upds
   | .recordAccess e v, pos => (.recordAccess · v @@ pos) <$> Expression.traverse f e
   | .tuple es, pos => (.tuple · @@ pos) <$> traverse (bitraverse f (Expression.traverse f)) es
   | .seq es τ, pos => (.seq · · @@ pos) <$> traverse (Expression.traverse f) es <*> f τ
-  | .if e₁ e₂ e₃, pos => (.if · · · @@ pos) <$> Expression.traverse f e₁ <*> Expression.traverse f e₂ <*> Expression.traverse f e₃
-  | .case es e, pos => (.case · · @@ pos) <$> traverse (bitraverse (Expression.traverse f) (Expression.traverse f)) es <*> traverse (Expression.traverse f) e
+  | .if e₁ e₂ e₃ τ, pos =>
+    (.if · · · · @@ pos) <$> Expression.traverse f e₁ <*> Expression.traverse f e₂
+      <*> Expression.traverse f e₃ <*> f τ
+  | .case es e τ, pos =>
+    (.case · · · @@ pos) <$> traverse (bitraverse (Expression.traverse f) (Expression.traverse f)) es
+      <*> traverse (Expression.traverse f) e <*> f τ
 
 instance : Traversable Expression where
   traverse := Expression.traverse

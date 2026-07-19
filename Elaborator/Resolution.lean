@@ -39,29 +39,33 @@ partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
   | .set es τ, pos => return .set (← es.mapM resolveExprMVars) τ @@ pos
   | .collect x τ dom pred, pos =>
     return .collect x τ (← resolveExprMVars dom) (← resolveExprMVars pred) @@ pos
-  | .map' body x τ dom, pos => return .map' (← resolveExprMVars body) x τ (← resolveExprMVars dom) @@ pos
-  | .fnCall f idx, pos => return .fnCall (← resolveExprMVars f) (← resolveExprMVars idx) @@ pos
-  | .fn x τ dom body, pos => return .fn x τ (← resolveExprMVars dom) (← resolveExprMVars body) @@ pos
+  | .map' body x τ cod dom, pos =>
+    return .map' (← resolveExprMVars body) x τ cod (← resolveExprMVars dom) @@ pos
+  | .fnCall f fnTyp idx, pos =>
+    return .fnCall (← resolveExprMVars f) fnTyp (← resolveExprMVars idx) @@ pos
+  | .fn x τ cod dom body, pos =>
+    return .fn x τ cod (← resolveExprMVars dom) (← resolveExprMVars body) @@ pos
   | .fnSet dom cod, pos => return .fnSet (← resolveExprMVars dom) (← resolveExprMVars cod) @@ pos
   | .record fields, pos =>
     return .record (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveExprMVars e)) @@ pos
   | .recordSet fields, pos =>
     return .recordSet (← fields.mapM λ (τ, x, e) ↦ return (τ, x, ← resolveExprMVars e)) @@ pos
-  | .except e upds, pos => do
+  | .except e τ upds, pos => do
     let e' ← resolveExprMVars e
     let upds' ← upds.mapM λ (path, newVal) ↦ do
       let path' ← path.mapM λ
         | .inl field => return (Sum.inl field : String ⊕ Expr)
         | .inr idx => return .inr (← resolveExprMVars idx)
       return (path', ← resolveExprMVars newVal)
-    return .except e' upds' @@ pos
+    return .except e' τ upds' @@ pos
   | .recordAccess e x, pos => return .recordAccess (← resolveExprMVars e) x @@ pos
   | .tuple es, pos => return .tuple (← es.mapM λ (τ, e) ↦ return (τ, ← resolveExprMVars e)) @@ pos
   | .seq es τ, pos => return .seq (← es.mapM resolveExprMVars) τ @@ pos
-  | .if c t f, pos => return .if (← resolveExprMVars c) (← resolveExprMVars t) (← resolveExprMVars f) @@ pos
-  | .case branches other, pos => do
+  | .if c t f τ, pos =>
+    return .if (← resolveExprMVars c) (← resolveExprMVars t) (← resolveExprMVars f) τ @@ pos
+  | .case branches other τ, pos => do
     let branches' ← branches.mapM λ (p, e) ↦ return (← resolveExprMVars p, ← resolveExprMVars e)
-    return .case branches' (← other.mapM resolveExprMVars) @@ pos
+    return .case branches' (← other.mapM resolveExprMVars) τ @@ pos
   | .stutter e a, pos => return .stutter (← resolveExprMVars e) (← resolveExprMVars a) @@ pos
   | .mvar n e, pos => do
     let e' ← resolveExprMVars e

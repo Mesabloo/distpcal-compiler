@@ -54,14 +54,17 @@ partial def TypedTLAPlus.Expression.toComputable :
     | some d => (.choose x ann · · @@ pos) <$> d.toComputable <*> body.toComputable
   | .set es τ, pos => (.set · τ @@ pos) <$> es.mapM Expression.toComputable
   | .collect x ann dom body, pos => (.collect x ann · · @@ pos) <$> dom.toComputable <*> body.toComputable
-  | .map' body x ann dom, pos => (.map' · x ann · @@ pos) <$> body.toComputable <*> dom.toComputable
-  | .fnCall f idx, pos => (.fnCall · · @@ pos) <$> f.toComputable <*> idx.toComputable
-  | .fn x ann dom body, pos => (.fn x ann · · @@ pos) <$> dom.toComputable <*> body.toComputable
+  | .map' body x ann cod dom, pos =>
+    (.map' · x ann cod · @@ pos) <$> body.toComputable <*> dom.toComputable
+  | .fnCall f fnTyp idx, pos =>
+    (.fnCall · fnTyp · @@ pos) <$> f.toComputable <*> idx.toComputable
+  | .fn x ann cod dom body, pos =>
+    (.fn x ann cod · · @@ pos) <$> dom.toComputable <*> body.toComputable
   | .fnSet .., pos => throw (.notComputable pos .fnSet)
   | .record fs, pos => (.record · @@ pos) <$> fs.mapM λ (τ, name, e) ↦ (τ, name, ·) <$> e.toComputable
   | .recordSet .., pos => throw (.notComputable pos .recordSet)
-  | .except e upds, pos =>
-    (.except · · @@ pos) <$> e.toComputable <*> upds.mapM λ (path, newVal) ↦ do
+  | .except e τ upds, pos =>
+    (.except · τ · @@ pos) <$> e.toComputable <*> upds.mapM λ (path, newVal) ↦ do
       let path' ← path.mapM λ
         | .inl s => pure (Sum.inl s)
         | .inr idx => Sum.inr <$> idx.toComputable
@@ -70,9 +73,10 @@ partial def TypedTLAPlus.Expression.toComputable :
   | .recordAccess e v, pos => (.recordAccess · v @@ pos) <$> e.toComputable
   | .tuple es, pos => (.tuple · @@ pos) <$> es.mapM λ (τ, e) ↦ (τ, ·) <$> e.toComputable
   | .seq es τ, pos => (.seq · τ @@ pos) <$> es.mapM Expression.toComputable
-  | .if e₁ e₂ e₃, pos => (.if · · · @@ pos) <$> e₁.toComputable <*> e₂.toComputable <*> e₃.toComputable
-  | .case branches other, pos =>
-    (.case · · @@ pos) <$> branches.mapM (λ (p, e) ↦ Prod.mk <$> p.toComputable <*> e.toComputable)
+  | .if e₁ e₂ e₃ τ, pos =>
+    (.if · · · τ @@ pos) <$> e₁.toComputable <*> e₂.toComputable <*> e₃.toComputable
+  | .case branches other τ, pos =>
+    (.case · · τ @@ pos) <$> branches.mapM (λ (p, e) ↦ Prod.mk <$> p.toComputable <*> e.toComputable)
       <*> other.mapM Expression.toComputable
   | .stutter .., pos => throw (.internalInvariantViolated pos
       "a bare [A]_e (stuttering-allowed action) — already banned transitively-reachable-from-the-algorithm by WellFormedness/Restrictions.lean's check 3")

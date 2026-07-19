@@ -110,13 +110,13 @@ partial def TypedTLAPlus.Expression.walkReachable {m' : Type → Type} [Monad m'
   | .choose _ _ dom body => do dom.forM recurse; recurse body
   | .set es _ => es.forM recurse
   | .collect _ _ dom body => do recurse dom; recurse body
-  | .map' body _ _ dom => do recurse body; recurse dom
-  | .fnCall f idx => do recurse f; recurse idx
-  | .fn _ _ dom body => do recurse dom; recurse body
+  | .map' body _ _ _ dom => do recurse body; recurse dom
+  | .fnCall f _ idx => do recurse f; recurse idx
+  | .fn _ _ _ dom body => do recurse dom; recurse body
   | .fnSet dom cod => do recurse dom; recurse cod
   | .record fs => fs.forM λ (_, _, e) ↦ recurse e
   | .recordSet fs => fs.forM λ (_, _, e) ↦ recurse e
-  | .except e upds => do
+  | .except e _ upds => do
     recurse e
     upds.forM λ (path', newVal) ↦ do
       path'.forM λ
@@ -126,8 +126,8 @@ partial def TypedTLAPlus.Expression.walkReachable {m' : Type → Type} [Monad m'
   | .recordAccess e _ => recurse e
   | .tuple es => es.forM λ (_, e) ↦ recurse e
   | .seq es _ => es.forM recurse
-  | .if c t f => do recurse c; recurse t; recurse f
-  | .case branches other => do
+  | .if c t f _ => do recurse c; recurse t; recurse f
+  | .case branches other _ => do
     branches.forM λ (p, e) ↦ do recurse p; recurse e
     other.forM recurse
   | .nat _ | .str _ | .true | .false => pure ()

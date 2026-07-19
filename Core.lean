@@ -14,7 +14,6 @@ public import Core.TypedPlusCal.Syntax
 public import Core.ComputableTLAPlus.Syntax
 public import Core.ComputableTLAPlus.Coercion
 public import Core.ComputableTLAPlus.Subst
-public import Core.ComputableTLAPlus.TypeOf
 public import Core.ComputablePlusCal.Syntax
 public import Core.GuardedPlusCal.Syntax
 public import Core.NetworkPlusCal.Syntax

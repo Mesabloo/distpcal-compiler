@@ -1,7 +1,6 @@
 module
 
 public import Network2Go.Typ
-public import Core.ComputableTLAPlus.TypeOf
 public import Core.ComputablePlusCal.Syntax
 public import Core.Go.Syntax
 public import Common.Fresh
@@ -31,6 +30,12 @@ public section
     1-indexed with slot 0 unused). The one exception is the *empty* literal, which has nothing to
     infer a type parameter from and so is written `tlaplus.Set[τ]{}` — trivially sorted,
     duplicate-free, and for `Seq` the nil slice is already the valid empty sequence.
+  - **Types are read off the AST, never re-derived.** Go's `func` literals have mandatory
+    signatures, so `{e : x ∈ S}`, `[x ∈ S ↦ e]`, `IF`/`CASE` and a record `EXCEPT` all have to write
+    out a type TLA⁺ never spells. The checker records each of them
+    (`Elaborator/Expressions.lean`); this pass only reads them off the node it is compiling.
+    `f[e]`'s head type is recorded for a different reason — it is a three-way dispatch, between a
+    function application, a sequence index and a tuple projection, not a type to emit.
   - **Operator applications dispatch on the head's `Origin`.** `\in`, `=` and friends are not Go
     functions with those names — `x \in S` reverses its arguments into `SetIn(S, x)` and `=` picks
     between `Eq`, `SetEq` and `SeqEq` by operand type — so a builtin head is matched at the
@@ -71,16 +76,6 @@ private def goBool (e : ComputableGo.Expression) : ComputableGo.Expression :=
 /-- `tlaplus.Bool(e)` — the conversion back, wrapping anything that produced a Go `bool`. -/
 private def tlaBool (e : ComputableGo.Expression) : ComputableGo.Expression :=
   tlaplusCall "Bool" [e]
-
-/-- The type of a checked sub-expression, already compiled to Go. A `none` from `typeOf?` means the
-checker's output was not well-typed in a way it should itself have rejected — see
-`Core/ComputableTLAPlus/TypeOf.lean`. -/
-private def compileTypeOf (pos : SourceSpan) (e : ComputablePlusCal.Expression) : m Go.Typ := do
-  match e.typeOf? with
-  | some τ => compileTyp τ
-  | none =>
-    throw (.internalInvariantViolated pos
-      "the type of a checked expression could not be re-derived, so its Go type is unknown")
 
 /-- An operator applied to the wrong number of arguments — impossible past type checking, which
 checks every application's arity. -/
@@ -156,26 +151,24 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
     else return tlaplusCall "MkSeq" (← es.mapM compileExpr)
   | .collect x τ dom body, _ =>
     return tlaplusCall "SetFilter" [← compileExpr dom, ← compilePredicate x τ body]
-  | .map' body x τ dom, pos => do
+  | .map' body x τ cod dom, _ => do
     -- `SetMap` renormalizes its result: the mapping function is neither monotone nor injective in
     -- general, so neither the sortedness nor the duplicate-freedom invariant survives it.
-    let elemτ ← compileTyp τ
-    let resultτ ← compileTypeOf pos body
     return tlaplusCall "SetMap"
-      [← compileExpr dom, .funcLit [(x, elemτ)] [resultτ] [.return [← compileExpr body]]]
-  | .fn x τ dom body, pos => do
-    let elemτ ← compileTyp τ
-    let resultτ ← compileTypeOf pos body
+      [← compileExpr dom,
+        .funcLit [(x, ← compileTyp τ)] [← compileTyp cod] [.return [← compileExpr body]]]
+  | .fn x τ cod dom body, _ =>
     return tlaplusCall "FnConstructor"
-      [← compileExpr dom, .funcLit [(x, elemτ)] [resultτ] [.return [← compileExpr body]]]
-  | .fnCall f i, pos => do
+      [← compileExpr dom,
+        .funcLit [(x, ← compileTyp τ)] [← compileTyp cod] [.return [← compileExpr body]]]
+  | .fnCall f fnTyp i, pos => do
     let f' ← compileExpr f
-    match f.typeOf? with
-    | some (.function _ _) => return tlaplusCall "FnApply" [f', ← compileExpr i]
-    | some (.seq _) => return tlaplusCall "SeqIndex" [f', ← compileExpr i]
+    match fnTyp with
+    | .function _ _ => return tlaplusCall "FnApply" [f', ← compileExpr i]
+    | .seq _ => return tlaplusCall "SeqIndex" [f', ← compileExpr i]
     -- A tuple is a struct, so its components are reachable only by name, and the name is fixed by
     -- the index — which therefore has to be a literal.
-    | some (.tuple _) =>
+    | .tuple _ =>
       match i with
       | .nat n =>
         match n.toNat? with
@@ -190,34 +183,31 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
       throw (.internalInvariantViolated pos
         "the head of a function application is neither a function, a sequence nor a tuple")
   | .recordAccess r x, _ => return .field (← compileExpr r) (fieldName x)
-  | .record fs, pos => do
-    let τ ← compileTypeOf pos e
+  -- Both literals build their own Go type from the annotations they already carry: a record node
+  -- records a type per field, a tuple node one per component.
+  | .record fs, _ => do
+    let τ ← compileTyp (.record (fs.map λ (τᵢ, x, _) ↦ (x, τᵢ)))
     -- Field order in a keyed composite literal is free, but the fields are sorted anyway so that
     -- the same record written two ways compiles to identical output, as its *type* already does.
     let fields ← fs.mapM λ (_, x, e') ↦ return (fieldName x, ← compileExpr e')
     return .structLit τ (fields.mergeSort λ (x, _) (y, _) ↦ x ≤ y)
-  | .tuple es, pos => do
-    let τ ← compileTypeOf pos e
+  | .tuple es, _ => do
+    let τ ← compileTyp (.tuple (es.map Prod.fst))
     let fields ← es.zipIdx.mapM λ ((_, e'), i) ↦ return (projName (i + 1), ← compileExpr e')
     return .structLit τ fields
-  | .except f upds, pos => do
-    let τ ← match f.typeOf? with
-      | some τ => pure τ
-      | none =>
-        throw (.internalInvariantViolated pos
-          "the type of an EXCEPT's target could not be re-derived")
+  | .except f τ upds, pos => do
     -- Each override applies to the result of the previous one, so `[f EXCEPT ![1] = a, ![2] = b]`
     -- is one function with both points changed rather than two independent overrides of `f`.
     upds.foldlM (init := ← compileExpr f) λ acc (path, rhs) ↦ compileExcept pos τ acc path rhs
-  | .if c t f, pos => do
-    let τ ← compileTypeOf pos t
+  | .if c t f τ, _ => do
+    let τ ← compileTyp τ
     -- An immediately-applied literal, not a helper taking both arms: Go evaluates arguments
     -- eagerly, and `IF x # 0 THEN 1 \div x ELSE 0` must not evaluate the arm it did not select.
     return .call (.funcLit [] [τ]
       [.if (goBool (← compileExpr c)) [.return [← compileExpr t]] [],
         .return [← compileExpr f]]) []
-  | .case arms other, pos => do
-    let τ ← compileTypeOf pos e
+  | .case arms other τ, _ => do
+    let τ ← compileTyp τ
     let guards ← arms.mapM λ (p, body) ↦
       return Go.Statement.if (goBool (← compileExpr p)) [.return [← compileExpr body]] []
     -- Without an `OTHER` arm a `CASE` matching nothing is undefined in TLA⁺, so the generated
