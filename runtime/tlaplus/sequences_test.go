@@ -197,21 +197,21 @@ func TestHeadTailEmptyPanics(t *testing.T) {
 }
 
 func TestSeqEq(t *testing.T) {
-	if !SeqEq(intSeq(1, 2), intSeq(1, 2)) {
+	if !SeqEq(IntOrd, intSeq(1, 2), intSeq(1, 2)) {
 		t.Errorf("<<1,2>> /= <<1,2>>")
 	}
 	// Order matters, unlike sets.
-	if SeqEq(intSeq(1, 2), intSeq(2, 1)) {
+	if SeqEq(IntOrd, intSeq(1, 2), intSeq(2, 1)) {
 		t.Errorf("<<1,2>> = <<2,1>>, want false")
 	}
-	if SeqEq(intSeq(1, 2), intSeq(1, 2, 3)) {
+	if SeqEq(IntOrd, intSeq(1, 2), intSeq(1, 2, 3)) {
 		t.Errorf("<<1,2>> = <<1,2,3>>, want false")
 	}
-	if !SeqEq(Seq[Int]{}, intSeq()) {
+	if !SeqEq(IntOrd, Seq[Int]{}, intSeq()) {
 		t.Errorf("the two spellings of the empty sequence are not equal")
 	}
 	// Equality must ignore the unused slot.
-	if !SeqEq(Seq[Int](ints(99, 1, 2)), intSeq(1, 2)) {
+	if !SeqEq(IntOrd, Seq[Int](ints(99, 1, 2)), intSeq(1, 2)) {
 		t.Errorf("equality observed the unused slot")
 	}
 }
@@ -230,9 +230,48 @@ func TestSeqCmp(t *testing.T) {
 		{Seq[Int]{}, Seq[Int]{}, 0},
 	}
 	for _, c := range cases {
-		got := SeqCmp(c.a, c.b)
+		got := SeqCmp(IntOrd, c.a, c.b)
 		if (got < 0) != (c.want < 0) || (got > 0) != (c.want > 0) {
 			t.Errorf("SeqCmp(%v, %v) = %d, want sign of %d", asInts(c.a), asInts(c.b), got, c.want)
 		}
+	}
+}
+
+// TestSeqOrdNests checks that a sequence can be a set element, which needed a
+// hand-written named type with delegating methods under the interface design
+// and is now a composed dictionary.
+func TestSeqOrdNests(t *testing.T) {
+	seqOrd := SeqOrd(IntOrd)
+
+	s := MkSet(seqOrd, intSeq(2), intSeq(1, 2), intSeq(2))
+	if len(s) != 2 {
+		t.Fatalf("{<<2>>, <<1,2>>, <<2>>} has %d elements, want 2", len(s))
+	}
+	// Sorted lexicographically, so <<1,2>> comes first.
+	if !SeqEq(IntOrd, s[0], intSeq(1, 2)) {
+		t.Errorf("the set's minimum is %v, want <<1,2>>", asInts(s[0]))
+	}
+	if !SetIn(seqOrd, s, intSeq(2)) {
+		t.Errorf("<<2>> \\notin {<<1,2>>, <<2>>}")
+	}
+	// Equality must ignore the unused slot here too, since membership goes
+	// through the same dictionary.
+	if !SetIn(seqOrd, s, Seq[Int](ints(99, 2))) {
+		t.Errorf("membership observed the unused slot")
+	}
+}
+
+// TestSeqOfSets composes the two container dictionaries the other way round,
+// which is the case a nesting bug that special-cases one depth would miss.
+func TestSeqOfSets(t *testing.T) {
+	setOrd := SetOrd(IntOrd)
+	a := MkSeq(intSet(1, 2), intSet(3))
+	b := MkSeq(intSet(2, 1), intSet(3))
+
+	if !SeqEq(setOrd, a, b) {
+		t.Errorf("<<{1,2}, {3}>> /= <<{2,1}, {3}>>")
+	}
+	if SeqEq(setOrd, a, MkSeq(intSet(1, 2), intSet(4))) {
+		t.Errorf("<<{1,2}, {3}>> = <<{1,2}, {4}>>, want false")
 	}
 }

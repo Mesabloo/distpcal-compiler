@@ -18,7 +18,7 @@ func ints(ns ...int) []Int {
 }
 
 // intSet builds a set, normalizing as MkSet does.
-func intSet(ns ...int) Set[Int] { return MkSet(ints(ns...)...) }
+func intSet(ns ...int) Set[Int] { return MkSet(IntOrd, ints(ns...)...) }
 
 // rawIntSet builds a Set from the given elements *without* normalizing, for
 // tests that need to observe what an operation does to an arbitrary slice.
@@ -34,8 +34,8 @@ func intSeq(ns ...int) Seq[Int] { return MkSeq(ints(ns...)...) }
 // slices.Equal compiles and then compares pointer identity — quietly reporting
 // equal values as different.
 func intsEqual(a, b []Int) bool {
-	return slices.EqualFunc(a, b, func(x, y Int) bool { return x.Eq(y) })
+	return slices.EqualFunc(a, b, IntOrd.Eq)
 }
 
 // eqInt reports whether x equals the given machine integer.
-func eqInt(x Int, n int) bool { return x.Eq(MkInt(n)) }
+func eqInt(x Int, n int) bool { return IntOrd.Eq(x, MkInt(n)) }

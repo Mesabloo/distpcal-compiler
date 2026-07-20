@@ -34,10 +34,10 @@ func TestExceedsMachineRange(t *testing.T) {
 	if got := Sub(n, MkInt(1)); !got.val().IsUint64() || got.val().Uint64() != math.MaxUint64 {
 		t.Errorf("2^64 - 1 = %v, want %d", got, uint64(math.MaxUint64))
 	}
-	if got := Add(n, MkInt(0)); !got.Eq(n) {
+	if got := Add(n, MkInt(0)); !IntOrd.Eq(got, n) {
 		t.Errorf("adding zero out of machine range changed the value")
 	}
-	if !n.Gt(MkInt(math.MaxInt64)) {
+	if !IntOrd.Gt(n, MkInt(math.MaxInt64)) {
 		t.Errorf("2^64 does not compare as greater than MaxInt64")
 	}
 }

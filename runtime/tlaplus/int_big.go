@@ -14,8 +14,8 @@ import "math/big"
 // machine-integer representation instead, accepting that trade.
 //
 // The struct wrapper is not an abstraction boundary; it is forced. Go does not
-// allow methods on a defined pointer type, so `type Int *big.Int` cannot
-// implement Eq or Ord.
+// allow methods on a defined pointer type, so `type Int *big.Int` could not
+// carry the String method below.
 //
 // The zero value is a valid zero. Generated code declares variables with Go's
 // `var x Int`, which leaves the pointer nil, so every operation reads it
@@ -64,14 +64,14 @@ func ToInt(n Int) int {
 	return int(i)
 }
 
-// Eq reports whether two integers are equal.
-func (n Int) Eq(other Int) bool { return n.val().Cmp(other.val()) == 0 }
-
-// Gt reports whether n is greater than other.
-func (n Int) Gt(other Int) bool { return n.val().Cmp(other.val()) > 0 }
-
-// Lt reports whether n is less than other.
-func (n Int) Lt(other Int) bool { return n.val().Cmp(other.val()) < 0 }
+// IntOrd is the dictionary for Int, ordering by numeric value.
+//
+// Both operations go through val, so the nil zero value compares as 0 rather
+// than panicking.
+var IntOrd = Ord[Int]{
+	Eq: func(x, y Int) bool { return x.val().Cmp(y.val()) == 0 },
+	Lt: func(x, y Int) bool { return x.val().Cmp(y.val()) < 0 },
+}
 
 // String renders the integer in base 10.
 func (n Int) String() string { return n.val().String() }

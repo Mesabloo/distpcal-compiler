@@ -54,7 +54,7 @@ func TestZeroValueIsZero(t *testing.T) {
 	if !eqInt(Neg(zero), 0) {
 		t.Errorf("Neg of the zero value = %v, want 0", Neg(zero))
 	}
-	if zero.Lt(MkInt(0)) || zero.Gt(MkInt(0)) {
+	if IntOrd.Lt(zero, MkInt(0)) || IntOrd.Gt(zero, MkInt(0)) {
 		t.Errorf("the zero value does not compare as 0")
 	}
 	if got := ToInt(zero); got != 0 {
@@ -63,7 +63,7 @@ func TestZeroValueIsZero(t *testing.T) {
 	// Two independently declared zero values must be equal to each other, not
 	// merely each equal to a constructed 0.
 	var other Int
-	if !zero.Eq(other) {
+	if !IntOrd.Eq(zero, other) {
 		t.Errorf("two zero values are not equal")
 	}
 }
@@ -104,23 +104,23 @@ func TestIntRange(t *testing.T) {
 func TestIntRangeSatisfiesSetInvariants(t *testing.T) {
 	r := IntRange(MkInt(-3), MkInt(7))
 
-	if !slices.IsSortedFunc(r, Cmp[Int]) {
+	if !slices.IsSortedFunc(r, IntOrd.Cmp) {
 		t.Errorf("IntRange is not sorted: %v", r)
 	}
-	if normalized := MkSet(r...); !intsEqual(r, normalized) {
+	if normalized := MkSet(IntOrd, r...); !intsEqual(r, normalized) {
 		t.Errorf("IntRange needed normalization: %v became %v", r, normalized)
 	}
 	for i := -3; i <= 7; i++ {
-		if !SetIn(r, MkInt(i)) {
+		if !SetIn(IntOrd, r, MkInt(i)) {
 			t.Errorf("SetIn(-3..7, %d) = false, want true", i)
 		}
 	}
 	for _, i := range []int{-4, 8, 100} {
-		if SetIn(r, MkInt(i)) {
+		if SetIn(IntOrd, r, MkInt(i)) {
 			t.Errorf("SetIn(-3..7, %d) = true, want false", i)
 		}
 	}
-	if got := Choose(r, func(x Int) bool { return x.Gt(MkInt(0)) }); !eqInt(got, 1) {
+	if got := Choose(r, func(x Int) bool { return IntOrd.Gt(x, MkInt(0)) }); !eqInt(got, 1) {
 		t.Errorf("CHOOSE x \\in -3..7 : x > 0 = %v, want 1", got)
 	}
 }

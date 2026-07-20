@@ -249,8 +249,9 @@ Message passing between processes: the endpoints, and who is at the other end.
   stored or passed as a value), so what generated code holds is an endpoint supplied by
   whoever wires the system — Go channel, Unix socket, TCP connection. `Multicast` lands
   here next to `Sender` once tasklist item 4 settles its signature (§9.5).
-- `address.go` — `Address`, deliberately unspecified beyond `tlaplus.Ord`. Here rather than
-  in `tlaplus/` because an address exists to name the peer a `Sender` reaches.
+- `address.go` — `Address`, deliberately unspecified beyond its own `Eq`/`Lt` methods, plus
+  `AddressOrd` bridging those into a `tlaplus.Ord` dictionary. Here rather than in
+  `tlaplus/` because an address exists to name the peer a `Sender` reaches.
 
 ### `runtime/locks/`
 - `locks.go` — `Lock[T]` (a capacity-1 channel *holding* the guarded value, so it can't be
@@ -260,33 +261,44 @@ Message passing between processes: the endpoints, and who is at the other end.
 
 ### `runtime/tlaplus/`
 TLA⁺'s own value types, one file per concept/stdlib module.
-- `eq.go` — `Eq[T]` and the derived `Neq`.
+- `ord.go` — `Ord[T]`, the equality-and-ordering **dictionary struct** (`Eq`/`Lt` fields)
+  every comparing operation takes explicitly, with `Neq`/`Gt`/`Le`/`Ge`/`Cmp` derived once
+  as methods on it. A struct rather than an interface because Go has no conditional method
+  sets, so no interface can say "`Set[T]` is ordered whenever `T` is"; the dictionary keeps
+  every container `[T any]` and composes instead (`SetOrd(SetOrd(IntOrd))`).
 - `sequences.go` — `Seq[T]` (`[]T`, 1-indexed with slot 0 unused), with `MkSeq`/
-  `Len`/`SeqIndex`/`SeqUpdate`/`Head`/`Tail`/`Append`/`SeqEq`/`SeqCmp`. `SeqUpdate` backs
-  `EXCEPT`/`:=` on a sequence. Covers exactly the operators
+  `Len`/`SeqIndex`/`SeqUpdate`/`Head`/`Tail`/`Append`/`SeqEq`/`SeqCmp`/`SeqOrd`. `SeqUpdate`
+  backs `EXCEPT`/`:=` on a sequence. Covers exactly the operators
   `Driver/Builtins.lean`'s `sequencesDeclarations` exports. Sequence literals must be built
   with `MkSeq`.
-- `ord.go` — `Ord[T]` (super-interface of `Eq`), with `Le`/`Ge`/`Cmp` derived once
-  generically rather than per type.
-- `{bool,str}.go` — one file per primitive TLA⁺ type: the `Bool`/`Str` newtypes and
-  their `Eq`/`Gt`/`Lt`. Newtypes because Go forbids implementing an interface for a
-  non-local type, so `bool`/`string` can't satisfy `Eq` directly.
+- `{bool,str}.go` — one file per primitive TLA⁺ type: the `Bool`/`Str` newtypes and their
+  `BoolOrd`/`StrOrd` dictionaries. Newtypes so the compiler has one name to emit and so the
+  dictionary belongs to a type this package owns.
 - `int_big.go`, `int_machine.go` — the two `Int` representations, selected
   by build tag. **`int_big.go` (`math/big`) is the default**; `go build -tags
-  fugue_machint` selects the machine-integer one. Each carries `Int`, its `Eq`/`Gt`/`Lt`,
+  fugue_machint` selects the machine-integer one. Each carries `Int`, `IntOrd`,
   `MkInt`/`ToInt`, and `Add`/`Sub`/`Neg`/`Mul` — the whole representation-dependent surface,
   so nothing else in the tree varies. See `PLAN.md` §5.7 for why arbitrary precision is the
   default and why `Int` must be a struct.
-- `sets.go` — `Set[T]` (`[]T` plus two invariants Go can't express: sorted by the
-  element ordering, and duplicate-free), with `MkSet`/`SetIn`/`SetEq`/`SetFilter`/`SetMap`/
-  `Choose`. `Choose` returns the smallest satisfying element, not a random pick, so that
-  Hilbert's choice stays deterministic. Set literals must be built with `MkSet`.
+- `sets.go` — `Set[T]` (`[]T` plus two invariants Go can't express: sorted by the element
+  dictionary's ordering, and duplicate-free), with `MkSet`/`SetIn`/`SetEq`/`SetCmp`/
+  `SetFilter`/`SetMap`/`SetUnion`/`SetIntersect`/`SetDifference`/`SetSubseteq`/`Choose`, and
+  `SetOrd` building the dictionary for `Set[T]` from `T`'s. `Choose` returns the smallest
+  satisfying element, not a random pick, so that Hilbert's choice stays deterministic. Set
+  literals must be built with `MkSet`.
 - `functions.go` — `LazyFunction[T, U]` and `FnConstructor`/`FnOverload`/`FnApply`/
-  `MkRecFn`/`Domain`.
-- `naturals.go` — `IntRange` (`..`), written against `Le`/`Add` so it holds for
+  `MkRecFn`/`Domain`, each taking the domain's dictionary. `FnOrd` is a **panicking
+  placeholder** — see `PLAN.md` §5.7.
+- `naturals.go` — `IntRange` (`..`), written against `IntOrd.Le`/`Add` so it holds for
   either `Int` representation. The arithmetic operators live with the representation, in
-  `int_big.go`/`int_machine.go`; comparisons in `ord.go`. `Nat` is absent (infinite, §9.15).
-- Still missing: `records.go` here, and `comm/multicast.go` (blocked on tasklist item 4).
+  `int_big.go`/`int_machine.go`; comparisons are `IntOrd`'s derived methods.
+  `Nat` is absent (infinite, §9.15).
+- No `records.go` and no `tuples.go`: records and tuples compile to *anonymous* structs with
+  a dictionary literal emitted beside each, so there is no library type and no generated one
+  — which is also why tuples have no arity cap. `records_test.go` has no subject file for
+  that reason: it stands in for generated code, pinning that a dictionary orders an
+  unnameable type, and that identically-shaped structs are one type. Still missing:
+  `comm/multicast.go` (blocked on tasklist item 4).
 
 ## `persistent/`
 Go, not Lean — data structures the runtime library needs, versioned with the compiler

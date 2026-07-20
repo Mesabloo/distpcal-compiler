@@ -8,9 +8,8 @@ package tlaplus
 // present the same surface and generated code is written once, whichever is
 // selected.
 //
-// The comparisons (<, >, =<, >=) are deliberately absent: Int implements Ord,
-// so they compile to Lt/Gt and the generic Le/Ge, representation-independent
-// for the same reason.
+// The comparisons (<, >, =<, >=) are deliberately absent: they compile to the
+// derived operations of IntOrd, representation-independent for the same reason.
 //
 // Nat is also absent. It denotes an infinite set, which Set cannot represent —
 // see OPEN_QUESTIONS.md §9.15 for the general handling of infinite sets
@@ -28,7 +27,7 @@ package tlaplus
 func IntRange(lo, hi Int) Set[Int] {
 	var out Set[Int]
 	one := MkInt(1)
-	for i := lo; Le(i, hi); i = Add(i, one) {
+	for i := lo; IntOrd.Le(i, hi); i = Add(i, one) {
 		out = append(out, i)
 	}
 	return out

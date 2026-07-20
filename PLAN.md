@@ -1063,8 +1063,8 @@ adds). The printer escapes reserved words only; renaming user-chosen names off G
 `predeclared` set — see §2's hygiene row for why the two can't be one table.
 
 **Go representations of TLA+ types**, per thesis §7.2.1.1:
-- `Bool`/`Str` → `bool`/`string`, as local newtypes (Go can't implement an interface for a
-  non-local type, and every value implements `Eq`/`Ord`).
+- `Bool`/`Str` → `bool`/`string`, as local newtypes (one name for the compiler to emit, and
+  a type this runtime owns to hang the `BoolOrd`/`StrOrd` dictionaries off).
 - `Int` → **`math/big`-backed by default**, machine `int` opt-in. This inverts the thesis,
   which defaults to machine integers for efficiency. Reason: TLA⁺ integers are unbounded
   and so are the integers of the denotational semantics this compiler is verified against,
@@ -1074,14 +1074,14 @@ adds). The printer escapes reserved words only; renaming user-chosen names off G
   **Selected by a Go build tag, not a Fugue flag**: `go build -tags fugue_machint`.
   There is no `-Xgo-bigint` and nothing representation-specific in emitted code — arithmetic
   goes through `Add`/`Sub`/`Neg`/`Mul` rather than Go's operators, comparisons through
-  `Ord`, and literals through `MkInt`, so both representations present one surface and
+  `IntOrd`, and literals through `MkInt`, so both representations present one surface and
   `runtime/tlaplus/int_{big,machine}.go` are the only files that differ. A literal too
   large for a machine `int` is a Go compile error under the machine build, which is that
   representation's restriction surfacing where it should. `go.mod` cannot carry a default
   build tag (its directives are `module`/`go`/`toolchain`/`godebug`/`require`/`exclude`/
   `replace`/`retract`/`tool`), so the untagged build is the safe one and speed is explicit.
   Consequences: `Int` is a struct wrapping `*big.Int` — forced, since Go forbids methods on
-  a defined pointer type, so `type Int *big.Int` cannot implement `Eq`/`Ord` — and its zero
+  a defined pointer type, so `type Int *big.Int` could not carry `String` — and its zero
   value holds a nil pointer, read as 0 by every operation, because `Go.Statement.var` emits
   zero-initialized `var x Int`. `ToInt` converts back for the places Go demands a machine
   integer (slice indices), panicking above that range; the only callers are indexing
@@ -1096,14 +1096,32 @@ adds). The printer escapes reserved words only; renaming user-chosen names off G
   `Tail` is a reslice (the old first element becomes the new unused slot, shifting every
   index for free), which makes `Append` copy unconditionally: sequences produced by `Tail`
   share a backing array, and appending in place would write into it.
-- Records/tuples → `struct`; tuples use `proj1`..`projN` field names (a tuple is sugar for
-  a specific record shape).
+- Records/tuples → **anonymous** `struct`; tuples use `proj1`..`projN` field names (a tuple
+  is sugar for a specific record shape). Nothing is named and nothing is declared: a
+  dictionary can be built for an anonymous struct type directly, since `Ord` is a struct
+  rather than an interface, and `ordDict` emits that literal beside the type. Named types
+  were only ever wanted as somewhere to hang methods, so with the dictionary design they
+  buy nothing — which removes name mangling, the per-specification type declarations, and
+  any arity cap on tuples in one go. `compileTyp` sorting record fields by name stays
+  load-bearing for a different reason than before: Go identifies anonymous struct types
+  *structurally*, so sorting is what makes two identically-shaped records one Go type, and
+  it fixes the lexicographic order the dictionary compares in. Cost, on emitted code only:
+  the struct type is spelled at every occurrence and three times per dictionary literal, and
+  `ordDict` being a pure fold re-emits a record's dictionary at each site that needs it.
+  Hoisting dictionaries into package-level variables would fix both and reintroduce the
+  naming question, so it waits for evidence that it matters.
 - Operators `(τ1,...,τn) ⇒ τ` → plain Go `func`.
 - Type variables → propagated to the nearest enclosing function definition (Go generics).
 - Uninterpreted constant types → left as-is (same name), supplied by the user (matches
   the `CONSTANT` scope boundary).
-- `Address` → an unspecified interface, decaying to a constrained generic argument in
-  generated code.
+- `Address` → an unspecified interface declaring `Eq`/`Lt` methods, bridged into a
+  dictionary by `comm.AddressOrd` (method expressions, receiver-first). It requires an
+  order, not just equality: addresses reach sets and function domains in the first real
+  example, and a record with an address field would otherwise lose its order too. The order
+  is arbitrary and integrator-supplied, which makes `CHOOSE` over a set of addresses
+  implementation-dependent — legal, `CHOOSE` being deterministic-but-unspecified, but
+  documented on `Address` since the behaviour then rests on a decision the specification did
+  not make. The same holds for any uninterpreted constant type.
 - `Channel(τ)` → no general Go value representation needed: "channels are not
   first-class citizens in Distributed PlusCal" — a channel is never stored, passed
   around, or put in a data structure as an ordinary TLA+ value, only ever appears indexed
@@ -1122,35 +1140,61 @@ adds). The printer escapes reserved words only; renaming user-chosen names off G
 correctness sketch, is the only remaining stub in this chapter; atomic-block, thread-, and
 process-level compilation are all designed, §7.2.3.1/§7.2.3.2, below):
 
-- **Equality/ordering.** Go's builtin `==`/`comparable` can't be implemented for custom
-  types and falls short for complex TLA+ types anyway (order-irrelevant set equality,
-  sets-of-sets needing deep order-irrelevance, lazy maps not comparing all entries).
-  Thesis defines its own `Eq[T]`/`Ord[T]` interfaces (`Ord` extends `Eq`, adds `Gt`/`Lt`,
-  `Le`/`Ge`/`Cmp` derived generically), every wrapper type implements them — including
-  primitive types, needing a local newtype (`type Bool bool`, etc.) since Go interfaces
-  can't be implemented for non-local types. Port `Eq`/`Ord` as part of the runtime
-  library (below); every generated type implements them.
+- **Equality/ordering: one dictionary, passed explicitly.** Go's builtin `==`/`comparable`
+  can't be implemented for custom types and falls short for complex TLA+ types anyway
+  (order-irrelevant set equality, sets-of-sets needing deep order-irrelevance, lazy maps not
+  comparing all entries). The thesis answers with `Eq[T]`/`Ord[T]` *interfaces*; this
+  compiler uses a single `Ord[T]` **struct** of two functions (`Eq`, `Lt`), with
+  `Neq`/`Gt`/`Le`/`Ge`/`Cmp` derived once as methods on it, handed to every operation that
+  compares.
+  The interface version cannot express the library's own containers. Go has no conditional
+  method sets — no `instance Ord a => Ord (Set a)` — and a method's receiver type parameters
+  must repeat the declaration's constraints exactly, so `type Set[T any]` can declare no
+  comparison that calls `T`'s, while `type Set[T Ord[T]]` propagates the constraint into
+  every use and makes a tuple or record with a function-typed component *non-representable*
+  rather than merely non-comparable. Concretely: under interfaces `Set[Set[Int]]` is not
+  constructible at all. Dictionaries keep every container `[T any]`, and nesting is
+  composition — `SetOrd(SetOrd(IntOrd))` — produced compiler-side by `ordDict : Typ → …`,
+  the structural recursion mirroring `compileTyp` constructor for constructor. `Gt` becomes
+  derivable in the move, being a flip of two arguments rather than a method on one.
+  Only `Eq` and `Lt` are primitive, and there is no separate `Eq` hierarchy: no type splits
+  the two, since wherever equality is available an order is available at the same price
+  (a lazy function must force its domain either way), and the types with neither —
+  operators, compiling to Go `func` — are not TLA+ values and so cannot nest inside a set,
+  sequence, record or function domain.
+  **Methods where they work, dictionaries where they don't.** The problem is generic
+  containers specifically, so hand-written types keep declaring their obligation as methods
+  and are bridged once: `comm.Address` spells `Eq`/`Lt` and the runtime bridges it
+  (`AddressOrd`); a user's constant type does the same and the compiler emits the bridge.
+  Only a rigid type variable needs a genuine dictionary *parameter*, threaded into
+  polymorphic definitions at their call sites.
+  Dictionaries are passed, never stored in the values they order: `Set[T]` stays `[]T`, so
+  its sorted-and-duplicate-free invariant remains a property of the value alone.
+  `persistent/treemap` was already built this way (`New(cmp func(a, b K) int)`) and is the
+  precedent this generalizes.
 - **Booleans.** `/\`/`\/` compile to Go's short-circuiting `&&`/`||` (sound: non-action,
   non-temporal TLA+ expressions are pure). `\A x \in S : P`/`\E x \in S : P` compile to a
   search over `S` for the first counterexample/witness (De Morgan equivalence between the
   two).
 - **Sets.** `Set(τ)` is `[]τ` under **two** representation invariants: sorted ascending by
-  the element type's `Ord`, and duplicate-free. TLA+ sets have no order, so sortedness is a
-  choice of canonical representative, made because it's what makes the operations cheap —
-  equality is an elementwise walk instead of a double subset test, membership a binary
-  search instead of a scan, `CHOOSE`'s deterministic pick the first satisfying element
-  instead of a search for the minimum, and deduplication falls out of the same sort. Cost:
-  `Ord[τ]` is required wherever `Eq[τ]` alone would have done (`SetIn`, and hence
-  `FnApply`/`FnOverload`), which is free in practice since every generated type implements
-  both. Every constructor establishes both invariants; every consumer may rely on them.
+  the element dictionary's ordering, and duplicate-free. TLA+ sets have no order, so
+  sortedness is a choice of canonical representative, made because it's what makes the
+  operations cheap — equality is an elementwise walk instead of a double subset test,
+  membership a binary search instead of a scan, `CHOOSE`'s deterministic pick the first
+  satisfying element instead of a search for the minimum, and deduplication falls out of the
+  same sort. Cost: an ordering is needed wherever equality alone would have done (`SetIn`,
+  and hence `FnApply`/`FnOverload`), which costs nothing extra since `Ord` carries both.
+  Which dictionary a given `Set` was built with is not recorded in it — every operation on
+  that set must be handed the same one, guaranteed compiler-side by deriving both from the
+  same `Typ`. Every constructor establishes both invariants; every consumer may rely on them.
   `{x \in S : P}`/`{e : x \in S}` compile via `SetFilter`/`SetMap`, copying the underlying
   slice rather than mutating `S` in place (TLA+ data is immutable) — `SetFilter` copies
   unconditionally, inside the helper, since `slices.DeleteFunc` compacts in place and would
   otherwise corrupt a set sharing a backing array; filtering preserves both invariants, so
   it needs no renormalization. `SetMap` preserves neither (a mapping function need be
   neither monotone nor injective — `{x % 2 : x ∈ {1,2,3}}` is two elements from three), so
-  it constrains its *result* type to `Ord[U]` and renormalizes. Set literals `{e₁, …, eₙ}`
-  compile to `MkSet(e₁, …, eₙ)`, not a bare composite literal: whether two components
+  it takes the *result* type's dictionary and renormalizes. Set literals `{e₁, …, eₙ}`
+  compile to `MkSet(ord, e₁, …, eₙ)`, not a bare composite literal: whether two components
   denote the same value generally isn't decidable until they're evaluated, so the literal
   may be unordered and may repeat an element.
   **Representation is swappable.** Nothing outside `runtime/tlaplus/sets.go` and 2b's
@@ -1159,14 +1203,16 @@ process-level compilation are all designed, §7.2.3.1/§7.2.3.2, below):
   no generated code. Not planned: the dominant access patterns here are build-once,
   iterate, compare, which favour a contiguous representation, and the one place
   copy-on-write genuinely mattered is function `EXCEPT`, already served by
-  `persistent/treemap`. `CHOOSE x \in S : P` — needing to be *deterministic* (always picks the same
-  element for the same `S`/`P`) — compiles to filter-then-take-minimum-by-`Ord`
-  (`SetFilter` then `slices.MinFunc` against `Cmp`), not a random pick; only requires an
-  `Ord` (not just `Eq`) constraint on the element type at `CHOOSE`'s own call site. Panics
-  on an empty result set.
+  `persistent/treemap`. `CHOOSE x \in S : P` — needing to be *deterministic* (always picks the
+  same element for the same `S`/`P`) — returns the minimum satisfying element, not a random
+  pick, and since the representation is sorted that is the first one a scan meets: it
+  neither builds the filtered set nor searches it for a minimum, and so needs no dictionary
+  of its own at the call site. Panics on an empty result set. Over an uninterpreted constant
+  type the *result* is implementation-dependent, resting on the arbitrary order the
+  integrator supplied — legal, but recorded on `Address` above.
 - **Functions.** Still lazy maps, but since Go's builtin `map[T]U` requires `T`
-  `comparable` (which custom `Eq`/`Ord` don't satisfy), underlying storage is an
-  ordered-map structure keyed by a comparator derived from `Ord.Lt`. **Home-grown,
+  `comparable` (which the dictionary-ordered types don't satisfy), underlying storage is an
+  ordered-map structure keyed by the domain dictionary's `Cmp`. **Home-grown,
   persistent (immutable, structurally-shared) `TreeMap[K, V]` in `persistent/treemap/`**
   (weight-balanced tree, `Compare func(a, b K) int`-parameterized, O(1) `Clone`/O(log n)
   `Insert`/`Delete`/`Get`, no `comparable` constraint) — not an external dependency. Real
@@ -1182,6 +1228,10 @@ process-level compilation are all designed, §7.2.3.1/§7.2.3.2, below):
   stays scoped to the overloaded copy and never leaks back. Holding the map *by value*
   silently loses memoization — the write dies with the callee's copy — and makes recursive
   functions exponential.
+  A function's *own* dictionary (`FnOrd`, for a function nested inside a set or a domain)
+  is a panicking placeholder. The real scheme is known — TLC forces the graph and compares
+  domain then range pointwise — and forcing a whole domain is the price; it is left for the
+  first specification that needs it, so that nothing pays for a path nothing exercises.
 - **Operator/function definitions.** Parameter-less operators compile to a plain
   (mutable, in Go's own type system — "immutable" is a documentation convention here, not
   compiler-enforced) `var`, initialized once. Parametric operators — recursive or not, Go
@@ -1319,11 +1369,13 @@ own import path) providing: TLA+ value encodings (`Seq`, `Set`, functions, recor
 hand-written `nameserver` package under `distpcal-compiler/tests/*/`, if it turns out to
 still fit once `send`'s wire mechanism is pinned down, §9.7). Part of this project's
 deliverables — **lives in `runtime/tlaplus/` in this repo**, one file per TLA+
-concept/stdlib module (`sequences.go`, `sets.go`, `functions.go`, `records.go`, `eq.go`,
-`ord.go`, `address.go`, `multicast.go`, mirroring `Driver/Builtins.lean`'s
-`builtinModules` split rather than one flat file), alongside the Lean sources, versioned
-together with the compiler that targets it. `Eq`/`Ord` interfaces and their
-implementations for every generated wrapper/newtype belong here too. The top-level
+concept/stdlib module (`sequences.go`, `sets.go`, `functions.go`, `ord.go`, `address.go`,
+`multicast.go`, mirroring `Driver/Builtins.lean`'s `builtinModules` split rather than one
+flat file), alongside the Lean sources, versioned together with the compiler that targets
+it. The `Ord` dictionary, the primitive newtypes' dictionaries and the composing
+constructors (`SetOrd`/`SeqOrd`) belong here too. There is **no** `records.go` and no
+`tuples.go`: records and tuples are anonymous structs with dictionary literals emitted
+beside them, so there is neither a library type nor a generated one to hold. The top-level
 `persistent/treemap/` (matching `Extra/`/`VerifiedCompiler/`/`ProgressBar/`'s existing
 vendored-directory convention) is the ordered-map backing store for lazy functions.
 

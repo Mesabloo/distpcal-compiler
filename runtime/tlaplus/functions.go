@@ -25,9 +25,11 @@ import "github.com/mesabloo/fugue/persistent/treemap"
 // FnApply's write would land in its own copy of the struct and be discarded on
 // return, silently, making every recursive function exponential.
 //
-// The keys are values carrying their own Eq/Ord, which is exactly what Go's
-// builtin map cannot accept, since comparable is not implementable for a custom
-// type. Hence the treemap, which takes its ordering as a parameter.
+// The keys are ordered by a dictionary rather than by Go's ==, which is exactly
+// what the builtin map cannot accept, since comparable is not implementable for
+// a custom type. Hence the treemap, which takes its ordering as a parameter —
+// the same dictionary-passing shape as this package's own operations, and the
+// precedent for them.
 type LazyFunction[T, U any] struct {
 	dom   Set[T]
 	gen   func(x T) U
@@ -35,8 +37,8 @@ type LazyFunction[T, U any] struct {
 }
 
 // FnConstructor compiles the function literal [x \in dom |-> gen(x)].
-func FnConstructor[T Ord[T], U any](dom Set[T], gen func(x T) U) LazyFunction[T, U] {
-	return LazyFunction[T, U]{dom: dom, gen: gen, cache: treemap.New[T, U](Cmp[T])}
+func FnConstructor[T, U any](o Ord[T], dom Set[T], gen func(x T) U) LazyFunction[T, U] {
+	return LazyFunction[T, U]{dom: dom, gen: gen, cache: treemap.New[T, U](o.Cmp)}
 }
 
 // FnOverload compiles the function overloading [f EXCEPT ![x] = y].
@@ -49,8 +51,8 @@ func FnConstructor[T Ord[T], U any](dom Set[T], gen func(x T) U) LazyFunction[T,
 //
 // Overloading outside the domain is a no-op, since a TLA+ function's domain
 // never changes.
-func FnOverload[T Ord[T], U any](f LazyFunction[T, U], x T, y U) LazyFunction[T, U] {
-	if !SetIn(f.dom, x) {
+func FnOverload[T, U any](o Ord[T], f LazyFunction[T, U], x T, y U) LazyFunction[T, U] {
+	if !SetIn(o, f.dom, x) {
 		return f
 	}
 	return LazyFunction[T, U]{dom: f.dom, gen: f.gen, cache: f.cache.Insert(x, y)}
@@ -64,8 +66,8 @@ func FnOverload[T Ord[T], U any](f LazyFunction[T, U], x T, y U) LazyFunction[T,
 // of any copy of it — reuse it.
 //
 // It panics on application outside the domain, that being undefined in TLA+.
-func FnApply[T Ord[T], U any](f LazyFunction[T, U], x T) U {
-	if !SetIn(f.dom, x) {
+func FnApply[T, U any](o Ord[T], f LazyFunction[T, U], x T) U {
+	if !SetIn(o, f.dom, x) {
 		panic("Application of function outside its domain")
 	}
 	if y, ok := f.cache.Get(x); ok {
@@ -86,11 +88,34 @@ func FnApply[T Ord[T], U any](f LazyFunction[T, U], x T) U {
 // variable rather than its value, so by the time that closure can run — on an
 // FnApply, never during construction — the variable holds the finished
 // function. This ties the knot.
-func MkRecFn[T Ord[T], U any](dom Set[T], gen func(f LazyFunction[T, U], x T) U) LazyFunction[T, U] {
-	f := LazyFunction[T, U]{dom: dom, cache: treemap.New[T, U](Cmp[T])}
+func MkRecFn[T, U any](o Ord[T], dom Set[T], gen func(f LazyFunction[T, U], x T) U) LazyFunction[T, U] {
+	f := LazyFunction[T, U]{dom: dom, cache: treemap.New[T, U](o.Cmp)}
 	f.gen = func(x T) U { return gen(f, x) }
 	return f
 }
 
 // Domain compiles DOMAIN f.
 func Domain[T, U any](f LazyFunction[T, U]) Set[T] { return f.dom }
+
+// FnOrd is the dictionary for LazyFunction, and is a placeholder: both
+// operations panic.
+//
+// It exists so that ordDict is total — the compiler can produce a dictionary
+// for a function type as it can for any other — and so that a specification
+// that actually puts a function inside a set fails loudly at that point rather
+// than failing to compile.
+//
+// A real implementation is known and not written yet. TLC orders functions by
+// representing one as an explicit finite graph and comparing domain then range
+// pointwise, with a per-value-kind ordinal breaking ties across kinds. Ours is
+// lazy, so matching that means forcing the whole domain through gen before
+// comparing — which is well defined, and compares the graph rather than the
+// cache, two functions with equal graphs having possibly memoized different
+// subsets of them. The cost is forcing, on a path nothing yet exercises; the
+// question is left for the first specification that needs it.
+func FnOrd[T, U any](Ord[T], Ord[U]) Ord[LazyFunction[T, U]] {
+	unimplemented := func(LazyFunction[T, U], LazyFunction[T, U]) bool {
+		panic("Comparison of functions is not implemented")
+	}
+	return Ord[LazyFunction[T, U]]{Eq: unimplemented, Lt: unimplemented}
+}

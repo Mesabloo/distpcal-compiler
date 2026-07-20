@@ -12,9 +12,10 @@ import "strconv"
 // the language specification and wraps on overflow where TLA+ integers are
 // unbounded. The default build uses arbitrary precision; see int_big.go.
 //
-// It is a newtype over Go's int rather than int itself because Go forbids
-// implementing an interface for a type declared in another package, and every
-// value in generated code has to implement Eq and Ord.
+// It is a newtype over Go's int rather than int itself so that the compiler
+// has one name to emit for it whichever representation is selected, and so
+// that a dictionary can be declared for it here rather than for a type this
+// package does not own.
 type Int int
 
 // MkInt builds an Int from a machine integer, which is what an integer literal
@@ -29,14 +30,11 @@ func MkInt(n int) Int { return Int(n) }
 // It cannot fail in this representation.
 func ToInt(n Int) int { return int(n) }
 
-// Eq reports whether two integers are equal.
-func (n Int) Eq(other Int) bool { return n == other }
-
-// Gt reports whether n is greater than other.
-func (n Int) Gt(other Int) bool { return n > other }
-
-// Lt reports whether n is less than other.
-func (n Int) Lt(other Int) bool { return n < other }
+// IntOrd is the dictionary for Int, ordering by numeric value.
+var IntOrd = Ord[Int]{
+	Eq: func(x, y Int) bool { return x == y },
+	Lt: func(x, y Int) bool { return x < y },
+}
 
 // String renders the integer in base 10.
 func (n Int) String() string { return strconv.Itoa(int(n)) }

@@ -123,12 +123,14 @@ func Append[T any](s Seq[T], e T) Seq[T] {
 
 // SeqEq reports whether two sequences are equal: same length, equal elements,
 // in the same order.
-func SeqEq[T Eq[T]](s, other Seq[T]) bool {
+// The comparison starts at index 1: the unused slot is never observed, so two
+// sequences agreeing everywhere it can be read are equal whatever it holds.
+func SeqEq[T any](o Ord[T], s, other Seq[T]) bool {
 	if length(s) != length(other) {
 		return false
 	}
 	for i := 1; i <= length(s); i++ {
-		if !s[i].Eq(other[i]) {
+		if !o.Eq(s[i], other[i]) {
 			return false
 		}
 	}
@@ -138,16 +140,22 @@ func SeqEq[T Eq[T]](s, other Seq[T]) bool {
 // SeqCmp orders two sequences lexicographically, shorter-and-equal-prefix
 // first.
 //
-// This is a function rather than a method because a method on Seq[T] cannot
-// require more of T than the type declaration does, and Seq[T] must accept any
-// element type. Generated code that needs a sequence to satisfy Ord — to put
-// one in a set, say — declares a named type over Seq[T] whose methods delegate
-// here.
-func SeqCmp[T Ord[T]](s, other Seq[T]) int {
+// TLA+ does not order sequences, so the direction is arbitrary; it exists so
+// that a sequence can be an element of a set, a member of a function's domain,
+// or a component of a tuple.
+func SeqCmp[T any](o Ord[T], s, other Seq[T]) int {
 	for i := 1; i <= min(length(s), length(other)); i++ {
-		if c := Cmp(s[i], other[i]); c != 0 {
+		if c := o.Cmp(s[i], other[i]); c != 0 {
 			return c
 		}
 	}
 	return length(s) - length(other)
+}
+
+// SeqOrd builds the dictionary for Seq[T] from the dictionary for T.
+func SeqOrd[T any](e Ord[T]) Ord[Seq[T]] {
+	return Ord[Seq[T]]{
+		Eq: func(x, y Seq[T]) bool { return SeqEq(e, x, y) },
+		Lt: func(x, y Seq[T]) bool { return SeqCmp(e, x, y) < 0 },
+	}
 }

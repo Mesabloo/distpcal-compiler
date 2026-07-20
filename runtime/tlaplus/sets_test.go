@@ -13,7 +13,7 @@ func TestSetFilterDoesNotMutate(t *testing.T) {
 	s := intSet(1, 2, 3, 4, 5)
 	before := slices.Clone(s)
 
-	got := SetFilter(s, func(x Int) bool { return x.Lt(MkInt(3)) })
+	got := SetFilter(s, func(x Int) bool { return IntOrd.Lt(x, MkInt(3)) })
 
 	if !intsEqual(s, before) {
 		t.Errorf("SetFilter mutated its input: %v, was %v", s, before)
@@ -31,7 +31,7 @@ func TestSetFilterDoesNotMutateSharedBacking(t *testing.T) {
 	s := backing[:3]
 	before := slices.Clone(backing)
 
-	SetFilter(s, func(x Int) bool { return x.Eq(MkInt(2)) })
+	SetFilter(s, func(x Int) bool { return IntOrd.Eq(x, MkInt(2)) })
 
 	if !intsEqual(backing, before) {
 		t.Errorf("SetFilter wrote through a shared backing array: %v, was %v", backing, before)
@@ -42,18 +42,18 @@ func TestSetFilterDoesNotMutateSharedBacking(t *testing.T) {
 // than pointer or structural identity. Every position is probed, since a binary
 // search can be wrong at the ends without being wrong in the middle.
 func TestSetIn(t *testing.T) {
-	s := MkSet[Str]("a", "b", "c", "d")
+	s := MkSet(StrOrd, "a", "b", "c", "d")
 	for _, x := range []Str{"a", "b", "c", "d"} {
-		if !SetIn(s, x) {
+		if !SetIn(StrOrd, s, x) {
 			t.Errorf("SetIn(s, %q) = false, want true", x)
 		}
 	}
 	for _, x := range []Str{"", "aa", "e", "z"} {
-		if SetIn(s, x) {
+		if SetIn(StrOrd, s, x) {
 			t.Errorf("SetIn(s, %q) = true, want false", x)
 		}
 	}
-	if SetIn(Set[Str]{}, "a") {
+	if SetIn(StrOrd, Set[Str]{}, "a") {
 		t.Errorf("SetIn on the empty set = true, want false")
 	}
 }
@@ -64,11 +64,11 @@ func TestSetIn(t *testing.T) {
 func TestSetInByValue(t *testing.T) {
 	s := intSet(1, 2, 3)
 	for _, n := range []int{1, 2, 3} {
-		if !SetIn(s, MkInt(n)) {
+		if !SetIn(IntOrd, s, MkInt(n)) {
 			t.Errorf("SetIn(s, %d) = false: membership is comparing identity, not value", n)
 		}
 	}
-	if SetIn(s, MkInt(4)) {
+	if SetIn(IntOrd, s, MkInt(4)) {
 		t.Errorf("SetIn(s, 4) = true, want false")
 	}
 }
@@ -91,26 +91,26 @@ func TestMkSet(t *testing.T) {
 // holds between sets written in different orders — which is exactly what the
 // sorted representation buys.
 func TestSetEq(t *testing.T) {
-	if !SetEq(intSet(1, 2, 3), intSet(3, 2, 1)) {
+	if !SetEq(IntOrd, intSet(1, 2, 3), intSet(3, 2, 1)) {
 		t.Errorf("{1,2,3} /= {3,2,1}, but those are the same set")
 	}
-	if !SetEq(intSet(1, 1, 2), intSet(2, 1)) {
+	if !SetEq(IntOrd, intSet(1, 1, 2), intSet(2, 1)) {
 		t.Errorf("{1,1,2} /= {2,1}, but those are the same set")
 	}
-	if SetEq(intSet(1, 2), intSet(1, 2, 3)) {
+	if SetEq(IntOrd, intSet(1, 2), intSet(1, 2, 3)) {
 		t.Errorf("{1,2} = {1,2,3}, want false")
 	}
-	if SetEq(intSet(1, 2), intSet(1, 3)) {
+	if SetEq(IntOrd, intSet(1, 2), intSet(1, 3)) {
 		t.Errorf("{1,2} = {1,3}, want false")
 	}
-	if !SetEq(Set[Int]{}, Set[Int]{}) {
+	if !SetEq(IntOrd, Set[Int]{}, Set[Int]{}) {
 		t.Errorf("the empty set is not equal to itself")
 	}
 }
 
 func TestSetMap(t *testing.T) {
 	s := intSet(1, 2, 3)
-	got := SetMap(s, func(x Int) Int { return Mul(x, MkInt(2)) })
+	got := SetMap(IntOrd, s, func(x Int) Int { return Mul(x, MkInt(2)) })
 	if want := ints(2, 4, 6); !intsEqual(got, want) {
 		t.Errorf("SetMap = %v, want %v", got, want)
 	}
@@ -125,25 +125,25 @@ func TestSetMap(t *testing.T) {
 func TestSetMapRenormalizes(t *testing.T) {
 	// Collapses 1 and 2 onto the same value: not injective.
 	clamp := func(x Int) Int {
-		if x.Lt(MkInt(3)) {
+		if IntOrd.Lt(x, MkInt(3)) {
 			return MkInt(0)
 		}
 		return MkInt(1)
 	}
-	if got, want := SetMap(intSet(1, 2, 3), clamp), ints(0, 1); !intsEqual(got, want) {
+	if got, want := SetMap(IntOrd, intSet(1, 2, 3), clamp), ints(0, 1); !intsEqual(got, want) {
 		t.Errorf("a non-injective mapping gave %v, want %v", got, want)
 	}
 
 	// Order-reversing, so the mapped elements arrive descending.
-	negated := SetMap(intSet(1, 2, 3), Neg)
+	negated := SetMap(IntOrd, intSet(1, 2, 3), Neg)
 	if want := ints(-3, -2, -1); !intsEqual(negated, want) {
 		t.Errorf("{-x : x \\in {1,2,3}} = %v, want %v", negated, want)
 	}
 
-	if got := SetMap(intSet(4, 5, 6), func(x Int) Str { return "c" }); len(got) != 1 {
+	if got := SetMap(StrOrd, intSet(4, 5, 6), func(x Int) Str { return "c" }); len(got) != 1 {
 		t.Errorf("a constant mapping gave %v, want a single element", got)
 	}
-	if got := SetMap(Set[Int]{}, func(x Int) Int { return x }); len(got) != 0 {
+	if got := SetMap(IntOrd, Set[Int]{}, func(x Int) Int { return x }); len(got) != 0 {
 		t.Errorf("SetMap over the empty set = %v, want empty", got)
 	}
 }
@@ -152,10 +152,10 @@ func TestSetMapRenormalizes(t *testing.T) {
 // random pick: Hilbert's choice must return the same element for the same set
 // and predicate, and {1,2} and {2,1} are the same set.
 func TestChooseIsDeterministic(t *testing.T) {
-	positive := func(x Int) bool { return x.Gt(MkInt(0)) }
+	positive := func(x Int) bool { return IntOrd.Gt(x, MkInt(0)) }
 
 	a, b := Choose(intSet(1, 2), positive), Choose(intSet(2, 1), positive)
-	if !a.Eq(b) {
+	if !IntOrd.Eq(a, b) {
 		t.Errorf("CHOOSE over {1,2} = %v but over {2,1} = %v; permutations denote the same set", a, b)
 	}
 
@@ -163,7 +163,7 @@ func TestChooseIsDeterministic(t *testing.T) {
 	s := intSet(5, 3, 9, 1, 7)
 	first := Choose(s, positive)
 	for range 10 {
-		if got := Choose(s, positive); !got.Eq(first) {
+		if got := Choose(s, positive); !IntOrd.Eq(got, first) {
 			t.Fatalf("CHOOSE returned %v then %v over the same set", first, got)
 		}
 	}
@@ -176,7 +176,7 @@ func TestChooseIsDeterministic(t *testing.T) {
 // elements only, not simply the set minimum.
 func TestChooseRespectsPredicate(t *testing.T) {
 	s := intSet(5, 1, 4, 2, 3)
-	if got := Choose(s, func(x Int) bool { return x.Gt(MkInt(2)) }); !eqInt(got, 3) {
+	if got := Choose(s, func(x Int) bool { return IntOrd.Gt(x, MkInt(2)) }); !eqInt(got, 3) {
 		t.Errorf("CHOOSE x \\in s : x > 2 = %v, want the smallest satisfying element 3", got)
 	}
 }
@@ -188,23 +188,26 @@ func TestChooseEmptyPanics(t *testing.T) {
 			t.Errorf("CHOOSE with no satisfying element did not panic")
 		}
 	}()
-	Choose(intSet(1, 2, 3), func(x Int) bool { return x.Gt(MkInt(99)) })
+	Choose(intSet(1, 2, 3), func(x Int) bool { return IntOrd.Gt(x, MkInt(99)) })
 }
 
-// TestOrdDerivations checks Le, Ge and Cmp against the primitive Gt/Lt they are
-// derived from, including the reflexive cases the derivations exist to get
-// right.
+// TestOrdDerivations checks Neq, Gt, Le, Ge and Cmp against the primitive
+// Eq/Lt they are derived from, including the reflexive cases the derivations
+// exist to get right.
 func TestOrdDerivations(t *testing.T) {
 	cases := [][2]int{{1, 2}, {2, 1}, {2, 2}}
 	for _, c := range cases {
 		x, y := MkInt(c[0]), MkInt(c[1])
-		if got, want := Le(x, y), c[0] <= c[1]; got != want {
+		if got, want := IntOrd.Gt(x, y), c[0] > c[1]; got != want {
+			t.Errorf("Gt(%d, %d) = %v, want %v", c[0], c[1], got, want)
+		}
+		if got, want := IntOrd.Le(x, y), c[0] <= c[1]; got != want {
 			t.Errorf("Le(%d, %d) = %v, want %v", c[0], c[1], got, want)
 		}
-		if got, want := Ge(x, y), c[0] >= c[1]; got != want {
+		if got, want := IntOrd.Ge(x, y), c[0] >= c[1]; got != want {
 			t.Errorf("Ge(%d, %d) = %v, want %v", c[0], c[1], got, want)
 		}
-		if got, want := Neq(x, y), c[0] != c[1]; got != want {
+		if got, want := IntOrd.Neq(x, y), c[0] != c[1]; got != want {
 			t.Errorf("Neq(%d, %d) = %v, want %v", c[0], c[1], got, want)
 		}
 		want := 0
@@ -214,18 +217,34 @@ func TestOrdDerivations(t *testing.T) {
 		case c[0] > c[1]:
 			want = 1
 		}
-		if got := Cmp(x, y); got != want {
+		if got := IntOrd.Cmp(x, y); got != want {
 			t.Errorf("Cmp(%d, %d) = %d, want %d", c[0], c[1], got, want)
 		}
 	}
 
 	// FALSE sorts before TRUE.
-	if !Bool(false).Lt(true) || !Bool(true).Gt(false) {
+	if !BoolOrd.Lt(false, true) || !BoolOrd.Gt(true, false) {
 		t.Errorf("Bool ordering does not put FALSE before TRUE")
 	}
-	if Cmp(Bool(false), Bool(true)) != -1 {
-		t.Errorf("Cmp(FALSE, TRUE) = %d, want -1", Cmp(Bool(false), Bool(true)))
+	if got := BoolOrd.Cmp(false, true); got != -1 {
+		t.Errorf("Cmp(FALSE, TRUE) = %d, want -1", got)
 	}
+}
+
+// TestCmpPanicsOnPartialOrder checks the total-order obligation a dictionary
+// carries: a comparison that answers no to all three questions is not one, and
+// Cmp says so rather than silently reporting equal.
+func TestCmpPanicsOnPartialOrder(t *testing.T) {
+	never := Ord[Int]{
+		Eq: func(x, y Int) bool { return false },
+		Lt: func(x, y Int) bool { return false },
+	}
+	defer func() {
+		if recover() == nil {
+			t.Errorf("Cmp under a non-total dictionary did not panic")
+		}
+	}()
+	never.Cmp(MkInt(1), MkInt(2))
 }
 
 // TestSetUnion, TestSetIntersect and TestSetDifference check the answers and,
@@ -248,7 +267,7 @@ func TestSetUnion(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := SetUnion(c.s, c.other); !intsEqual(got, c.want) {
+			if got := SetUnion(IntOrd, c.s, c.other); !intsEqual(got, c.want) {
 				t.Errorf("SetUnion(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
 			}
 		})
@@ -269,7 +288,7 @@ func TestSetIntersect(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := SetIntersect(c.s, c.other); !intsEqual(got, c.want) {
+			if got := SetIntersect(IntOrd, c.s, c.other); !intsEqual(got, c.want) {
 				t.Errorf("SetIntersect(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
 			}
 		})
@@ -291,7 +310,7 @@ func TestSetDifference(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := SetDifference(c.s, c.other); !intsEqual(got, c.want) {
+			if got := SetDifference(IntOrd, c.s, c.other); !intsEqual(got, c.want) {
 				t.Errorf("SetDifference(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
 			}
 		})
@@ -302,7 +321,7 @@ func TestSetDifference(t *testing.T) {
 // allocated slice, but the cheap implementation of union — append other's tail
 // onto s and return it — would alias, so the property is worth pinning.
 func TestSetOpsDoNotMutate(t *testing.T) {
-	ops := map[string]func(s, other Set[Int]) Set[Int]{
+	ops := map[string]func(o Ord[Int], s, other Set[Int]) Set[Int]{
 		"SetUnion":      SetUnion[Int],
 		"SetIntersect":  SetIntersect[Int],
 		"SetDifference": SetDifference[Int],
@@ -312,7 +331,7 @@ func TestSetOpsDoNotMutate(t *testing.T) {
 			s, other := intSet(1, 2, 3), intSet(2, 3, 4)
 			sBefore, otherBefore := slices.Clone(s), slices.Clone(other)
 
-			got := op(s, other)
+			got := op(IntOrd, s, other)
 			// Writing through the result must not reach either operand.
 			for i := range got {
 				got[i] = MkInt(-1)
@@ -349,8 +368,69 @@ func TestSetSubseteq(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := SetSubseteq(c.s, c.other); got != c.want {
+			if got := SetSubseteq(IntOrd, c.s, c.other); got != c.want {
 				t.Errorf("SetSubseteq(%v, %v) = %v, want %v", c.s, c.other, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSetOrdNests is the construction the dictionary design exists for, and the
+// one the interface design could not express at all: MkSet[T Ord[T]] rejected
+// Set[Int] as an element type, so Set[Set[Int]] was not constructible.
+//
+// It also pins that the composed dictionary is the right one — the outer set
+// must deduplicate {3,1} against {1,3}, which needs the *inner* dictionary's
+// notion of equality, not Go's.
+func TestSetOrdNests(t *testing.T) {
+	setOrd := SetOrd(IntOrd)
+
+	s := MkSet(setOrd, intSet(3, 1), intSet(2), intSet(1, 3))
+	if len(s) != 2 {
+		t.Fatalf("{{3,1}, {2}, {1,3}} has %d elements, want 2: {3,1} and {1,3} are the same set", len(s))
+	}
+	if !SetIn(setOrd, s, intSet(1, 3)) {
+		t.Errorf("{1,3} \\notin {{1,3}, {2}}")
+	}
+	if SetIn(setOrd, s, intSet(1, 2)) {
+		t.Errorf("{1,2} \\in {{1,3}, {2}}, want false")
+	}
+
+	// And once more round, since nothing about the composition is special-cased
+	// at depth one.
+	deep := MkSet(SetOrd(setOrd), s, MkSet(setOrd, intSet(2), intSet(1, 3)))
+	if len(deep) != 1 {
+		t.Errorf("a set of two equal sets-of-sets has %d elements, want 1", len(deep))
+	}
+}
+
+// TestSetOrdOrdering checks the lexicographic order SetOrd imposes. The
+// direction is arbitrary — TLA+ does not order sets — so what is pinned is
+// that it is a total order consistent with SetEq, which is what CHOOSE and the
+// sorted representation need of it.
+func TestSetOrdOrdering(t *testing.T) {
+	setOrd := SetOrd(IntOrd)
+	cases := []struct {
+		name string
+		a, b Set[Int]
+		want int
+	}{
+		{"equal", intSet(1, 2), intSet(2, 1), 0},
+		{"differing element", intSet(1, 2), intSet(1, 3), -1},
+		{"prefix is smaller", intSet(1), intSet(1, 2), -1},
+		{"empty is smallest", intSet(), intSet(1), -1},
+		{"both empty", intSet(), intSet(), 0},
+		{"first element decides", intSet(0, 9), intSet(1), -1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := setOrd.Cmp(c.a, c.b); (got < 0) != (c.want < 0) || (got > 0) != (c.want > 0) {
+				t.Errorf("Cmp(%v, %v) = %d, want sign of %d", c.a, c.b, got, c.want)
+			}
+			// Antisymmetry, which Cmp's own panic would otherwise catch only
+			// in one direction.
+			if got := setOrd.Cmp(c.b, c.a); (got > 0) != (c.want < 0) || (got < 0) != (c.want > 0) {
+				t.Errorf("Cmp(%v, %v) = %d, want sign of %d", c.b, c.a, got, -c.want)
 			}
 		})
 	}
@@ -359,7 +439,7 @@ func TestSetSubseteq(t *testing.T) {
 // TestCardinality relies on the duplicate-free invariant: the count is the slice
 // length only because MkSet already removed the repeats.
 func TestCardinality(t *testing.T) {
-	if got := Cardinality(MkSet(ints(3, 1, 2, 1, 3)...)); !eqInt(got, 3) {
+	if got := Cardinality(MkSet(IntOrd, ints(3, 1, 2, 1, 3)...)); !eqInt(got, 3) {
 		t.Errorf("Cardinality({3, 1, 2, 1, 3}) = %v, want 3", got)
 	}
 	if got := Cardinality(intSet()); !eqInt(got, 0) {
