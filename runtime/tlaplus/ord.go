@@ -48,11 +48,12 @@ func (o Ord[T]) Neq(x, y T) bool { return !o.Eq(x, y) }
 // Gt reports whether x sorts after y.
 func (o Ord[T]) Gt(x, y T) bool { return o.Lt(y, x) }
 
-// Le reports whether x is at most y.
-func (o Ord[T]) Le(x, y T) bool { return o.Eq(x, y) || o.Lt(x, y) }
+// Le reports whether x is at most y. It reads x <= y as not y < x, which holds
+// because the dictionary is a total order — the same assumption Cmp relies on.
+func (o Ord[T]) Le(x, y T) bool { return !o.Lt(y, x) }
 
-// Ge reports whether x is at least y.
-func (o Ord[T]) Ge(x, y T) bool { return o.Eq(x, y) || o.Gt(x, y) }
+// Ge reports whether x is at least y, read as not x < y — total order again.
+func (o Ord[T]) Ge(x, y T) bool { return !o.Lt(x, y) }
 
 // Cmp returns a negative number when x sorts before y, zero when they are
 // equal, and a positive number when x sorts after y — the convention the

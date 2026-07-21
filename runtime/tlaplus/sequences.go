@@ -31,10 +31,7 @@ func MkSeq[T any](elems ...T) Seq[T] {
 // one. Kept separate so that the public Len can speak in TLA+ integers without
 // every caller here converting back.
 func length[T any](s Seq[T]) int {
-	if len(s) == 0 {
-		return 0
-	}
-	return len(s) - 1
+	return max(0, len(s)-1)
 }
 
 // Len compiles Len(s).

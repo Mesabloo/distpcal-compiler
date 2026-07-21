@@ -1,475 +1,322 @@
 # OPEN_QUESTIONS.md
 
-Open questions and known issues, split out of `PLAN.md`. Same role as `PLAN.md`'s old §9:
-ask before resolving any of these unilaterally if they turn out to matter more than
-expected. Numbering (`9.x`) kept as-is — `PLAN.md` and other docs cross-reference these as
-`§9.x`.
+Open questions and known issues. Ask before resolving any unilaterally. `PLAN.md` and other
+docs cross-reference these as `§9.x`.
 
-**Resolving one: delete it from this file.** Move the decision into `PLAN.md` as settled
-fact (see `INSTRUCTIONS.md`'s "Rule matter most" — decisions land in `PLAN.md` written as
-if always the plan, no history, no "earlier draft said"), then remove the corresponding
-entry here entirely — don't leave a "resolved" marker or strike-through behind. This file
-stays current-state-only, same as `PLAN.md`: it lists what's still open, nothing else.
-Leftover subsection numbers (e.g. `9.9` missing) are fine — don't renumber remaining
-entries to close the gap.
+**Resolving one: delete it from this file** and write the decision into `PLAN.md` as settled
+fact. No "resolved" markers, no strike-throughs. Gaps in the numbering are fine — don't
+renumber.
 
 ---
 
 ### 9.1 Join Calculus: what happens after emission?
-§2/§5.6: committed scope is "emit a syntactically well-formed `.join` file implementing
-the thesis's compilation scheme." Open: does this project eventually need (a) an
-interpreter for the guarded dialect (closest to "formally verified compiler" in spirit —
-much easier to relate an interpreter's semantics to a Lean model than real Go
+Committed scope (§2/§5.6) is "emit a syntactically well-formed `.join` file implementing the
+thesis's compilation scheme." Open: (a) an interpreter for the guarded dialect (closest to
+"formally verified compiler" in spirit — far easier to relate to a Lean model than real Go
 concurrency), (b) a further lowering to something existing tooling runs (JoCaml-compatible
-encoding, with the performance caveat the thesis flags), or (c) nothing at all, treating
-the Join Calculus output purely as a verification artifact? Revisit once §5.6 exists.
+encoding, with the performance caveat the thesis flags), or (c) nothing, treating the output
+purely as a verification artifact. Revisit once §5.6 exists.
 
 ### 9.2 Known parser gaps
-Not blockers, none hit by §8's language subset, but real known gaps in `Parser_/`:
-- Incomplete TLA⁺ reserved-word list (`TLAPlus.lean:62`); no binary/octal/hex number
-  literals (`TLAPlus.lean:376`); no handling of junk before module start / after module
-  end (`TLAPlus.lean:1135`).
-- PlusCal `macro`/`procedure`/`define` sections unsupported (`PlusCal.lean:387`) —
-  `Core/SurfacePlusCal/Syntax.lean` has no AST nodes for them. None appear in §8's
-  subset.
-- `parseChannels`/`parseFifos` (`PlusCal.lean`) only accept a single bracket-index group
-  (`chan[S]`), unlike `Ref.args : List (String ⊕ List β)` which supports the multi-dimensional
-  form (`x[i][j]`) used elsewhere (e.g. `parseRef`) — a narrow grammar gap for any future
-  program wanting a multi-dimensional channel/fifo declaration.
-- `Expression.choose` (`CHOOSE`) and `LET`/`IN` are lexed (`.choose`/`.let`/`.in` tokens
-  exist) but have **no parser rule at all** — worth a real implementation pass before
-  trusting any input using either.
-- `@type` annotation dialect: only the current (Apalache-style, `Channel({type: Str,
-  agent: Address})`) syntax is supported — a pre-Apalache-format dialect
-  (`Channel[{type: string, agent: T}]`, square brackets, lowercase generic names) is not.
+Not blockers, none hit by §8's subset:
+- Incomplete TLA⁺ reserved-word list (`TLAPlus.lean:62`); no binary/octal/hex number literals
+  (`TLAPlus.lean:376`); no handling of junk before/after the module (`TLAPlus.lean:1135`).
+- PlusCal `macro`/`procedure`/`define` unsupported (`PlusCal.lean:387`) —
+  `Core/SurfacePlusCal/Syntax.lean` has no AST nodes for them.
+- `parseChannels`/`parseFifos` accept only a single bracket-index group (`chan[S]`), unlike
+  `Ref.args : List (String ⊕ List β)` which supports `x[i][j]` — blocks multi-dimensional
+  channel/fifo declarations.
+- `CHOOSE` and `LET`/`IN` are lexed (`.choose`/`.let`/`.in` tokens exist) but have **no parser
+  rule at all**.
+- `@type` supports only the Apalache-style syntax (`Channel({type: Str, agent: Address})`); the
+  pre-Apalache dialect (`Channel[{type: string, agent: T}]`) is not.
 
 ### 9.3 CLI / UX — remaining details
-Flag surface settled (§2), including the `-X<name>` target-option category — which
-currently has **no members**, `-Xgo-bigint` having been replaced by a Go build tag (§5.7).
-Still open:
-- **Join Calculus "flavors"** (e.g. `-t join[jocaml]`, `-t join[jerlang]`) — possible way
-  to select between different lowerings/encodings of the guarded-reaction dialect for
-  different existing Join Calculus runtimes, ties into §9.1. Flagged as possibly not
-  worth the complexity — don't build unless asked.
-- **`-p` (Go package name)** — whether this stays its own flag or folds into something
-  like `-t go[package=...]`, or is specified another way, still open.
-
-Also open: whether `-o`/`--output` names a file or a directory — matters more once two
-backends have potentially different output shapes (Go may eventually emit more than one
-file). Revisit once `Network2Go`'s actual output shape is concrete (phase 11 item 7).
+Flag surface settled (§2), including `-X<name>`, which currently has **no members**. Open:
+- **Join Calculus "flavors"** (`-t join[jocaml]`, `-t join[jerlang]`) — selecting between
+  lowerings for different Join Calculus runtimes; ties into §9.1. Possibly not worth the
+  complexity — don't build unless asked.
+- **`-p` (Go package name)** — own flag, folded into `-t go[package=...]`, or something else.
+- Whether `-o`/`--output` names a file or a directory — matters once Go may emit more than one
+  file. Revisit once `Network2Go`'s output shape is concrete (phase 11 item 7).
 
 ### 9.4 Join Calculus operational semantics — low priority
-§5.6 points at where `Core/JoinCalculus/Semantics/` (RCHAM heating/cooling + reaction
-rules, thesis Fig. 8.4.2–8.4.3, local and distributed solutions) would go, doesn't ask
-for it now — getting `Network2JoinCalculus` to actually compile is the near-term goal.
-Formalizing the target language's own operational semantics only starts to matter once
-there's appetite to prove something about that pass (a prerequisite for §9.1) — revisit
-then.
+`Core/JoinCalculus/Semantics/` (RCHAM heating/cooling + reaction rules, thesis Fig.
+8.4.2–8.4.3, local and distributed) isn't wanted now — getting `Network2JoinCalculus` to
+compile is the near-term goal. Only matters once there's appetite to prove something about
+that pass (prerequisite for §9.1).
 
 ### 9.5 Multicast compilation is undescribed for both backends
-`multicast(x, [y ∈ e1 ↦ e2])` is explicitly part of the v1 subset (§8), yet neither
-backend's compilation scheme shows how it's compiled. §5.6's Join Calculus scheme (the
-"Atomic blocks" bullet) only shows a single `send(c[α],e)` folded into a reaction body —
-no bullet for emitting to a whole filtered set of recipients, unclear whether that means
-one atom per recipient (needing some encoding of a bounded loop/comprehension inside a
-reaction body, which the target calculus doesn't obviously support) or something else.
-§5.7 says `Network2Go/PlusCal.lean` gets "essentially everything right" except lock
-inference, doesn't say whether multicast codegen is included in that "everything" or
-still needs new work — worth confirming by reading the actual pass.
+`multicast(x, [y ∈ e1 ↦ e2])` is in the v1 subset (§8), yet neither backend's scheme shows how
+it compiles. §5.6's Join Calculus scheme only shows a single `send(c[α],e)` folded into a
+reaction body — unclear whether emitting to a filtered set means one atom per recipient (which
+needs a bounded loop/comprehension inside a reaction body, not obviously supported by the
+target calculus) or something else.
 
-Thesis §7.2.3.1 (newly written) confirms the Go side stays unaddressed at the compiled-
-form level: it explicitly omits multicast from the statement-compilation rules, only
-saying in prose that it's "a simple 'iterated send'" — no loop construct, no compiled
-Go shown, so still needs real design (over which set-comprehension form, sequential vs.
-concurrent sends, etc.) before item 3/6 of the `Network2Go` tasklist can implement it.
+Thesis §7.2.3.1 omits multicast from the Go statement-compilation rules, saying only in prose
+that it's "a simple 'iterated send'" — no loop construct, no compiled Go. Needs real design
+(which set-comprehension form, sequential vs. concurrent sends) before `Network2Go` tasklist
+item 3/6 can implement it.
 
-### 9.6 Runtime value representation in Go: numeric representation is the real open piece
-TLA+ `Int`/`Nat` are unbounded, FIFOs are (as far as §8's grammar says) uncapacitated;
-Go's integer types and channels are inherently bounded (`int64` wraps on overflow; a Go
-`chan` is either unbuffered/synchronous or has fixed capacity — never truly unbounded).
+### 9.6 Runtime value representation in Go: channel capacity
+TLA+ `Int`/`Nat` are unbounded and FIFOs uncapacitated; Go's types and channels are bounded.
 The numeric side is resolved (§2, §5.7): arbitrary precision by default, machine integers
-behind the `fugue_machint` Go build tag, with no Fugue-level flag at all.
+behind the `fugue_machint` build tag, no Fugue-level flag.
 
-The channel-capacity side is a real, unverified hypothesis, not a settled non-issue:
-because lock-inference (§5.7) already serializes atomic blocks touching shared state, a
-`send` blocking on a bounded Go channel shouldn't change *which* transitions are enabled
-— at worst it should only slow execution down, not alter behavior or invalidate whatever
-the source spec was checked/proved against. Worth confirming once a concrete backend
-exists to test against.
+The channel-capacity side is an unverified hypothesis: because lock inference (§5.7) already
+serializes atomic blocks touching shared state, a `send` blocking on a bounded Go channel
+shouldn't change *which* transitions are enabled — at worst it slows execution. Worth
+confirming against a concrete backend. Caveat: this reasoning assumes a literal Go `chan`, so
+it covers a same-process channel cleanly. Per §9.7 a cross-process `send` isn't a Go `chan` at
+all — its blocking is a property of a socket plus runtime buffering. Re-check once §9.7 pins
+down what a cross-process `Channel(τ)` compiles to.
 
-Note this "bounded Go channel" reasoning is clearest for a same-process channel realized
-as a literal Go `chan` (blocking-vs-capacity is exactly native Go semantics there). Per
-§9.7, `send(c, e)` to a *different* process almost certainly isn't a literal shared Go
-`chan` at all (can't span OS processes/machines) — it's a network send, whose
-"capacity"/blocking is a property of a socket and whatever buffering the runtime library
-puts around it. The reasoning above may still hold either way, but was worked out
-assuming a literal Go `chan`, re-check once §9.7 pins down what a cross-process
-`Channel(τ)` actually compiles to.
-
-**Known, accepted risk:** a block that blocks on a channel op *while holding its
-component's lock* freezes every other block sharing that lock — potentially including the
-process's own `T_rx` thread — for as long as the send stays blocked. Stays **local to the
-one process (agent)** that's stuck; not a cascading, system-wide deadlock, since what
-unblocks it is the peer's own (user-written) code eventually processing/receiving the
-corresponding message. Real-world failure mode is "one process goes locally unresponsive
-until its peer drains the channel," not "the whole distributed system wedges" — a genuine,
-accepted consequence of the locking design.
+**Known, accepted risk:** a block that blocks on a channel op *while holding its component's
+lock* freezes every other block sharing that lock — potentially including the process's own
+`T_rx` thread. Stays local to that one process; what unblocks it is the peer's own code
+eventually receiving. Failure mode is "one process goes locally unresponsive," not a
+system-wide deadlock.
 
 ### 9.7 `send(c, e)`'s actual Go compilation scheme is unknown
+`Channel(τ)` needs no general-purpose Go value representation, since channels "are not
+first-class citizens in Distributed PlusCal" (§5.7) — never stored, passed, or placed in a data
+structure; only ever indexed (`c[α]`) at a `send`/`receive` site. That answers representation,
+not wire mechanics: connection lifecycle, serialization format, how a channel's identity travels
+with its payload once `send(c, e)` targets a different process.
 
-The thesis resolves the adjacent question of whether `Channel(τ)` needs a general-purpose
-Go value representation — it doesn't, since channels "are not first-class citizens in
-Distributed PlusCal" (§5.7). That answers "what Go type does a channel value have" (none
-— never stored, passed around, or put in a data structure the way an ordinary TLA+ value
-is; only appears indexed, `c[α]`, at a `send`/`receive` site). It does **not** answer this
-section's actual open question, about wire mechanics, not representation: connection
-lifecycle, serialization format, how a channel's identity travels alongside its payload
-once `send(c, e)` targets a different process.
+§5.7 calls `Network2Go/PlusCal.lean` "already gets essentially everything right" except lock
+inference, and separately lists the hand-written `tests/*/{lib,nameserver}` scaffolding (TCP/UDP
+address resolution, name-server process) as reusable — nothing says how the two connect.
 
-§5.7 describes `Network2Go/PlusCal.lean` as "already gets essentially everything right"
-except lock inference, separately lists the hand-written `tests/*/{lib,nameserver}`
-scaffolding (TCP/UDP address resolution, a name-server process) as directly reusable —
-but nowhere does this plan say how these two things connect: what `send(c, e)` concretely
-compiles to once `c` is addressed to a *different* process, possibly on a different
-machine.
+Natural shape, **not confirmed against the pass or committed to**: look up the target address
+(the `α` in `c[α]`, per §5.3's `Channel(τ)` covariance) via the nameserver client; obtain a
+connection (new per message, or pooled — unspecified); serialize the channel's identity together
+with the payload (the receiver may have several channels, so identity must travel with the
+message); transmit; on the receiving end a listener — the Go analogue of §5.6's `T_rx` reaction
+— accepts, deserializes, appends the payload to the local `inbox` for that channel, which is
+what `receive` reduces to reading (§5.5).
 
-Natural shape, sketched here but **not confirmed against the actual pass or committed
-to**: look up the target address (the `α` in `c[α]`, per §5.3's `Channel(τ)` covariance)
-via the nameserver client; obtain a network connection to that address (new per message,
-or pooled/persistent — unspecified); serialize the channel's identity together with the
-payload `e` (the receiver may have several distinct channels, so identity has to travel
-with the message); transmit it; on the receiving end, some listener — the Go analogue of
-§5.6's Join Calculus `T_rx` reaction — accepts the connection, deserializes, appends the
-payload to the *local* `inbox` variable for that channel, which is what `receive` already
-reduces to reading from (§5.5). None of connection lifecycle, wire format/serialization,
-or how a channel's identity is encoded on the wire is decided.
+Consequence: `Channel(τ)`'s Go representation is two different things per side. Receiver: a
+real local `inbox` sequence, realizable as a Go `chan`/queue, matching §5.3's "channels are
+encoded as `Seq(τ)`". Sender: addressing a remote process can't be a shared Go `chan` at all,
+so it goes through the nameserver-plus-network path.
 
-This also means `Channel(τ)`'s Go runtime representation is genuinely two different
-things depending on which side of a `send` you're standing on: for the *receiver*, a
-channel is (or feeds) a real local `inbox` sequence — the kind of thing a literal Go
-`chan`/queue can realize, matching §5.3's "channels are encoded as `Seq(τ)`" framing. For
-the *sender*, addressing a remote process's channel can't be a shared Go `chan` value at
-all (cannot cross OS processes, let alone machines) — has to go through the
-nameserver-plus-network path above instead. §9.6's Go-channel-capacity discussion should
-be re-read with this split in mind — its reasoning was worked out assuming a literal Go
-`chan`, at best half the picture.
+Thesis pins the generated-code API surface on both sides, but not the internals:
+- §7.2.3.1: `send(c[e1], e2)` compiles to `net.c[e1].Send(e2)`, `send(c, e2)` to
+  `net.c.Send(e2)` — `Network`'s fields are per-channel, each with an indexable `.Send`. What
+  `.Send` does internally is unspecified.
+- §7.2.3.2: each compiled process is `func p(net Network, mailbox Receiver[τ], self Address)
+  (chan struct{})` — `mailbox` (`Receiver[T]`, blocking `Recv() (T, bool)`) is
+  **caller-supplied**, not constructed by generated code. So the generated code's obligation is
+  just "accept something implementing `Receiver[τ]`"; how a real implementation accepts
+  connections, deserializes, and demultiplexes by channel identity stays outside the compiler.
 
-Thesis §7.2.3.1 (newly written) pins the *local* call-site shape at least: `send(c[e1],
-e2)` compiles to `net.c[e1].Send(e2)` (indexed channel), `send(c, e2)` to `net.c.Send(e2)`
-(non-indexed) — `Network`'s fields are per-channel, each with an indexable `.Send`
-method. That's the generated-code-side API surface item 4's design work has to target;
-it says nothing about what `.Send` does internally (connection lifecycle, serialization,
-address-to-connection lookup) — this section's actual open question is unchanged.
+### 9.8 "Floating annotation" warning blocked by combinator backtracking
+A warning for an annotation-shaped comment with *no* consuming site nearby (as opposed to a real
+annotation attached to the wrong role at a real site, which stays in scope, §5.1) is blocked by
+how `Parser_/Common.lean`'s `first` — and `fgdorais/Parser`'s `first`/`orElse` beneath it —
+backtrack.
 
-Thesis §7.2.3.2 (also newly written) pins the *receiving* side's generated-code contract
-too: each compiled process is a function `func p(net Network, mailbox Receiver[τ], self
-Address) (chan struct{})` — `mailbox` (`Receiver[T]` — `Recv() (T, bool)`, blocking) is a
-**caller-supplied parameter**, not something the generated code constructs or listens on
-itself. So the generated code's obligation on the receiving end is just "accept something
-implementing `Receiver[τ]`" — everything about how a real implementation of that interface
-actually accepts connections/deserializes/demultiplexes by channel identity is still
-outside the compiler's output, same open question as the sending side above, just now
-scoped to a concrete interface boundary rather than an unbounded one.
+**Mechanism:** `ParserT ε σ τ m α := σ → m (Parser.Result ε σ α)`. The failure branch resets only
+`Stream.Position`, never anything inside the base monad `m`. `first [parseAssume, parseConstants,
+parseVariables, parseOperator, ...]` (`parseDeclaration`) tries `parseConstants`/`parseVariables`
+before the correct `parseOperator`; both use `lexeme (pure ()) *> token .constants`/`(.variable
+<|> .variables)` — they skip past whatever comment sits there *before* checking their keyword and
+failing. Any `m`-side effect during that skip (an accumulated warning) survives the rollback. The
+generic `lexeme (pure ())`-before-keyword skip is load-bearing: it's what lets comments legally
+appear between declarations without being mistaken for consumed annotations.
 
-### 9.8 A "floating annotation" warning is blocked by the parser combinator library's backtracking
-
-A warning for an annotation-shaped comment with *no* designated consuming site anywhere
-nearby (as opposed to a real annotation attached to the *wrong specific role* at a real
-site, which stays in scope, §5.1) is blocked by a genuine limitation in how
-`Parser_/Common.lean`'s `first` — and the vendored `fgdorais/Parser` library's
-`first`/`orElse` it's built on — actually backtrack.
-
-**Mechanism:** `ParserT ε σ τ m α := σ → m (Parser.Result ε σ α)`. `orElse`/`first`'s
-failure branch only ever resets `Stream.Position` (an explicit field of `ParserT`'s own
-type) — never anything inside the base monad `m`. `first [parseAssume, parseConstants,
-parseVariables, parseOperator, ...]` (`parseDeclaration`, `Parser_/TLAPlus.lean`) tries
-`parseConstants`/`parseVariables` before reaching the correct `parseOperator`
-alternative; both use `lexeme (pure ()) *> token .constants`/`(.variable <|>
-.variables)` — generically skip past (`lexeme`/`ws`) whatever comment sits there *before*
-checking their own keyword and failing. Any `m`-side-effect performed during that skip
-(e.g. an accumulated warning) survives even though the *stream position* correctly rolls
-back for the next alternative to retry — `first`'s reset only touches `σ`, not `m`. This
-generic `lexeme (pure ())`-before-keyword skip is load-bearing, not an oversight — it's
-what allows comments to legally appear between/before declarations at all without being
-mistaken for consumed annotations; removing it isn't an option.
-
-Fixing this properly means giving `first`/`orElse` real "commit" semantics (a failure
-after any input has been consumed propagates immediately rather than retrying sibling
-alternatives) — a change to the core parsing combinators, not a narrow fix, risks
-breaking other grammar productions relying on retry-after-partial-consumption. Not
-attempted now — the annotation-placement check proceeds with only the
-structural-role-mismatch half (a real annotation captured at a real site but attached to
-the wrong role there — e.g. `@parameter` on a quantifier binder — runs on the
-already-successfully-parsed AST, has none of this problem, §5.1). The "nothing consumes
-this at all" half stays out of scope until `first`/`orElse`'s backtracking semantics are
-revisited.
+Fixing properly means giving `first`/`orElse` real commit semantics (failure after consuming
+input propagates instead of retrying siblings) — a core-combinator change risking other
+productions that rely on retry-after-partial-consumption. Placement checking proceeds with only
+the structural-role-mismatch half, which runs on the already-parsed AST and has none of this
+problem.
 
 ### 9.10 `LAMBDA` — designed, not implemented
+Thesis has typing rules (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression` nor
+`CoreTLAPlus.Expression` has a constructor, and there's no `LAMBDA` lexer token. Out of scope;
+implementing touches `Parser_/TLAPlus.lean`, both `Syntax.lean`s, `Desugarer/TLAPlus.lean`, not
+just the checker.
 
-Thesis has typing rules for `LAMBDA` (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression`
-nor `CoreTLAPlus.Expression` has a constructor for it, no `LAMBDA` lexer token. Stays out
-of scope for now — `Elaborator/Expressions.lean` ships with no `LAMBDA` case (no AST node
-to match on anyway); revisit as its own separately-scoped addition if a program needs it
-— implementing means touching `Parser_/TLAPlus.lean`, `Core/SurfaceTLAPlus/Syntax.lean`,
-`Core/CoreTLAPlus/Syntax.lean`, `Desugarer/TLAPlus.lean`, not just the checker.
+Design, preserved:
+- **Checking-only without an annotation** (thesis Fig. 3.1.4) — `Γ, x1:τ1, ..., xn:τn ⊢ e ⇓ τ ⟹
+  Γ ⊢ LAMBDA x1,...,xn : e ⇓ (τ1,...,τn)⇒τ`, requiring the expected type already known.
+- **Synthesis form once every binder carries `@type`** — mirroring unbounded quantification:
+  `(LAMBDA (* @type: Int; *) x : x + 2)(3)` should synthesize. (The thesis's `LET`-`IN` rewrite
+  workaround doesn't apply here — this AST has no `LET`-`IN` node either.)
+- **AST work needed:** a `.lambda (binders : List (String × α)) (body : Expression α)`
+  constructor on both expression types, a per-binder annotation slot so `tryParseAnnotations` can
+  attach `@type` per binder (matching `parseQuantifierBound`), a lexer token, a parser rule, a
+  pass-through desugarer case, both checking and conditional synthesis rules.
 
-Design, preserved for whenever picked up:
-- **Checking-only without an annotation** (matches the thesis, Fig. 3.1.4) — `Γ, x1:τ1,
-  ..., xn:τn ⊢ e ⇓ τ ⟹ Γ ⊢ LAMBDA x1,...,xn : e ⇓ (τ1,...,τn)⇒τ`, requiring the whole
-  `LAMBDA`'s expected type already known.
-- **Gains a synthesis form once every binder carries a `@type` annotation** — mirroring
-  unbounded quantification's own trick: `(LAMBDA (* @type: Int; *) x : x + 2)(3)` should
-  synthesize, even though the thesis's own unannotated example (p. 10) still can't
-  (rewritable via `LET`-`IN` instead — except this project's AST has no `LET`-`IN` node
-  either, so that specific workaround doesn't apply here regardless).
-- **New AST work needed:** a `.lambda (binders : List (String × α)) (body : Expression α)`
-  constructor on both `SurfaceTLAPlus.Expression`/`CoreTLAPlus.Expression`, a per-binder
-  annotation slot so `tryParseAnnotations` can attach `@type` per binder (matching
-  `parseQuantifierBound`'s existing pattern), a new lexer token, a new parser rule, a
-  pass-through desugarer case, both the checking and (conditional) synthesis rules in
-  `Elaborator/Expressions.lean`.
+`Operator`-vs-`Operator` structural subtyping (`Elaborator/Subtyping.lean`, Fig. 3.1.8) only ever
+produces an identity coercion precisely because there's no `LAMBDA`-equivalent way to eta-expand
+into a new first-class operator value.
 
-`Operator`-vs-`Operator` structural subtyping (`Elaborator/Subtyping.lean`, Fig. 3.1.8)
-already only ever produces an identity coercion, precisely because there's no
-`LAMBDA`-equivalent way to eta-expand into a new first-class operator value — a concrete
-limitation already surfaced once, not just hypothetical.
+### 9.11 Most temporal/action operators aren't parsed; `WF_`/`SF_` need a lexer change
+`UNCHANGED`/`ENABLED`/prime/`~>`/`-+>`/`[]`/`<>` have real surface syntax and desugar to plain
+`opCall`s onto builtin `var`s, so the generic `OPERATOR CALL` rule already covers them. **Most
+other temporal/action operators are not parsed.** `WF_e(A)`/`SF_e(A)` (thesis Fig. 3.1.5) are a
+genuine lexing problem, not just a missing parser rule: `WF_e` must lex as **two** tokens (fixed
+`WF_` keyword, then identifier `e`), but maximal-munch identifier lexing swallows `WF_e` whole.
 
-### 9.11 Most temporal/action operators aren't parsed yet — `WF_`/`SF_` specifically need a lexer change
+Idea, not implemented: in the keyword checker, given an identifier-shaped token starting with
+`WF_`/`SF_`, if the remainder doesn't start with `_` or a digit, split into the keyword token plus
+a separate identifier token.
 
-`UNCHANGED`/`ENABLED`/prime (`'`)/`~>`/`-+>`/`[]`/`<>` already have real surface syntax
-(`Core/SurfaceTLAPlus/Syntax.lean`'s `Prefix`/`Infix`/`PostfixOperator` enums) and desugar
-to plain `opCall`s onto builtin `var`s (`Desugarer/TLAPlus.lean`), so `Elaborator/
-Expressions.lean`'s generic `OPERATOR CALL` rule already covers them with no dedicated
-case. **But most temporal/action operators are not actually parsed yet.** Weak/strong
-fairness (`WF_e(A)`/`SF_e(A)`, thesis Fig. 3.1.5) are the concrete example, a genuinely
-non-trivial lexing problem, not just an unwritten parser rule: `WF_e` needs to lex as
-**two** tokens (a fixed `WF_` keyword, then the identifier `e`), but ordinary
-maximal-munch identifier lexing would otherwise swallow `WF_e` whole as one identifier
-token.
+`^+`/`^*`/`^#` (postfix action-closure) have **no documented typing rule anywhere** — not in the
+thesis, not standard TLA⁺ as far as traced. Left unbound in `builtinContext`; referencing one
+fails at `unboundVariable`. Their canonical names are in `WellFormedness/Restrictions.lean`'s
+check-3 list for forward-compatibility, currently inert.
 
-Idea recorded, not implemented: modify the lexer's keyword checker so that, given an
-identifier-shaped token starting with `WF_` or `SF_`, if leftover characters after that
-prefix don't themselves start with `_` or a digit (still looks like a valid identifier
-start), split into the `WF_`/`SF_` keyword token followed by a separate identifier token
-for the remainder, rather than one combined identifier token.
+### 9.12 Three regression fixtures parked as `skip_*`
+`tests/regression/run.sh` skips any `skip_*` file (reported yellow, excluded from the tally):
+- `skip_function_definition_multi_arg_tuple_domain.tla` — parser rejects `f[x \in S, y \in T] ==
+  ...` (`unexpected identifier f`).
+- `skip_unbounded_choose_with_expected_type.tla` — parser rejects bare `CHOOSE m : m = m` as a
+  `with`/variable initializer (`unexpected keyword 'CHOOSE'`) — §9.2's `CHOOSE` gap.
+- `skip_function_literal_cartesian_product_binder.tla` — `\X` either isn't desugared to its
+  canonical operator name, or that name is missing from `builtinContext`/`Naturals` (`Unbound
+  variable` `\X`).
 
-`^+`/`^*`/`^#` (postfix action-closure operators, `Core/SurfaceTLAPlus/Syntax.lean`'s
-`PostfixOperator`) additionally have **no documented typing rule anywhere** — not in the
-thesis, not standard TLA⁺ as far as traced. Left unbound in `builtinContext` for now —
-referencing one fails at `unboundVariable`, no regression. Their canonical names are
-still included in `WellFormedness/Restrictions.lean`'s check-3 name list for
-forward-compatibility, currently inert.
+First two look like `Parser_/TLAPlus.lean` gaps, third like `Desugarer/TLAPlus.lean`/
+`Driver/Builtins.lean` — neither traced. Fix at the root, rename back to `accept_*`, re-run the
+suite. Don't patch the fixture unless it encodes an unsupported construct (check §8 first).
 
-Future work, not started — revisit whenever a program actually needs `WF_`/`SF_`,
-`^+`/`^*`/`^#`, or the other still-unparsed temporal/action operators checked.
+### 9.13 Three well-formedness checks are currently unreachable
+The rule is right in each case; the parser/type-checker just can't produce the triggering input:
+- **Check 2(b)'s `nonEmptyLocalChannels`**: `Parser_/PlusCal.lean`'s `parseProcess` hardcodes
+  `channels := []`/`fifos := []` — never parses process-level `channels`/`fifos` at all. No
+  fixture can exercise the reject side; defense-in-depth only.
+- **Check 3's `unboundedQuantifier`**: unbounded `\A x : P`/`\E x : P` parses, but its binder's
+  type can never reach an annotation (`parseQuantifier`'s unbounded branch is bare
+  `parseIdentifier`, no `tryParseAnnotations`) — always fails at
+  `TCError.expectedTypeAnnotation` first. Exception: unbounded `CHOOSE x : P` in checking
+  position does succeed (`Elaborator/Expressions.lean:146`'s `[Unbounded choice]` uses the
+  expected type) — but `CHOOSE` has no parser rule (§9.2/§9.12). No reachable trigger on either
+  form.
+- **Check 1's `channelInExpression` via `receive`'s destination `r`** (not the check as a whole
+  — `assert ch = ch;` exercises it directly). The only route to a Channel-shaped `r` past type
+  checking was a channel-of-channels source (`Channel(Channel(τ))`, needed for `Channel`'s
+  reflexivity-only subtyping to accept the `receive`), which `sendable` (§5.3) now rejects at
+  declaration time.
 
-### 9.12 Three regression fixtures parked as `skip_*`, pending parser/desugarer fixes
-`tests/regression/run.sh`'s own `skip_*` convention (a file with that prefix is skipped
-and reported yellow, never run, excluded from the pass/fail tally) has three fixtures
-parked pending fixes unrelated to any currently-landed work:
-- `skip_function_definition_multi_arg_tuple_domain.tla` — parser rejects
-  `f[x \in S, y \in T] == ...`'s multi-arg function-literal domain syntax
-  (`unexpected identifier f`).
-- `skip_unbounded_choose_with_expected_type.tla` — parser rejects a bare
-  `CHOOSE m : m = m` used as a `with`/variable initializer (`unexpected keyword
-  'CHOOSE'`) — same root cause as §9.2's `CHOOSE`-parsing gap.
-- `skip_function_literal_cartesian_product_binder.tla` — `\X` (Cartesian product) is
-  either not desugared to its canonical operator name, or that name is missing from
-  `builtinContext`/`Naturals`'s declarations (`Unbound variable` `\X`).
-
-First two look like `Parser_/TLAPlus.lean` gaps, third looks like a
-`Desugarer/TLAPlus.lean`/`Driver/Builtins.lean` gap — neither confirmed by tracing the
-code. Fix each at the root (parser/desugarer/builtins), rename back to `accept_*`, re-run
-the full suite once done — don't just patch the fixture unless it turns out to encode an
-unsupported/wrong construct (check against §8's language subset first).
-
-### 9.13 Three well-formedness checks (well, two and a half) are currently unreachable
-The *rule* is right in each case, only the parser/type-checker can't produce the input
-that would exercise it yet:
-- **Check 2(b)'s `nonEmptyLocalChannels`** (a process's own `localState.channels`/
-  `.fifos` must be empty): `Parser_/PlusCal.lean`'s `parseProcess` hardcodes
-  `channels := []`/`fifos := []` when building a process's `localState` — never even
-  attempts to parse `channels`/`fifos` syntax at process level, only `variables`. No
-  fixture can exercise the reject side; stays defense-in-depth only.
-- **Check 3's `unboundedQuantifier`**: an unbounded `\A x : P`/`\E x : P` is parseable
-  but its bound variable's type can never reach an annotation under the current grammar
-  (`parseQuantifier`'s unbounded branch is bare `parseIdentifier`, no
-  `tryParseAnnotations` call) — always fails at `TCError.expectedTypeAnnotation` before
-  well-formedness ever runs, *except* unbounded `CHOOSE x : P` in a checking position
-  (`Elaborator/Expressions.lean:146`'s `[Unbounded choice]` rule does succeed there,
-  ignoring any annotation and using the expected type instead) — but `CHOOSE` has no
-  parser rule constructing it at all (only ever a lexer token, §9.2/§9.12's already-filed
-  gap, same root cause). So `unboundedQuantifier` has no reachable trigger today, on
-  either quantifier form.
-- **Check 1's `channelInExpression`, specifically via `receive`'s destination `r`** (not
-  the check as a whole — a direct `assert ch = ch;` still exercises it directly). The
-  only way to get `r` itself typed as Channel-shaped past type-checking at all was a
-  channel-of-channels source (`Channel(Channel(τ))`, needed for `Channel`'s
-  reflexivity-only subtyping to accept the `receive`), which `sendable` (§5.3) now
-  rejects outright, at declaration time, before a `receive` statement referencing it is
-  ever reached.
-
-Not a bug in any of these three checks' own logic — all exercised and confirmed correct
-via direct calls, just not through a real `.tla` fixture end-to-end. Revisit once: (a) the
-parser gains process-level `channels`/`fifos` parsing (probably never worth doing, given
-check 2(b) is explicitly defense-in-depth and the restriction is already unconditional),
-(b) §9.12's `CHOOSE`-parsing gap is fixed (would also make unbounded `CHOOSE` reachable)
-or unbounded `\A`/`\E` gains annotation support (a bigger grammar change), or (c) some
-other route to a channel-shaped `receive` destination `r` is found that doesn't require an
-unsendable channel-of-channels declaration (none currently known — `Channel`'s
-reflexivity-only subtyping and the lack of any other channel-shaped-type constructor make
-this look structurally unlikely, not proven impossible).
+All three confirmed correct via direct calls, just not end-to-end through a `.tla` fixture.
+Revisit once: (a) the parser gains process-level `channels`/`fifos` (probably never worth it,
+given 2(b) is explicitly defense-in-depth), (b) §9.12's `CHOOSE` gap is fixed, or unbounded
+`\A`/`\E` gains annotation support, or (c) another route to a channel-shaped `receive`
+destination appears (none known; `Channel`'s reflexivity-only subtyping and the lack of another
+channel-shaped type constructor make it look structurally unlikely, not proven impossible).
 
 ### 9.14 Should intrinsic operators get dedicated AST constructors instead of `opCall`?
-Every builtin operator, intrinsic or stdlib, is represented uniformly as `.opCall (.var
-name _ origin) args` — no dedicated `Expression` constructor per operator. Keeps the type
-checker's op-call rule uniform (one generic rule plus a `Γ`/`builtinContext` lookup, not
-one typing rule per builtin), but pushes every downstream pass needing to special-case a
-builtin into re-deriving its own string/`Origin` match against the same representation —
-`WellFormedness/Restrictions.lean`'s `reservedTemporalActionNames` today,
-`Typed2Computable`'s own computability classification, and (per `Driver/Builtins.lean`'s
-own module doc) both backends unconditionally, since stdlib operators "get replaced by
-backend-native implementations at code-generation time regardless of what their
-'definition' says." The shared recognizer table (`Core/TypedTLAPlus/Builtins.lean`, §2)
-is the near-term fix, decided and in place — open question is whether that's enough
-long-term, or worth going further.
+Every builtin, intrinsic or stdlib, is `.opCall (.var name _ origin) args`. Keeps the checker's
+op-call rule uniform (one generic rule plus a `Γ`/`builtinContext` lookup), but pushes every
+downstream pass needing to special-case a builtin into re-deriving its own string/`Origin` match
+— `WellFormedness/Restrictions.lean`'s `reservedTemporalActionNames`, `Typed2Computable`'s
+computability classification, and both backends unconditionally (stdlib operators "get replaced
+by backend-native implementations at code-generation time regardless of what their 'definition'
+says"). The shared recognizer table (`Core/TypedTLAPlus/Builtins.lean`, §2) is the near-term
+fix, in place — open is whether that's enough long-term.
 
-Scope of the question: intrinsics only — `builtinContext`'s own ~14 genuinely
-`EXTENDS`-independent entries (`=`, `/=`, `/\`, `\/`, `=>`, `<=>`, `\neg`, `\in`,
-`\notin`, `\subseteq`, `\cup`, `\cap`, `\`, `DOMAIN`, plus the temporal ones tracked
-separately in §9.11) — **not** operators declared via vendored stdlib modules
-(`Naturals`/`Sequences`/`Bags`/`FiniteSets`/etc., §5.3's `builtinModules` table). The two
-groups differ in exactly the way that matters: intrinsics are a small, closed, permanent
-set baked into every module regardless of `EXTENDS`, while stdlib operators are
-open-ended declarations in an ordinary (if hardcoded) `Module` — giving *those* dedicated
-constructors would mean a constructor per `Len`/`Head`/`+`/…, undermining the point of
-representing them as ordinary declarations (§5.3) rather than special-cased primitives.
+Scope: intrinsics only — `builtinContext`'s ~14 `EXTENDS`-independent entries (`=`, `/=`, `/\`,
+`\/`, `=>`, `<=>`, `\neg`, `\in`, `\notin`, `\subseteq`, `\cup`, `\cap`, `\`, `DOMAIN`, plus the
+temporal ones in §9.11) — **not** vendored stdlib operators (`Naturals`/`Sequences`/`Bags`/
+`FiniteSets`, §5.3's `builtinModules`). Intrinsics are a small closed permanent set baked into
+every module; stdlib operators are open-ended declarations in an ordinary (if hardcoded)
+`Module`, and giving those constructors would mean one per `Len`/`Head`/`+`/…, undermining the
+point of representing them as ordinary declarations.
 
-### 9.15 `Typed2Computable`'s finite-sets assumption doesn't cover an infinite set used as a quantifier/set-builder domain
-`Nat`/`Int` (real, reachable builtin infinite sets — `STRING`, TLA+'s other classic
-infinite base set, isn't parseable by this compiler at all yet, moot for now) can
-currently be used as a bare `forall`/`exists`/`choose` domain, or a set-builder
-(`collect`/`map'`) domain, with nothing rejecting it — confirmed empirically: `\A x \in
-Nat : x >= 0` inside a PlusCal statement translates cleanly through `Typed2Computable`
-today. Real gap given §5.7's own compilation scheme (§7.2.1.2): `\A x \in S : P`/`\E x
-\in S : P` compile to "a search over `S`", `{x \in S : P}`/`{e : x \in S}` copy `S`'s
-underlying slice, `CHOOSE x \in S : P` filters then takes a minimum over `S` — all three
-genuinely enumerate `S` at runtime, so an infinite `S` there doesn't just look
-inelegant, it doesn't terminate.
+### 9.15 Infinite set used as a quantifier/set-builder domain
+`Nat`/`Int` (reachable builtin infinite sets; `STRING` isn't parseable yet, moot) can be used as
+a bare `forall`/`exists`/`choose` or set-builder (`collect`/`map'`) domain with nothing rejecting
+it — `\A x \in Nat : x >= 0` translates cleanly through `Typed2Computable` today. Real gap given
+§5.7's scheme (§7.2.1.2): `\A x \in S : P`/`\E x \in S : P` compile to a search over `S`, `{x \in
+S : P}`/`{e : x \in S}` copy `S`'s slice, `CHOOSE x \in S : P` filters then takes a minimum — all
+three enumerate `S` at runtime, so an infinite `S` doesn't terminate.
 
-**Settled, not part of this gap:** a function literal's domain (`fn`, `[x \in S |-> e]`)
-being infinite is not a problem and needs no restriction — per §5.7, functions compile to
-lazy maps (avoiding eagerly computing the whole graph at declaration time), so `[x \in Nat
-|-> x * x]` is fine and should stay unrestricted; disallowing it would be an unnecessary
-regression relative to real TLA+ expressiveness. `Typed2Computable`'s current behavior (no
-restriction on `fn`'s domain) is already correct here.
+**Settled, not part of this gap:** a function literal's domain (`[x \in S |-> e]`) may be
+infinite. Functions compile to lazy maps (§5.7), so `[x \in Nat |-> x * x]` is fine and stays
+unrestricted; `Typed2Computable`'s current no-restriction behavior is correct.
 
-**Genuinely open:** whether/how to reject an infinite domain specifically at `forall`/
-`exists`/`choose`/`collect`/`map'` (and PlusCal's own `with x \in dom`, same enumeration
-concern), and where such a check should live (`Typed2Computable`, matching
-`fnSet`/`recordSet`'s existing precedent, vs. deferred to `Network2Go`/§5.7 itself, where
-the lazy-map/eager-slice distinction is actually implemented). Two options surfaced,
-neither committed to:
-- **Narrow, syntactic check**: reject a *direct* bare reference to a known-infinite
-  builtin set (`Nat`/`Int`, recognized the same way `Typed2Computable`'s own
-  builtin-drop logic already recognizes them) at exactly these positions — catches the
-  obvious case, not a derived-but-still-infinite one (`Nat \ {0}`, `Nat \cup {1}`, an
-  operator that returns `Nat` under another name, …).
-- **Track possible-infiniteness with an invariant**: most infinite sets actually
-  encountered (`Nat`, `STRING`, `[Nat -> Nat]`) denote "the universe of all values of some
-  type" — a property that might be summarizable/tracked rather than requiring general
-  finiteness inference. Explicitly floated as possibly not worth it, not designed further.
+**Open:** whether/how to reject an infinite domain at `forall`/`exists`/`choose`/`collect`/`map'`
+(and PlusCal's `with x \in dom`), and where the check lives (`Typed2Computable`, matching
+`fnSet`/`recordSet`'s precedent, vs. deferred to `Network2Go`/§5.7 where the lazy-map/eager-slice
+distinction is implemented). Two options, neither committed:
+- **Narrow syntactic check**: reject a *direct* bare reference to a known-infinite builtin set
+  (`Nat`/`Int`) at exactly these positions — misses derived cases (`Nat \ {0}`, `Nat \cup {1}`,
+  an operator returning `Nat`).
+- **Track possible-infiniteness with an invariant**: most infinite sets encountered (`Nat`,
+  `STRING`, `[Nat -> Nat]`) denote "the universe of all values of some type", possibly
+  summarizable rather than needing general finiteness inference. Possibly not worth it.
 
-Revisit before `Network2Go`/§5.7 needs a real answer for how `forall`/`exists`/`choose`/
-set-builder actually compile — that's the point this stops being deferrable. Revisit once
-the shared recognizer table's shape (§9.14) is settled either way too, since that
-determines how cheap a fix here becomes.
+Revisit before §5.7 needs a real answer for how these compile, and once §9.14's recognizer-table
+shape settles (it determines how cheap a fix is).
 
-### 9.16 `EXTENDS` resolution reports a false "ambiguous module" when `-I` names the
-importing module's own directory
+### 9.16 `EXTENDS` reports false "ambiguous module" when `-I` names the importing module's own directory
+`Driver/Modules.lean`'s `locate` (§5.3) builds candidates by walking `containingDir.toList ++
+(-I)'s searchPath`, appending one entry per directory with a matching `<name>.tla` — no dedup by
+resolved path. `-I dir` where `dir` is the importing module's own directory produces two entries
+for the literal same file, reported as `ambiguousModule` with the identical path listed twice.
+Confirmed: `fugue -I foo foo/Main.tla` (`Main.tla EXTENDS Dep`, `Dep.tla` also in `foo`) fails;
+dropping `-I` or pointing it elsewhere works.
 
-`Driver/Modules.lean`'s `locate` (§5.3) builds its candidate list by walking
-`containingDir.toList ++ (-I)'s searchPath`, appending a `(String × Candidate)` entry per
-directory that has a matching `<name>.tla` — no dedup by resolved path. `-I dir` where
-`dir` is (or resolves to) the same directory the importing module already lives in
-produces two list entries pointing at the literal same file, and `locate` reports that as
-`ambiguousModule`, listing the identical path twice. Confirmed by hand: `fugue -I foo
-foo/Main.tla` (`Main.tla EXTENDS Dep`, `Dep.tla` also in `foo`) fails this way; dropping
-`-I` or pointing it at a different directory than `foo` both work.
-
-**Open:** how to dedup — compare `System.FilePath` values directly (fails if
-`containingDir` and a `-I` entry spell the same directory differently, e.g. one relative
-one absolute), or resolve each candidate to a canonical/real path first (needs an
-`IO`-level realpath call, not yet used anywhere in this codebase) and dedup on that.
-Whichever, `locate`'s final `match found with | [] | [_] | multiple` needs the dedup
-applied before that match, not after — a false ambiguity is user-visible as a hard compile
-error, not a warning.
+**Open:** how to dedup — compare `System.FilePath` values directly (fails when `containingDir`
+and a `-I` entry spell the same directory differently, relative vs. absolute), or canonicalize
+each candidate first (needs an `IO`-level realpath, not used anywhere in this codebase yet).
+Either way the dedup must land before `locate`'s final `match found with | [] | [_] | multiple`
+— a false ambiguity is a hard compile error, not a warning.
 
 ### 9.17 No proof `subtype` and `Coercion.apply`/`.applyComputable` agree on type
+`Coercion` is real closed data, not an opaque closure, which makes a real theorem statable; none
+written. Checked only empirically — `tests/regression/` fixtures plus one hand-verified dump.
 
-Since Phase 10 item 0 (`Core/TypedTLAPlus/Coercion.lean`, `Elaborator/Subtyping.lean`),
-`Coercion` real closed data, not opaque closure — makes stating a real theorem about it
-possible, none written yet. Checked so far only empirically, `tests/regression/` fixtures
-plus one hand-verified dump (`.claude/FINDINGS.md`, Phase 10 item 0 entry).
-
-**Open:** what to actually prove, roughly `subtype τ τ' = .success c → ∀ e, Γ ⊢ e : τ →
-Γ ⊢ c.apply e : τ'` (soundness of discharge against `subtype`'s own judgment) — likely two
-separate statements, one per `apply`/`.applyComputable`, since they discharge against
-different `Expression` types. Also open whether this belongs to this phase's own
-well-scopedness-preservation exception (§ item 5 of `.claude/tasklist.md`, "one standing
-exception" per `INSTRUCTIONS.md`'s verification-scope rule) or is a separate ask needing
-its own check-in — `INSTRUCTIONS.md` only names well-scopedness preservation as in-scope,
-not this. Don't start without check-in first.
+**Open:** what to prove, roughly `subtype τ τ' = .success c → ∀ e, Γ ⊢ e : τ → Γ ⊢ c.apply e :
+τ'` — likely two statements, one per `apply`/`.applyComputable`, since they discharge against
+different `Expression` types. Also open whether this falls under the well-scopedness-preservation
+exception in `INSTRUCTIONS.md`'s verification-scope rule or is a separate ask;
+`INSTRUCTIONS.md` names only well-scopedness preservation as in scope. Don't start without
+check-in.
 
 ### 9.18 `lub` isn't a real join, so `IF`/`CASE`/set-literal *synthesis* over incomparable branches fails
-
 `Elaborator/Subtyping.lean`'s `lub` returns the wider of its two arguments, or `none` when
-neither is a subtype of the other. It can therefore only ever return a type that was
-already handed to it — it cannot name a common upper bound that isn't one of the two
-inputs. `lubAll` (`Elaborator/Expressions.lean`) folds it left across the branches, so
-`IF`/`CASE`/`{e₁,…,eₙ}` in *synthesis* position succeed only when the join happens to *be*
-one of the branch types, and otherwise report `TCError.ambiguousType`.
+neither is a subtype of the other — it can only ever return a type already handed to it, never
+name a common upper bound that isn't one of the two inputs. `lubAll`
+(`Elaborator/Expressions.lean`) folds it left across branches, so `IF`/`CASE`/`{e₁,…,eₙ}` in
+*synthesis* position succeed only when the join happens to *be* one of the branch types;
+otherwise `TCError.ambiguousType`.
 
-Concretely: `IF c THEN "ab" ELSE <<1, 2>>` has two incomparable branch types (`Str`,
-`⟨Int,Int⟩`) whose common upper bounds are `Seq(Int)` and `Int → Int` — neither of which
-`lub` can produce, so the fold fails on the very first pair. It is also order-sensitive for
-the same reason: the same three branches with an `Int → Int` one placed *first* succeed,
-because then every subsequent `lub` has the join already sitting in its accumulator. Note
-`lub` itself is symmetric (it tries both directions); the order-sensitivity is the fold's,
-not `lub`'s.
+Concretely: `IF c THEN "ab" ELSE <<1, 2>>` has branch types `Str` and `⟨Int,Int⟩`, whose common
+upper bounds are `Seq(Int)` and `Int → Int` — neither producible by `lub`, so the fold fails on
+the first pair. Order-sensitive for the same reason: the same branches with an `Int → Int` one
+placed first succeed, since the join is then already in the accumulator. `lub` itself is
+symmetric; the order-sensitivity is the fold's.
 
-Distinguish this from `lub`'s *partiality*, which is correct and stays: `lub Int Str` is
-genuinely `none` — `Int` has no axiom out of it, so the two share no upper bound at all,
-and `ambiguousType` is the right answer. The gap is only about pairs that do have a least
-upper bound and get rejected anyway.
+Distinct from `lub`'s *partiality*, which is correct and stays: `lub Int Str` is genuinely
+`none` — `Int` has no axiom out of it, so no shared upper bound exists, and `ambiguousType` is
+right. The gap is only pairs that do have a least upper bound and get rejected anyway.
 
-**Not a blocker, by design.** §5.3 already commits to the matching trade on the
-metavariable side ("error and require an explicit annotation instead of implementing
-`lub`"), and thesis §3.1.3.6's *checking* rules for `IF`/`CASE` — both implemented in
-`Elaborator/Expressions.lean` — are what make that escape hatch reachable here: given an
-expected type, each branch is checked against it directly and picks up its own coercion,
-no join needed. The example above type-checks fine the moment it appears under an
-annotation (`tests/regression/accept_if_checked_heterogeneous_branches.tla`,
-`accept_case_checked_heterogeneous_branches.tla`). So the limitation only bites in a
-genuinely annotation-free synthesis position.
+**Not a blocker, by design.** §5.3 already commits to the matching trade on the metavariable side
+("error and require an explicit annotation instead of implementing `lub`"), and thesis §3.1.3.6's
+*checking* rules for `IF`/`CASE`, both implemented, make that escape hatch reachable: given an
+expected type, each branch is checked against it directly and picks up its own coercion. The
+example type-checks under an annotation
+(`tests/regression/accept_if_checked_heterogeneous_branches.tla`,
+`accept_case_checked_heterogeneous_branches.tla`). The limitation bites only in annotation-free
+synthesis position.
 
-**Open, and quite possibly permanently:** whether to make `lub` a real join at all.
-Doing it means a structural recursion mirroring `subtype`'s own case split but producing a
-type rather than a `Coercion` (`join (Set a) (Set b) = Set (join a b)`, records/tuples
-pointwise on matching shapes, an axiom-widening fallback), plus a mutually-recursive `glb`
-for `function`'s contravariant domain — roughly duplicating `subtype`'s ~90-line shape for
-a case no fixture currently needs. There is also an unchecked prerequisite: folding a
-partial join pairwise is only order-independent if the subtype order is **bounded-complete**
-(any two types with some common upper bound have a least one). That has not been verified;
-`function`'s contravariant domain is where a counterexample would most likely hide. If it
-holds, fixing `lub` alone suffices and `lubAll` stays a plain fold; if it doesn't, the join
-has to become genuinely n-ary and `lubAll` goes away. Don't start either without checking
-bounded-completeness first, and don't start at all unless a real program hits this — the
-annotation workaround is cheap.
+**Open, quite possibly permanently:** whether to make `lub` a real join. Doing so means a
+structural recursion mirroring `subtype`'s case split but producing a type rather than a
+`Coercion` (`join (Set a) (Set b) = Set (join a b)`, records/tuples pointwise on matching shapes,
+an axiom-widening fallback), plus a mutually-recursive `glb` for `function`'s contravariant
+domain — roughly duplicating `subtype`'s ~90 lines for a case no fixture needs. Unchecked
+prerequisite: folding a partial join pairwise is order-independent only if the subtype order is
+**bounded-complete** (any two types with a common upper bound have a least one). Not verified;
+`function`'s contravariant domain is where a counterexample would most likely hide. If it holds,
+fixing `lub` suffices and `lubAll` stays a plain fold; if not, the join must become genuinely
+n-ary and `lubAll` goes away. Don't start either without checking bounded-completeness first, and
+don't start at all unless a real program hits this.
 
 Cheap adjacent improvement, unclaimed: `TCError.ambiguousType`'s message
-(`Elaborator/Errors.lean`) is currently just "Ambiguous type: the branches/elements here
-don't share a common type", which states the symptom without naming the fix. Pointing it at
-"annotate the expected type" would make the workaround discoverable at the point it's
-needed. Safe to do in isolation: both of `ambiguousType`'s throw sites are inside `lubAll`
-itself, so the message has no other caller whose wording it has to stay neutral for.
+(`Elaborator/Errors.lean`) states the symptom without naming the fix. Pointing it at "annotate
+the expected type" would make the workaround discoverable. Both throw sites are inside `lubAll`,
+so no other caller's wording constrains it.

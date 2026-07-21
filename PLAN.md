@@ -1,24 +1,17 @@
 # Fugue — a compiler from Distributed PlusCal to the Join Calculus and Go
 
-**Status:** implementation under way — phases 1–9 done, phase 10 (`Guarded2Network`) in
-progress (pass ported, refinement proof pending). See §7 for phase-by-phase detail.
-**Audience:** Claude Code (or any implementer) picking this project up.
-**Companion files:** `CLAUDE.md`, day-to-day working conventions; `OPEN_QUESTIONS.md`,
-open questions/known issues (formerly this doc's own §9 — kept same `9.x` numbering,
-referenced below as `§9.x`).
+**Status:** phases 1–9 done, phase 10 (`Guarded2Network`) in progress — pass ported,
+refinement proof pending. See §7.
+**Companion files:** `INSTRUCTIONS.md` (working conventions), `OPEN_QUESTIONS.md`
+(open questions, referenced below as `§9.x`).
 
-Three sources of prior art feed this plan: public mirror `github.com/mesabloo/fugue`
-(branches `main`, `develop`, `go-semantics`, `lock-inference`, `docs`), private checkout
+Three sources of prior art: public mirror `github.com/mesabloo/fugue` (branches `main`,
+`develop`, `go-semantics`, `lock-inference`, `docs`), private checkout
 `~/Documents/distpcal-compiler` (origin `github.com/mesabloo/distpcal-compiler`, branches
 `main`, `develop`, `compiler`, `go-semantics`, `lock-inference`, plus uncommitted local
-`typechecker` branch), and thesis `Generating Distributed Programs from Formal
-Specifications` (`reference/thesis.pdf`). None of that code gets reused wholesale — see
-§2's carry-over row — but its design drives most of this plan, and its gaps define most
-open work. See §3 for how to read each source.
-
-Where this plan is silent or two answers both look reasonable, that's on purpose: the
-question sits in `OPEN_QUESTIONS.md` (§9) instead of getting decided unilaterally.
-Implementer hitting an unlisted ambiguity: add it there, ask, don't guess.
+`typechecker`), and thesis `Generating Distributed Programs from Formal Specifications`
+(`reference/thesis.pdf`). None reused wholesale (§2's carry-over row), but its design drives
+most of this plan and its gaps define most open work. §3 says how to read each source.
 
 ---
 
@@ -78,11 +71,11 @@ verification not expected within this plan — north star, not milestone.
 | `Ξ`'s cache: disk persistence and invalidation | **In-memory only for now, no disk persistence.** A disk-backed cache under `~/.local/config/.fugue` raises an invalidation question with no good answer yet: a compiler-side change (bug fix, stdlib-stub update, toolchain bump) can silently invalidate a cached module's typed form without touching that module's own source. Checker itself still under active development, exactly the kind of change that would trip this — in-memory `MonadModuleCache` sidesteps it: nothing persists across runs, nothing goes stale. Disk persistence, once picked up, needs either a cache-key compiler/schema-version component (bumped whenever anything affecting typing output changes) or a lighter global "cache format version" stamp wiping the whole directory on mismatch — undecided, revisit once checker stabilizes. |
 | Pipeline order: well-formedness checking (§5.2a) vs. type checking (§5.3) | **Type checking runs first.** Type checking already forces variable well-scopedness as a side effect of succeeding (out-of-scope/undeclared reference is a `Γ`/`Σ`/`Δ`-lookup failure, i.e. a type error on its own) — a separate well-scopedness pre-pass before type checking would re-derive a fact type checking catches anyway. Well-formedness's other two checks (well-labelledness, no-bare-temporal-operators) have no dependency on typing either way, nothing lost deferring them. Well-scopedness's "every reference resolves" half becomes redundant defense-in-depth this way; its "no shadowing/no duplicate names in scope" half is not implied by ordinary bidirectional type checking (a shadowed name still type-checks against something) and stays this pass's real, load-bearing job. See §5.2a, §7. |
 | Polymorphism-instantiation / metavariable resolution mechanics | **Direction-aware solving, not naive eager unification** — subtyping axioms here are asymmetric coercions, not equivalence. Lower-bound constraints (`T <: ?n`) solve eagerly (coercions only run narrow→wide); upper-bound constraints (`?n <: T`) only get recorded as pending, never solved from directly (would foreclose a narrower solution arriving later). Metavariable-vs-metavariable constraints (`?m <: ?n`, both unresolved) must **not** be resolved by merging the two into one — unsound, conflates two independently-constrained unknowns; record the link on the lower side, propagate once one side resolves from a real ground bound. A metavariable with no bounds at end of checking — including one whose only bound is another metavariable that never resolved — is a hard type error, not a silent default. Full algorithm with counterexamples in §5.3. |
-| Coercion realization: where do coercions live, how does a *pending* one resolve? | **`Coercion` is closed structural data, not an opaque `Expr → Expr` closure** — a small recursive inductive (`id`, `strToSeq`, `seqToFun`, `tupleToSeq`, `set`, `tuple`, `record`, `function`, `comp` for axiom-chain composition), each constructor carrying exactly the type indices, field names, and nested sub-`Coercion`s its structural rule needs, plus any fresh binder name (`x`/`y`/`i`) `Elaborator/Subtyping.lean` generated via `MonadFresh` at construction time — baked in once, since a name fresh at construction remains fresh at discharge (§2's `$`-based freshness argument). Necessary because `[Receive]`'s coercion (below) must survive past `Typed2Computable`'s type change (`TypedTLAPlus.Expression` → `ComputableTLAPlus.Expression`) and get discharged against the *later* type; a closure fixed at one concrete `Expr` type can't cross that boundary. Two small structural recursions consume the same data, one per concrete expression type: `Coercion.apply` (`Core/TypedTLAPlus/Coercion.lean`, unchanged name/signature — every ordinary subtyping call site, e.g. `[Send]`'s payload, keeps calling it immediately at check time with zero diff) and `Coercion.applyComputable` (new, `Core/ComputableTLAPlus/Coercion.lean`, importing `Core.TypedTLAPlus.Coercion` for the data type — correct dependency direction, Computable depends on Typed, never the reverse). `Elaborator/Subtyping.lean`'s former `*Coercion` helper functions (`strToSeqCoercion`/`seqToFunCoercion`/`tupleToSeqCoercion`/`setCoercion`/`tupleCoercion`/`recordCoercion`/`functionCoercion`) are gone — `subtype` builds `Coercion` data directly at each structural rule, and the `Expr`-building logic they used to contain (builtin references, `.map'`/`.tuple`/`.record`/`.fn`/`.choose` construction) now lives in `Coercion.apply`/`.applyComputable`'s match arms instead. When `subtype` yields **pending** (upper-bound check against unresolved `?n`), expression wrapped in new `mvar : MVarId → Expr → Expr` node added to `TypedTLAPlus`/`TypedPlusCal`'s grammar; checker context keeps, per unresolved `?n`, its pending upper bounds and the `mvar` sites created alongside them in lockstep. The moment `?n` resolves, every `mvar` site for it is substituted with the now-computable coercion (`.apply`) applied to the wrapped expression — part of metavariable-resolution itself, not a separate pass, so `mvar` fully eliminated before checker output reaches `Computable2Guarded`; downstream passes and both backends never see `mvar` itself (the `Coercion` *value* a `receive` carries does, deliberately, survive further — see below). See §5.3, §5.5. |
+| Coercion realization: where do coercions live, how does a *pending* one resolve? | **`Coercion` is closed structural data, not an opaque `Expr → Expr` closure** — a small recursive inductive (`id`, `strToSeq`, `seqToFun`, `tupleToSeq`, `set`, `tuple`, `record`, `function`, `comp` for axiom-chain composition), each constructor carrying exactly the type indices, field names, and nested sub-`Coercion`s its structural rule needs, plus any fresh binder name (`x`/`y`/`i`) `Elaborator/Subtyping.lean` generated via `MonadFresh` at construction time — baked in once, since a name fresh at construction remains fresh at discharge (§2's `$`-based freshness argument). Necessary because `[Receive]`'s coercion (below) must survive past `Typed2Computable`'s type change (`TypedTLAPlus.Expression` → `ComputableTLAPlus.Expression`) and get discharged against the *later* type; a closure fixed at one concrete `Expr` type can't cross that boundary. Two small structural recursions consume the same data, one per concrete expression type: `Coercion.apply` (`Core/TypedTLAPlus/Coercion.lean`, called immediately at check time by every ordinary subtyping call site, e.g. `[Send]`'s payload) and `Coercion.applyComputable` (`Core/ComputableTLAPlus/Coercion.lean`, importing `Core.TypedTLAPlus.Coercion` for the data type — Computable depends on Typed, never the reverse). `subtype` builds `Coercion` data directly at each structural rule; all `Expr`-building logic (builtin references, `.map'`/`.tuple`/`.record`/`.fn`/`.choose` construction) lives in `Coercion.apply`/`.applyComputable`'s match arms. When `subtype` yields **pending** (upper-bound check against unresolved `?n`), expression wrapped in new `mvar : MVarId → Expr → Expr` node added to `TypedTLAPlus`/`TypedPlusCal`'s grammar; checker context keeps, per unresolved `?n`, its pending upper bounds and the `mvar` sites created alongside them in lockstep. The moment `?n` resolves, every `mvar` site for it is substituted with the now-computable coercion (`.apply`) applied to the wrapped expression — part of metavariable-resolution itself, not a separate pass, so `mvar` fully eliminated before checker output reaches `Computable2Guarded`; downstream passes and both backends never see `mvar` itself (the `Coercion` *value* a `receive` carries does, deliberately, survive further — see below). See §5.3, §5.5. |
 | `[Receive]`'s channel/reference coercion — where does it live, given no expression to apply it to? | **Stored on the `receive` statement node itself, discharged only at `Guarded2Network`.** Unlike `[Send]`'s payload (a real sub-expression `Coercion.apply` wraps immediately), a received value doesn't exist as an expression at check time — arrives from network at runtime. Checker synthesizes both channel's element type and destination reference's type, `subtype`s them directly (independent of `Channel <: Channel`'s own structural check, stays identity-only), stores resulting `Coercion` as new field on `TypedPlusCal`/`GuardedPlusCal` `receive` node. `Computable2Guarded` (§5.4) carries it unapplied (none of its four subpasses touch `receive`'s shape); `Guarded2Network` (§5.5) is first pass a `receive` becomes concrete buffered read, discharging the coercion directly against the freshly-built `Head(inbox)`/`Tail(inbox)` `ComputableTLAPlus.Expression` via `Coercion.applyComputable` (above) — no lift/lower round-trip through `TypedTLAPlus.Expression` needed. See §5.3, §5.5. |
 | Diagnostic/error-model shape | **Per-pass error types, unified by common rendering interface** — not one shared diagnostic sum type. Warning suppression (`-W`/`-Wno-<name>`) handled either at emission point or by filtering before rendering — implementer's call. Mechanism (per-pass errors, common rendering, some warning filtering) already exists in `Common/Errors.lean` (§4) — read before designing new. Fine to later refactor either error style or emission mechanism if it doesn't hold up. |
 | Generated-identifier hygiene | **Resolved by renaming; direction doesn't matter.** Whether a user-chosen or compiler-introduced name gets renamed on collision is irrelevant — hard requirement is **no shadowing ever introduced in generated code, checked at every pass, not just final pretty-printer.** Same class as escaping target-language reserved words (PlusCal variable literally named `type`/`def` colliding with Go/Join-Calculus keyword) — `Core/Go/Pretty.lean` has a `keywords : Std.HashSet String` table and `sanitize` (suffixes colliding name with `__`), applied at every identifier-print point. **Reserved words only:** Go's *predeclared* identifiers (`int`, `any`, `comparable`, `error`, `len`, `make`, …) are legally shadowable ordinary identifiers, and the generated code refers to them by name constantly, so the printer must not escape them — a combined table (prior art's) emits `int__`/`comparable__`. Renaming a *user-chosen* name that collides with one is `Network2Go`'s job, the only place knowing a name's provenance; `Core/Go/Pretty.lean` exports `predeclared` for it. Generalize to cover compiler-introduced internal names (`recv`, `inbox`, lock variables, label atoms, §5.6/§5.7) and Join Calculus's own reserved surface too, not just Go keywords. See §5.2a, §5.6, §5.7. |
-| Flags, `Ξ`: how do cross-cutting effects fit the monad-polymorphism convention | **Unified effect stack, not a driver/pass split.** Every function — pass code and CLI driver alike — written against one abstract `{m : Type _ → Type _} [Monad m]`, every effect (errors, flags, module cache) a typeclass constraint on that same `m`, not confined to an outer `IO`-flavored driver layer. (1) **Flags are a contextual (Reader) effect.** Flags aren't uniformly `Option String` (boolean `-f`/`-W` vs. valued `-d<name>=<value>` vs. `-o`/`-t`/`-I`'s own typed values each need their real type) — and this project's proofs run on `Std.Do.WP`, which can't be instantiated at `IO` at all, so an opaque action gives that framework nothing to reason about, whereas Reader is exactly the transparent effect it handles. Concrete, typed `FlagsEnv` structure (covering the full flag surface above), populated once by CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), `IO` instance backed by in-memory `IO.Ref` — disk persistence deferred (see `Ξ`'s cache row above) — genuine mutable-store effect, unlike flags, but only shows up in `Elaborator`, not part of §6.2's committed proof surface, so doesn't hit the `Std.Do.WP`-compatibility question flags did. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Algorithm.toNetwork` stays generic (`{m} [Monad m] [MonadFresh m] [MonadDiagnostic Empty G2NError m]`, same shape as every other pass — `MonadDiagnostic`, not a bare `MonadExceptOf`, so its concrete `IO` instantiation pairs directly with `Fugue.lean`'s `runPassDiag`), not special-cased monomorphic. Refinement theorem proved against whichever concrete instantiation `Std.Do.WP` supports (e.g. `m := Id`, or `ReaderT FlagsEnv (DiagT Empty G2NError Id)`) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for CLI execution is a **separate, deliberately unverified step**, documented explicitly in `Guarded2Network`'s module docs. (4) **Fresh-name generation gets the same `IO.Ref` treatment as `Ξ`, not a `StateT Nat` layer threaded through each pass's own concrete monad instantiation.** `MonadFresh m` (`Common/Fresh.lean`), monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transforms (§5.2), recurring at `Computable2Guarded`'s `𝒞_par` (§5.4) and `Guarded2Network`'s `inbox`/`rx` naming (§5.5). Names generated as `"<prefix>$<n>"` — `$` can't appear in a TLA⁺ identifier, so no scope-tracking needed to prove freshness. Backed by one process-wide `IO.Ref Nat`, not a separate `0`-restarted counter per pass — every pass draws from the *same* counter for the whole compile (strictly stronger hygiene: two different passes' compiler-introduced names can never collide with each other either, not just with user-written ones), and no pass's own entry point (`runChecker`/`runDesugarer`/`toGuarded`/`toNetwork`) needs to thread a `Nat` through its own return type or its caller's `.run`/`.run'` chain — `MonadFresh`'s generic instance picks the global ref up automatically through any standard transformer stack built over `IO` (`ExceptT`/`ReaderT`/`StateT`/`DiagT` all lift `MonadStateOf` from their base monad). Consequence: the checker (`CoreTLAPlus.Module.runChecker`) and the desugarer (`SurfaceTLAPlus.Module.runDesugarer`/`SurfacePlusCal.Algorithm.runDesugarer`) both run at `DiagT _ _ IO _` now, not the pure `DiagT _ _ Id _` they used before fresh-name generation needed `IO` reachable — no other change to either pass's own logic. |
+| Flags, `Ξ`: how do cross-cutting effects fit the monad-polymorphism convention | **Unified effect stack, not a driver/pass split.** Every function — pass code and CLI driver alike — written against one abstract `{m : Type _ → Type _} [Monad m]`, every effect (errors, flags, module cache) a typeclass constraint on that same `m`, not confined to an outer `IO`-flavored driver layer. (1) **Flags are a contextual (Reader) effect.** Flags aren't uniformly `Option String` (boolean `-f`/`-W` vs. valued `-d<name>=<value>` vs. `-o`/`-t`/`-I`'s own typed values each need their real type) — and this project's proofs run on `Std.Do.WP`, which can't be instantiated at `IO` at all, so an opaque action gives that framework nothing to reason about, whereas Reader is exactly the transparent effect it handles. Concrete, typed `FlagsEnv` structure (covering the full flag surface above), populated once by CLI driver from `Cli.Parsed`, accessed via `MonadReaderOf FlagsEnv m` plus typed accessor helpers (`getDebugFlag`/`getDebugOption`/`getFeatureFlag`/…) built on `read`. `instance : MonadReaderOf FlagsEnv IO` reads from an `IO.Ref` populated once at CLI startup. (2) **`Ξ` gets its own effect class**, `MonadModuleCache m` (`lookup`/`store` keyed by source hash), `IO` instance backed by in-memory `IO.Ref` — disk persistence deferred (see `Ξ`'s cache row above) — genuine mutable-store effect, unlike flags, but only shows up in `Elaborator`, not part of §6.2's committed proof surface, so doesn't hit the `Std.Do.WP`-compatibility question flags did. (3) **Consequence for §6.2's Guarded→Network proof, accepted knowingly:** `Algorithm.toNetwork` stays generic (`{m} [Monad m] [MonadFresh m] [MonadDiagnostic Empty G2NError m]`, same shape as every other pass — `MonadDiagnostic`, not a bare `MonadExceptOf`, so its concrete `IO` instantiation pairs directly with `Fugue.lean`'s `runPassDiag`), not special-cased monomorphic. Refinement theorem proved against whichever concrete instantiation `Std.Do.WP` supports (e.g. `m := Id`, or `ReaderT FlagsEnv (DiagT Empty G2NError Id)`) — that instantiation, not the `IO`-run one, is the real proof target. Running the same polymorphic term at `m := IO` for CLI execution is a **separate, deliberately unverified step**, documented explicitly in `Guarded2Network`'s module docs. (4) **Fresh-name generation gets the same `IO.Ref` treatment as `Ξ`, not a `StateT Nat` layer threaded through each pass's own concrete monad instantiation.** `MonadFresh m` (`Common/Fresh.lean`), monotonic counter behind `fresh : m Nat`, first needed by expression desugaring's tuple-pattern/multi-binder-collapse transforms (§5.2), recurring at `Computable2Guarded`'s `𝒞_par` (§5.4) and `Guarded2Network`'s `inbox`/`rx` naming (§5.5). Names generated as `"<prefix>$<n>"` — `$` can't appear in a TLA⁺ identifier, so no scope-tracking needed to prove freshness. Backed by one process-wide `IO.Ref Nat`, not a separate `0`-restarted counter per pass — every pass draws from the *same* counter for the whole compile (strictly stronger hygiene: two different passes' compiler-introduced names can never collide with each other either, not just with user-written ones), and no pass's own entry point (`runChecker`/`runDesugarer`/`toGuarded`/`toNetwork`) needs to thread a `Nat` through its own return type or its caller's `.run`/`.run'` chain — `MonadFresh`'s generic instance picks the global ref up automatically through any standard transformer stack built over `IO` (`ExceptT`/`ReaderT`/`StateT`/`DiagT` all lift `MonadStateOf` from their base monad). Consequence: the checker (`CoreTLAPlus.Module.runChecker`) and the desugarer (`SurfaceTLAPlus.Module.runDesugarer`/`SurfacePlusCal.Algorithm.runDesugarer`) run at `DiagT _ _ IO _`, since fresh-name generation needs `IO` reachable. |
 | Shared builtin-operator recognizer | **One shared table, `Core/TypedTLAPlus/Builtins.lean`, not a per-pass string list.** Builtins represented uniformly as `.opCall (.var name _ origin) args`, resolved by string name + `Origin` (`.intrinsic` for `builtinContext`'s core operators, `.module "Sequences"`/`.module "Naturals"`/etc. for stdlib stubs). `WellFormedness/Restrictions.lean`'s reserved-temporal-action check and `Typed2Computable`'s own computable-builtin question both consult it instead of keeping independent copies. **Closed `inductive BuiltinOp`, one constructor per literal builtin** — exhaustiveness-checked `match`es for every downstream consumer, at the cost of duplicating each name already listed in `builtinContext`/`builtinModules` a third time. `reservedTemporalActionNames` stays a bare name-only list (not derived from this `Origin`-keyed table) — these eight spellings can never be user-shadowed, so name-only matching is exact. |
 | `Typed2Computable`'s two new restrictions, beyond `WellFormedness` | **`[A -> B]`/`[a:A,...]` (`fnSet`/`recordSet`) rejected outright; `forall`/`exists`/`choose`'s domain becomes structurally mandatory.** Both denote sets/expressions with no finite runtime representation under this compiler's finite-sets assumption — `ComputableTLAPlus.Expression` has no constructor for the first two, and the third's domain field is a plain `Expression`, not `Option (Expression)` (`WellFormedness/Restrictions.lean`'s check 3 already bans an unbounded domain transitively-reachable-from-the-algorithm, so this enforces an already-established invariant structurally). Everything else `TypedTLAPlus`/`TypedPlusCal` can express, reachable from the algorithm, translates cleanly. |
 
@@ -158,7 +151,7 @@ guidance.
 | 4 | "Compiler verification, denotationally" | Stub (title only) |
 | 5 | Guarded PlusCal → Network PlusCal | Stub in thesis — but *implemented and proved* in `fugue` `main`. Read code, not thesis. |
 | 6 | Denotational account of Go | Fully written, heavy domain theory. See §6.4. |
-| 7 | Network PlusCal → Go, lock inference | §7.1 (atomicity/lock inference) fully written (§5.7). §7.2.1.1 (Go representations of each TLA+ type, incl. `Channel(τ)` resolution) and §7.2.1.2 (compiling TLA+ expressions — booleans/quantifiers, sets, functions) fully written. §7.2.2 ("Compiling operator and function definitions") fully written (non-recursive vs. parametric operators, recursive functions via tie-the-knot `MkRecFn`). **§7.2.3.1 ("Compiling atomic blocks") and §7.2.3.2 ("Compiling threads and whole processes", merged — no longer split into a separate §7.2.3.3) are both fully written** — branch-as-function scheduling loop, lock parameters, `LOCK`/`UNLOCK`, per-construct statement/guard compilation rules, thread chaining, the receive-relay thread, and full process wiring (`INIT_LOCKS`, `done`/`done'` channels); see §5.7 for the ported scheme. **§7.3, new this revision, is a fully worked Go compilation of the Ping-Pong running example** (the Pong process end to end: lock inference result, every atomic block's generated function, both threads, the process function, and the concrete `Network` struct) — cross-check §5.7's implementation against it directly, same role as §8.6's worked example for the Join Calculus backend. §7.4 (renumbered from old §7.3, "informal correctness proof sketch") states a named conjecture (`proc(net, mailbox, self)` refines `P` in isolation, assuming the network is correctly wired) but explicitly leaves both the informal argument and any mechanization as future work — still effectively a stub for verification purposes, no proof obligation added to this project's scope. `Channel(τ)`: "channels are not first-class citizens in Distributed PlusCal, we do not (need to) represent `Channel(τ)` in the general case" — narrows but doesn't close §9.7. See §5.7. |
+| 7 | Network PlusCal → Go, lock inference | §7.1 (atomicity/lock inference) fully written (§5.7). §7.2.1.1 (Go representations of each TLA+ type, incl. `Channel(τ)` resolution) and §7.2.1.2 (compiling TLA+ expressions — booleans/quantifiers, sets, functions) fully written. §7.2.2 ("Compiling operator and function definitions") fully written (non-recursive vs. parametric operators, recursive functions via tie-the-knot `MkRecFn`). **§7.2.3.1 ("Compiling atomic blocks") and §7.2.3.2 ("Compiling threads and whole processes") both fully written** — branch-as-function scheduling loop, lock parameters, `LOCK`/`UNLOCK`, per-construct statement/guard compilation rules, thread chaining, the receive-relay thread, full process wiring (`INIT_LOCKS`, `done`/`done'` channels); see §5.7. **§7.3 is a fully worked Go compilation of the Ping-Pong example** (the Pong process end to end: lock inference result, every atomic block's generated function, both threads, the process function, the concrete `Network` struct) — cross-check §5.7's implementation against it directly, same role as §8.6's worked example for the Join Calculus backend. §7.4 ("informal correctness proof sketch") states a named conjecture (`proc(net, mailbox, self)` refines `P` in isolation, assuming the network is correctly wired) but explicitly leaves both the informal argument and any mechanization as future work — still effectively a stub for verification purposes, no proof obligation added to this project's scope. `Channel(τ)`: "channels are not first-class citizens in Distributed PlusCal, we do not (need to) represent `Channel(τ)` in the general case" — narrows but doesn't close §9.7. See §5.7. |
 | 8 | Network PlusCal → the Join Calculus | Fully written, worked Ping-Pong example. Primary spec for new backend; §5.6 is condensed version. |
 | 9 | Conclusion | Stub (title only) |
 
@@ -213,9 +206,7 @@ Fugue/                          (this repo)
     └── thesis.pdf                  copied in for implementer reference
 ```
 
-No separate `reference/NOTES.md` planned — §3 above already is the pointer-to-prior-art
-doc; a second copy in its own file would just be one more thing to keep in sync. If a
-per-file reading guide ever grows too big for §3, add it back explicitly.
+§3 is the pointer-to-prior-art doc; no separate `reference/NOTES.md`.
 
 Each `Core/<Lang>` module owns exactly one AST plus its pretty-printer; semantics
 (`Semantics/Denotational.lean`, `Semantics/Lemmas.lean`) added only for passes that have
@@ -424,12 +415,11 @@ Two independent halves:
     channel name/index expressions, `@parameter`'s presence-as-`Bool`) is extracted early
     as its own concrete field, by bespoke validation fused into statement desugaring
     (`Process.desugar`/`Declarations.desugarCheck`) — one `CorePlusCal.Algorithm`, always
-    fully checked, no coexisting "raw, still-generic" shape. `CorePlusCal.Process.ann : α`
-    became `mailbox : Option (String × List β)` (from at most one `@mailbox`,
-    `extractMailbox`); `Declarations.variables` gained `isParameter : Bool` (from
-    `@parameter`'s presence, `Declarations.desugarCheck`). `CoreTLAPlus.Expression`
-    (TLA⁺ side) needed no AST change — already `Bifunctor`/`Bitraversable`-generic in its
-    annotation type, `Expression (Option Typ)` (formerly `Expression (List Annotation)`)
+    fully checked, no coexisting "raw, still-generic" shape. `CorePlusCal.Process` carries
+    `mailbox : Option (String × List β)` (from at most one `@mailbox`, `extractMailbox`);
+    `Declarations.variables` carries `isParameter : Bool` (from `@parameter`'s presence,
+    `Declarations.desugarCheck`). `CoreTLAPlus.Expression` needs no AST change — already
+    `Bifunctor`/`Bitraversable`-generic in its annotation type, so `Expression (Option Typ)`
     is just a different instantiation.
   - **A `with`-bound variable can carry its own `@type` annotation**
     (`with (* @type: Int; *) x = e { … }`). `CorePlusCal`/`SurfacePlusCal Statement.with`'s
@@ -458,7 +448,7 @@ Two independent halves:
     does the flattening: innermost binder wraps the already-desugared original body
     directly; every binder before it wraps the next link in the chain inside a
     label-free `Block` of its own (`⟨[], ·⟩`). `Statement.desugarLabelFree`'s `.with` case
-    calls it in place of the old direct `.with vars` construction; `WithContext`'s
+    calls it; `WithContext`'s
     bound-name tracking extends with *every* binder's name for the *whole* original body
     in one step regardless.
   - **Every function call/`EXCEPT` index is unary.** `CoreTLAPlus.Expression.fnCall`/
@@ -719,9 +709,9 @@ deviation (polymorphism instantiation, below):
     **successful coercion** (concrete `Coercion`, plus updated context), a **pending
     coercion** (check succeeded but coercion depends on a not-yet-known metavariable
     solution — recorded as a pending upper bound), or **failure**.
-  - **`Coercion := Expr → Expr`** — a function on already-*elaborated* expressions,
-    verifiably turns a value of type `A` into one of type `B`. A successful coercion at a
-    use site is ordinary function application to the elaborated expression in hand.
+  - **`Coercion` is closed structural data, not a closure** (§2) — discharged against an
+    already-*elaborated* expression by `Coercion.apply`/`.applyComputable`, turning a value
+    of type `A` into one of type `B`.
   - **`mvar`: an expression-level placeholder for a pending coercion.** When `subtype`
     yields pending, the elaborated expression at that use site is wrapped in a new
     constructor, `mvar : MVarId → Expr → Expr`, added to `TypedTLAPlus`/`TypedPlusCal`'s
@@ -762,7 +752,7 @@ deviation (polymorphism instantiation, below):
   (`Channel(Channel(τ))`) declaration is a hard error — combined with `Channel`'s
   reflexivity-only subtyping, means well-formedness's `channelInExpression` check can no
   longer be exercised via `receive`'s destination `r` resolving to a channel-shaped type
-  (see §9.14).
+  (see §9.13).
 - **`[Receive]` — channel/reference coercion.** `Channel` is covariant
   (`Elaborator/Subtyping.lean`), but a channel-typed expression's own
   `Channel(τ) <: Channel(τ')` check only ever produces `Coercion.id` in practice —
@@ -794,7 +784,7 @@ deviation (polymorphism instantiation, below):
   `Append` correctly typed, not real definitions. `builtinContext`
   (`Elaborator/Declarations.lean`) carries only the ~14 genuinely `EXTENDS`-independent
   intrinsics (`=`, `/=`, `/\`, `\/`, `=>`, `<=>`, `\neg`, `\in`, `\notin`, `\subseteq`,
-  `\cup`, `\cap`, `\`, `DOMAIN`, plus the temporal ones, §9.13). Everything else —
+  `\cup`, `\cap`, `\`, `DOMAIN`, plus the temporal ones, §9.11). Everything else —
   `+`/`-`/`-.`/`*`/`..`/comparisons/`Nat` (`Naturals`), `Len`/`Head`/`Tail`/`Append`
   (`Sequences`), and populated entries for `Bags`/`FiniteSets`/`Integers` — lives as real
   declarations in `Driver/Modules.lean`'s `builtinModules["Naturals"]` etc.
@@ -1013,13 +1003,11 @@ backend. Also directly reusable: hand-written runtime scaffolding in
 process for cross-machine address discovery — the practical, already-prototyped Go
 analogue of §5.6's `register`/`lookup`).
 
-**Caveat: "essentially everything right" almost certainly covers *intra-process*
-concurrency only, not `send`/`receive`'s actual cross-process wire mechanism.** Goroutines
-communicating over Go's native `chan` handle plumbing *within* one compiled process (e.g.
-a thread and its `T_rx` counterpart passing buffered messages locally) — genuinely a
-solved, portable concern. But `send(c, e)`, once `c` is addressed to a different
-(possibly remote) process, has to leave the process entirely — nothing in this plan
-describes that compilation scheme yet, see §9.7.
+**Caveat: that covers *intra-process* concurrency only, not `send`/`receive`'s
+cross-process wire mechanism.** Goroutines over Go's native `chan` handle plumbing *within*
+one compiled process (a thread and its `T_rx` counterpart passing buffered messages). But
+`send(c, e)` addressed to a different, possibly remote process has to leave the process
+entirely — that compilation scheme is undescribed, §9.7.
 
 **Lock inference, concretely** — follows thesis §7.1.2's [HFP06]-derived scheme. Locks
 are assigned **per process-local variable**, and a block may need to acquire *several*
@@ -1136,9 +1124,8 @@ adds). The printer escapes reserved words only; renaming user-chosen names off G
   does `send(c, e)` to a different process actually compile to on the wire," still open,
   §9.7.
 
-**Compiling TLA+ expressions, operators, functions** (thesis §7.2.1.2/§7.2.2 — §7.3,
-correctness sketch, is the only remaining stub in this chapter; atomic-block, thread-, and
-process-level compilation are all designed, §7.2.3.1/§7.2.3.2, below):
+**Compiling TLA+ expressions, operators, functions** (thesis §7.2.1.2/§7.2.2; §7.4's
+correctness sketch is the chapter's only remaining stub):
 
 - **Equality/ordering: one dictionary, passed explicitly.** Go's builtin `==`/`comparable`
   can't be implemented for custom types and falls short for complex TLA+ types anyway
@@ -1244,8 +1231,8 @@ process-level compilation are all designed, §7.2.3.1/§7.2.3.2, below):
   capturing the function itself by reference (Go closures capture variables, not values)
   — "ties the knot."
 
-**Compiling atomic blocks**, per thesis §7.2.3.1 (newly written this revision — was a
-stub before): let `l : either B1 or ... or Bn` be an atomic block. Compiles to one
+**Compiling atomic blocks**, per thesis §7.2.3.1. Let `l : either B1 or ... or Bn` be an
+atomic block. Compiles to one
 scheduler function named `l` plus one function per branch `B_i`, named `l_i`:
 
 - **Scheduler function `l`** — parameters are the locks `ℓ1..ℓk` (typed
@@ -1267,8 +1254,8 @@ scheduler function named `l` plus one function per branch `B_i`, named `l_i`:
   calls runtime-library helpers `Acquire(ℓ)`/`Release(ℓ, structVal)` at every lock/unlock
   site, precisely to avoid leaking `Lock[τ]`'s `chan τ` representation into generated code
   (Listing 7.2.11, "Constructing locks without leaking their API"). `Acquire`/`Release`
-  belong in `runtime/tlaplus/` alongside `MkLock`, wrapping the raw channel receive/send
-  pair the formal `LOCK`/`UNLOCK` notation describes. Signatures: `MkLock[T any](init T)
+  live in `runtime/locks/` alongside `MkLock`, wrapping the raw channel receive/send pair
+  the formal `LOCK`/`UNLOCK` notation describes. Signatures: `MkLock[T any](init T)
   Lock[T]`, `Acquire[T any](l Lock[T]) T`, `Release[T any](l Lock[T], v T)`, over
   `type Lock[T any] chan T` created at capacity 1 and seeded with `init`. `Release` takes
   the lock *and* the value: it has to name the channel to send back on, and `Acquire`
@@ -1299,16 +1286,8 @@ scheduler function named `l` plus one function per branch `B_i`, named `l_i`:
   spawning a fresh goroutine per transition specifically to avoid stack overflow (Go
   goroutines start with a small growable stack, a plain tail call wouldn't be safe here).
 
-This confirms several details this plan's `Network2Go`/lock-inference write-up above
-already leaned on: locks as channel-typed parameters threaded through every generated
-function, not ambient state; `LOCK`/`UNLOCK` as (formally) literal channel receive/send
-pairs, concretely emitted as `Acquire`/`Release` calls; one goroutine spawned per atomic
-block transition.
-
-**Compiling threads and whole processes**, per thesis §7.2.3.2 (merged section — the
-thesis no longer splits "compiling threads" and "compiling whole processes" into separate
-subsections; both are now fully written together). Let `T_k` be a thread of a process,
-`l_1` the label of its syntactically-first atomic block:
+**Compiling threads and whole processes**, per thesis §7.2.3.2. Let `T_k` be a thread of a
+process, `l_1` the label of its syntactically-first atomic block:
 
 - **Thread function `thread_k`** — same parameter list as the branch functions above
   (locks, `net`, `self`, `done`), body is a single call `_ = l_1(ℓ1, ..., ℓk, net, self,
@@ -1345,15 +1324,12 @@ subsections; both are now fully written together). Let `T_k` be a thread of a pr
   merged lock, each `MkLock` call's initial struct literal built from each variable's own
   declared initial value.
 
-Both bullets above resolve tasklist item 3's "Thread.code block-chain compilation",
-"Thread.rx receive-loop-thread compilation", and "Process/Algorithm top-level wiring"
-entries from this project's own design work into a direct port — implement against the
-schemes above, not from scratch.
+Thread-code block chaining, `Thread.rx` receive-loop compilation, and `Process`/`Algorithm`
+top-level wiring are all direct ports of the schemes above, not fresh design.
 
-**Worked example, thesis §7.3.** Compiles the Ping-Pong running example's `Pong` process
-end to end (`Ping`'s compilation left as a mirror-image exercise by the thesis itself) —
-the reference to check `Network2Go`'s own output against, same role as §8.6's worked
-example for the Join Calculus backend. Confirms, concretely: lock inference merges
+**Worked example, thesis §7.3.** The Ping-Pong `Pong` process end to end (`Ping` left as a
+mirror-image exercise) — the reference to check `Network2Go`'s output against, same role as
+§8.6's worked example for the Join Calculus backend. Pins down: lock inference merges
 `tmp2`/`inbox_Pong` under one lock (`inbox_Pong ≻ tmp2`, `self` never locked, being
 read-only); `net.Ping.Send(...)`/`net.Pong.Send(...)` call sites; the branch/thread/process
 function shapes above, verbatim. Also pins down the concrete shape of the `Network`
@@ -1368,11 +1344,11 @@ own import path) providing: TLA+ value encodings (`Seq`, `Set`, functions, recor
 `Address`, address resolution/discovery for cross-process `send` (generalize the
 hand-written `nameserver` package under `distpcal-compiler/tests/*/`, if it turns out to
 still fit once `send`'s wire mechanism is pinned down, §9.7). Part of this project's
-deliverables — **lives in `runtime/tlaplus/` in this repo**, one file per TLA+
-concept/stdlib module (`sequences.go`, `sets.go`, `functions.go`, `ord.go`, `address.go`,
-`multicast.go`, mirroring `Driver/Builtins.lean`'s `builtinModules` split rather than one
-flat file), alongside the Lean sources, versioned together with the compiler that targets
-it. The `Ord` dictionary, the primitive newtypes' dictionaries and the composing
+deliverables — **lives in `runtime/` in this repo**, versioned with the compiler: value
+types in `runtime/tlaplus/`, one file per TLA+ concept/stdlib module (`sequences.go`,
+`sets.go`, `functions.go`, `ord.go`, …, mirroring `Driver/Builtins.lean`'s `builtinModules`
+split rather than one flat file); `Sender`/`Receiver`/`Address`/`Multicast` in
+`runtime/comm/`; `Lock`/`MkLock`/`Acquire`/`Release` in `runtime/locks/`. The `Ord` dictionary, the primitive newtypes' dictionaries and the composing
 constructors (`SetOrd`/`SeqOrd`) belong here too. There is **no** `records.go` and no
 `tuples.go`: records and tuples are anonymous structs with dictionary literals emitted
 beside them, so there is neither a library type nor a generated one to hold. The top-level
@@ -1580,7 +1556,4 @@ temporal/action operators aren't parsed (§9.11).
 
 ## 9. Open questions
 
-Moved to `OPEN_QUESTIONS.md`, same `9.x` numbering — see that file. Kept as a separate
-file so open questions can be edited/pruned without touching this document; entries
-resolved there get deleted from that file and folded into the relevant section above as
-settled fact (`INSTRUCTIONS.md`'s "Rule matter most").
+In `OPEN_QUESTIONS.md`, same `9.x` numbering.
