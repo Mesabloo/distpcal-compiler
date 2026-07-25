@@ -1,4 +1,4 @@
----- MODULE RejectAssignSameBaseVariables ----
+---- MODULE RejectAssignSameBaseVariable ----
 EXTENDS Naturals
 \* Expect: rejected. `x[0] := 3; x[1] := 4` writes the same variable in one atomic block.
 

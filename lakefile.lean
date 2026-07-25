@@ -105,3 +105,17 @@ lean_exe fugue where
   moreLinkArgs := match buildType with
     | .release => #["-Wl,-x,-dead_strip"]
     | _ => #[]
+
+/-- The regression suite's modules. A `lean_lib` and not just the `lean_exe` root below because
+Lake only discovers a package's modules through a library's globs: an executable's root is built
+by recursively building its *local imports*, and an import only counts as local if some library
+already claims it. Without this, `lake build test` fails with "object file … of module
+Tests.Report does not exist". -/
+lean_lib Fugue.Tests where
+  roots := #[`Tests]
+
+/-- The regression suite (`lake test -- [FILTER…]`). Runs every `tests/regression/*.tla` fixture
+through the compiler, in-process. -/
+@[test_driver]
+lean_exe test where
+  root := `Tests.Main

@@ -273,8 +273,21 @@ here on purpose — see this directory directly for contents.
 ## `docs/`
 - `diagnostics/<code>.md` — one page per diagnostic code, printed by `fugue explain <code>`.
 
-## `tests/regression/`
-Hand-written smoke fixtures (`accept_*.tla`/`reject_*.tla`) plus `run.sh`.
+## `Tests/`
+- `regression/` — hand-written fixtures (`Accept*.tla`/`Reject*.tla`), each named after the TLA⁺
+  module it contains, as TLA⁺ requires (`EXTENDS Foo` finds only `Foo.tla`), and each with
+  an optional `<fixture>.expect.json` sidecar saying which stage must reject it, which code it
+  must carry, and which warnings must fire. Run by `lake test`, not by a script.
+- `examples/` — larger worked examples (Ping-Pong, Two-Phase Commit, Lamport mutex).
+
+The runner itself lives at the top of this directory (`lake test -- [FILTER…]`), a `lean_exe`
+tagged `@[test_driver]`. It compiles each fixture in-process through `Driver/Pipeline.lean`, so
+what it checks is structured rather than an exit code.
+- `Expectation.lean` — what a fixture claims: its filename's defaults, with its
+  `<fixture>.expect.json` sidecar applied over them and validated against the diagnostic registry.
+- `Check.lean` — one function per assertion; a fixture reports all its mismatches at once.
+- `Report.lean` — verdicts (`PASS`/`FAIL`/`XFAIL`/`XPASS`/`SKIP`/`TIMEOUT`) and how they print.
+- `Main.lean` — fixture discovery, the CLI, and the run loop.
 
 ## `.claude/`
 - `plans/` — plan docs beyond `PLAN.md`.

@@ -47,11 +47,24 @@ def PipelineError.stage : PipelineError → Stage
   | .driver (.desugar ..) => .desugar
   | .driver (.moduleNotFound ..) | .driver (.ambiguousModule ..) | .driver (.cyclicExtends ..) =>
     .resolve
+  -- Detected the moment parsing yields a name to compare, so `.parse` — not `.resolve`, which is
+  -- about locating *dependencies*, and which the main module never reaches this way.
+  | .driver (.moduleNameMismatch ..) => .parse
   | .driver (.typeCheck ..) => .typeCheck
   | .wellFormedness _ => .wellFormedness
   | .computable _ => .computable
   | .guarded _ => .guarded
   | .network _ => .network
+
+/-- This error's diagnostic code, from whichever pass produced it. The same identity
+`CompilerDiagnostic.pretty` prints in `error[E0042]:`, available without going through the
+rendered text — which is what a regression fixture asserts on. -/
+def PipelineError.code : PipelineError → DiagnosticCode
+  | .driver e => CompilerDiagnostic.code e
+  | .wellFormedness e => CompilerDiagnostic.code e
+  | .computable e => CompilerDiagnostic.code e
+  | .guarded e => CompilerDiagnostic.code e
+  | .network e => CompilerDiagnostic.code e
 
 /-- Rendered form of `err`, against the source lines it belongs to: a driver error renders against
 its own module's lines (an error inside an `EXTENDS`-ed dependency is not about the main module),
@@ -123,13 +136,15 @@ private def runStage {ε} {γ} [Repr γ] (dumpName : String) (stage : Stage)
 
 `containingDir` is where `EXTENDS` resolution starts looking (`none` when the source came from
 stdin, which has no directory of its own); `moduleId` is the key this module's source is
-registered under, and the one `DriverError`s from it are tagged with.
+registered under, and the one `DriverError`s from it are tagged with; `expectedName` is what the
+module must call itself, i.e. its file's stem — `none` for stdin, which has no filename to agree
+with.
 
 Never throws and never exits: every failure comes back as `PipelineResult.error`, tagged with the
 stage it came from. -/
 def runPipeline (source : String) (containingDir : Option System.FilePath) (moduleId : String)
-    (hooks : PipelineHooks := {}) : Base PipelineResult := do
-  let (warnings, driverResult) ← runM <| compileModule source containingDir moduleId
+    (expectedName : Option String := none) (hooks : PipelineHooks := {}) : Base PipelineResult := do
+  let (warnings, driverResult) ← runM <| compileModule source containingDir moduleId expectedName
     (onModuleEvent := λ name outcome ↦ liftM (hooks.onModuleEvent name outcome))
     (onModuleProgress := λ name ↦ liftM (hooks.onModuleProgress name))
     (logLine := λ line ↦ liftM (hooks.logLine line))
@@ -176,23 +191,37 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
 Each call starts from a fresh `DriverState`, so nothing — module cache, fresh-name counter, source
 registry — carries over between two compiles in the same process. -/
 def runPipelineIO (flags : FlagsEnv) (source : String) (containingDir : Option System.FilePath)
-    (moduleId : String) (hooks : PipelineHooks := {}) : IO PipelineResult :=
-  StateT.run' (ReaderT.run (runPipeline source containingDir moduleId hooks) flags) {}
+    (moduleId : String) (expectedName : Option String := none) (hooks : PipelineHooks := {}) :
+    IO PipelineResult := do
+  -- `Common/Position.lean`'s span map is the one piece of per-compile state that is not in
+  -- `DriverState`: it is a global keyed on pointer addresses, so entries from an earlier compile
+  -- in this process are live keys that a later compile's freshly-allocated nodes can collide
+  -- with. See `forgetSourcePositions` — clearing here is what makes a second compile in one
+  -- process behave like a first.
+  forgetSourcePositions
+  StateT.run' (ReaderT.run (runPipeline source containingDir moduleId expectedName hooks) flags) {}
 
 /-- Whether ANSI styling is on for this compile's output (`-fno-color` turns it off). -/
 private def FlagsEnv.colored (flags : FlagsEnv) : Bool := !flags.features.contains "no-color"
 
-/-- This compile's warnings, rendered, in the order they were reported — minus any suppressed by
-`-Wno-<name>`. Each renders against its own module's source lines, falling back to `mainLines`.
-Pure: the caller decides where the lines go (`Fugue.lean` routes them through its spinner, the
-regression runner asserts on them). -/
+/-- The warnings this compile actually reports, in the order they were raised: everything a pass
+raised, minus what `-Wno-<name>` turns off.
+
+Separate from `renderWarnings` because "which warnings survive `-W`" and "what they look like" are
+different questions, and more than one caller wants the first without the second — `PipelineResult
+.warnings` is deliberately the *unfiltered* record of what the passes raised, so anything asking
+whether a warning is suppressed has to apply the filter, and should not have to re-implement it. -/
+def PipelineResult.reportedWarnings (flags : FlagsEnv) (r : PipelineResult) :
+    List PipelineWarning :=
+  r.warnings.filter λ w ↦ flags.warnings.getD (DriverWarning.name w) true
+
+/-- This compile's reported warnings, rendered, in the order they were raised. Each renders against
+its own module's source lines, falling back to `mainLines`. Pure: the caller decides where the
+lines go (`Fugue.lean` routes them through its spinner, the regression runner asserts on them). -/
 def PipelineResult.renderWarnings (flags : FlagsEnv) (mainLines : List String.Slice)
     (r : PipelineResult) : List String :=
-  r.warnings.filterMap λ w ↦
-    if flags.warnings.getD (DriverWarning.name w) true then
-      some (CompilerDiagnostic.pretty w ((DriverWarning.sourceLines r.sources w).getD mainLines) flags.colored)
-    else
-      none
+  (r.reportedWarnings flags).map λ w ↦
+    CompilerDiagnostic.pretty w ((DriverWarning.sourceLines r.sources w).getD mainLines) flags.colored
 
 /-- This compile's fatal error, rendered, if it failed. -/
 def PipelineResult.renderError (flags : FlagsEnv) (mainLines : List String.Slice)

@@ -1,4 +1,4 @@
----- MODULE RejectOperatorParamArityMismatch ----
+---- MODULE SkipOperatorParamArityMismatch ----
 \* Expect: rejected, `TCError.paramArityMismatch` (`Elaborator/Declarations.lean`'s
 \* `checkParamArity`, the `sigmas.length != arity` branch) -- but currently rejected for a
 \* completely different reason, a real parser gap, not this fixture's mistake. `F(_,_)` declares a

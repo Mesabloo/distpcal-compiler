@@ -19,7 +19,7 @@ inductive Severity : Type
   | error
   /-- Non-fatal: `W…`, and suppressible via `-Wno-<name>`. -/
   | warning
-  deriving DecidableEq, Repr, Inhabited, BEq, Hashable
+  deriving DecidableEq, Repr, Inhabited, BEq, Hashable, Ord
 
 /-- The letter this severity's codes start with. -/
 def Severity.letter : Severity → Char
@@ -36,7 +36,10 @@ structure DiagnosticCode : Type where
   severity : Severity
   /-- The number, unique within the whole compiler (not per severity, not per stage). -/
   number : Fin 10000
-  deriving DecidableEq, Repr, Inhabited, BEq, Hashable
+  -- `Ord` is lexicographic on `(severity, number)`, i.e. every `E…` before every `W…`. Nothing
+  -- reads meaning into the order; it exists so that a list of codes has *one* spelling — a
+  -- warning tally that printed in hash order would differ run to run for no reason.
+  deriving DecidableEq, Repr, Inhabited, BEq, Hashable, Ord
 
 namespace DiagnosticCode
 

@@ -139,6 +139,35 @@ infix:60 " @@ " => registerSource
 @[implemented_by Internal.posOfImpl, never_extract]
 abbrev posOf {α : Type} (x : α) : SourceSpan := default_or_ofNonempty%
 
+@[never_extract, noinline]
+private unsafe def Internal.forgetSourcePositionsImpl : BaseIO Unit :=
+  Internal.sourceMap.set (Std.HashMap.emptyWithCapacity 60)
+
+/--
+  Drop every registered position. Call this at the start of a compile, never during one.
+
+  `registerSource`/`posOf` key on `ptrAddrUnsafe`, and the map outlives the values it describes.
+  That is harmless for a value that *was* registered — no two live values share an address, so its
+  own entry is the only one its address can hold. It is not harmless for a value that was never
+  registered and has its position read anyway: `posOf` cannot distinguish "no entry" from "an
+  entry left by something now dead", and it answers with the corpse's span. The desugarer builds
+  `CorePlusCal` statements without registering them (`Desugarer/PlusCal.lean` has no `@@`) while
+  `checkAssignConflicts` reads their positions, so this is not hypothetical — see §9.21 for a
+  worked example where a diagnostic points one statement too far.
+
+  Clearing bounds the damage to a single compile. Across compiles the stale span comes from another
+  file, where the line need not exist at all, and `CompilerDiagnostic.pretty`'s line lookup is a
+  `get!`. Within one compile the span is merely wrong.
+
+  Two things this is **not**. It is not a fix: a position that was never recorded has no right
+  answer, and clearing only changes which wrong answer is given. And it does not make concurrent
+  compiles safe — the map is one global `IO.Ref`, and clearing is itself destructive, so a clear on
+  one thread drops the spans another thread has registered so far. Per-compile positions, or a real
+  field on AST nodes, is what removes the class.
+-/
+@[implemented_by Internal.forgetSourcePositionsImpl, never_extract]
+def forgetSourcePositions : BaseIO Unit := pure ()
+
 open Lean Parser Term in section
   meta def posIndices : Parser := leading_parser
     atomic ("(" >> nonReservedSymbol "indices") >> " := " >> "[" >> many numLit >> "]" >> ")" >> ppSpace

@@ -1,0 +1,4 @@
+{
+  "warnings": [{ "code": "W0003" }],
+  "suppressible": ["duplicate-parameter"]
+}

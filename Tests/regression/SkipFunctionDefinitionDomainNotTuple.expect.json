@@ -1,0 +1,3 @@
+{
+  "reason": "MISFILED: hits the multi-arg function-definition parser gap, duplicating AcceptFunctionDefinitionMultiArgTupleDomain; never reaches TCError.notATupleType. OPEN_QUESTIONS 9.2, 9.23"
+}

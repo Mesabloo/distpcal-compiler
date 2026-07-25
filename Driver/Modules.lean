@@ -35,7 +35,7 @@ abbrev SourceRegistry := Std.HashMap String String
 structural errors (`moduleNotFound`/`ambiguousModule`/`cyclicExtends`), which carry none. -/
 def DriverError.moduleId? : DriverError → Option String
   | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _
-  | .typeCheck moduleId _ => some moduleId
+  | .typeCheck moduleId _ | .moduleNameMismatch moduleId _ _ => some moduleId
   | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => none
 
 /-- The source lines to render `err`'s snippet against — the offending module's own, looked up in
@@ -277,6 +277,7 @@ is reported inside its own recursive `compileModule` call, never duplicated here
 `source` before lexing runs. For a dependency this is the `EXTENDS`-requested name; for the main
 module it's whatever identifier `Fugue.lean` passes. -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
+    (expectedName : Option String := none)
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
     (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M TypedModule := do
@@ -295,6 +296,15 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
 
   if ← FlagsEnv.getDebugFlag "dump-cst" then
     dumpToFile (reprStr mod) dumpDir s!"{moduleId}-cst"
+
+  -- TLA⁺ requires a module to live in a file named after it: `locate` builds its candidate path as
+  -- `<dir>/<name>.tla` and looks nowhere else, so a module whose declared name differs from its
+  -- file's is unreachable by any `EXTENDS`, however well it compiles on its own. Checked as soon
+  -- as the name is known — right after parsing — and only when the caller knows what the name
+  -- ought to be: stdin has no filename to compare against, so it passes `none` and is exempt.
+  if let some expected := expectedName then
+    if mod.name != expected then
+      throw (.moduleNameMismatch moduleId mod.name expected)
 
   onModuleProgress mod.name
   let (warnings, result) ← runScoped do
@@ -379,17 +389,17 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
           onModuleEvent name .replayed
           return (false, entry.value)
         else
-          let recomputed ← compileModule src path.parent name
+          let recomputed ← compileModule src path.parent name (expectedName := some name)
             (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
           storeModule name { sourceHash := h, «extends» := entry.extends, value := recomputed }
           return (true, recomputed)
       else
-        let recomputed ← compileModule src path.parent name
+        let recomputed ← compileModule src path.parent name (expectedName := some name)
           (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
         storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
         return (true, recomputed)
     | none =>
-      let recomputed ← compileModule src path.parent name
+      let recomputed ← compileModule src path.parent name (expectedName := some name)
         (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
       storeModule name { sourceHash := h, «extends» := recomputed.extends, value := recomputed }
       return (true, recomputed)

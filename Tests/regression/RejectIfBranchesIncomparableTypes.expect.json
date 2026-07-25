@@ -1,0 +1,4 @@
+{
+  "failsAt": "typecheck",
+  "error": { "code": "E0036" }
+}

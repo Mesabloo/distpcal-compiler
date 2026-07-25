@@ -202,7 +202,12 @@ private def runCli (p : Parsed) : IO UInt32 := do
     -- only once done.
     let done ← IO.mkRef (∅ : Std.HashSet String)
 
-    let result ← runPipelineIO flags source containingDir dumpName
+    -- A file's module must be named after the file; stdin has no filename, so nothing to check.
+    let expectedName := match input with
+      | .path path => path.fileStem
+      | .stdin => none
+
+    let result ← runPipelineIO flags source containingDir dumpName expectedName
       { onModuleEvent := λ name outcome ↦ do
           done.modify (·.insert name)
           let count := s!"[{(← done.get).size}/{(← discovered.get).size}]"

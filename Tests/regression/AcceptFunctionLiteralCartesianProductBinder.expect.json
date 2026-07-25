@@ -1,0 +1,4 @@
+{
+  "status": "xfail",
+  "reason": "`\\X` is unbound: not desugared, or missing from builtinContext — OPEN_QUESTIONS §9.12"
+}

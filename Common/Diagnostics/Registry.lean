@@ -295,6 +295,13 @@ def guardedInternalInvariant : Entry :=
 def networkInternalInvariant : Entry :=
   { code := e 58, stage := .network, summary := "Internal invariant violated in Guarded2Network (compiler bug)." }
 
+/-! ## Module identity -/
+
+/-- A file whose `MODULE` name is not the file's own name. -/
+def moduleNameMismatch : Entry :=
+  { code := e 59, stage := .parse,
+    summary := "A module's declared name does not match the name of the file it is in." }
+
 /-! ## Warnings -/
 
 /-- `fair`/`fair+` parsed and ignored. -/
@@ -335,6 +342,7 @@ def entries : List Entry :=
     channelTypedVariable, nonEmptyLocalChannels, globalPlusCalVariable, globalTLAPlusVariable,
     bareTemporalOrAction, unboundedQuantifier,
     notComputable, computableInternalInvariant, guardedInternalInvariant, networkInternalInvariant,
+    moduleNameMismatch,
     fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning ]
 
 -- No two entries may share a number: the whole point of a code is that it identifies exactly one

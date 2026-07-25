@@ -37,6 +37,10 @@ inductive DriverError : Type
   /-- `EXTENDS` forms a cycle; `chain` is the resolution stack at the point the cycle was found,
   outermost first, with the repeated name appended at the end for a readable `A -> B -> A`. -/
   | cyclicExtends (chain : List String)
+  /-- The file declares `MODULE declared` but is named after `expected`. TLA⁺ requires the two to
+  agree — `EXTENDS Foo` looks for `Foo.tla` and nothing else — so a mismatch means the module is
+  unreachable by any other module, however well it compiles on its own. -/
+  | moduleNameMismatch (moduleId : String) (declared : String) (expected : String)
   /-- A real type-checking failure. -/
   | typeCheck (moduleId : String) (e : TCError)
 
@@ -62,12 +66,17 @@ instance : CompilerDiagnostic DriverError String where
     | .moduleNotFound _ => Diagnostics.moduleNotFound.code
     | .ambiguousModule .. => Diagnostics.ambiguousModule.code
     | .cyclicExtends _ => Diagnostics.cyclicExtends.code
+    | .moduleNameMismatch .. => Diagnostics.moduleNameMismatch.code
   posOf
     | .lex _ e => CompilerDiagnostic.posOf e
     | .parse _ e => CompilerDiagnostic.posOf e
     | .annotation _ e => CompilerDiagnostic.posOf e
     | .desugar _ e => CompilerDiagnostic.posOf e
-    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => SourceSpan.placeholder
+    -- `placeholder`, not the module header's own span: this diagnostic is about the file's
+    -- identity rather than anything at a position inside it, and a caret under the name would
+    -- suggest the name is what's wrong when the filename is equally likely to be.
+    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. | .moduleNameMismatch .. =>
+      SourceSpan.placeholder
     | .typeCheck _ e => CompilerDiagnostic.posOf e
   msgOf
     | .lex _ e => CompilerDiagnostic.msgOf e
@@ -78,6 +87,8 @@ instance : CompilerDiagnostic DriverError String where
     | .ambiguousModule name foundAt =>
       s!"Module '{name}' is ambiguous: found at {String.intercalate ", " foundAt}."
     | .cyclicExtends chain => s!"Cyclic EXTENDS: {String.intercalate " -> " chain}."
+    | .moduleNameMismatch _ declared expected =>
+      s!"This file declares 'MODULE {declared}', but is named '{expected}.tla'."
     | .typeCheck _ e => CompilerDiagnostic.msgOf e
 
 /-- `DriverError`'s non-fatal counterpart — carries a warning from any pass, plus its owning

@@ -1,4 +1,4 @@
----- MODULE RejectUnboundedChooseSynthesisPosition ----
+---- MODULE SkipUnboundedChooseSynthesisPosition ----
 \* Expect: rejected, `TCError.cannotInferType` (`Elaborator/Expressions.lean`, the
 \* `.choose _ _ none _, pos => throw (.cannotInferType ...)` case: unbounded `CHOOSE` has no
 \* synthesis rule at all, only a checking-mode one) -- but currently rejected for a completely
