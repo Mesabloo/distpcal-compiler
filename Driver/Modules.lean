@@ -3,6 +3,7 @@ module
 public import Driver.Errors
 public import Driver.Builtins
 public import Common.Flags
+public import Common.Dump
 public import Extra.Monad
 public import WellFormedness.Monad
 
@@ -157,8 +158,14 @@ private def locate (name : String) (containingDir : Option System.FilePath) : m 
 declarations by name: a `.file` hit via the cache `Ξ` (reachable this way only once a dependency
 has actually been resolved and cached), falling back to `builtinModules[name]?` for a builtin.
 Mirrors `locate`'s own candidate search, minus the not-found/ambiguous error cases — a name
-reachable via a checked `Origin.module name` tag has, by construction, already type-checked. -/
-instance : MonadForeignLookup m where
+reachable via a checked `Origin.module name` tag has, by construction, already type-checked.
+
+Constrained to `MonadModuleCache` alone rather than taking the surrounding `variable` block's
+whole bundle, so it applies at plain `IO` too — `Ξ` is a global `IO.Ref`, so the lookup needs
+nothing the driver's own `M` uniquely has. That is what lets the passes running *past* the driver
+(`Fugue.lean`'s `checkWellFormed`/`toComputable` calls, against `IO`) use this instance instead of
+declaring a second copy of it. -/
+instance {m : Type → Type} [Monad m] [MonadModuleCache TypedModule m] : MonadForeignLookup m where
   lookupForeign name := do
     match ← lookupModule name with
     | some entry => return some entry.value
@@ -191,14 +198,6 @@ private def reportFailureOnThrow {α} --(lines : List String.Slice) (colored : B
   | .ok a =>
     tell warnings
     pure a
-
-/-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. -/
-private def dumpToFile {m} [Monad m] [MonadLiftT IO m] (content : String) (dir : System.FilePath) (name : String) : m Unit := do
-  IO.FS.createDirAll dir
-  IO.FS.writeFile (dir / name) content
-
-/-- Default value of `-d dump-dir=<path>`. -/
-private def defaultDumpDir : System.FilePath := ".fugue/debug"
 
 /-- Every name/type binding a checked declaration introduces, computed from an already-checked
 `Decl` rather than by re-checking one. Used to expose an `EXTENDS`-ed dependency's own
@@ -248,7 +247,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
     (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M TypedModule := do
-  let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim defaultDumpDir (↑·)
+  let dumpDir ← getDumpDir
 
   registerSource moduleId source
 

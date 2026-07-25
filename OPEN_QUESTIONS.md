@@ -132,6 +132,14 @@ productions that rely on retry-after-partial-consumption. Placement checking pro
 the structural-role-mismatch half, which runs on the already-parsed AST and has none of this
 problem.
 
+**What's in the tree meanwhile:** `ParserWarning.unusedAnnotation` (`Parser_/Common.lean`) is
+declared with a `msgOf`/`posOf`/`name` instance but never constructed — the emit site is exactly
+what's blocked above. Its `-W` name is also absent from `Fugue.lean`'s `knownWarnings`, so
+`-Wno-unused-annotation` is rejected as an unknown option today (§9.20). Open: keep the
+constructor as the landing site for whenever the combinator question is settled, or delete it and
+reintroduce it then. Keeping it costs the `knownWarnings` gap; deleting it loses nothing but the
+signpost.
+
 ### 9.10 `LAMBDA` — designed, not implemented
 Thesis has typing rules (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression` nor
 `CoreTLAPlus.Expression` has a constructor, and there's no `LAMBDA` lexer token. Out of scope;
@@ -320,3 +328,38 @@ Cheap adjacent improvement, unclaimed: `TCError.ambiguousType`'s message
 (`Elaborator/Errors.lean`) states the symptom without naming the fix. Pointing it at "annotate
 the expected type" would make the workaround discoverable. Both throw sites are inside `lubAll`,
 so no other caller's wording constrains it.
+
+### 9.19 `GuardedPlusCal.Declarations` is a byte-identical copy of `ElaboratedPlusCal.Declarations`
+`Core/GuardedPlusCal/Syntax.lean`'s `Declarations` has the same three fields at the same types as
+`Core/TypedPlusCal/Syntax.lean`'s, plus a `Bifunctor`/`Bitraversable` pair whose bodies match
+field for field. Its docstring says as much ("A fresh copy of `ElaboratedPlusCal.Declarations`'s
+shape"). The cost lands in `Computable2Guarded.lean`'s `Declarations.toGuarded` — a
+field-for-field repackaging its own docstring calls unnecessary — and `NetworkPlusCal` then reuses
+the Guarded copy rather than adding a third.
+
+The split isn't a blanket policy at this layer: the same file *reuses* `ElaboratedPlusCal.Ref` and
+`.MulticastFilter` rather than copying them, precisely so `Computable2Guarded`'s `Ref`
+field-access fix flows through. So `Declarations` is the odd one out, not the rule.
+
+**Open:** collapse it (delete ~30 lines and the no-op conversion, pin `GuardedPlusCal.Declarations
+:= ElaboratedPlusCal.Declarations` the way `Ref` already is), or keep the copy. Keeping it is
+defensible under the standing preference for splitting an AST once a stage genuinely diverges —
+the question is whether `Declarations` is *expected* to diverge at the Guarded stage. It hasn't
+through Network, and no planned pass adds a field to it. If nothing is expected, the copy is
+buying only the option to diverge cheaply later.
+
+### 9.20 `knownDebugOptions`/`knownFeatures`/`knownWarnings` are hand-maintained arrays
+`Fugue.lean` validates `-d`/`-f`/`-W` names against three literal `Array String`s. `knownWarnings`
+has already drifted: it lists `fair` and `duplicate-parameter` but not `ParserWarning
+.unusedAnnotation`'s name, so `-Wno-unused-annotation` is rejected as unknown (§9.8). Nothing
+makes the arrays and the `CompilerDiagnostic.name` instances agree — the drift is silent, and the
+same failure mode is available to every warning added later.
+
+**Open:** whether the fix is worth its machinery. The warning list *could* be derived, but only
+from a registry of warning types that doesn't exist — every pass declares its own warning
+inductive with no common enumeration point, and `CompilerDiagnostic.name` maps a *value* to a
+string, so there's nothing to fold over without first listing the constructors. The debug/feature
+arrays have no derivable source at all: no declaration site anywhere names `dump-guarded` except
+the `getDebugFlag` call that reads it. Cheapest partial fix, if the full one isn't wanted: move
+each array next to what it validates, so adding a dump point and registering its name are the same
+edit.

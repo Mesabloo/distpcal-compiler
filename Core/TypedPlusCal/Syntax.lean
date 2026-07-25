@@ -102,6 +102,32 @@ def Branches.forStatements {τ ε b} {m : Type → Type} [Monad m]
     Block.forStatements act B
     Branches.forStatements act rest
 
+/-- Pre-order recursion over `s` and every statement nested inside it: `act s` first, then the
+same over whatever `if`/`either`/`while`/`with` nest below — the four constructors that embed a
+`Block`/`Branches`; every other statement is a leaf. The structural half of what a per-node check
+needs, so a check that has no context to thread supplies only the check itself
+(`WellFormedness/Labelling.lean`) rather than restating this recursion.
+
+A check whose per-node work depends on where it is in the tree can't use this — `WellFormedness/
+WellScoped/TypedPlusCal.lean` extends its in-scope set at every `with` binder, which needs the
+recursion and the check interleaved, so it keeps its own copy.
+
+`partial`: the recursion isn't visibly decreasing to Lean through the `Block`/`Branches`
+nesting, same as every other walker over this type. -/
+partial def Statement.forEachNode {τ ε b} {m : Type → Type} [Monad m]
+    (act : ∀ {b'}, Statement τ ε b' → m Unit) (s : Statement τ ε b) : m Unit := do
+  act s
+  let recurse : ∀ {b'}, Statement τ ε b' → m Unit := Statement.forEachNode act
+  match s with
+  | .if _ B₁ B₂ => do
+    Block.forStatements recurse B₁
+    Block.forStatements recurse B₂
+  | .either branches => Branches.forStatements recurse branches
+  | .while _ B => Block.forStatements recurse B
+  | .with _ _ _ _ B => Block.forStatements recurse B
+  | .goto _ | .skip | .print _ | .assign _ | .await _ | .assert _
+  | .receive _ _ _ | .send _ _ | .multicast _ _ => pure ()
+
 instance {τ ε b} : Inhabited (Statement τ ε b) where
   default := match b with
     | true => .goto default
@@ -138,6 +164,18 @@ structure Algorithm (τ ε : Type) : Type where
   globalState : Declarations τ ε
   processes : List (Process τ ε)
   deriving Repr, Inhabited
+
+/-- Runs `act` over the top-level statements of every labelled block of every thread of `p` — the
+`threads`/`(label, Block)` nesting flattened away. Only the *top-level* statements: `act` is
+whatever the caller wants per block, `Statement.forEachNode` if it wants the whole subtree.
+
+Per *process*, not per algorithm, because all three callers need it that way: labels
+(`WellFormedness/Labelling.lean`) and in-scope names (`WellFormedness/WellScoped/TypedPlusCal.
+lean`) are both process-scoped, and `WellFormedness/Reachability.lean` visits a process's own
+`id`/`mailbox`/`localState` expressions in the same loop. -/
+def Process.forStatements {τ ε} {m : Type → Type} [Monad m]
+    (act : ∀ {b'}, Statement τ ε b' → m Unit) (p : Process τ ε) : m Unit :=
+  p.threads.forM λ thread ↦ thread.forM λ (_, blk) ↦ Block.forStatements act blk
 
 end ElaboratedPlusCal
 

@@ -221,9 +221,7 @@ def TypedPlusCal.Algorithm.walkReachable [MonadStateOf ReachabilityClosure m]
     walkExpr p.id
     p.mailbox.forM λ (_, es) ↦ es.forM walkExpr
     TypedPlusCal.Declarations.walkReachable visitExpr currentModule ownDecls p.localState
-    for thread in p.threads do
-      for (_, blk) in thread do
-        ElaboratedPlusCal.Block.forStatements
-          (TypedPlusCal.Statement.walkReachable visitStatement visitExpr currentModule ownDecls) blk
+    ElaboratedPlusCal.Process.forStatements
+      (TypedPlusCal.Statement.walkReachable visitStatement visitExpr currentModule ownDecls) p
 
 end

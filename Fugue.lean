@@ -2,6 +2,7 @@ module
 
 public import Cli.Basic
 public import Common.Flags
+public import Common.Dump
 import Common.Errors
 import Parser_
 import Desugarer
@@ -185,24 +186,6 @@ private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT I
     if ← FlagsEnv.isWarningEnabled warning.name then
       logLine <| CompilerDiagnostic.pretty warning ((← warning.sourceLines).getD lines) colored
 
-/-- `MonadForeignLookup`'s instance for plain `IO` — needed by `WellFormedness.checkWellFormed`/
-`Typed2Computable.toComputable` below, which run here after the driver has already returned its
-checked module, not inside `Driver/Modules.lean`'s own `M`. Needs only `Ξ`'s cache (already
-populated by the driver's recursive `EXTENDS` resolution) and the builtin table — the same
-lookup `Driver/Modules.lean`'s instance does, against `IO` instead of `M`. -/
-instance : MonadForeignLookup IO where
-  lookupForeign name := do
-    match ← lookupModule name with
-    | some entry => return some entry.value
-    | none => return builtinModules[name]?
-
-/-- Write a `-d dump-*` debugging artifact to `dir/name`, creating `dir` if needed. Mirrors
-`Driver/Modules.lean`'s own `dumpToFile` — kept as a separate copy rather than exported, since
-it's a three-line helper and the two files dump different things at different stages. -/
-private def dumpToFile (content : String) (dir : System.FilePath) (name : String) : IO Unit := do
-  IO.FS.createDirAll dir
-  IO.FS.writeFile (dir / name) content
-
 /-- Run one of the passes past the driver (well-formedness checking, `Typed2Computable`, and
 whatever else runs outside `compileModule`) — every pass reports through `MonadDiagnostic` (a
 `DiagT`-based warnings-plus-error stack), never a bare `MonadExceptOf`, so this is the one
@@ -222,6 +205,19 @@ private def runPassDiag {α ε} [CompilerDiagnostic α String] [CompilerDiagnost
     IO.eprintln "Compilation failed."
     IO.Process.exit 1
   | .ok a => pure a
+
+/-- One pipeline stage past the driver: run it through `runPassDiag`, then write its result to
+`<dumpDir>/<dumpName>-<stageName>` if `-d dump-<stageName>` was given. Every stage from
+`Typed2Computable` onward has this same shape, and the `-d` option is named after the stage, so
+`stageName` supplies both halves. `checkWellFormed` is the one exception — it produces no value to
+dump — and calls `runPassDiag` directly. -/
+private def runStage {ε} [CompilerDiagnostic ε String] {γ} [Repr γ]
+    (lines : List String.Slice) (colored : Bool) (dumpName stageName : String)
+    (act : DiagT Empty ε IO γ) : IO γ := do
+  let result ← runPassDiag lines colored act
+  if ← FlagsEnv.getDebugFlag s!"dump-{stageName}" then
+    dumpToFile (reprStr result) (← getDumpDir) s!"{dumpName}-{stageName}"
+  return result
 
 private def runCli (p : Parsed) : IO UInt32 := do
   validateAndSetFlags p
@@ -285,29 +281,22 @@ private def runCli (p : Parsed) : IO UInt32 := do
     | .ok typedMod =>
       pure (typedMod, lines)
 
-    let dumpDir : System.FilePath := (← FlagsEnv.getDebugOption "dump-dir").elim ".fugue/debug" (↑·)
-
     -- Everything past this point runs *outside* the driver: `compileModule` only takes a module
     -- through type checking and caches that result. Well-formedness checking and the
     -- `Typed2Computable` translation are the first two passes of the real pipeline, run once
     -- here against the driver's already-returned main module, not per `EXTENDS` dependency
     -- inside the driver's own recursion.
     runPassDiag lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : DiagT Empty WellFormednessError IO Unit)
-    let computable ← runPassDiag lines colored (TypedTLAPlus.Module.toComputable typedMod : DiagT Empty ComputableError IO _)
-
-    if ← FlagsEnv.getDebugFlag "dump-computable" then
-      dumpToFile (reprStr computable) dumpDir s!"{dumpName}-computable"
+    let computable ← runStage lines colored dumpName "computable"
+      (TypedTLAPlus.Module.toComputable typedMod : DiagT Empty ComputableError IO _)
 
     -- `Computable2Guarded`'s pass, only when there's a PlusCal algorithm to run it on — an
     -- ordinary TLA⁺ module with none is done once `toComputable` above has checked it.
     if let some algo := computable.pcalAlgorithm then
-      let guarded ← runPassDiag lines colored (algo.toGuarded : DiagT Empty GuardedError IO _)
-      if ← FlagsEnv.getDebugFlag "dump-guarded" then
-        dumpToFile (reprStr guarded) dumpDir s!"{dumpName}-guarded"
-
-      let network ← runPassDiag lines colored (guarded.toNetwork : DiagT Empty G2NError IO _)
-      if ← FlagsEnv.getDebugFlag "dump-network" then
-        dumpToFile (reprStr network) dumpDir s!"{dumpName}-network"
+      let guarded ← runStage lines colored dumpName "guarded"
+        (algo.toGuarded : DiagT Empty GuardedError IO _)
+      let _network ← runStage lines colored dumpName "network"
+        (guarded.toNetwork : DiagT Empty G2NError IO _)
 
     spinner.success s!"Build done ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
 

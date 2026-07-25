@@ -10,8 +10,7 @@ public section
   `"Done"`; `"Done"` itself is never a real, user-defined label.
 
   Assignment-conflict checking is **not** duplicated here — it already runs in
-  `Desugarer/PlusCal.lean`'s `CorePlusCal.Algorithm.checkAssignConflicts`. The mutual-recursion
-  shape below mirrors that function's style.
+  `Desugarer/PlusCal.lean`'s `CorePlusCal.Algorithm.checkAssignConflicts`.
 -/
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
@@ -28,29 +27,22 @@ def TypedPlusCal.Process.labels (p : TypedPlusCal.Process) : m (List String) := 
       else pure label
   return perThread.flatten
 
-/-- Walks every `goto l` reachable from `s`, checking `l` against `labels ∪ {"Done"}`. -/
-partial def TypedPlusCal.Statement.checkGotoTargets {b} (labels : List String)
+/-- Checks one `goto l` against `labels ∪ {"Done"}`. A per-node check with no context of its own
+beyond `labels`, so it does no recursing — `ElaboratedPlusCal.Statement.forEachNode`
+(`Core/TypedPlusCal/Syntax.lean`) supplies that. Every non-`goto` statement is vacuously fine. -/
+def TypedPlusCal.Statement.checkGotoTarget {b} (labels : List String)
     (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
   | .goto l, pos => unless labels.contains l ∨ l = "Done" do throw (.unknownLabel pos l)
-  | .if _ B₁ B₂, _ => do
-    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₁
-    ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B₂
-  | .either branches, _ =>
-    ElaboratedPlusCal.Branches.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) branches
-  | .while _ B, _ => ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
-  | .with _ _ _ _ B, _ => ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) B
-  | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
-  | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
+  | _, _ => pure ()
 
 /-- Well-labelledness over a whole algorithm: per process (labels are process-scoped, shared
 across all of that process's threads, per `Process.labels` above), check every `goto` in every
 thread of that same process. -/
-def TypedPlusCal.Algorithm.checkLabelling (algo : TypedPlusCal.Algorithm) : m Unit := do
-  for p in algo.processes do
+def TypedPlusCal.Algorithm.checkLabelling (algo : TypedPlusCal.Algorithm) : m Unit :=
+  algo.processes.forM λ p ↦ do
     let labels ← TypedPlusCal.Process.labels p
-    for thread in p.threads do
-      for (_, blk) in thread do
-        ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkGotoTargets labels) blk
+    ElaboratedPlusCal.Process.forStatements
+      (ElaboratedPlusCal.Statement.forEachNode (TypedPlusCal.Statement.checkGotoTarget labels)) p
 
 end

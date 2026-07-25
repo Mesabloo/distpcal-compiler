@@ -51,7 +51,11 @@ private def checkNoShadow (inScope : List String) (names : List (String × Sourc
     if inScope.contains n then throw (.shadowedName pos n)
 
 /-- Walks every `with` binder reachable from `s`, checking it against `inScope` and extending
-it for the sub-block. No other statement introduces a PlusCal-visible name. -/
+it for the sub-block. No other statement introduces a PlusCal-visible name.
+
+Keeps its own recursion rather than using `ElaboratedPlusCal.Statement.forEachNode` — `inScope`
+grows at each `with` and only for that binder's own sub-block, so the check and the recursion
+can't be separated the way `Labelling.lean`'s can. -/
 partial def TypedPlusCal.Statement.checkWellScoped {b} (inScope : List String)
     (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
@@ -79,8 +83,6 @@ def TypedPlusCal.Algorithm.checkWellScoped (algo : TypedPlusCal.Algorithm) : m U
     checkNoDuplicates localNames
     checkNoShadow (globalNames.map Prod.fst) localNames
     let inScope := globalNames.map Prod.fst ++ localNames.map Prod.fst
-    for thread in p.threads do
-      for (_, blk) in thread do
-        ElaboratedPlusCal.Block.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) blk
+    ElaboratedPlusCal.Process.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) p
 
 end

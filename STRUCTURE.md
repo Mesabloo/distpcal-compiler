@@ -13,6 +13,8 @@ entry point per library. `Fugue.lean` is the `lean_exe` root, the CLI.
 - `Errors.lean` — shared error-reporting typeclasses.
 - `Position.lean` — `SourceSpan`/`Located`.
 - `Flags.lean` — CLI flag definitions.
+- `Dump.lean` — where `-d dump-*` artifacts go and how they're written; shared by `Driver/` and
+  `Fugue.lean`.
 - `Fresh.lean` — hygienic fresh-name generation effect class.
 - `Pretty.lean` — `Std.Format` combinators with precedence-aware parenthesization.
 
