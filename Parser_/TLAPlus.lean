@@ -1144,12 +1144,17 @@ namespace SurfaceTLAPlus.Parser
   /-- Parse a full module, always pairing any collected `ParserWarning`s with the result —
   whether or not parsing itself succeeded, so a warning emitted before a fatal parse error still
   reaches the caller. A `DiagT` in all but name (`Id` base), ascribed that way so
-  `Driver/Modules.lean` can absorb it directly via `DiagT.lift`. -/
+  `Driver/Modules.lean` can absorb it directly via `DiagT.lift`.
+
+  `.reverse` because `ParserWarningM` accumulates by prepending (`Parser_/Common.lean`,
+  `modify (w :: ·)` — O(1) per warning, unlike appending), so its list is newest-first. Every
+  other pass reports through `DiagT`, whose `bind` *appends*, so warnings elsewhere come out in
+  source order; reversing here is what puts the parser's on that same footing. -/
   def parseModule (tokens : Array (Located' (Token (Located' SurfacePlusCal.Token)))) :
     DiagT ParserWarning (Unexpected (Token (Located' SurfacePlusCal.Token))) Id
       (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation)) :=
       let (res, warnings) := (parseModule'.run (Stream.mkOfList tokens.toList)).run []
-      (warnings, match res with
+      (warnings.reverse, match res with
       | .error _ e => .error <| errToUnexpected e
       | .ok _ mod => .ok mod)
   where
