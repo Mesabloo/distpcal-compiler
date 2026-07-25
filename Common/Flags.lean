@@ -59,14 +59,12 @@ def isWarningEnabled (name : String) : m Bool := do
 
 end FlagsEnv
 
-/--
-  Backing store for `MonadReaderOf FlagsEnv IO`, populated once at CLI startup from
-  `Cli.Parsed` — every pass, and the driver itself, reads flags through this same instance
-  rather than a value threaded by hand.
+/-!
+  There is deliberately no `MonadReaderOf FlagsEnv IO` instance backed by a global `IO.Ref`: a
+  `FlagsEnv` belongs to *one* compile, not to the process. `Driver/Pipeline.lean`'s `runPipeline`
+  takes one and supplies it as a real `ReaderT` layer, so two compiles running concurrently in the
+  same process (the regression runner does exactly this) cannot see each other's flags. The CLI
+  builds its `FlagsEnv` once from `Cli.Parsed` and hands it over the same way.
 -/
-initialize flagsRef : IO.Ref FlagsEnv ← IO.mkRef {}
-
-instance : MonadReaderOf FlagsEnv IO where
-  read := flagsRef.get
 
 end

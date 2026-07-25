@@ -45,14 +45,15 @@ end CoreTLAPlus
 metavariable/pending-bounds contexts as nested `StateT`s, and `MonadDiagnostic`'s `TCError`/
 `TCWarning` reporting via `DiagT`, so a warning emitted before a later fatal error still
 survives. No checking rule emits a `TCWarning` yet, but the capability is wired through
-uniformly with every other pass. `Γ₀` is the caller-supplied initial context. `DiagT`'s base
-monad is `IO`, not `Id`: fresh-name generation (`MonadFresh`, needed by `Subtyping.lean`) draws
-from `Common/Fresh.lean`'s single process-wide `IO.Ref` counter, so this stack needs `IO`
-reachable to pick up that instance. -/
-def CoreTLAPlus.Module.runChecker (Γ₀ : Context) (mod : CoreTLAPlus.Module SrcAlgorithm (Option Typ)) :
-    DiagT TCWarning TCError IO TypedModule :=
+uniformly with every other pass. `Γ₀` is the caller-supplied initial context. The base monad `n`
+stays abstract, constrained only to supply the fresh-name counter (`MonadStateOf Nat`, which
+`Common/Fresh.lean`'s `MonadFresh` instance reads, needed here by `Subtyping.lean`): the counter
+belongs to one compile, owned by `Driver/Modules.lean`'s `DriverState`, not to the process. -/
+def CoreTLAPlus.Module.runChecker {n : Type → Type} [Monad n] [MonadFresh n] (Γ₀ : Context)
+    (mod : CoreTLAPlus.Module SrcAlgorithm (Option Typ)) :
+    DiagT TCWarning TCError n TypedModule :=
   let check : ReaderT Context
-      (StateT (MetavarContext Typ) (StateT PendingBounds (DiagT TCWarning TCError IO))) TypedModule :=
+      (StateT (MetavarContext Typ) (StateT PendingBounds (DiagT TCWarning TCError n))) TypedModule :=
     mod.check
   ((check.run Γ₀).run' ∅).run' ∅
 

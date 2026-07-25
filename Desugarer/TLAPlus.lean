@@ -286,12 +286,14 @@ end SurfaceTLAPlus
 fresh-name generation, and `MonadDiagnostic`'s error reporting/warning accumulation (instantiated
 at `DiagT`, so a warning survives a later fatal error). No expression-level rule actually emits a
 `DesugarWarning` yet, but the concrete stack stays uniform with `Desugarer/PlusCal.lean`'s
-statement-level `runDesugarer`. `DiagT`'s base monad is `IO`, not `Id`: fresh-name generation
-draws from `Common/Fresh.lean`'s single process-wide `IO.Ref` counter rather than a `StateT Nat`
-layered in here. -/
-def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] (mod : SurfaceTLAPlus.Module (SurfacePlusCal.Algorithm α (SurfaceTLAPlus.Expression α)) α) :
-    DiagT DesugarWarning DesugarError IO (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
-  let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (DiagT DesugarWarning DesugarError IO) _ := mod.desugar
+statement-level `runDesugarer`. The base monad `n` stays abstract, constrained only to supply the
+fresh-name counter (`MonadStateOf Nat`, which `Common/Fresh.lean`'s `MonadFresh` instance reads):
+the counter belongs to one compile, so the driver owns it (`Driver/Modules.lean`'s `DriverState`)
+rather than this pass pinning a base monad that can reach a process-wide one. -/
+def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] {n : Type → Type} [Monad n] [MonadFresh n]
+    (mod : SurfaceTLAPlus.Module (SurfacePlusCal.Algorithm α (SurfaceTLAPlus.Expression α)) α) :
+    DiagT DesugarWarning DesugarError n (CoreTLAPlus.Module (SurfacePlusCal.Algorithm α (CoreTLAPlus.Expression α)) α) :=
+  let desugar : ReaderT (Option (CoreTLAPlus.Expression α)) (DiagT DesugarWarning DesugarError n) _ := mod.desugar
   desugar.run none
 
 /-- Validate an annotation slot known to be `@type`-only: must contain only `@type`, and at most

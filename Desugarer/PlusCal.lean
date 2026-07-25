@@ -430,10 +430,13 @@ for error reporting and the `List DesugarWarning` accumulator — instantiated a
 warning emitted before a later fatal error still survives. Also runs
 `CorePlusCal.Algorithm.checkAssignConflicts` before `stripEmbeddedTypeAnnotations`, so the
 returned `CorePlusCal.Algorithm` is fully checked with every annotation slot resolved — both run
-after warnings are already extracted, since neither touches them. -/
-def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
-    DiagT DesugarWarning DesugarError IO (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) := do
-  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (DiagT DesugarWarning DesugarError IO))
+after warnings are already extracted, since neither touches them. The base monad `n` stays
+abstract for the same reason as `Desugarer/TLAPlus.lean`'s `runDesugarer`: the fresh-name counter
+it needs belongs to one compile, not to the process. -/
+def SurfacePlusCal.Algorithm.runDesugarer {n : Type → Type} [Monad n] [MonadFresh n]
+    (a : SurfacePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
+    DiagT DesugarWarning DesugarError n (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) := do
+  let desugar : ReaderT SurfacePlusCal.WithContext (ReaderT SurfacePlusCal.SegmentContext (DiagT DesugarWarning DesugarError n))
       (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :=
     a.desugar
   -- `DiagT` has its own `Monad`/`MonadExceptOf` instances (`Common/Errors.lean`) — bind directly,

@@ -12,10 +12,11 @@ entry point per library. `Fugue.lean` is the `lean_exe` root, the CLI.
 ## `Common/`
 - `Errors.lean` — shared error-reporting typeclasses.
 - `Position.lean` — `SourceSpan`/`Located`.
-- `Flags.lean` — CLI flag definitions.
+- `Flags.lean` — CLI flag definitions (`FlagsEnv`, supplied per compile as a reader — no global).
 - `Dump.lean` — where `-d dump-*` artifacts go and how they're written; shared by `Driver/` and
   `Fugue.lean`.
-- `Fresh.lean` — hygienic fresh-name generation effect class.
+- `Fresh.lean` — hygienic fresh-name generation effect class, plus its lifts through
+  `ReaderT`/`StateT`/`DiagT`. The counter itself is `Driver/`'s, one per compile.
 - `Pretty.lean` — `Std.Format` combinators with precedence-aware parenthesization.
 
 ## `Extra/`
@@ -154,7 +155,11 @@ Bidirectional type checker (§3.1, thesis ch. 3.1).
 Recursive `EXTENDS` resolution (§2/§5.3) — orchestration around the checking rules: locate/lex/
 parse/desugar a module, recurse on its `EXTENDS` list, module cache `Ξ`, stdlib operator table.
 `Fugue.lean` calls in for the main module; this calls back into itself per dependency.
-- `Modules.lean` — the orchestration.
+- `Modules.lean` — the orchestration, plus `DriverState` (one compile's fresh-name counter,
+  source registry, and module cache `Ξ`) and the monad `M` it all runs at.
+- `Pipeline.lean` — a whole compile as one function: `Stage`, `PipelineError`/`PipelineResult`,
+  `runPipeline`, and the pure diagnostic renderers. `Fugue.lean` and `tests/`'s runner are its
+  two consumers; neither reimplements the pass order.
 - `Errors.lean` — wraps each lower-level pass's error type (incl. `ComputableError` as
   `.computability`) plus resolution conditions (`moduleNotFound`, etc.).
 - `Builtins.lean` — standard-library operator table.
@@ -271,7 +276,7 @@ Hand-written smoke fixtures (`accept_*.tla`/`reject_*.tla`) plus `run.sh`.
 
 ## Root
 - `Fugue.lean` — CLI entry point.
-- `Desugarer.lean`, `Parser_.lean`, `ProgressBar.lean` — top-level re-exports.
+- `Desugarer.lean`, `Driver.lean`, `Parser_.lean`, `ProgressBar.lean` — top-level re-exports.
 - `CustomPrelude.lean` — project-wide prelude imports/settings.
 - `lakefile.lean` — build config, `lean_lib` per pass (`Fugue.G2N`, etc.).
 - `lean-toolchain`, `lake-manifest.json` — toolchain pin and dependency lockfile.

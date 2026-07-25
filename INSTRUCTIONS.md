@@ -78,5 +78,3 @@ Carried from prior art's `lakefile.lean`; raise open question before dropping an
 - Go denotational semantics / domain theory work — research-level, out of near-term scope.
 - Join Calculus interpreter or further lowering — deliverable is a well-formed `.join` file;
   what happens after is unresolved.
-- Formal example/regression test suite — deprioritized. Small hand-written smoke checks while
-  developing a pass fine and encouraged; maintained suite is separate, unscoped.

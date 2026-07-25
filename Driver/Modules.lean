@@ -28,37 +28,34 @@ class MonadSourceRegistry (m : Type → Type) where
   lookupSource : String → m (Option String)
 export MonadSourceRegistry (registerSource lookupSource)
 
-instance {m} [Monad m] [MonadStateOf (Std.HashMap String String) m] : MonadSourceRegistry m where
-  registerSource key source := modify (·.insert key source)
-  lookupSource key := (·.get? key) <$> get
+/-- The registry itself, as plain data: `moduleId ↦ that module's source text`. -/
+abbrev SourceRegistry := Std.HashMap String String
 
-/-- Backing store for the source registry. -/
-initialize sourceRegistryRef : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+/-- The `moduleId` a `DriverError` is tagged with, if any — `none` for the position-free
+structural errors (`moduleNotFound`/`ambiguousModule`/`cyclicExtends`), which carry none. -/
+def DriverError.moduleId? : DriverError → Option String
+  | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _
+  | .typeCheck moduleId _ => some moduleId
+  | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => none
 
-instance : MonadStateOf (Std.HashMap String String) IO := sourceRegistryRef.toMonadStateOf
+/-- The source lines to render `err`'s snippet against — the offending module's own, looked up in
+`registry` by `moduleId`, not whichever module the caller started compiling from. `none` when
+`err` carries no `moduleId`, or the registry has no entry for it; the caller should fall back to
+rendering against the main module's own lines.
 
-/-- The source lines to render `err`'s snippet against — the offending module's own, looked up
-from the registry above by `moduleId`, not whichever module the caller started compiling from.
-`none` for the position-free structural errors (`moduleNotFound`/`ambiguousModule`/
-`cyclicExtends`, which carry no `moduleId` at all); the caller should fall back to rendering
-against the main module's own lines. -/
-def DriverError.sourceLines (err : DriverError) : IO (Option (List String.Slice)) := do
-  let moduleId? := match err with
-    | .lex moduleId _ | .parse moduleId _ | .annotation moduleId _ | .desugar moduleId _
-    | .typeCheck moduleId _ =>
-      some moduleId
-    | .moduleNotFound .. | .ambiguousModule .. | .cyclicExtends .. => none
-  match moduleId? with
-  | none => return none
-  | some moduleId => return (·.split (· == '\n') |>.toList) <$> (← lookupSource moduleId)
+A pure function of the registry rather than an `IO` action reading a global ref, so rendering a
+diagnostic needs no `IO` at all — which is what lets `Driver/Pipeline.lean` hand a caller finished
+diagnostic text and lets the regression runner assert on it directly. -/
+def DriverError.sourceLines (registry : SourceRegistry) (err : DriverError) :
+    Option (List String.Slice) := do
+  let moduleId ← err.moduleId?
+  return (← registry.get? moduleId).split (· == '\n') |>.toList
 
-def DriverWarning.sourceLines (err : DriverWarning) : IO (Option (List String.Slice)) := do
-  let moduleId? := match err with
-    | .parser moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ =>
-      some moduleId
-  match moduleId? with
-  | none => return none
-  | some moduleId => return (·.split (· == '\n') |>.toList) <$> (← lookupSource moduleId)
+/-- `DriverError.sourceLines`'s counterpart for warnings, which always carry a `moduleId`
+(`DriverWarning.moduleId`, `Driver/Errors.lean`). -/
+def DriverWarning.sourceLines (registry : SourceRegistry) (warning : DriverWarning) :
+    Option (List String.Slice) := do
+  return (← registry.get? warning.moduleId).split (· == '\n') |>.toList
 
 /-- Names of modules currently being resolved, outermost first — pushed via `withReader (name ::
 ·)` before recursing into a dependency. A module about to be resolved that's already in this
@@ -98,35 +95,63 @@ class MonadModuleCache (β : outParam Type) (m : Type → Type) where
   storeModule : String → CacheEntry β → m Unit
 export MonadModuleCache (lookupModule storeModule)
 
-instance {β m} [Monad m] [MonadStateOf (Std.HashMap String (CacheEntry β)) m] : MonadModuleCache β m where
-  lookupModule n := (·.get? n) <$> get
-  storeModule n entry := modify (·.insert n entry)
-
 -- The effects `compileModule`/`resolveModule` need beyond ordinary IO: `Γ`'s enclosing `FlagsEnv`
--- (for `-I`'s search path), the resolution stack (cycle detection), the module cache, and error
--- reporting. Not a `class abbrev` bundle: two different `MonadReaderOf`/`MonadWithReaderOf`
--- instantiations as parents of the same abbrev collide, so every constraint is listed explicitly
--- on each function instead.
+-- (for `-I`'s search path), the resolution stack (cycle detection), the module cache, the source
+-- registry, the fresh-name counter, and error reporting. Not a `class abbrev` bundle: two
+-- different `MonadReaderOf`/`MonadWithReaderOf` instantiations as parents of the same abbrev
+-- collide, so every constraint is listed explicitly on each function instead.
+
+/-- Everything one compile mutates as it runs: the fresh-name counter (`Common/Fresh.lean`), the
+source registry (for rendering a diagnostic against its own module's lines), and the module cache
+`Ξ`. One value per compile, threaded as a real `StateT` layer rather than a set of global
+`IO.Ref`s, so concurrent compiles in one process — which is what the regression runner does — are
+independent, and a compile's fresh names don't depend on what ran before it. -/
+structure DriverState : Type where
+  /-- `MonadFresh`'s counter. -/
+  fresh : Nat := 0
+  /-- Module sources by `moduleId`. -/
+  sources : SourceRegistry := {}
+  /-- The module cache `Ξ`. -/
+  cache : Std.HashMap String (CacheEntry TypedModule) := {}
+  deriving Inhabited
+
+-- The three effects `DriverState` backs, each written against `MonadStateOf DriverState` directly.
+-- A pass never sees `DriverState` itself: it asks for `MonadFresh`/`MonadSourceRegistry`/
+-- `MonadModuleCache`, and `Common/Fresh.lean`'s lifts carry those down to here through whatever
+-- layers the pass stacked on top.
+
+/-- The compile's fresh-name counter (`Common/Fresh.lean`). -/
+instance {m} [Monad m] [MonadStateOf DriverState m] : MonadFresh m where
+  fresh := modifyGet λ s ↦ (s.fresh, { s with fresh := s.fresh + 1 })
+
+instance {m} [Monad m] [MonadStateOf DriverState m] : MonadSourceRegistry m where
+  registerSource key source := modify λ s ↦ { s with sources := s.sources.insert key source }
+  lookupSource key := (·.sources.get? key) <$> get
+
+instance {m} [Monad m] [MonadStateOf DriverState m] : MonadModuleCache TypedModule m where
+  lookupModule n := (·.cache.get? n) <$> get
+  storeModule n entry := modify λ s ↦ { s with cache := s.cache.insert n entry }
+
+/-- What `M` sits on: the compile's flags and its mutable state, under plain `IO`. The state layer
+is *below* `DiagT` on purpose — `StateT` above it would discard everything written before a
+`throw`, and the source registry has to survive the throw that consults it. -/
+abbrev Base := ReaderT FlagsEnv (StateT DriverState IO)
 
 /-- The concrete monad `compileModule`/`resolveModule` run at when actually invoked.
-`FlagsEnv`/`Ξ` are both backed by a global `IO.Ref` and reachable directly at `IO`;
-`ResolutionStack` is the one genuinely scoped Reader (push-on-recurse, pop-on-return), so it's
-the one transformer layer needed on top of `DiagT`'s own `DriverWarning`/`DriverError` reporting
-over `IO` — `compileModule`/`resolveModule` are concrete against this one stack, not polymorphic
-like everything else here: the per-module warning scoping below (`runScoped`) needs to actually
-run `DiagT`'s layer down to a plain value, which is only possible against a fixed concrete stack,
-not an abstract `m`. -/
-abbrev M := ReaderT ResolutionStack (DiagT DriverWarning DriverError IO)
+`ResolutionStack` is the one genuinely scoped Reader (push-on-recurse, pop-on-return), which is
+why it sits above `DiagT`'s own `DriverWarning`/`DriverError` reporting rather than in `Base`.
+`compileModule`/`resolveModule` are concrete against this stack, not polymorphic like everything
+else here: the per-module warning scoping below (`runScoped`) needs to actually run `DiagT`'s
+layer down to a plain value, which is only possible against a fixed concrete stack, not an
+abstract `m`. -/
+abbrev M := ReaderT ResolutionStack (DiagT DriverWarning DriverError Base)
 
-/-- Run an `M` action from the top, with an empty resolution stack. -/
-def runM {α} (act : M α) : IO (List DriverWarning × Except DriverError α) :=
-  (ReaderT.run act []).run
-
-/-- Backing store for `Ξ`, mirroring `Common/Flags.lean`'s `flagsRef` pattern. -/
-initialize moduleCacheRef : IO.Ref (Std.HashMap String (CacheEntry TypedModule)) ← IO.mkRef {}
-
-instance : MonadStateOf (Std.HashMap String (CacheEntry TypedModule)) IO :=
-  moduleCacheRef.toMonadStateOf
+/-- Run an `M` action from the top, with an empty resolution stack — down to `Base`, not to `IO`:
+whoever runs `Base` owns the compile's flags and state, and everything past this call (the passes
+after type checking, and rendering the diagnostics against the sources this action registered)
+still needs both. `Driver/Pipeline.lean` is that owner. -/
+def runM {α} (act : M α) : Base (List DriverWarning × Except DriverError α) :=
+  DiagT.run (ReaderT.run act [])
 
 /-- Where a candidate module named `name` was found — a real file, or the builtin table. -/
 private inductive Candidate : Type
@@ -171,15 +196,17 @@ instance {m : Type → Type} [Monad m] [MonadModuleCache TypedModule m] : MonadF
     | some entry => return some entry.value
     | none => return builtinModules[name]?
 
-/-- Run `act`'s `M`-action down through the current `ResolutionStack` and `DiagT`'s `IO` base,
+/-- Run `act`'s `M`-action down through the current `ResolutionStack` and `DiagT`'s `Base`,
 producing the exact `List DriverWarning` it `tell`'d and its `Except`-wrapped result as plain
 data. This is the only way to observe either once a `throw` is in play: `MonadWriter.listen` has
 nowhere to put warnings once the value they'd pair with disappears on a throw (same wall a
 generic `ExceptT ε N` composition would hit), so this sidesteps `listen` entirely and goes
-straight to `DiagT.run`. -/
+straight to `DiagT.run`. Running down to `Base` rather than all the way to `IO` is what keeps
+`act`'s state writes — the source registry entries it made, the cache entries it stored, the
+fresh names it consumed — even when `act` threw. -/
 private def runScoped {α} (act : M α) : M (List DriverWarning × Except DriverError α) := do
   let resStack ← readThe ResolutionStack
-  liftM (DiagT.run (ReaderT.run act resStack) : IO (List DriverWarning × Except DriverError α))
+  liftM (DiagT.run (ReaderT.run act resStack) : Base (List DriverWarning × Except DriverError α))
 
 /-- Run `act`; if it throws, flush the warnings `act` produced (up to the throw), report `name`
 as `.failed` via `onModuleEvent`, and re-throw the error unchanged. If it succeeds, `tell` its
@@ -225,6 +252,12 @@ private def Decl.bindings (moduleName : String) : Decl → List (String × Bindi
 -- detection (`ResolutionStack`) at runtime, not on any argument that's structurally decreasing.
 private instance {m} [Applicative m] {α} [Inhabited α] : Inhabited (m α) := ⟨pure default⟩
 
+-- `M` is five transformer layers deep now that flags and the compile's state are threaded rather
+-- than read out of global `IO.Ref`s, and these two mutually recursive definitions are the largest
+-- terms in the codebase at that stack: code generation (`LCNF check`) runs past the default
+-- budget. Same accommodation `Core/SurfaceTLAPlus/Syntax.lean` already makes for its own big
+-- derived instances.
+set_option maxHeartbeats 1000000 in
 mutual
 /-- Run a module's source all the way through to a checked module: lex, parse, resolve
 annotations, desugar TLA⁺ expressions and the embedded PlusCal algorithm, resolve every
@@ -269,11 +302,17 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
       let mod ← match resolveAnnotations mod with
         | .error e => throw (.annotation moduleId e)
         | .ok mod => pure mod
-      let mod ← DiagT.lift (.desugar moduleId) (.desugar moduleId) mod.runDesugarer
+      -- Each `runDesugarer`/`runChecker` is polymorphic in its base monad (it needs only the
+      -- fresh-name counter from it), so the base has to be pinned here: `Base`, this compile's
+      -- own flags-and-state layer, is the whole point of their being polymorphic.
+      let mod ← DiagT.lift (.desugar moduleId) (.desugar moduleId)
+        (mod.runDesugarer : DiagT DesugarWarning DesugarError Base _)
       let mod ← DiagT.lift (.desugar moduleId) (.desugar moduleId) mod.stripTLAPlusAnnotations
       let algo ← match mod.pcalAlgorithm with
         | none => pure none
-        | some algo => some <$> DiagT.lift (.desugar moduleId) (.desugar moduleId) algo.runDesugarer
+        | some algo =>
+          let desugared : DiagT DesugarWarning DesugarError Base _ := algo.runDesugarer
+          some <$> DiagT.lift (.desugar moduleId) (.desugar moduleId) desugared
       let mod := { mod with pcalAlgorithm := algo }
 
       if ← FlagsEnv.getDebugFlag "dump-desugared" then
@@ -289,7 +328,8 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
       let importedBindings := deps.flatMap λ (_, depMod) ↦
         (depMod.declarations₁ ++ depMod.declarations₂).flatMap (Decl.bindings depMod.name)
       let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
-      let typed ← DiagT.lift (.typeCheck moduleId) (.typeCheck moduleId) (CoreTLAPlus.Module.runChecker Γ₀ mod)
+      let typed ← DiagT.lift (.typeCheck moduleId) (.typeCheck moduleId)
+        (CoreTLAPlus.Module.runChecker Γ₀ mod : DiagT TCWarning TCError Base _)
 
       if ← FlagsEnv.getDebugFlag "dump-typed" then
         dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"

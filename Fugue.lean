@@ -2,15 +2,8 @@ module
 
 public import Cli.Basic
 public import Common.Flags
-public import Common.Dump
 import Common.Errors
-import Parser_
-import Desugarer
-public import Driver.Modules
-public import WellFormedness
-import Typed2Computable
-import Computable2Guarded
-import Guarded2Network
+public import Driver.Pipeline
 import ProgressBar
 import Colorized
 
@@ -144,8 +137,8 @@ private def Progress.success : Progress → String → IO Unit
   | .spinner s, msg => s.success msg
   | .quiet, msg => IO.println s!"🎉 {msg}"
 
-private def withProgress {α : Type} (msg : String) (act : Progress → IO α) : IO α := do
-  if ← FlagsEnv.getFeatureFlag "no-progress" then
+private def withProgress {α : Type} (flags : FlagsEnv) (msg : String) (act : Progress → IO α) : IO α := do
+  if flags.features.contains "no-progress" then
     act .quiet
   else
     let spinner ← Spinner.newOnStream Spinners.dotsCircle msg (← IO.getStderr)
@@ -156,11 +149,11 @@ private def withProgress {α : Type} (msg : String) (act : Progress → IO α) :
 
 /--
   Parses every flag out of `p` (rejecting unknown/duplicate `-d`/`-f`/`-W` names and a
-  valueless `-d dump-dir`, per `NamedOption.toMap`/`WarningToggle.toMap` above) and
-  populates `flagsRef` with the result. The one place all CLI-flag validation happens —
-  every later stage of `runCli` just reads back through `FlagsEnv`'s typed accessors.
+  valueless `-d dump-dir`, per `NamedOption.toMap`/`WarningToggle.toMap` above) into the
+  `FlagsEnv` the compile runs under. The one place all CLI-flag validation happens; the
+  resulting value is handed to `runPipelineIO`, which supplies it to every pass as a reader.
 -/
-private def validateAndSetFlags (p : Parsed) : IO Unit := do
+private def validateFlags (p : Parsed) : IO FlagsEnv := do
   let debug ← NamedOption.toMap "debug" knownDebugOptions <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let features ← NamedOption.toMap "feature" knownFeatures <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let warnings ← WarningToggle.toMap knownWarnings <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
@@ -172,57 +165,12 @@ private def validateAndSetFlags (p : Parsed) : IO Unit := do
   | some none => throw ↑"debug option 'dump-dir' requires a path, e.g. -d dump-dir=.fugue/debug"
   | _ => pure ()
 
-  flagsRef.set { debug, features, warnings, output, target, searchPath }
-
-/-- Print every warning in `warnings` not suppressed by `-Wno-<name>`, in one batch, only once
-this module's outcome (`Built`/`Replayed`/`Failed`) is known — never interleaved before it. Each
-call site passes only warnings collected for that module's own `compileModule` call; a
-dependency's warnings are flushed separately by its own recursive call. `logLine` is pluggable
-(defaults to `eprintln`) so `Fugue.lean` can route it through its spinner instead. -/
-private def flushWarnings {m} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
-    (lines : List String.Slice) (colored : Bool) (warnings : List DriverWarning)
-    (logLine : String → m Unit) : m Unit :=
-  warnings.forM λ warning ↦ do
-    if ← FlagsEnv.isWarningEnabled warning.name then
-      logLine <| CompilerDiagnostic.pretty warning ((← warning.sourceLines).getD lines) colored
-
-/-- Run one of the passes past the driver (well-formedness checking, `Typed2Computable`, and
-whatever else runs outside `compileModule`) — every pass reports through `MonadDiagnostic` (a
-`DiagT`-based warnings-plus-error stack), never a bare `MonadExceptOf`, so this is the one
-runner every such pass goes through. Warnings not suppressed by `-Wno-<name>` are rendered the
-same way `flushWarnings` renders the driver's own — plain `eprintln`, not through the spinner,
-which only wraps the driver's own portion of `runCli` below. `.error e` renders `e` the same way
-and exits; `.ok a` returns. -/
-private def runPassDiag {α ε} [CompilerDiagnostic α String] [CompilerDiagnostic ε String] {γ}
-    (lines : List String.Slice) (colored : Bool) (act : DiagT α ε IO γ) : IO γ := do
-  let (warnings, result) ← act.run
-  warnings.forM λ w ↦ do
-    if ← FlagsEnv.isWarningEnabled (CompilerDiagnostic.name w) then
-      IO.eprintln <| CompilerDiagnostic.pretty w lines colored
-  match result with
-  | .error e =>
-    IO.eprintln <| CompilerDiagnostic.pretty e lines colored
-    IO.eprintln "Compilation failed."
-    IO.Process.exit 1
-  | .ok a => pure a
-
-/-- One pipeline stage past the driver: run it through `runPassDiag`, then write its result to
-`<dumpDir>/<dumpName>-<stageName>` if `-d dump-<stageName>` was given. Every stage from
-`Typed2Computable` onward has this same shape, and the `-d` option is named after the stage, so
-`stageName` supplies both halves. `checkWellFormed` is the one exception — it produces no value to
-dump — and calls `runPassDiag` directly. -/
-private def runStage {ε} [CompilerDiagnostic ε String] {γ} [Repr γ]
-    (lines : List String.Slice) (colored : Bool) (dumpName stageName : String)
-    (act : DiagT Empty ε IO γ) : IO γ := do
-  let result ← runPassDiag lines colored act
-  if ← FlagsEnv.getDebugFlag s!"dump-{stageName}" then
-    dumpToFile (reprStr result) (← getDumpDir) s!"{dumpName}-{stageName}"
-  return result
+  return { debug, features, warnings, output, target, searchPath }
 
 private def runCli (p : Parsed) : IO UInt32 := do
-  validateAndSetFlags p
+  let flags ← validateFlags p
 
-  let colored ← not <$> FlagsEnv.getFeatureFlag "no-color"
+  let colored := !flags.features.contains "no-color"
 
   let input := p.positionalArg! "input" |>.as! Input
   let dumpName := match input with
@@ -237,7 +185,7 @@ private def runCli (p : Parsed) : IO UInt32 := do
   -- `Driver/Modules.lean`, which only reports raw `onModuleProgress`/`onModuleEvent` facts).
   -- `<discovered>` grows as `EXTENDS` pulls in new modules; completed steps print as
   -- persisted lines via `Spinner.log` without interrupting the animation.
-  withProgress "Reading input…" λ spinner ↦ do
+  withProgress flags "Reading input…" λ spinner ↦ do
     let source ← match input with
       | .path path =>
         unless ← path.pathExists do
@@ -254,57 +202,44 @@ private def runCli (p : Parsed) : IO UInt32 := do
     -- only once done.
     let done ← IO.mkRef (∅ : Std.HashSet String)
 
-    let (warnings, result) ← runM <| compileModule source containingDir dumpName
-      (onModuleEvent := λ name outcome ↦ do
-        done.modify (·.insert name)
-        let count := s!"[{(← done.get).size}/{(← discovered.get).size}]"
-        let (dingbat, color, label) : String × Colorized.Color × String := match outcome with
-          | .built hadWarnings => (if hadWarnings then "⚠" else "✔", if hadWarnings then .Yellow else .Green, "Built")
-          | .replayed => ("✔", .Cyan, "Replayed")
-          | .failed => ("✖", .Red, "Failed")
-        spinner.log <| styleIf colored .Bold <| colorizeIf colored color s!"{dingbat} {count} {label} {name}")
-      (onModuleProgress := λ name ↦ do
-        discovered.modify (·.insert name)
-        spinner.setTitle s!"[{(← done.get).size}/{(← discovered.get).size}] Running on module '{name}'…")
-      (logLine := λ line ↦ do spinner.log line)
-    flushWarnings lines colored warnings (λ m ↦ spinner.log m)
+    let result ← runPipelineIO flags source containingDir dumpName
+      { onModuleEvent := λ name outcome ↦ do
+          done.modify (·.insert name)
+          let count := s!"[{(← done.get).size}/{(← discovered.get).size}]"
+          let (dingbat, color, label) : String × Colorized.Color × String := match outcome with
+            | .built hadWarnings => (if hadWarnings then "⚠" else "✔", if hadWarnings then .Yellow else .Green, "Built")
+            | .replayed => ("✔", .Cyan, "Replayed")
+            | .failed => ("✖", .Red, "Failed")
+          spinner.log <| styleIf colored .Bold <| colorizeIf colored color s!"{dingbat} {count} {label} {name}"
+        onModuleProgress := λ name ↦ do
+          discovered.modify (·.insert name)
+          spinner.setTitle s!"[{(← done.get).size}/{(← discovered.get).size}] Running on module '{name}'…"
+        logLine := λ line ↦ spinner.log line }
 
-    let (typedMod, lines) ← match result with
-    | .error e =>
+    -- Warnings first, whether or not the compile then failed: they were reported before whatever
+    -- error follows them.
+    (result.renderWarnings flags lines).forM spinner.log
+
+    -- A driver error ends the spinner with "Build failed."; a failure in a pass past the driver
+    -- reports "Compilation failed." without touching the spinner. The third case is
+    -- unreachable — an error always renders — and just falls through to the success path.
+    match result.error, result.renderError flags lines with
+    | some (.driver _), some line =>
       -- Print the error *before* ending the spinner: "Build failed" is the final word, not a
-      -- banner ahead of the detail. `e` may have originated in an `EXTENDS`-ed dependency, not
-      -- the main module read into `lines` — render against the offending module's own source
-      -- when it has one.
-      spinner.log <| CompilerDiagnostic.pretty e ((← e.sourceLines).getD lines) colored
+      -- banner ahead of the detail.
+      spinner.log line
       spinner.fail "Build failed."
       IO.Process.exit 1
-    | .ok typedMod =>
-      pure (typedMod, lines)
-
-    -- Everything past this point runs *outside* the driver: `compileModule` only takes a module
-    -- through type checking and caches that result. Well-formedness checking and the
-    -- `Typed2Computable` translation are the first two passes of the real pipeline, run once
-    -- here against the driver's already-returned main module, not per `EXTENDS` dependency
-    -- inside the driver's own recursion.
-    runPassDiag lines colored (TypedTLAPlus.Module.checkWellFormed typedMod : DiagT Empty WellFormednessError IO Unit)
-    let computable ← runStage lines colored dumpName "computable"
-      (TypedTLAPlus.Module.toComputable typedMod : DiagT Empty ComputableError IO _)
-
-    -- `Computable2Guarded`'s pass, only when there's a PlusCal algorithm to run it on — an
-    -- ordinary TLA⁺ module with none is done once `toComputable` above has checked it.
-    if let some algo := computable.pcalAlgorithm then
-      let guarded ← runStage lines colored dumpName "guarded"
-        (algo.toGuarded : DiagT Empty GuardedError IO _)
-      let _network ← runStage lines colored dumpName "network"
-        (guarded.toNetwork : DiagT Empty G2NError IO _)
+    | some _, some line =>
+      IO.eprintln line
+      IO.eprintln "Compilation failed."
+      IO.Process.exit 1
+    | _, _ => pure ()
 
     spinner.success s!"Build done ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
 
-    IO.println s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
-  {typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
-  declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
-  algorithm). The rest of the pipeline (the backends, Network2Go/Network2JoinCalculus) isn't \
-  implemented yet, so it stops after Guarded2Network."
+    if let some summary := result.renderSummary then
+      IO.println summary
   return 0
 
 private def cli : Cmd := `[Cli|
