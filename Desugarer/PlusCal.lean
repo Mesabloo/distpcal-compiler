@@ -60,7 +60,11 @@ namespace SurfacePlusCal
 
   /-- `x[e₁, …, eₙ]`'s indices, per bracket group, collapsed to `CorePlusCal.Ref`'s own unary
   shape via `SurfaceTLAPlus.wrapIndices`; `.field` segments pass through unchanged. `pos` is the
-  enclosing statement's own position. -/
+  enclosing statement's own position.
+
+  No `@@` here: `Ref` is not a position-carrying node in this codebase (neither
+  `CorePlusCal.Ref`'s `Functor`/`Traversable` instances nor any downstream pass registers one),
+  and every diagnostic about a `Ref` is reported against its enclosing statement's span. -/
   def Ref.desugarRef (pos : SourceSpan) (r : SurfacePlusCal.Ref CoreExpr) : CorePlusCal.Ref CoreExpr :=
     { name := r.name, args := r.args.map (Sum.map id (SurfaceTLAPlus.wrapIndices pos)) }
 
@@ -102,13 +106,17 @@ namespace SurfacePlusCal
   `CorePlusCal.Statement.with`s (`with (x = e) { with (y ∈ S) { … } }`) — `CorePlusCal.Statement.
   with` only ever binds one variable at a time (`Core/CorePlusCal/Syntax.lean`'s module doc).
   Every binder past the first is wrapped in its own label-free `Block` (`⟨[], ·⟩`) around the
-  next binder, with `B` — the already-desugared body — innermost. -/
-  def buildWithChain (vars : List (String × α × Bool × β)) (B : CorePlusCal.Block α β false) :
-      CorePlusCal.Statement α β false :=
+  next binder, with `B` — the already-desugared body — innermost.
+
+  Every link of the chain is registered at `pos`, the whole surface `with`'s own span: the chain
+  is one source construct, and no binder past the first has a narrower span of its own to
+  report. -/
+  def buildWithChain (pos : SourceSpan) (vars : List (String × α × Bool × β))
+      (B : CorePlusCal.Block α β false) : CorePlusCal.Statement α β false :=
     match vars with
     | [] => unreachable! -- `with` always binds at least one variable, by construction of the parser (`sepBy1`)
-    | [(x, ann, eq, e)] => .with x ann eq e B
-    | (x, ann, eq, e) :: rest => .with x ann eq e ⟨[], buildWithChain rest B⟩
+    | [(x, ann, eq, e)] => .with x ann eq e B @@ pos
+    | (x, ann, eq, e) :: rest => .with x ann eq e ⟨[], buildWithChain pos rest B⟩ @@ pos
 
   mutual
     /-- Desugar a statement known not to be last in its enclosing sequence and known to need no
@@ -120,30 +128,31 @@ namespace SurfacePlusCal
     rejected (`withBoundVarWritten`). -/
     partial def Statement.desugarLabelFree (s : Statement α CoreExpr) : m (CorePlusCal.Statement α CoreExpr false) := match_source s with
       | .goto _, pos => throw (.gotoNotInTailPosition pos)
-      | .skip, _ => pure .skip
-      | .print e, _ => pure (.print e)
+      | .skip, pos => pure (.skip @@ pos)
+      | .print e, pos => pure (.print e @@ pos)
       | .assign a, pos => do
         let ctx ← readThe WithContext
         match a.find? (λ (r, _) ↦ ctx.boundVars.contains r.name) with
         | some (r, _) => throw (.withBoundVarWritten pos r.name)
-        | none => pure (.assign (a.map λ (r, e) ↦ (Ref.desugarRef pos r, e)))
-      | .if cond b1 b2, _ => .if cond <$> desugarLabelFreeBlock b1 <*> desugarLabelFreeBlock (b2.getD [])
-      | .await e, _ => pure (.await e)
-      | .with vars b, _ =>
+        | none => pure (.assign (a.map λ (r, e) ↦ (Ref.desugarRef pos r, e)) @@ pos)
+      | .if cond b1 b2, pos =>
+        (.if cond · · @@ pos) <$> desugarLabelFreeBlock b1 <*> desugarLabelFreeBlock (b2.getD [])
+      | .await e, pos => pure (.await e @@ pos)
+      | .with vars b, pos =>
         let newNames := vars.map (·.1)
-        buildWithChain vars <$> withTheReader WithContext ({ boundVars := newNames ++ ·.boundVars }) (desugarLabelFreeBlock b)
-      | .assert e, _ => pure (.assert e)
-      | .either branches, _ => .either <$> Branches.desugarLabelFree branches
+        buildWithChain pos vars <$> withTheReader WithContext ({ boundVars := newNames ++ ·.boundVars }) (desugarLabelFreeBlock b)
+      | .assert e, pos => pure (.assert e @@ pos)
+      | .either branches, pos => (.either · @@ pos) <$> Branches.desugarLabelFree branches
       | .while cond b, pos => do
         let ctx ← readThe WithContext
         if !ctx.boundVars.isEmpty then throw (.whileInWith pos)
-        else .while cond <$> desugarLabelFreeBlock b
+        else (.while cond · @@ pos) <$> desugarLabelFreeBlock b
       | .receive c r, pos => do
         let ctx ← readThe WithContext
         if ctx.boundVars.contains r.name then throw (.withBoundVarWritten pos r.name)
-        else pure (.receive (Ref.desugarRef pos c) (Ref.desugarRef pos r))
-      | .send c e, pos => pure (.send (Ref.desugarRef pos c) e)
-      | .multicast c f, _ => pure (.multicast c f)
+        else pure (.receive (Ref.desugarRef pos c) (Ref.desugarRef pos r) @@ pos)
+      | .send c e, pos => pure (.send (Ref.desugarRef pos c) e @@ pos)
+      | .multicast c f, pos => pure (.multicast c f @@ pos)
 
     /-- Desugar a statement-list known to be entirely label-free into a non-terminal block:
     every entry desugars via `Statement.desugarLabelFree`, except the last, whose own natural
@@ -153,7 +162,7 @@ namespace SurfacePlusCal
       go (← rejectLabels stmts)
     where
       go : List (Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr false)
-        | [] => pure ⟨[], .skip⟩
+        | [] => pure ⟨[], .skip @@ SourceSpan.placeholder⟩
         | [s] => match_source s with
           | .goto _, pos => throw (.gotoNotInTailPosition pos)
           | _, _ => (⟨[], ·⟩) <$> Statement.desugarLabelFree s
@@ -188,20 +197,20 @@ namespace SurfacePlusCal
       List (String ⊕ Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr true × List (String × CorePlusCal.Block α CoreExpr true))
     | [] => do
       let ctx ← readThe SegmentContext
-      pure (⟨acc, .goto ctx.fallthrough⟩, [])
+      pure (⟨acc, .goto ctx.fallthrough @@ SourceSpan.placeholder⟩, [])
     | .inl nextLabel :: rest => do
       let ctx ← readThe SegmentContext
       let (nextBlock, extracted) ←
         withTheReader SegmentContext (λ _ ↦ { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest)
-      pure (⟨acc, .goto nextLabel⟩, (nextLabel, nextBlock) :: extracted)
+      pure (⟨acc, .goto nextLabel @@ SourceSpan.placeholder⟩, (nextLabel, nextBlock) :: extracted)
     | .inr s :: rest => match_source s with
-      | .goto l, _ => match rest with
-        | [] => pure (⟨acc, .goto l⟩, [])
+      | .goto l, pos => match rest with
+        | [] => pure (⟨acc, .goto l @@ pos⟩, [])
         | .inl nextLabel :: rest' => do
           let ctx ← readThe SegmentContext
           let (nextBlock, extracted) ←
             withTheReader SegmentContext (λ _ ↦ { ctx with ownLabel := some nextLabel }) (desugarSegment [] rest')
-          pure (⟨acc, .goto l⟩, (nextLabel, nextBlock) :: extracted)
+          pure (⟨acc, .goto l @@ pos⟩, (nextLabel, nextBlock) :: extracted)
         | .inr s' :: _ => throw (.gotoNotInTailPosition (posOf s'))
       -- A `while` must be immediately preceded by a real label: nothing to extract unless `acc`
       -- is empty and there's a real label to attribute the `while` to.
@@ -211,35 +220,35 @@ namespace SurfacePlusCal
           let loopLabel := ctx.ownLabel.get hAcc.2
           if !body.needsExtraction then do
             let bodyBlock ← desugarLabelFreeBlock body
-            desugarSegment [.while cond bodyBlock] rest
+            desugarSegment [.while cond bodyBlock @@ pos] rest
           else do
             let (bodyBlock, ex) ←
               withTheReader SegmentContext (λ _ ↦ { ownLabel := some loopLabel, fallthrough := loopLabel })
                 (desugarSegment [] body)
-            let (result, ex') ← desugarSegment [.while cond bodyBlock] rest
+            let (result, ex') ← desugarSegment [.while cond bodyBlock @@ pos] rest
             pure (result, ex ++ ex')
         else throw (.whileNotLabelled pos)
-      | .if cond b1 b2, _ =>
+      | .if cond b1 b2, pos =>
         let b2 := b2.getD []
         if !b1.needsExtraction && !b2.needsExtraction then do
           let block1 ← desugarLabelFreeBlock b1
           let block2 ← desugarLabelFreeBlock b2
-          desugarSegment (acc ++ [.if cond block1 block2]) rest
+          desugarSegment (acc ++ [.if cond block1 block2 @@ pos]) rest
         else do
           let (cont, contResult) ← desugarContinuation rest
           let branchCtx : SegmentContext := { ownLabel := none, fallthrough := cont }
           let (block1, ex1) ← withTheReader SegmentContext (λ _ ↦ branchCtx) (desugarSegment [] b1)
           let (block2, ex2) ← withTheReader SegmentContext (λ _ ↦ branchCtx) (desugarSegment [] b2)
-          pure (⟨acc, .if cond block1 block2⟩, ex1 ++ ex2 ++ contResult)
-      | .either branches, _ =>
+          pure (⟨acc, .if cond block1 block2 @@ pos⟩, ex1 ++ ex2 ++ contResult)
+      | .either branches, pos =>
         if !branches.any (·.needsExtraction) then do
           let block ← Branches.desugarLabelFree branches
-          desugarSegment (acc ++ [.either block]) rest
+          desugarSegment (acc ++ [.either block @@ pos]) rest
         else do
           let (cont, contResult) ← desugarContinuation rest
           let branchCtx : SegmentContext := { ownLabel := none, fallthrough := cont }
           let results ← branches.mapM (withTheReader SegmentContext (λ _ ↦ branchCtx) <| desugarSegment [] ·)
-          pure (⟨acc, .either (buildBranches (results.map Prod.fst))⟩, results.flatMap Prod.snd ++ contResult)
+          pure (⟨acc, .either (buildBranches (results.map Prod.fst)) @@ pos⟩, results.flatMap Prod.snd ++ contResult)
       | _, _ => do
         let s' ← Statement.desugarLabelFree s
         desugarSegment (acc ++ [s']) rest
@@ -334,7 +343,7 @@ namespace SurfacePlusCal
       m (CorePlusCal.Process (List Annotation) (CoreTLAPlus.Expression (List Annotation))) := do
     let mailbox ← extractMailbox p.ann
     let localState ← p.localState.desugarCheck
-    (CorePlusCal.Process.mk mailbox p.isFair p.name p.«=|∈» p.id localState ·)
+    (CorePlusCal.Process.mk mailbox p.isFair p.name p.«=|∈» p.id localState · @@ posOf p)
       <$> traverse Thread.desugar p.threads
 
   /-- Desugar a whole algorithm: its global declarations (`Declarations.desugarCheck`) and
@@ -342,7 +351,7 @@ namespace SurfacePlusCal
   def Algorithm.desugar (a : Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
       m (CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) := do
     let globalState ← a.globalState.desugarCheck
-    (CorePlusCal.Algorithm.mk a.isFair a.name globalState ·) <$> traverse Process.desugar a.processes
+    (CorePlusCal.Algorithm.mk a.isFair a.name globalState · @@ posOf a) <$> traverse Process.desugar a.processes
 
 end SurfacePlusCal
 

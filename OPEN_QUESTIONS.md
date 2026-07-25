@@ -368,58 +368,6 @@ anywhere names `dump-guarded` except the `getDebugFlag` call that reads it. Chea
 if a registry for them isn't wanted: move each array next to what it validates, so adding a dump
 point and registering its name are the same edit.
 
-### 9.21 `posOf` is called on values that were never registered, and answers with a dead one's span
-`Common/Position.lean`'s `registerSource` (`@@`) and `posOf` attach spans to arbitrary values
-through `Internal.sourceMap`, an `IO.Ref (Std.HashMap USize SourceSpan)` keyed on `ptrAddrUnsafe`.
-The key fact is not that two live values can share an address — they cannot — but that **the map
-outlives the values it describes**, while `posOf` has no way to tell a hit from a coincidence.
-
-`Parser_/PlusCal.lean` and `Parser_/TLAPlus.lean` register the *Surface* AST. `Desugarer/
-PlusCal.lean` contains **no `@@` at all**, so the `CorePlusCal` statements it builds are
-unregistered — and `checkAssignConflicts` reads their positions anyway, via `match_source`. Those
-statements are allocated as the Surface ones they replace are being freed, so they land on
-addresses whose entries are still in the map, and `posOf` returns a neighbour's span.
-
-Visible today, single file, plain CLI, nothing to do with the test runner:
-
-```
-$ fugue compile tests/regression/reject_repeated_indexed_assign.tla
-error[E0018]: 'x' is written to more than once within the same atomic step.
- 18 |         goto Done;
-```
-
-The second write is on line 17; line 18 is the statement after it. Had the map been empty, `posOf`
-would have returned `default` — line `0`, which `SourceSpan.placeholder`'s doc comment already
-warns renders wrong. There is no spelling of this that is right, because the position was never
-recorded.
-
-Across compiles in one process the stale entry comes from a *different file*, so the line need not
-exist at all, and `CompilerDiagnostic.pretty`'s line lookup is a `get!`: `PANIC at
-List.get!Internal`, on roughly one full-suite run in three. That is how `lake test` surfaced it;
-one process per fixture never reuses another compile's addresses, which is why `run.sh` and the
-CLI never crashed.
-
-Mitigated, not fixed: `runPipelineIO` calls `forgetSourcePositions` before each compile. That
-bounds staleness to one compile — restoring exactly the (already wrong) one-file CLI behaviour,
-and with it a clean suite. It makes *concurrency* worse: one worker's clear lands mid-compile in
-another and drops the spans it has registered, so `lake test` defaults to `-j 1`.
-
-**Open:** two separable questions.
-1. *Should the desugarer register what it builds?* Cheapest fix for the wrong spans — carry the
-   Surface node's span onto the Core node with `@@` at each construction site. Restores correct
-   positions without touching the mechanism.
-2. *Should the mechanism survive?* An address key means a span is only as valid as the allocation
-   it was recorded under, and `posOf` cannot distinguish "never registered" from "registered by
-   something now dead". Per-compile state, or a real field on AST nodes, removes the class. The
-   address key is what makes `@@` free to write at any node without changing its type, which is
-   why it was chosen.
-
-Blocks parallel fixtures either way, and blocks trusting a span assertion in a fixture sidecar
-(planned check 4).
-
-Worth noting: `CompilerDiagnostic.pretty` crashing on an out-of-range line is its own small
-defect. A renderer should degrade, not `get!`.
-
 ### 9.23 Three fixtures assert something they do not exercise, and are parked as `Skip*`
 Found by phase 4's sidecars: every rejection now records the stage and code it must produce, and
 six fixtures produced something else. All six passed `run.sh`, which only ever asked for a nonzero
@@ -454,3 +402,32 @@ malformed, or it uses the pre-Apalache dialect the parser rejects (§9.2).
 their parser gaps, so they are only worth keeping if rewritten as genuine type-checker fixtures
 once those gaps close. Note the cost of parking them: a skipped fixture does not run, so nothing
 will announce it when the gap closes — the `xfail` pair is what to watch instead.
+
+### 9.24 The span map is still one global `IO.Ref`, so `lake test` stays `-j 1`
+Every pass now registers every position-carrying node it builds (`PLAN.md` §2, "Source
+positions"), so `posOf` no longer answers with a dead node's span for anything the pipeline
+constructs. What that fixed is *correctness within one compile*. It did not change the storage:
+`Common/Position.lean`'s map is a process-wide `IO.Ref (Std.HashMap USize SourceSpan)`, and
+`runPipelineIO` still calls `forgetSourcePositions` before each compile to keep one compile's
+entries from being live keys for the next one's freshly-allocated nodes.
+
+That clear is destructive and takes no lock, so two concurrent compiles in one process still
+break each other: one worker's clear drops spans the other has already registered. `Tests/Main
+.lean` therefore defaults to `-j 1`.
+
+**Open:** whether to make the map per-compile — an entry in `DriverState`, threaded like the
+fresh-name counter — or leave it global and accept sequential fixtures. Per-compile is the
+obvious answer for concurrency, but the map is reachable from `@@`/`posOf`, which are deliberately
+*pure* and callable from anywhere without a monad; giving them a per-compile home means either
+threading a reader through every construction site (losing exactly the property that makes `@@`
+cheap to write) or keeping a global handle that a compile swaps in and out, which is the same
+race in a different shape.
+
+Also open, and separable: a small residue of `posOf` reads still land on values nothing ever
+registered — statically allocated compiled-in constants, found by instrumenting `posOf` to report
+map misses across the fixture corpus. These are a weaker failure than an unregistered *heap* node: a static object's
+address is never recycled by the heap allocator, so the read returns `default` (line `0`, which
+`SourceSpan.placeholder`'s doc comment explains renders wrong) rather than an unrelated node's
+span. `Common/Errors.lean`'s renderer no longer panics on such a line — it degrades to a blank
+quoted line — so the symptom is a bad-looking diagnostic, not a crash. Which constants these are
+was not tracked down.

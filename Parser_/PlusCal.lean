@@ -377,7 +377,7 @@ namespace SurfacePlusCal.Parser
       let _ ← lexeme <| pure ()
       parseCompoundStatement tryParseAnnotations parseExpression
 
-    private def parseProcess : PlusCalParser (Process (List CommentAnnotation) (Expression (List CommentAnnotation))) := do
+    private def parseProcess : PlusCalParser (Process (List CommentAnnotation) (Expression (List CommentAnnotation))) := located do
       let annotations ← patchTLAParser tryParseAnnotations
       let isFair ← located <| test <| token .fair
       let _ ← warnIfFair isFair

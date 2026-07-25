@@ -90,12 +90,14 @@ private def guardsBlock (g : Guard) : List Guard → GuardedPlusCal.Block (Compu
   | [] => ⟨[], g⟩
   | g' :: gs => let B := guardsBlock g' gs; ⟨g :: B.begin, B.last⟩
 
-private def finalizeBranch (guards : List Guard) (actions : List Action) (l : String) :
-    ComputableGuardedPlusCal.AtomicBranch :=
+/-- `pos` is the terminating `goto`'s own span, carried onto the `GuardedPlusCal` `goto` this
+builds — the branch's every other statement was already registered by `walkStep`. -/
+private def finalizeBranch (guards : List Guard) (actions : List Action) (l : String)
+    (pos : SourceSpan) : ComputableGuardedPlusCal.AtomicBranch :=
   { precondition := match guards with
       | [] => none
       | g :: gs => some (guardsBlock g gs)
-    action := ⟨actions, .goto l⟩ }
+    action := ⟨actions, .goto l @@ pos⟩ }
 
 namespace FlatReord
 
@@ -111,47 +113,50 @@ mutual
   partial def walkStep {b} (guards : List Guard) (actions : List Action)
       (s : ComputablePlusCal.Statement false) (rest : ComputablePlusCal.Block b) :
       m (List ComputableGuardedPlusCal.AtomicBranch) :=
-    match s with
-    | .skip => walkBlock guards (actions ++ [.skip]) rest
-    | .print e => walkBlock guards (actions ++ [.print e]) rest
-    | .assert e => walkBlock guards (actions ++ [.assert e]) rest
-    | .send c e => walkBlock guards (actions ++ [.send c e]) rest
-    | .multicast c filter => walkBlock guards (actions ++ [.multicast c filter]) rest
-    | .assign [(r, e)] => walkBlock guards (actions ++ [.assign r e]) rest
-    | .assign _ => throw (.internalInvariantViolated SourceSpan.placeholder
+    match_source s with
+    | .skip, pos => walkBlock guards (actions ++ [.skip @@ pos]) rest
+    | .print e, pos => walkBlock guards (actions ++ [.print e @@ pos]) rest
+    | .assert e, pos => walkBlock guards (actions ++ [.assert e @@ pos]) rest
+    | .send c e, pos => walkBlock guards (actions ++ [.send c e @@ pos]) rest
+    | .multicast c filter, pos => walkBlock guards (actions ++ [.multicast c filter @@ pos]) rest
+    | .assign [(r, e)], pos => walkBlock guards (actions ++ [.assign r e @@ pos]) rest
+    | .assign _, pos => throw (.internalInvariantViolated pos
         "FlatReord: an `assign` with a target count ≠ 1 reached — 𝒞_par should already have \
 reduced every parallel assignment to single targets")
-    | .await e => walkBlock (guards ++ [.await (substActionsInExpr actions e)]) actions rest
-    | .receive c r coe =>
-      walkBlock (guards ++ [.receive (substActionsInRef actions c) (substActionsInRef actions r) coe]) actions rest
-    | .with var ann «=|∈» val B =>
-      walkBlock (guards ++ [.with var ann «=|∈» val]) actions (ComputablePlusCal.Block.append B rest)
-    | .either branches => do
+    | .await e, pos => walkBlock (guards ++ [.await (substActionsInExpr actions e) @@ pos]) actions rest
+    | .receive c r coe, pos =>
+      walkBlock (guards ++ [.receive (substActionsInRef actions c) (substActionsInRef actions r) coe @@ pos])
+        actions rest
+    | .with var ann «=|∈» val B, pos =>
+      walkBlock (guards ++ [.with var ann «=|∈» val @@ pos]) actions (ComputablePlusCal.Block.append B rest)
+    | .either branches, _ => do
       let results ← (ComputablePlusCal.Branches.toList branches).mapM
         λ Bi ↦ walkBlock guards actions (ComputablePlusCal.Block.append Bi rest)
       pure results.flatten
-    | .if .. => throw (.internalInvariantViolated SourceSpan.placeholder
+    | .if .., pos => throw (.internalInvariantViolated pos
         "FlatReord: `if` found — 𝒞_cflow should have eliminated every `if` already")
-    | .while .. => throw (.internalInvariantViolated SourceSpan.placeholder
+    | .while .., pos => throw (.internalInvariantViolated pos
         "FlatReord: `while` found — 𝒞_cflow should have eliminated every `while` already")
 
   /-- The block's own final statement — no `rest` exists beyond it (any dangling non-`goto` `end`
   gets absorbed into a `begin`-position `walkStep` call instead, by `Block.append`'s own
   splicing, before ever reaching here — see the module doc). -/
-  partial def walkTerminal {b} (guards : List Guard) (actions : List Action) :
-      ComputablePlusCal.Statement b → m (List ComputableGuardedPlusCal.AtomicBranch)
-    | .goto l => pure [finalizeBranch guards actions l]
-    | .either branches => do
+  partial def walkTerminal {b} (guards : List Guard) (actions : List Action)
+      (s : ComputablePlusCal.Statement b) : m (List ComputableGuardedPlusCal.AtomicBranch) :=
+    match_source s with
+    | .goto l, pos => pure [finalizeBranch guards actions l pos]
+    | .either branches, _ => do
       let results ← (ComputablePlusCal.Branches.toList branches).mapM (walkBlock guards actions)
       pure results.flatten
-    | .if .. => throw (.internalInvariantViolated SourceSpan.placeholder
+    | .if .., pos => throw (.internalInvariantViolated pos
         "FlatReord: `if` found at a block's own terminal position — 𝒞_cflow should have \
 eliminated it already")
-    | .while .. => throw (.internalInvariantViolated SourceSpan.placeholder
+    | .while .., pos => throw (.internalInvariantViolated pos
         "FlatReord: `while` found at a block's own terminal position — 𝒞_cflow should have \
 eliminated it already")
-    | .skip | .print .. | .assert .. | .send .. | .multicast .. | .assign .. | .await ..
-    | .receive .. | .with .. => throw (.internalInvariantViolated SourceSpan.placeholder
+    | .skip, pos | .print .., pos | .assert .., pos | .send .., pos | .multicast .., pos
+    | .assign .., pos | .await .., pos | .receive .., pos | .with .., pos =>
+      throw (.internalInvariantViolated pos
         "FlatReord: reached a block's own end without a `goto` — every reachable path must \
 terminate in one")
 end

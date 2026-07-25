@@ -46,9 +46,12 @@ public section
     processes right-to-left), which is what makes a second receive's freshly-substituted
     `Head(inbox)` get caught and advanced to `Head(Tail(inbox))` by the first receive's
     still-pending advance. Switching to `foldl` silently breaks this.
-  - **No `Located`/position tracking anywhere**: this project's fresh `GuardedPlusCal.Statement`/
-    `NetworkPlusCal.Statement` carry no position at all (`Core/NetworkPlusCal/Syntax.lean`'s
-    module doc).
+  - **Positions are carried across, not dropped**: every `NetworkPlusCal.Statement` this pass
+    builds is registered (`@@`) at the `GuardedPlusCal.Statement` it replaces, and the
+    consumption assignments a `receive` compiles into take that `receive`'s own span. Positions
+    live in `Common/Position.lean`'s side map rather than in a field on the node, so this costs
+    the AST nothing — but a node left unregistered is one `posOf` answers for with an unrelated
+    node's span, which is why every construction site here has an `@@`.
 
   ```
   receive(c, x[0]);
@@ -100,35 +103,42 @@ local `StateT` layer (same "function-scoped `StateT`, `.run` at the end" shape
 rather than imperative `let mut` bindings. -/
 private structure ReceiveState where
   i : Nat := 0
-  newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression) := []
+  /-- Each entry carries the span of the `receive` it was generated from, so the consumption
+  assignment built from it in `processPrecondition` can be registered against real source text
+  rather than a placeholder. -/
+  newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan) := []
   rxs : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ) := []
 
 /-- Substitutes every `receive` processed so far (`newInstrs`) into a later guard `e` — see the
-module doc's `foldr`/fold-direction explanation. -/
-private def substGuard (newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression))
+module doc's `foldr`/fold-direction explanation. The per-entry span plays no part in
+substitution and is dropped here. -/
+private def substGuard (newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan))
     (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
-  newInstrs.foldr (init := e) λ (r, rhs) e' ↦ ComputableTLAPlus.Expression.substRef r rhs e'
+  newInstrs.foldr (init := e) λ (r, rhs, _) e' ↦ ComputableTLAPlus.Expression.substRef r rhs e'
 
 /-- One statement of `processPrecondition`'s walk — `ReceiveState.i`'s value before this step's
 own increment is the count of receives already consumed prior to this one. -/
-private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String) :
-    ComputableGuardedPlusCal.Statement true false → StateT ReceiveState m (ComputableNetworkPlusCal.Statement true false)
-  | .with x ann bound e => return .with x ann bound (substGuard (← get).newInstrs e)
-  | .await e => return .await (substGuard (← get).newInstrs e)
-  | .receive c r coe => do
+private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String)
+    (s : ComputableGuardedPlusCal.Statement true false) :
+    StateT ReceiveState m (ComputableNetworkPlusCal.Statement true false) :=
+  match_source s with
+  | .with x ann bound e, pos => return .with x ann bound (substGuard (← get).newInstrs e) @@ pos
+  | .await e, pos => return .await (substGuard (← get).newInstrs e) @@ pos
+  | .receive c r coe, pos => do
     let st ← get
     match chans.lookup c.name with
     | none =>
-      throw (.internalInvariantViolated SourceSpan.placeholder
+      throw (.internalInvariantViolated pos
         s!"receive's channel '{c.name}' does not resolve to any declared channel or fifo")
     | some τ =>
-      let inboxVar : ComputablePlusCal.Expression := .var inboxName (.seq τ) .binder
+      let inboxVar : ComputablePlusCal.Expression := .var inboxName (.seq τ) .binder @@ pos
       let inboxRef : ComputableGuardedPlusCal.Ref := { name := inboxName, args := [], baseType := .seq τ }
       set { st with
         i := st.i + 1
-        newInstrs := st.newInstrs ++ [(r, coe.applyComputable (head τ inboxVar)), (inboxRef, tail τ inboxVar)]
+        newInstrs := st.newInstrs
+          ++ [(r, coe.applyComputable (head τ inboxVar), pos), (inboxRef, tail τ inboxVar, pos)]
         rxs := st.rxs.concat (c, τ) }
-      pure <| .await (lenGt τ inboxVar st.i)
+      pure <| .await (lenGt τ inboxVar st.i) @@ pos
 
 /-- Walk one branch's precondition block (`none` for a branch with no guards), threading
 substitution of every already-processed `receive` into later `await`/`with` guards — see the
@@ -146,21 +156,23 @@ private def processPrecondition (chans : Guarded2NetworkChans) (inboxName : Stri
   | some B => do
     let (results, st) ← ((B.begin.concat B.last).mapM (stepStatement chans inboxName)).run {}
     return (some { begin := results.dropLast, last := results.getLast! },
-      st.newInstrs.map λ (r, e) ↦ .assign r e, st.rxs)
+      st.newInstrs.map λ (r, e, pos) ↦ .assign r e @@ pos, st.rxs)
 
 /-- Every action-class constructor `GuardedPlusCal.Statement`/`NetworkPlusCal.Statement` share
 verbatim (all but `receive`, already compiled away above, and `with`, guard-class only) — `Ref`/
 `MulticastFilter` are the same types under both pinnings (`Core/NetworkPlusCal/Syntax.lean` reuses
 `GuardedPlusCal.Ref`/`.MulticastFilter` directly), so this is a plain re-tagging, not a
 translation. -/
-private def convertActionStmt {b} : ComputableGuardedPlusCal.Statement false b → ComputableNetworkPlusCal.Statement false b
-  | .skip => .skip
-  | .print e => .print e
-  | .assert e => .assert e
-  | .send c e => .send c e
-  | .multicast c filter => .multicast c filter
-  | .assign r e => .assign r e
-  | .goto l => .goto l
+private def convertActionStmt {b} (s : ComputableGuardedPlusCal.Statement false b) :
+    ComputableNetworkPlusCal.Statement false b :=
+  match_source s with
+  | .skip, pos => .skip @@ pos
+  | .print e, pos => .print e @@ pos
+  | .assert e, pos => .assert e @@ pos
+  | .send c e, pos => .send c e @@ pos
+  | .multicast c filter, pos => .multicast c filter @@ pos
+  | .assign r e, pos => .assign r e @@ pos
+  | .goto l, pos => .goto l @@ pos
 
 private def convertActionBlock (B : GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement false) true) :
     GuardedPlusCal.Block (ComputableNetworkPlusCal.Statement false) true :=
@@ -236,7 +248,7 @@ def ComputableGuardedPlusCal.Process.toNetwork (globalChans : Guarded2NetworkCha
     mailbox := p.mailbox, isFair := p.isFair, name := p.name, «=|∈» := p.«=|∈», id := p.id
     localState := { p.localState with «variables» := p.localState.variables ++ newLocals }
     threads := rxThreads ++ codeThreads
-  }
+  } @@ posOf p
 
 def ComputableGuardedPlusCal.Algorithm.toNetwork (algo : ComputableGuardedPlusCal.Algorithm) :
     m ComputableNetworkPlusCal.Algorithm := do
@@ -244,6 +256,6 @@ def ComputableGuardedPlusCal.Algorithm.toNetwork (algo : ComputableGuardedPlusCa
   return {
     isFair := algo.isFair, name := algo.name, globalState := algo.globalState
     processes := ← algo.processes.mapM (ComputableGuardedPlusCal.Process.toNetwork globalChans)
-  }
+  } @@ posOf algo
 
 end

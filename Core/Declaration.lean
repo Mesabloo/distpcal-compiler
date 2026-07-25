@@ -5,6 +5,7 @@ public import Mathlib.Control.Traversable.Basic
 public import Mathlib.Control.Traversable.Instances
 public import Mathlib.Control.Bitraversable.Basic
 public import Mathlib.Control.Bitraversable.Instances
+public import Common.Position
 
 @[expose] public section
 
@@ -80,16 +81,22 @@ instance {E α β} [Repr α] [Repr β] [Repr (E β)] : Repr (Module E α β) whe
     f!"\{ name := {repr m.name}, extends := {repr m.extends}, declarations₁ := {repr m.declarations₁}, " ++
     f!"pcalAlgorithm := {repr m.pcalAlgorithm}, declarations₂ := {repr m.declarations₂} }"
 
+/-- `@@ posOf m`, for the same reason `SurfacePlusCal.Process`/`.Algorithm`'s instances carry it:
+mapping a module rebuilds the structure, and a rebuilt node that isn't re-registered has no
+position of its own — `posOf` then answers for it with whatever unrelated value last occupied
+that address (`Common/Position.lean`). Annotation resolution alone maps every module once
+(`CommentAnnotation → Annotation`), and `SurfaceTLAPlus.Module.desugar` reads the result's
+position. -/
 instance {E} [Functor E] : Bifunctor (Module E) where
   bimap f g m := { m with
     declarations₁ := (g <$> ·) <$> m.declarations₁
     pcalAlgorithm := f <$> m.pcalAlgorithm
     declarations₂ := (g <$> ·) <$> m.declarations₂
-  }
+  } @@ posOf m
 
 instance {E} [Traversable E] : Bitraversable (Module E) where
   bitraverse f g m :=
-    ({m with declarations₁ := ·, pcalAlgorithm := ·, declarations₂ := ·})
+    ({m with declarations₁ := ·, pcalAlgorithm := ·, declarations₂ := · } @@ posOf m)
       <$> traverse (traverse g) m.declarations₁
       <*> traverse f m.pcalAlgorithm
       <*> traverse (traverse g) m.declarations₂

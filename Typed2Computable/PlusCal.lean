@@ -15,6 +15,11 @@ public section
   `Typed2Computable/TLAPlus.lean`'s own note: `ComputableTLAPlus.Typ` is a literal reuse of
   `TypedTLAPlus.Typ`, not a second copy.
 
+  Position-carrying nodes (`Statement`, `Process`, `Algorithm`) are re-registered at their source
+  node's own span via `match_source`/`@@`, the same convention `CorePlusCal.Statement.bitraverse`
+  and `Elaborator/PlusCal.lean` follow. `Ref`/`Block`/`Branches`/`Declarations` are not
+  position-carrying anywhere in this codebase, and nothing reads a span off one.
+
   `ElaboratedPlusCal` (`Core/TypedPlusCal/Syntax.lean`, the shared generic layer both
   `TypedPlusCal` and `ComputablePlusCal` pin) doesn't derive `Bifunctor`/`Bitraversable` instances
   of its own the way `CorePlusCal`'s equivalently-shaped types do — so `Ref`/`Statement`/`Block`/
@@ -52,29 +57,32 @@ def TypedPlusCal.MulticastFilter.toComputable (filter : TypedPlusCal.MulticastFi
 
 mutual
   /-- Mirrors `CorePlusCal.Statement.bitraverse`'s own per-constructor shape
-  (`Core/CorePlusCal/Syntax.lean:134-153`), `f := pure` folded away — no position to reattach,
-  unlike `TypedTLAPlus.Expression.toComputable` (`ElaboratedPlusCal.Statement` carries none, per
-  the module doc above). `partial`: same reason `Statement.bitraverse` itself is — structural
-  recursion isn't visibly decreasing to Lean through the mutual `Block`/`Branches` nesting. -/
-  partial def TypedPlusCal.Statement.toComputable {b : Bool} :
-      TypedPlusCal.Statement b → m (ComputablePlusCal.Statement b)
-    | .goto label => pure (.goto label)
-    | .skip => pure .skip
-    | .print e => .print <$> e.toComputable
-    | .assign upds => .assign <$> upds.mapM λ (r, e) ↦
+  (`Core/CorePlusCal/Syntax.lean:134-153`), `f := pure` folded away, and reattaches the source
+  statement's own span to the translated one exactly the way `Statement.bitraverse` and
+  `TypedTLAPlus.Expression.toComputable` do — a `ComputablePlusCal.Statement` whose position is
+  never registered is a position `posOf` cannot answer for, and it answers with an unrelated
+  node's span rather than failing (`Common/Position.lean`). `partial`: same reason
+  `Statement.bitraverse` itself is — structural recursion isn't visibly decreasing to Lean
+  through the mutual `Block`/`Branches` nesting. -/
+  partial def TypedPlusCal.Statement.toComputable {b : Bool} (s : TypedPlusCal.Statement b) :
+      m (ComputablePlusCal.Statement b) := match_source s with
+    | .goto label, pos => pure (.goto label @@ pos)
+    | .skip, pos => pure (.skip @@ pos)
+    | .print e, pos => (.print · @@ pos) <$> e.toComputable
+    | .assign upds, pos => (.assign · @@ pos) <$> upds.mapM λ (r, e) ↦
         Prod.mk <$> TypedPlusCal.Ref.toComputable r <*> e.toComputable
-    | .if cond B₁ B₂ => (.if · · ·) <$> cond.toComputable
+    | .if cond B₁ B₂, pos => (.if · · · @@ pos) <$> cond.toComputable
         <*> TypedPlusCal.Block.toComputable B₁ <*> TypedPlusCal.Block.toComputable B₂
-    | .await e => .await <$> e.toComputable
-    | .with var ann eq val B => (.with var ann eq · ·) <$> val.toComputable
+    | .await e, pos => (.await · @@ pos) <$> e.toComputable
+    | .with var ann eq val B, pos => (.with var ann eq · · @@ pos) <$> val.toComputable
         <*> TypedPlusCal.Block.toComputable B
-    | .assert e => .assert <$> e.toComputable
-    | .either branches => .either <$> TypedPlusCal.Branches.toComputable branches
-    | .while cond B => (.while · ·) <$> cond.toComputable <*> TypedPlusCal.Block.toComputable B
-    | .receive c r coe => (.receive · · coe) <$> TypedPlusCal.Ref.toComputable c
+    | .assert e, pos => (.assert · @@ pos) <$> e.toComputable
+    | .either branches, pos => (.either · @@ pos) <$> TypedPlusCal.Branches.toComputable branches
+    | .while cond B, pos => (.while · · @@ pos) <$> cond.toComputable <*> TypedPlusCal.Block.toComputable B
+    | .receive c r coe, pos => (.receive · · coe @@ pos) <$> TypedPlusCal.Ref.toComputable c
         <*> TypedPlusCal.Ref.toComputable r
-    | .send c e => (.send · ·) <$> TypedPlusCal.Ref.toComputable c <*> e.toComputable
-    | .multicast c filter => .multicast c <$> TypedPlusCal.MulticastFilter.toComputable filter
+    | .send c e, pos => (.send · · @@ pos) <$> TypedPlusCal.Ref.toComputable c <*> e.toComputable
+    | .multicast c filter, pos => (.multicast c · @@ pos) <$> TypedPlusCal.MulticastFilter.toComputable filter
 
   /-- Mirrors `CorePlusCal.Block.bitraverse`. -/
   partial def TypedPlusCal.Block.toComputable {b : Bool} :
@@ -112,7 +120,7 @@ def TypedPlusCal.Process.toComputable (p : TypedPlusCal.Process) : m ComputableP
   let localState ← TypedPlusCal.Declarations.toComputable p.localState
   let threads ← p.threads.mapM λ thread ↦ thread.mapM λ (label, B) ↦
     (label, ·) <$> TypedPlusCal.Block.toComputable B
-  pure { p with mailbox, id, localState, threads }
+  pure ({ p with mailbox, id, localState, threads } @@ posOf p)
 
 /-- Mirrors `CorePlusCal.Algorithm.bitraverse`; `isFair`/`name` pass through unconverted via
 `{algo with ...}`. -/
@@ -120,6 +128,6 @@ def TypedPlusCal.Algorithm.toComputable (algo : TypedPlusCal.Algorithm) :
     m ComputablePlusCal.Algorithm := do
   let globalState ← TypedPlusCal.Declarations.toComputable algo.globalState
   let processes ← algo.processes.mapM TypedPlusCal.Process.toComputable
-  pure { algo with globalState, processes }
+  pure ({ algo with globalState, processes } @@ posOf algo)
 
 end

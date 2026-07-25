@@ -73,34 +73,47 @@ inductive Coercion : Type
 -- Structural recursion isn't visibly decreasing to Lean here (nested `List Coercion` occurrences,
 -- same shape as `Expression.map`'s own note in `Core/TypedTLAPlus/Syntax.lean`) — `partial` until
 -- revisited.
-/-- Apply a coercion to an already-elaborated expression. -/
-partial def Coercion.apply : Coercion → Expr → Expr
-  | .id, e => e
-  | .strToSeq, e =>
-    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences")) [e]
-  | .seqToFun τ₀ i, e =>
-    let range : Expr := .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
-      [.nat "1", .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences")) [e]]
-    .fn i .int τ₀ range (.fnCall e (.seq τ₀) (.var i .int .binder))
-  | .tupleToSeq n τ, e =>
+/-- Apply a coercion to an already-elaborated expression.
+
+Every node built here is synthesized — none of it has source text of its own — but all of it
+stands for the coerced expression `e`, so all of it is registered at `e`'s own span. Leaving a
+synthesized node unregistered is not neutral: `posOf` cannot tell "never registered" from
+"registered by something now dead" and answers with an unrelated node's span
+(`Common/Position.lean`). A coercion inserted by subtyping can wrap most of an expression, so
+skipping this loses positions across whole subtrees. -/
+partial def Coercion.apply (c : Coercion) (e : Expr) : Expr :=
+  let pos := posOf e
+  match c with
+  | .id => e
+  | .strToSeq =>
+    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences") @@ pos) [e] @@ pos
+  | .seqToFun τ₀ i =>
+    let range : Expr :=
+      .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals") @@ pos)
+        [.nat "1" @@ pos,
+         .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences") @@ pos) [e] @@ pos] @@ pos
+    .fn i .int τ₀ range (.fnCall e (.seq τ₀) (.var i .int .binder @@ pos) @@ pos) @@ pos
+  | .tupleToSeq n τ =>
     .seq ((List.range n).map λ i ↦
-      .fnCall e (.tuple (List.replicate n τ)) (.nat (toString (i + 1)))) τ
-  | .set x τ τ' c, e =>
-    .map' (c.apply (.var x τ .binder)) x τ τ' e
-  | .tuple coes τs τs', e =>
-    .tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
-      (τ'ᵢ, c.apply (.fnCall e (.tuple τs) (.nat (toString (i + 1)))))
-  | .record fields, e =>
-    .record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.apply (.recordAccess e name))
-  | .function x y dom rng dom' rng' cDom cRng, e =>
-    let domainExpr : Expr := .opCall (.var "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic) [e]
-    let newDomain : Expr := .map' (cDom.apply (.var x dom .binder)) x dom dom' domainExpr
+      .fnCall e (.tuple (List.replicate n τ)) (.nat (toString (i + 1)) @@ pos) @@ pos) τ @@ pos
+  | .set x τ τ' c =>
+    .map' (c.apply (.var x τ .binder @@ pos)) x τ τ' e @@ pos
+  | .tuple coes τs τs' =>
+    (.tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
+      (τ'ᵢ, c.apply (.fnCall e (.tuple τs) (.nat (toString (i + 1)) @@ pos) @@ pos))) @@ pos
+  | .record fields =>
+    (.record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.apply (.recordAccess e name @@ pos))) @@ pos
+  | .function x y dom rng dom' rng' cDom cRng =>
+    let domainExpr : Expr :=
+      .opCall (.var "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic @@ pos) [e] @@ pos
+    let newDomain : Expr := .map' (cDom.apply (.var x dom .binder @@ pos)) x dom dom' domainExpr @@ pos
     let eqTy : Typ := .operator [dom', dom'] .bool
     let recoveredArg : Expr :=
       .choose x dom (some domainExpr)
-        (.opCall (.var "=" eqTy .intrinsic) [cDom.apply (.var x dom .binder), .var y dom' .binder])
-    .fn y dom' rng' newDomain (cRng.apply (.fnCall e (.function dom rng) recoveredArg))
-  | .comp c₁ c₂, e => c₂.apply (c₁.apply e)
+        (.opCall (.var "=" eqTy .intrinsic @@ pos)
+          [cDom.apply (.var x dom .binder @@ pos), .var y dom' .binder @@ pos] @@ pos) @@ pos
+    .fn y dom' rng' newDomain (cRng.apply (.fnCall e (.function dom rng) recoveredArg @@ pos)) @@ pos
+  | .comp c₁ c₂ => c₂.apply (c₁.apply e)
 
 /-- A placeholder rendering (module doc). -/
 instance : Repr Coercion := ⟨fun _ _ => "<coercion>"⟩

@@ -73,38 +73,46 @@ namespace SurfaceTLAPlus
 
   /-- Substitute every free occurrence of `CoreTLAPlus.Expression.var x` with `e`, stopping at any
   binder that rebinds `x`. Used to reconstruct tuple-pattern/multi-binder variables as
-  projections off a single fresh binder (`flattenBound`, `collapseToSingleBinder`). -/
-  partial def CoreTLAPlus.Expression.subst {α} (x : String) (e : CoreTLAPlus.Expression α) : CoreTLAPlus.Expression α → CoreTLAPlus.Expression α
-    | .var y => if y == x then e else .var y
-    | .opCall f es => .opCall (subst x e f) (subst x e <$> es)
-    | .forall y ann dom body => .forall y ann (subst x e <$> dom) (if y == x then body else subst x e body)
-    | .exists y ann dom body => .exists y ann (subst x e <$> dom) (if y == x then body else subst x e body)
-    | .fforall y ann body => .fforall y ann (if y == x then body else subst x e body)
-    | .eexists y ann body => .eexists y ann (if y == x then body else subst x e body)
-    | .choose y ann dom body => .choose y ann (subst x e <$> dom) (if y == x then body else subst x e body)
-    | .set es => .set (subst x e <$> es)
-    | .collect y ann dom pred => .collect y ann (subst x e dom) (if y == x then pred else subst x e pred)
-    | .map' body y ann dom => .map' (if y == x then body else subst x e body) y ann (subst x e dom)
-    | .fnCall f e' => .fnCall (subst x e f) (subst x e e')
-    | .fn y ann dom body => .fn y ann (subst x e dom) (if y == x then body else subst x e body)
-    | .fnSet e₁ e₂ => .fnSet (subst x e e₁) (subst x e e₂)
-    | .record fs => .record (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v))
-    | .recordSet fs => .recordSet (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v))
-    | .except f upds => .except (subst x e f) (upds.map λ (idx, v) ↦ (idx.map (Sum.map id (subst x e)), subst x e v))
-    | .recordAccess f name => .recordAccess (subst x e f) name
-    | .tuple es => .tuple (subst x e <$> es)
-    | .if e₁ e₂ e₃ => .if (subst x e e₁) (subst x e e₂) (subst x e e₃)
-    | .case bs other => .case (bs.map (Bifunctor.bimap (subst x e) (subst x e))) (subst x e <$> other)
-    | .nat n => .nat n
-    | .str s => .str s
-    | .true => .true
-    | .false => .false
-    | .stutter e₁ e₂ => .stutter (subst x e e₁) (subst x e e₂)
+  projections off a single fresh binder (`flattenBound`, `collapseToSingleBinder`).
+
+  Substitution rebuilds every node on the path it walks, so each rebuilt node is re-registered
+  (`match_source`/`@@`) at the span the original carried. Skipping that would leave a whole
+  subtree of the desugared body positionless, and `posOf` answers for an unregistered node with
+  an unrelated node's span rather than failing (`Common/Position.lean`). -/
+  partial def CoreTLAPlus.Expression.subst {α} (x : String) (e : CoreTLAPlus.Expression α)
+      (target : CoreTLAPlus.Expression α) : CoreTLAPlus.Expression α := match_source target with
+    | .var y, pos => if y == x then e else .var y @@ pos
+    | .opCall f es, pos => .opCall (subst x e f) (subst x e <$> es) @@ pos
+    | .forall y ann dom body, pos => .forall y ann (subst x e <$> dom) (if y == x then body else subst x e body) @@ pos
+    | .exists y ann dom body, pos => .exists y ann (subst x e <$> dom) (if y == x then body else subst x e body) @@ pos
+    | .fforall y ann body, pos => .fforall y ann (if y == x then body else subst x e body) @@ pos
+    | .eexists y ann body, pos => .eexists y ann (if y == x then body else subst x e body) @@ pos
+    | .choose y ann dom body, pos => .choose y ann (subst x e <$> dom) (if y == x then body else subst x e body) @@ pos
+    | .set es, pos => .set (subst x e <$> es) @@ pos
+    | .collect y ann dom pred, pos => .collect y ann (subst x e dom) (if y == x then pred else subst x e pred) @@ pos
+    | .map' body y ann dom, pos => .map' (if y == x then body else subst x e body) y ann (subst x e dom) @@ pos
+    | .fnCall f e', pos => .fnCall (subst x e f) (subst x e e') @@ pos
+    | .fn y ann dom body, pos => .fn y ann (subst x e dom) (if y == x then body else subst x e body) @@ pos
+    | .fnSet e₁ e₂, pos => .fnSet (subst x e e₁) (subst x e e₂) @@ pos
+    | .record fs, pos => .record (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v)) @@ pos
+    | .recordSet fs, pos => .recordSet (fs.map λ (ann, name, v) ↦ (ann, name, subst x e v)) @@ pos
+    | .except f upds, pos =>
+      .except (subst x e f) (upds.map λ (idx, v) ↦ (idx.map (Sum.map id (subst x e)), subst x e v)) @@ pos
+    | .recordAccess f name, pos => .recordAccess (subst x e f) name @@ pos
+    | .tuple es, pos => .tuple (subst x e <$> es) @@ pos
+    | .if e₁ e₂ e₃, pos => .if (subst x e e₁) (subst x e e₂) (subst x e e₃) @@ pos
+    | .case bs other, pos => .case (bs.map (Bifunctor.bimap (subst x e) (subst x e))) (subst x e <$> other) @@ pos
+    | .nat n, pos => .nat n @@ pos
+    | .str s, pos => .str s @@ pos
+    | .true, pos => .true @@ pos
+    | .false, pos => .false @@ pos
+    | .stutter e₁ e₂, pos => .stutter (subst x e e₁) (subst x e e₂) @@ pos
 
   /-- The `z[i]` (1-based, TLA⁺-style) tuple projection — a single index, so no `<<…>>`
-  wrapping (`wrapIndices` below) is needed. -/
-  private def tupleProj {α} (z : String) (i : Nat) : CoreTLAPlus.Expression α :=
-    .fnCall (.var z) (.nat (toString (i + 1)))
+  wrapping (`wrapIndices` below) is needed. Registered at `pos`, the span of the tuple-pattern
+  binder this projection was synthesized to replace. -/
+  private def tupleProj {α} (pos : SourceSpan) (z : String) (i : Nat) : CoreTLAPlus.Expression α :=
+    .fnCall (.var z @@ pos) (.nat (toString (i + 1)) @@ pos) @@ pos
 
   /-- `f[e₁, …, eₙ]`'s/`![e₁, …, eₙ]`'s indices, collapsed to the single `CoreTLAPlus.Expression`
   `fnCall`/`except` take: a lone index (`n = 1`) stays exactly that, `f[e]`; more than one becomes
@@ -123,14 +131,16 @@ namespace SurfaceTLAPlus
   - `.varTuple [(ann₁,x),(ann₂,y),…] dom` (`\A ⟨x,y⟩ ∈ S : …`) is a tuple pattern: collapses to
     one fresh binding over `dom`, rewriting `body` to substitute each `x`/`y` with the
     corresponding projection out of the fresh variable. -/
-  def flattenBound (qb : QuantifierBound α (CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) :
+  def flattenBound (pos : SourceSpan) (qb : QuantifierBound α (CoreTLAPlus.Expression α))
+      (body : CoreTLAPlus.Expression α) :
       m (List (String × α × CoreTLAPlus.Expression α) × CoreTLAPlus.Expression α) :=
     match qb with
     | .var ann x dom => pure ([(x, ann, dom)], body)
     | .vars xs dom => pure (xs.map λ (ann, x) ↦ (x, ann, dom), body)
     | .varTuple xs dom => do
       let z ← freshName "tuple"
-      let body := xs.zipIdx.foldr (init := body) λ ((_, x), i) body ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) body
+      let body := xs.zipIdx.foldr (init := body) λ ((_, x), i) body ↦
+        CoreTLAPlus.Expression.subst x (tupleProj pos z i) body
       let ann := xs.head?.map Prod.fst |>.getD default
       pure ([(z, ann, dom)], body)
 
@@ -140,47 +150,51 @@ namespace SurfaceTLAPlus
   `A × B × …`, rewriting `body` to project each original name back out. Not the same
   transformation as `\A x, y : P`'s sequential nesting (`nestQuantifier` below): `[x ∈ A, y ∈ B ↦
   e]` denotes one function over pairs, not a function of functions. -/
-  def collapseToSingleBinder (bindings : List (String × α × CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) :
+  def collapseToSingleBinder (pos : SourceSpan) (bindings : List (String × α × CoreTLAPlus.Expression α))
+      (body : CoreTLAPlus.Expression α) :
       m (String × α × CoreTLAPlus.Expression α × CoreTLAPlus.Expression α) :=
     match bindings with
     | [(x, ann, dom)] => pure (x, ann, dom, body)
     | (_, ann, dom₀) :: rest@(_ :: _) => do
       let z ← freshName "tuple"
-      let domain := rest.foldl (init := dom₀) λ acc (_, _, dom) ↦ .opCall (.var cartesianProduct.canonicalName) [acc, dom]
-      let body := bindings.zipIdx.foldr (init := body) λ ((x, _, _), i) body ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) body
+      let domain := rest.foldl (init := dom₀) λ acc (_, _, dom) ↦
+        .opCall (.var cartesianProduct.canonicalName @@ pos) [acc, dom] @@ pos
+      let body := bindings.zipIdx.foldr (init := body) λ ((x, _, _), i) body ↦
+        CoreTLAPlus.Expression.subst x (tupleProj pos z i) body
       pure (z, ann, domain, body)
     | [] => unreachable!
 
   /-- Sequentially nest a list of `(name, annotation, domain)` bindings into repeated
   single-variable quantification: `x ∈ A, y ∈ B` becomes `∫ x ∈ A : ∫ y ∈ B : body` (a true
   nesting, unlike `collapseToSingleBinder`'s product collapse). -/
-  def nestQuantifier (mk : String → α → Option (CoreTLAPlus.Expression α) → CoreTLAPlus.Expression α → CoreTLAPlus.Expression α)
+  def nestQuantifier (pos : SourceSpan)
+      (mk : String → α → Option (CoreTLAPlus.Expression α) → CoreTLAPlus.Expression α → CoreTLAPlus.Expression α)
       (bindings : List (String × α × CoreTLAPlus.Expression α)) (body : CoreTLAPlus.Expression α) : CoreTLAPlus.Expression α :=
-    bindings.foldr (init := body) λ (x, ann, dom) body ↦ mk x ann (some dom) body
+    bindings.foldr (init := body) λ (x, ann, dom) body ↦ mk x ann (some dom) body @@ pos
 
   partial def Expression.desugar (e : Expression α) : m (CoreTLAPlus.Expression α) := match_source e with
     | .var x, pos => return .var x @@ pos
     | .opCall e es, pos => (.opCall · · @@ pos) <$> e.desugar <*> traverse Expression.desugar es
-    | .prefixCall op e, pos => (λ e ↦ .opCall (.var op.canonicalName) [e] @@ pos) <$> e.desugar
+    | .prefixCall op e, pos => (λ e ↦ .opCall (.var op.canonicalName @@ pos) [e] @@ pos) <$> e.desugar
     | .infixCall e₁ .«.» (.var x), pos =>
       (.recordAccess · x @@ pos) <$> e₁.desugar
     | .infixCall _ .«.» _, pos => throw (.invalidRecordFieldAccess pos)
     | .infixCall e₁ op e₂, pos =>
-      (λ e₁ e₂ ↦ .opCall (.var op.canonicalName) [e₁, e₂] @@ pos) <$> e₁.desugar <*> e₂.desugar
-    | .postfixCall e op, pos => (λ e ↦ .opCall (.var op.canonicalName) [e] @@ pos) <$> e.desugar
+      (λ e₁ e₂ ↦ .opCall (.var op.canonicalName @@ pos) [e₁, e₂] @@ pos) <$> e₁.desugar <*> e₂.desugar
+    | .postfixCall e op, pos => (λ e ↦ .opCall (.var op.canonicalName @@ pos) [e] @@ pos) <$> e.desugar
     | .parens e, _ => e.desugar
     | .bforall qs e, pos => do
       let e ← e.desugar
       let (bindings, e) ← qs.foldrM (init := ([], e)) λ qb (bindings, e) ↦ do
-        let (bs, e) ← flattenBound (← bitraverse pure Expression.desugar qb) e
+        let (bs, e) ← flattenBound pos (← bitraverse pure Expression.desugar qb) e
         return (bs ++ bindings, e)
-      return nestQuantifier .forall bindings e @@ pos
+      return nestQuantifier pos .forall bindings e @@ pos
     | .bexists qs e, pos => do
       let e ← e.desugar
       let (bindings, e) ← qs.foldrM (init := ([], e)) λ qb (bindings, e) ↦ do
-        let (bs, e) ← flattenBound (← bitraverse pure Expression.desugar qb) e
+        let (bs, e) ← flattenBound pos (← bitraverse pure Expression.desugar qb) e
         return (bs ++ bindings, e)
-      return nestQuantifier .exists bindings e @@ pos
+      return nestQuantifier pos .exists bindings e @@ pos
     | .forall vs e, pos =>
       (λ e ↦ vs.foldr (init := e) λ v e ↦ .forall v default none e @@ pos) <$> e.desugar
     | .exists vs e, pos =>
@@ -196,7 +210,7 @@ namespace SurfaceTLAPlus
       | .var ann x => return .choose x ann A e @@ pos
       | .tuple xs => do
         let z ← freshName "tuple"
-        let e := xs.zipIdx.foldr (init := e) λ ((_, x), i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) e
+        let e := xs.zipIdx.foldr (init := e) λ ((_, x), i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj pos z i) e
         -- The fresh variable stands for the whole tuple, so it takes the first component's
         -- annotation — the same choice `flattenBound` makes for `QuantifierBound.varTuple`.
         let ann := xs.head?.map Prod.fst |>.getD default
@@ -209,23 +223,23 @@ namespace SurfaceTLAPlus
       | .var ann x => return .collect x ann A e @@ pos
       | .tuple xs => do
         let z ← freshName "tuple"
-        let e := xs.zipIdx.foldr (init := e) λ ((_, x), i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj z i) e
+        let e := xs.zipIdx.foldr (init := e) λ ((_, x), i) e ↦ CoreTLAPlus.Expression.subst x (tupleProj pos z i) e
         let ann := xs.head?.map Prod.fst |>.getD default
         return .collect z ann A e @@ pos
     | .map' e qs, pos => do
       let e ← e.desugar
       let (bindings, e) ← qs.foldrM (init := ([], e)) λ qb (bindings, e) ↦ do
-        let (bs, e) ← flattenBound (← bitraverse pure Expression.desugar qb) e
+        let (bs, e) ← flattenBound pos (← bitraverse pure Expression.desugar qb) e
         return (bs ++ bindings, e)
-      let (x, ann, dom, e) ← collapseToSingleBinder bindings e
+      let (x, ann, dom, e) ← collapseToSingleBinder pos bindings e
       return .map' e x ann dom @@ pos
     | .fnCall e es, pos => (.fnCall · · @@ pos) <$> e.desugar <*> (wrapIndices pos <$> traverse Expression.desugar es)
     | .fn qs e, pos => do
       let e ← e.desugar
       let (bindings, e) ← qs.foldrM (init := ([], e)) λ qb (bindings, e) ↦ do
-        let (bs, e) ← flattenBound (← bitraverse pure Expression.desugar qb) e
+        let (bs, e) ← flattenBound pos (← bitraverse pure Expression.desugar qb) e
         return (bs ++ bindings, e)
-      let (x, ann, dom, e) ← collapseToSingleBinder bindings e
+      let (x, ann, dom, e) ← collapseToSingleBinder pos bindings e
       return .fn x ann dom e @@ pos
     | .fnSet e₁ e₂, pos => (.fnSet · · @@ pos) <$> e₁.desugar <*> e₂.desugar
     | .record fs, pos =>
@@ -252,11 +266,11 @@ namespace SurfaceTLAPlus
     | .conj es, pos => match es with
       | [] => return .true @@ pos
       | e :: es => do
-        es.foldlM (init := ← e.desugar) λ e e' ↦ (λ e' ↦ .opCall (.var "/\\") [e, e'] @@ pos) <$> e'.desugar
+        es.foldlM (init := ← e.desugar) λ e e' ↦ (λ e' ↦ .opCall (.var "/\\" @@ pos) [e, e'] @@ pos) <$> e'.desugar
     | .disj es, pos => match es with
       | [] => return .false @@ pos
       | e :: es => do
-        es.foldlM (init := ← e.desugar) λ e e' ↦ (λ e' ↦ .opCall (.var "\\/") [e, e'] @@ pos) <$> e'.desugar
+        es.foldlM (init := ← e.desugar) λ e e' ↦ (λ e' ↦ .opCall (.var "\\/" @@ pos) [e, e'] @@ pos) <$> e'.desugar
     | .nat n, pos => return .nat n @@ pos
     | .str s, pos => return .str s @@ pos
     | .at, pos => do match ← read with

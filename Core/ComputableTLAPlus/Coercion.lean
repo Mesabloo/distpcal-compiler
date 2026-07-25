@@ -28,34 +28,43 @@ abbrev CExpr := ComputableTLAPlus.Expression ComputableTLAPlus.Typ
 -- Structural recursion isn't visibly decreasing to Lean here, same as `Coercion.apply` — `partial`
 -- until revisited.
 /-- Applies a coercion to an already-built `ComputableTLAPlus.Expression` — see the module doc
-above for why this can't reuse `Coercion.apply`. -/
-partial def Coercion.applyComputable : Coercion → CExpr → CExpr
-  | .id, e => e
-  | .strToSeq, e =>
-    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences")) [e]
-  | .seqToFun τ₀ i, e =>
-    let range : CExpr := .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals"))
-      [.nat "1", .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences")) [e]]
-    .fn i .int τ₀ range (.fnCall e (.seq τ₀) (.var i .int .binder))
-  | .tupleToSeq n τ, e =>
+above for why this can't reuse `Coercion.apply`. Registers every synthesized node at the coerced
+expression's own span, for the reason spelled out on `Coercion.apply`. -/
+partial def Coercion.applyComputable (c : Coercion) (e : CExpr) : CExpr :=
+  let pos := posOf e
+  match c with
+  | .id => e
+  | .strToSeq =>
+    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences") @@ pos) [e] @@ pos
+  | .seqToFun τ₀ i =>
+    let range : CExpr :=
+      .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals") @@ pos)
+        [.nat "1" @@ pos,
+         .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences") @@ pos) [e] @@ pos] @@ pos
+    .fn i .int τ₀ range (.fnCall e (.seq τ₀) (.var i .int .binder @@ pos) @@ pos) @@ pos
+  | .tupleToSeq n τ =>
     .seq ((List.range n).map λ i ↦
-      .fnCall e (.tuple (List.replicate n τ)) (.nat (toString (i + 1)))) τ
-  | .set x τ τ' c, e =>
-    .map' (c.applyComputable (.var x τ .binder)) x τ τ' e
-  | .tuple coes τs τs', e =>
-    .tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
-      (τ'ᵢ, c.applyComputable (.fnCall e (.tuple τs) (.nat (toString (i + 1)))))
-  | .record fields, e =>
-    .record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.applyComputable (.recordAccess e name))
-  | .function x y dom rng dom' rng' cDom cRng, e =>
-    let domainExpr : CExpr := .opCall (.var "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic) [e]
-    let newDomain : CExpr := .map' (cDom.applyComputable (.var x dom .binder)) x dom dom' domainExpr
+      .fnCall e (.tuple (List.replicate n τ)) (.nat (toString (i + 1)) @@ pos) @@ pos) τ @@ pos
+  | .set x τ τ' c =>
+    .map' (c.applyComputable (.var x τ .binder @@ pos)) x τ τ' e @@ pos
+  | .tuple coes τs τs' =>
+    (.tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
+      (τ'ᵢ, c.applyComputable (.fnCall e (.tuple τs) (.nat (toString (i + 1)) @@ pos) @@ pos))) @@ pos
+  | .record fields =>
+    (.record <| fields.map λ (name, c, τ'ᵢ) ↦
+      (τ'ᵢ, name, c.applyComputable (.recordAccess e name @@ pos))) @@ pos
+  | .function x y dom rng dom' rng' cDom cRng =>
+    let domainExpr : CExpr :=
+      .opCall (.var "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic @@ pos) [e] @@ pos
+    let newDomain : CExpr :=
+      .map' (cDom.applyComputable (.var x dom .binder @@ pos)) x dom dom' domainExpr @@ pos
     let eqTy : Typ := .operator [dom', dom'] .bool
     let recoveredArg : CExpr :=
       .choose x dom domainExpr
-        (.opCall (.var "=" eqTy .intrinsic) [cDom.applyComputable (.var x dom .binder), .var y dom' .binder])
-    .fn y dom' rng' newDomain (cRng.applyComputable (.fnCall e (.function dom rng) recoveredArg))
-  | .comp c₁ c₂, e => c₂.applyComputable (c₁.applyComputable e)
+        (.opCall (.var "=" eqTy .intrinsic @@ pos)
+          [cDom.applyComputable (.var x dom .binder @@ pos), .var y dom' .binder @@ pos] @@ pos) @@ pos
+    .fn y dom' rng' newDomain (cRng.applyComputable (.fnCall e (.function dom rng) recoveredArg @@ pos)) @@ pos
+  | .comp c₁ c₂ => c₂.applyComputable (c₁.applyComputable e)
 
 end TypedTLAPlus
 

@@ -19,20 +19,40 @@ public section
 /-- Placeholder bodies for the declarations below — only the name and type actually matter
 (`Decl.bindings` never looks at a body). Each is a well-typed value of the operator's own return
 type, except `Head`'s use of `intZero`: a rigid type variable has no witness value at all, so
-that one is genuinely fake but harmless. -/
-private def intZero : TypedTLAPlus.Expression TypedTLAPlus.Typ := .nat "0"
-private def emptySetInt : TypedTLAPlus.Expression TypedTLAPlus.Typ := .set [] .int
-private def emptySeqOfVarA : TypedTLAPlus.Expression TypedTLAPlus.Typ := .seq [] (.var "a")
-private def emptySetOfVarA : TypedTLAPlus.Expression TypedTLAPlus.Typ := .set [] (.var "a")
+that one is genuinely fake but harmless.
+
+Each is registered at `SourceSpan.placeholder`. A builtin operator has no source text anywhere,
+so there is no real span to give it — but *not* registering it is not the same as having no
+position: `posOf` cannot distinguish an unregistered value from one whose address a dead value
+left an entry under, and answers with that entry (`Common/Position.lean`). These bodies are
+compiled-in constants that live for the whole process, and `WellFormedness/Reachability.lean`'s
+walk reads their positions whenever a module `EXTENDS` a standard module, so leaving them
+unregistered means a real diagnostic can be reported against an unrelated span. -/
+private def pos : SourceSpan := SourceSpan.placeholder
+
+/-- `TRUE`, as the body of every predicate-valued builtin.
+
+Named rather than written inline at each use because `Expression.true` is a *nullary*
+constructor: Lean gives every occurrence of it one shared, statically allocated object, so it has
+exactly one address and therefore exactly one entry in the span map, program-wide. Registering it
+here is what keeps `posOf` from answering for it with an unrelated node's span; it cannot give
+per-occurrence positions, and no amount of registration would — the same limitation
+`Parser_/Annotations.lean` records for `Annotation`'s own nullary constructors. -/
+private def trueBody : TypedTLAPlus.Expression TypedTLAPlus.Typ := .true @@ pos
+
+private def intZero : TypedTLAPlus.Expression TypedTLAPlus.Typ := .nat "0" @@ pos
+private def emptySetInt : TypedTLAPlus.Expression TypedTLAPlus.Typ := .set [] .int @@ pos
+private def emptySeqOfVarA : TypedTLAPlus.Expression TypedTLAPlus.Typ := .seq [] (.var "a") @@ pos
+private def emptySetOfVarA : TypedTLAPlus.Expression TypedTLAPlus.Typ := .set [] (.var "a") @@ pos
 /-- A vacuous `[x \in {} |-> 0]` — well-typed at `Function(a, Int)` for any `a`, since an empty
 domain witnesses any codomain. Used as the placeholder body for every `Bags` operator returning a
 bag. -/
 private def emptyFnOfVarAToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
-  .fn "x" (.var "a") .int emptySetOfVarA intZero
+  .fn "x" (.var "a") .int emptySetOfVarA intZero @@ pos
 private def emptyFnOfVarBToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
-  .fn "x" (.var "b") .int (.set [] (.var "b")) intZero
+  .fn "x" (.var "b") .int (.set [] (.var "b") @@ pos) intZero @@ pos
 private def emptySetOfFnVarAToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
-  .set [] (.function (.var "a") .int)
+  .set [] (.function (.var "a") .int) @@ pos
 
 /-- `Naturals`'s operators: arithmetic, comparisons, the `..` range constructor, and `Nat` itself
 (a value — `Set(Int)` — bound as a 0-ary operator). `-.` is unary minus, distinct from binary
@@ -42,10 +62,10 @@ private def naturalsDeclarations : List Decl :=
     .operator (.operator [.int, .int] .int) "-" [("x", 0), ("y", 0)] intZero,
     .operator (.operator [.int] .int) "-." [("x", 0)] intZero,
     .operator (.operator [.int, .int] .int) "*" [("x", 0), ("y", 0)] intZero,
-    .operator (.operator [.int, .int] .bool) "<" [("x", 0), ("y", 0)] .true,
-    .operator (.operator [.int, .int] .bool) ">" [("x", 0), ("y", 0)] .true,
-    .operator (.operator [.int, .int] .bool) "=<" [("x", 0), ("y", 0)] .true,
-    .operator (.operator [.int, .int] .bool) ">=" [("x", 0), ("y", 0)] .true,
+    .operator (.operator [.int, .int] .bool) "<" [("x", 0), ("y", 0)] trueBody,
+    .operator (.operator [.int, .int] .bool) ">" [("x", 0), ("y", 0)] trueBody,
+    .operator (.operator [.int, .int] .bool) "=<" [("x", 0), ("y", 0)] trueBody,
+    .operator (.operator [.int, .int] .bool) ">=" [("x", 0), ("y", 0)] trueBody,
     .operator (.operator [.int, .int] (.set .int)) ".." [("x", 0), ("y", 0)] emptySetInt,
     .operator (.set .int) "Nat" [] emptySetInt ]
 
@@ -71,7 +91,7 @@ table's `«extends»` field is this project's own import-dependency edge, not a 
 (`resolveModule`/`compileModule` treat every builtin the same regardless of `LOCAL`), so
 `FiniteSets` still `«extends» := ["Naturals", "Sequences"]`. -/
 private def finiteSetsDeclarations : List Decl :=
-  [ .operator (.operator [.set (.var "a")] .bool) "IsFiniteSet" [("S", 0)] .true,
+  [ .operator (.operator [.set (.var "a")] .bool) "IsFiniteSet" [("S", 0)] trueBody,
     .operator (.operator [.set (.var "a")] .int) "Cardinality" [("S", 0)] intZero ]
 
 /-- `Bags`'s operators — a bag of `a`s represented the same way the real module does, as a
@@ -87,10 +107,10 @@ its own fresh instantiation of `a`, since `Decl.bindings` (`Driver/Modules.lean`
 0-ary `operator` declaration a scheme (`Elaborator/Monad.lean`'s `Binding.isScheme`), freshened at
 each `Γ`-reference by `Elaborator/Expressions.lean`'s `inferExpr`. -/
 private def bagsDeclarations : List Decl :=
-  [ .operator (.operator [.function (.var "a") .int] .bool) "IsABag" [("B", 0)] .true,
+  [ .operator (.operator [.function (.var "a") .int] .bool) "IsABag" [("B", 0)] trueBody,
     .operator (.operator [.function (.var "a") .int] (.set (.var "a"))) "BagToSet" [("B", 0)] emptySetOfVarA,
     .operator (.operator [.set (.var "a")] (.function (.var "a") .int)) "SetToBag" [("S", 0)] emptyFnOfVarAToInt,
-    .operator (.operator [.var "a", .function (.var "a") .int] .bool) "BagIn" [("e", 0), ("B", 0)] .true,
+    .operator (.operator [.var "a", .function (.var "a") .int] .bool) "BagIn" [("e", 0), ("B", 0)] trueBody,
     .operator (.function (.var "a") .int) "EmptyBag" [] emptyFnOfVarAToInt,
     .operator (.operator [.function (.var "a") .int, .function (.var "a") .int] (.function (.var "a") .int))
       "(+)" [("B1", 0), ("B2", 0)] emptyFnOfVarAToInt,
@@ -98,7 +118,7 @@ private def bagsDeclarations : List Decl :=
       "(-)" [("B1", 0), ("B2", 0)] emptyFnOfVarAToInt,
     .operator (.operator [.set (.function (.var "a") .int)] (.function (.var "a") .int)) "BagUnion" [("S", 0)] emptyFnOfVarAToInt,
     .operator (.operator [.function (.var "a") .int, .function (.var "a") .int] .bool)
-      "\\sqsubseteq" [("B1", 0), ("B2", 0)] .true,
+      "\\sqsubseteq" [("B1", 0), ("B2", 0)] trueBody,
     .operator (.operator [.function (.var "a") .int] (.set (.function (.var "a") .int))) "SubBag" [("B", 0)] emptySetOfFnVarAToInt,
     .operator (.operator [.operator [.var "a"] (.var "b"), .function (.var "a") .int] (.function (.var "b") .int))
       "BagOfAll" [("F", 1), ("B", 0)] emptyFnOfVarBToInt,

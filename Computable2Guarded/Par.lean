@@ -55,7 +55,7 @@ variable {m : Type → Type} [Monad m] [MonadFresh m]
 untouched, then hands the reconstructed `Ref` to `k`. Threads the type-so-far explicitly
 (starting at `r.baseType`, stepped via `Ref.stepType`) so each hoisted index-temp gets its own
 correct type (`Ref.indexType`), not the unrelated referenced `Ref`'s own result type. -/
-private partial def parRef (r : Ref) (k : Ref → m (Block false)) : m (Block false) :=
+private partial def parRef (pos : SourceSpan) (r : Ref) (k : Ref → m (Block false)) : m (Block false) :=
   go r.baseType r.args []
 where
   go (τ : ComputableTLAPlus.Typ) (remaining seen : List (String ⊕ Expression)) : m (Block false) :=
@@ -65,62 +65,65 @@ where
     | .inr e :: rest => do
       let idxTy := Ref.indexType τ
       let y ← freshName "idx"
-      let body ← go (Ref.stepType τ (.inr e)) rest (.inr (.var y idxTy .binder) :: seen)
-      pure ⟨[], .with y idxTy true e body⟩
+      let body ← go (Ref.stepType τ (.inr e)) rest (.inr (.var y idxTy .binder @@ pos) :: seen)
+      pure ⟨[], .with y idxTy true e body @@ pos⟩
 
 /-- Threads `parRef` across every `(rᵢ, vᵢ)` pair in turn (`r1` outermost, matching the
 left-to-right `𝒞_par(r1,f1) … 𝒞_par(rn,fn)` nesting above) to bind *every* `Ref`'s own index temps
 first — `k` only runs once all `n` are reconstructed, so no `rᵢ`'s index expression is ever
 evaluated after an earlier `rⱼ`'s assignment has already run (the entire point of hoisting: every
 read must see the pre-assignment state, not just each ref's own). -/
-private partial def parRefsAll (rs : List (Ref × String)) (k : List (Ref × String) → m (Block false)) :
-    m (Block false) :=
+private partial def parRefsAll (pos : SourceSpan) (rs : List (Ref × String))
+    (k : List (Ref × String) → m (Block false)) : m (Block false) :=
   match rs with
   | [] => k []
-  | (r, v) :: rest => parRef r λ r' => parRefsAll rest λ rest' => k ((r', v) :: rest')
+  | (r, v) :: rest => parRef pos r λ r' => parRefsAll pos rest λ rest' => k ((r', v) :: rest')
 
 /-- The final `r1' := v1; …; rn' := vn` sequence, built only after every `Ref` in the list has
 already had its own index temps bound by `parRefsAll`. -/
-private def buildAssigns : List (Ref × String) → Block false
+private def buildAssigns (pos : SourceSpan) : List (Ref × String) → Block false
   | [] => unreachable! -- only ever called from `buildParChain` with `pairs.length ≥ 2`
-  | [(r, v)] => ⟨[], .assign [(r, .var v (Ref.resultType r) .binder)]⟩
+  | [(r, v)] => ⟨[], .assign [(r, .var v (Ref.resultType r) .binder @@ pos)] @@ pos⟩
   | (r, v) :: rest =>
-    let ⟨begin, «end»⟩ := buildAssigns rest
-    ⟨.assign [(r, .var v (Ref.resultType r) .binder)] :: begin, «end»⟩
+    let ⟨begin, «end»⟩ := buildAssigns pos rest
+    ⟨(.assign [(r, .var v (Ref.resultType r) .binder @@ pos)] @@ pos) :: begin, «end»⟩
 
 /-- The outer `with v1=e1 do … with vn=en do body` chain, `v1` outermost — same nested-`⟨[], ·⟩`
 idiom `Desugarer/PlusCal.lean`'s `buildWithChain` already uses for a multi-binder surface
 `with`. -/
-private def valueChain : List (String × Ref × Expression) → Block false → Statement false
+private def valueChain (pos : SourceSpan) : List (String × Ref × Expression) → Block false → Statement false
   | [], _ => unreachable! -- only ever called from `buildParChain` with `pairs.length ≥ 2`
-  | [(v, r, e)], body => .with v (Ref.resultType r) true e body
-  | (v, r, e) :: rest, body => .with v (Ref.resultType r) true e ⟨[], valueChain rest body⟩
+  | [(v, r, e)], body => .with v (Ref.resultType r) true e body @@ pos
+  | (v, r, e) :: rest, body => .with v (Ref.resultType r) true e ⟨[], valueChain pos rest body⟩ @@ pos
 
 /-- `𝒞_par` proper, applied to one parallel-assignment statement's own `(Ref × Expr)` list
-(`pairs.length ≥ 2` — the length-≤1 case is handled by `Statement.par` before reaching here). -/
-private def buildParChain (pairs : List (Ref × Expression)) : m (Statement false) := do
+(`pairs.length ≥ 2` — the length-≤1 case is handled by `Statement.par` before reaching here).
+Every node this builds is a rewrite of the one original parallel assignment, so all of them are
+registered at that statement's own span (`pos`). -/
+private def buildParChain (pos : SourceSpan) (pairs : List (Ref × Expression)) : m (Statement false) := do
   let named ← pairs.mapM λ (r, e) ↦ (·, r, e) <$> freshName "val"
-  let body ← parRefsAll (named.map λ (v, r, _) ↦ (r, v)) (pure <| buildAssigns ·)
-  pure (valueChain named body)
+  let body ← parRefsAll pos (named.map λ (v, r, _) ↦ (r, v)) (pure <| buildAssigns pos ·)
+  pure (valueChain pos named body)
 
 mutual
   /-- `𝒞_par` over a single statement — an ordinary congruence except at `.assign`, the one case
   this pass actually rewrites. -/
   partial def ComputablePlusCal.Statement.par {b} (s : Statement b) : m (Statement b) :=
-    match s with
-    | .goto l => pure (.goto l)
-    | .skip => pure .skip
-    | .print e => pure (.print e)
-    | .assign pairs => if pairs.length ≤ 1 then pure (.assign pairs) else buildParChain pairs
-    | .await e => pure (.await e)
-    | .assert e => pure (.assert e)
-    | .send c e => pure (.send c e)
-    | .multicast c filter => pure (.multicast c filter)
-    | .receive c r coe => pure (.receive c r coe)
-    | .with var ann «=|∈» val B => (.with var ann «=|∈» val ·) <$> Block.par B
-    | .either branches => .either <$> Branches.par branches
-    | .if cond B₁ B₂ => .if cond <$> Block.par B₁ <*> Block.par B₂
-    | .while cond B => .while cond <$> Block.par B
+    match_source s with
+    | .goto l, pos => pure (.goto l @@ pos)
+    | .skip, pos => pure (.skip @@ pos)
+    | .print e, pos => pure (.print e @@ pos)
+    | .assign pairs, pos =>
+      if pairs.length ≤ 1 then pure (.assign pairs @@ pos) else buildParChain pos pairs
+    | .await e, pos => pure (.await e @@ pos)
+    | .assert e, pos => pure (.assert e @@ pos)
+    | .send c e, pos => pure (.send c e @@ pos)
+    | .multicast c filter, pos => pure (.multicast c filter @@ pos)
+    | .receive c r coe, pos => pure (.receive c r coe @@ pos)
+    | .with var ann «=|∈» val B, pos => (.with var ann «=|∈» val · @@ pos) <$> Block.par B
+    | .either branches, pos => (.either · @@ pos) <$> Branches.par branches
+    | .if cond B₁ B₂, pos => (.if cond · · @@ pos) <$> Block.par B₁ <*> Block.par B₂
+    | .while cond B, pos => (.while cond · @@ pos) <$> Block.par B
 
   partial def ComputablePlusCal.Block.par {b} : Block b → m (Block b)
     | ⟨begin, «end»⟩ => do
@@ -138,7 +141,7 @@ every process — mirrors `Computable2Guarded/CFlow.lean`'s own `Algorithm.cflow
 def ComputablePlusCal.Algorithm.par (algo : ComputablePlusCal.Algorithm) : m ComputablePlusCal.Algorithm := do
   let processes ← algo.processes.mapM λ p ↦ do
     let threads ← p.threads.mapM (·.mapM λ (label, block) ↦ (label, ·) <$> Block.par block)
-    pure { p with threads }
-  pure { algo with processes }
+    pure ({ p with threads } @@ posOf p)
+  pure ({ algo with processes } @@ posOf algo)
 
 end

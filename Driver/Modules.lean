@@ -3,7 +3,6 @@ module
 public import Driver.Errors
 public import Driver.Builtins
 public import Common.Flags
-public import Common.Dump
 public import Extra.Monad
 public import WellFormedness.Monad
 

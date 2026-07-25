@@ -60,7 +60,12 @@ def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [Com
   let pos := CompilerDiagnostic.posOf err
   let n := pos.start.line
   let linePadding := String.replicate (n.repr.length + 2) ' '
-  let line := source[n - 1]!
+  -- Degrade rather than panic on a line number this source doesn't have. A renderer is the last
+  -- thing that should take the process down, and a span it cannot honour is a bug elsewhere
+  -- (`SourceSpan.placeholder`'s line `1` is the sanctioned "no real position" value, and line `0`
+  -- means a span was read off a node nothing ever registered) — this makes that bug show up as a
+  -- blank quoted line, not as `PANIC at List.get!Internal`.
+  let line := (source[n - 1]?).getD "".toSlice
   let startCol := pos.start.col
   let endCol := if pos.end.line > n then line.length else pos.end.col
   let beginLine := line.take startCol

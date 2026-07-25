@@ -149,21 +149,20 @@ private unsafe def Internal.forgetSourcePositionsImpl : BaseIO Unit :=
   `registerSource`/`posOf` key on `ptrAddrUnsafe`, and the map outlives the values it describes.
   That is harmless for a value that *was* registered — no two live values share an address, so its
   own entry is the only one its address can hold. It is not harmless for a value that was never
-  registered and has its position read anyway: `posOf` cannot distinguish "no entry" from "an
-  entry left by something now dead", and it answers with the corpse's span. The desugarer builds
-  `CorePlusCal` statements without registering them (`Desugarer/PlusCal.lean` has no `@@`) while
-  `checkAssignConflicts` reads their positions, so this is not hypothetical — see §9.21 for a
-  worked example where a diagnostic points one statement too far.
+  registered and has its position read anyway: `posOf` cannot distinguish "no entry" from "an entry
+  left by something now dead", and it answers with the corpse's span.
 
-  Clearing bounds the damage to a single compile. Across compiles the stale span comes from another
-  file, where the line need not exist at all, and `CompilerDiagnostic.pretty`'s line lookup is a
-  `get!`. Within one compile the span is merely wrong.
+  **Registering is therefore an obligation on every pass, not a nicety** — see `PLAN.md` §2,
+  "Source positions", for which node kinds carry positions and what a synthesized node takes. This
+  clear is the second half of the same contract: it bounds an address's reuse to one compile, so a
+  node registered by a *previous* compile can never answer for a node in this one. Across compiles
+  the stale span would come from another file, where the line need not exist at all.
 
-  Two things this is **not**. It is not a fix: a position that was never recorded has no right
-  answer, and clearing only changes which wrong answer is given. And it does not make concurrent
-  compiles safe — the map is one global `IO.Ref`, and clearing is itself destructive, so a clear on
-  one thread drops the spans another thread has registered so far. Per-compile positions, or a real
-  field on AST nodes, is what removes the class.
+  What this is **not** is a substitute for registering. A position that was never recorded has no
+  right answer, and clearing only changes which wrong answer is given. Nor does it make concurrent
+  compiles safe: the map is one global `IO.Ref` and clearing is itself destructive, so a clear on
+  one thread drops the spans another thread has registered so far. That is why `lake test` defaults
+  to `-j 1` (`OPEN_QUESTIONS.md` §9.24).
 -/
 @[implemented_by Internal.forgetSourcePositionsImpl, never_extract]
 def forgetSourcePositions : BaseIO Unit := pure ()
