@@ -242,9 +242,82 @@ private def runCli (p : Parsed) : IO UInt32 := do
       IO.println summary
   return 0
 
-private def cli : Cmd := `[Cli|
-  "fugue" VIA runCli; ["0.1.0"]
-  "Fugue — a verified compiler for Distributed PlusCal targeting Go and the Join Calculus."
+/-- Directory layouts `fugue explain` accepts a diagnostics corpus in, relative to some ancestor of
+the executable: the repository's own `docs/diagnostics`, and the `share/fugue/diagnostics` an
+installed copy would use. -/
+private def diagnosticsDocsLayouts : List System.FilePath :=
+  ["docs" / "diagnostics", "share" / "fugue" / "diagnostics"]
+
+/-- Where `fugue explain` looks for a diagnostic's markdown page. `$FUGUE_DOCS` overrides;
+otherwise the search is anchored at the **executable**, walking up from its directory for the
+first ancestor containing one of `diagnosticsDocsLayouts`. Anchored there and not at the working
+directory, which has no reason to be anywhere near the compiler — in a checkout the binary sits at
+`.lake/build/bin/fugue`, three levels under the `docs/` it wants. `none` if no corpus is
+installed. -/
+private def diagnosticsDocsDir : IO (Option System.FilePath) := do
+  if let some dir ← IO.getEnv "FUGUE_DOCS" then
+    return some ↑dir
+  let mut dir := (← IO.appPath).parent
+  -- Bounded: a filesystem root has itself as parent in some spellings, and this must terminate.
+  for _ in [0:6] do
+    let some here := dir | break
+    for layout in diagnosticsDocsLayouts do
+      if ← (here / layout).isDir then
+        return some (here / layout)
+    dir := here.parent
+  return none
+
+/-- One registry entry, as `fugue explain --list` prints it. -/
+private def Diagnostics.Entry.listLine (entry : Diagnostics.Entry) : String :=
+  let code := ToString.toString entry.code
+  let stage := entry.stage.name
+  s!"{code}{String.replicate (8 - code.length) ' '}{stage}{String.replicate (16 - stage.length) ' '}{entry.summary}"
+
+/-- Print everything known about one code: its registry entry, then its `docs/diagnostics` page if
+one has been written. Returns whether the code was a registered one. -/
+private def explainCode (raw : String) : IO Bool := do
+  let some code := DiagnosticCode.ofString? raw
+    | IO.eprintln s!"error: '{raw}' is not a diagnostic code. Codes look like 'E0042' or 'W0003'."
+      return false
+  let some entry := Diagnostics.find? code
+    | IO.eprintln s!"error: no diagnostic is registered under '{code}'. \
+Run 'fugue explain --list' to see every code."
+      return false
+  IO.println s!"{code}: {entry.summary}"
+  IO.println s!"Reported by: {entry.stage.name}"
+  unless entry.warningName.isEmpty do
+    IO.println s!"Suppress with: -Wno-{entry.warningName}"
+  IO.println ""
+  match ← diagnosticsDocsDir with
+  | none =>
+    IO.println "No diagnostics corpus was found next to this executable. Set $FUGUE_DOCS to point \
+at one."
+  | some dir =>
+    let page := dir / s!"{code}.md"
+    if ← page.pathExists then
+      IO.println (← IO.FS.readFile page)
+    else
+      IO.println s!"No detailed page for {code} has been written yet ({page} does not exist)."
+  return true
+
+private def runExplain (p : Parsed) : IO UInt32 := do
+  let codes := p.variableArgsAs! String
+  if p.hasFlag "list" then
+    Diagnostics.entries.forM λ entry ↦ IO.println entry.listLine
+    return 0
+  if codes.isEmpty then
+    IO.eprintln "error: 'fugue explain' needs a diagnostic code, e.g. 'fugue explain E0042'. \
+Use '--list' to see every code."
+    return 1
+  let mut ok := true
+  for raw in codes do
+    unless ← explainCode raw do
+      ok := false
+  return if ok then 0 else 1
+
+private def compileCmd : Cmd := `[Cli|
+  compile VIA runCli; ["0.1.0"]
+  "Compile a TLA+ module."
 
   FLAGS:
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
@@ -256,6 +329,24 @@ private def cli : Cmd := `[Cli|
 
   ARGS:
     input : Input; "The input TLA+ file to compile, or `-` to read from standard input."
+]
+
+private def explainCmd : Cmd := `[Cli|
+  explain VIA runExplain; ["0.1.0"]
+  "Explain a diagnostic code, e.g. 'fugue explain E0042'."
+
+  FLAGS:
+    l, list; "List every diagnostic code with its stage and summary."
+
+  ARGS:
+    ...codes : String; "The codes to explain."
+]
+
+private def cli : Cmd := `[Cli|
+  "fugue" NOOP; ["0.1.0"]
+  "Fugue — a verified compiler for Distributed PlusCal targeting Go and the Join Calculus."
+
+  SUBCOMMANDS: compileCmd; explainCmd
 ]
 
 /-- The `fugue` executable's entry point. -/

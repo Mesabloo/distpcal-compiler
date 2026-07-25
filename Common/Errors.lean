@@ -1,6 +1,7 @@
 module
 
 public import Common.Position
+public import Common.Diagnostics.Registry
 import Mathlib.Data.String.Defs
 public import Mathlib.Control.Monad.Writer
 public import Colorized
@@ -23,6 +24,11 @@ class CompilerDiagnostic (ε : Type _) (α : outParam (Type _)) [Colorized α] w
   /-- The `-W<name>`/`-Wno-<name>` name this diagnostic is filtered under. Only meaningful for
   warnings — an error is never suppressed by `-W`, so its instance leaves this at the default. -/
   name : ε → String := λ _ ↦ ""
+  /-- This diagnostic's stable code (`Common/Diagnostics/Registry.lean`), printed as
+  `error[E0042]:` and taken as the identity a regression fixture or `fugue explain` names.
+  Deliberately without a default: an instance must map *every* constructor to an entry, so adding
+  a diagnostic without registering it fails to compile. -/
+  code : ε → DiagnosticCode
 
 /-- A pass with no warnings uses `MonadDiagnostic Empty ε m`. Lets `List Empty` still satisfy a
 generic `[CompilerDiagnostic α String]` requirement; every field is `Empty.elim` since no `Empty`
@@ -31,6 +37,7 @@ instance : CompilerDiagnostic Empty String where
   isError := true
   posOf := Empty.elim
   msgOf := Empty.elim
+  code := Empty.elim
 
 /-- `Colorized.color`, but a no-op when `enabled` is `false` (`-fno-color`). Not `private`:
 `Fugue.lean` reuses it for its `Built`/`Replayed` progress lines too. -/
@@ -45,7 +52,9 @@ def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) 
 /-- Pretty basic error pretty printing. `colored := false` (driven by `-fno-color`) disables ANSI styling. -/
 @[nospecialize]
 def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String.Slice) (colored : Bool := true) : String :=
-  let header := if CompilerDiagnostic.isError ε then "error" else "warning"
+  -- `error[E0042]:` / `warning[W0003]:` — the code is part of the header, so continuation lines
+  -- and hints indent past all of it, not just past the severity word.
+  let header := s!"{if CompilerDiagnostic.isError ε then "error" else "warning"}[{CompilerDiagnostic.code err}]"
   let color := if CompilerDiagnostic.isError ε then Colorized.Color.Red else .Yellow
   let headerPadding := String.replicate (header.length + 2) ' '
   let pos := CompilerDiagnostic.posOf err

@@ -20,6 +20,12 @@ section
 
   instance : CompilerDiagnostic ResolverError String where
     isError := true
+    code
+      | .invalidArgsLen .. => Diagnostics.annotationArity.code
+      | .invalidAnnotationType .. => Diagnostics.annotationArgumentKind.code
+      | .typeParseFailure _ => Diagnostics.annotationTypeParse.code
+      | .expressionParseFailure _ => Diagnostics.annotationExpressionParse.code
+      | .invalidMailboxSpecification _ => Diagnostics.annotationMailboxShape.code
     msgOf
       | .invalidArgsLen _ ann expected nbArgs => s!"{ann} annotation expects {expected} arguments, but {nbArgs} were found."
       | .invalidAnnotationType _ ann expected => s!"{ann} annotation expects {expected}."

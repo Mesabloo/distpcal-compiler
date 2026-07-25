@@ -82,7 +82,7 @@ for f in "$script_dir"/*.tla; do
   (
     log="$results_dir/$name.log"
     timefile="$results_dir/$name.time"
-    { time "$fugue" -f no-color,no-progress "$f" >"$log" 2>>"$log"; } 2>"$timefile"
+    { time "$fugue" compile -f no-color,no-progress "$f" >"$log" 2>>"$log"; } 2>"$timefile"
     got_exit=$?
     elapsed="$(cat "$timefile")"
     rm -f "$timefile"

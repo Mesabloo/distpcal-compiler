@@ -20,69 +20,9 @@ public section
   run by being the CLI. Two consumers need it now: the CLI, and `tests/regression`'s runner.
 -/
 
-/-- Where a compile is, or where it stopped. Ordered: `Stage.reached` and a failing stage are
-compared against each other, so the constructor order is the pipeline order. -/
-inductive Stage : Type
-  /-- Source text read; nothing compiled yet. -/
-  | read
-  /-- Lexing (`Parser_/Tokens`). -/
-  | lex
-  /-- Parsing (`Parser_/TLAPlus.lean`). -/
-  | parse
-  /-- `@type`/`@mailbox`/`@parameter` annotation resolution. -/
-  | annotation
-  /-- Surface → Core desugaring. -/
-  | desugar
-  /-- `EXTENDS` resolution: locating, and recursively compiling, each dependency. -/
-  | resolve
-  /-- Type checking (`Elaborator`). -/
-  | typeCheck
-  /-- The well-formedness restrictions (`WellFormedness`). -/
-  | wellFormedness
-  /-- `Typed2Computable`. -/
-  | computable
-  /-- `Computable2Guarded`. -/
-  | guarded
-  /-- `Guarded2Network`. -/
-  | network
-  deriving DecidableEq, Repr, Inhabited, Ord
-
-/-- The `-d dump-<name>`/expectation-file spelling of a stage. -/
-def Stage.name : Stage → String
-  | .read => "read" | .lex => "lex" | .parse => "parse" | .annotation => "annotation"
-  | .desugar => "desugar" | .resolve => "resolve" | .typeCheck => "typecheck"
-  | .wellFormedness => "wellformedness" | .computable => "computable" | .guarded => "guarded"
-  | .network => "network"
-
-instance : ToString Stage := ⟨Stage.name⟩
-
-/-- Every stage, in pipeline order. -/
-def Stage.all : List Stage :=
-  [.read, .lex, .parse, .annotation, .desugar, .resolve, .typeCheck, .wellFormedness,
-   .computable, .guarded, .network]
-
-/-- The stage `s` by name, if `s` names one. -/
-def Stage.ofName? (s : String) : Option Stage := Stage.all.find? (·.name == s)
-
-/-- The stage immediately before `s`, i.e. the last one that must have completed for `s` to have
-started. `.read` is its own predecessor: it is the floor, reached as soon as there is any source
-text at all. -/
-def Stage.predecessor : Stage → Stage
-  | .read | .lex => .read
-  | .parse => .lex
-  | .annotation => .parse
-  | .desugar => .annotation
-  | .resolve => .desugar
-  | .typeCheck => .resolve
-  | .wellFormedness => .typeCheck
-  | .computable => .wellFormedness
-  | .guarded => .computable
-  | .network => .guarded
-
-/-- Did a compile that reached `self` get at least as far as `target`? A plain `Bool` function
-rather than an `LE`/`Decidable` instance pair: comparing two stages is a question about pipeline
-progress, and nothing here wants order-class machinery. -/
-def Stage.reaches (self target : Stage) : Bool := compare self target != .lt
+-- `Stage` itself lives in `Common/Diagnostics/Stage.lean`, so the diagnostic registry can name a
+-- stage without depending on the pipeline that runs them; it is re-exported here, where it is
+-- actually used.
 
 /-- Any way a compile can fail, from any stage. One type so a caller handles one thing;
 `PipelineError.stage` recovers where it came from. -/

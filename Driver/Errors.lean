@@ -50,6 +50,18 @@ private instance {α} [ToString α] : ToString (Located' α) := ⟨λ x ↦ toSt
 @[no_expose]
 instance : CompilerDiagnostic DriverError String where
   isError := true
+  -- Forwards to whichever pass's own diagnostic this wraps, with one exception: `Unexpected`'s
+  -- instance is shared by the lexer and the parser and reports the parser's code, so `.lex` — the
+  -- one place that distinction exists — supplies the lexer's itself.
+  code
+    | .lex .. => Diagnostics.unexpectedCharacter.code
+    | .parse _ e => CompilerDiagnostic.code e
+    | .annotation _ e => CompilerDiagnostic.code e
+    | .desugar _ e => CompilerDiagnostic.code e
+    | .typeCheck _ e => CompilerDiagnostic.code e
+    | .moduleNotFound _ => Diagnostics.moduleNotFound.code
+    | .ambiguousModule .. => Diagnostics.ambiguousModule.code
+    | .cyclicExtends _ => Diagnostics.cyclicExtends.code
   posOf
     | .lex _ e => CompilerDiagnostic.posOf e
     | .parse _ e => CompilerDiagnostic.posOf e
@@ -90,6 +102,10 @@ def DriverWarning.moduleId : DriverWarning → String
 instance : CompilerDiagnostic DriverWarning String where
   isError := false
   name := DriverWarning.name
+  code
+    | .parser _ w => CompilerDiagnostic.code w
+    | .desugar _ w => CompilerDiagnostic.code w
+    | .typeCheck _ w => CompilerDiagnostic.code w
   posOf
     | .parser _ w => CompilerDiagnostic.posOf w
     | .desugar _ w => CompilerDiagnostic.posOf w

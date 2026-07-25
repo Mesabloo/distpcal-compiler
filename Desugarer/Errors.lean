@@ -47,6 +47,19 @@ inductive DesugarError : Type
 
 instance : CompilerDiagnostic DesugarError String where
   isError := true
+  code
+    | .misplacedAt _ => Diagnostics.misplacedAt.code
+    | .gotoNotInTailPosition _ => Diagnostics.gotoNotInTailPosition.code
+    | .unlabelledStatement _ => Diagnostics.unlabelledStatement.code
+    | .nestedLabel _ => Diagnostics.nestedLabel.code
+    | .whileInWith _ => Diagnostics.whileInWith.code
+    | .whileNotLabelled _ => Diagnostics.whileNotLabelled.code
+    | .notFollowedByLabel _ => Diagnostics.notFollowedByLabel.code
+    | .withBoundVarWritten .. => Diagnostics.withBoundVarWritten.code
+    | .wrongAnnotationKindAtSite .. => Diagnostics.wrongAnnotationKind.code
+    | .duplicateAnnotation .. => Diagnostics.duplicateAnnotation.code
+    | .conflictingAssignment .. => Diagnostics.conflictingAssignment.code
+    | .invalidRecordFieldAccess _ => Diagnostics.invalidRecordFieldAccess.code
   posOf
     | .misplacedAt pos
     | .gotoNotInTailPosition pos
@@ -88,6 +101,7 @@ def DesugarWarning.name : DesugarWarning → String
 
 instance : CompilerDiagnostic DesugarWarning String where
   isError := false
+  code | .duplicateParameterAnnotation _ => Diagnostics.duplicateParameterAnnotation.code
   name := DesugarWarning.name
   posOf | .duplicateParameterAnnotation pos => pos
   msgOf | .duplicateParameterAnnotation _ => "Only one '@parameter' is needed per variable; the extra one(s) have no additional effect."

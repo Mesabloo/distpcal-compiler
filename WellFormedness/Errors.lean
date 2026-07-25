@@ -59,6 +59,18 @@ private def renderPath : List String → String
 @[no_expose]
 instance : CompilerDiagnostic WellFormednessError String where
   isError := true
+  code
+    | .unknownLabel .. => Diagnostics.unknownLabel.code
+    | .redefinedDone _ => Diagnostics.redefinedDone.code
+    | .duplicateName .. => Diagnostics.duplicateName.code
+    | .shadowedName .. => Diagnostics.shadowedName.code
+    | .channelInExpression .. => Diagnostics.channelInExpression.code
+    | .channelTypedVariable .. => Diagnostics.channelTypedVariable.code
+    | .nonEmptyLocalChannels .. => Diagnostics.nonEmptyLocalChannels.code
+    | .globalPlusCalVariable .. => Diagnostics.globalPlusCalVariable.code
+    | .globalTLAPlusVariable .. => Diagnostics.globalTLAPlusVariable.code
+    | .bareTemporalOrAction .. => Diagnostics.bareTemporalOrAction.code
+    | .unboundedQuantifier .. => Diagnostics.unboundedQuantifier.code
   posOf
     | .unknownLabel pos _ => pos
     | .redefinedDone pos => pos

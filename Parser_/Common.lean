@@ -121,6 +121,10 @@ instance {α} [ToString α] : ToString (Unexpected α) where
 
 instance {α} [ToString α] : CompilerDiagnostic (Unexpected α) String where
   isError := true
+  -- One instance covers both the lexer (`α := Char`) and the parser (`α := Token`), so it cannot
+  -- tell them apart; `E0002` is the parser's. `DriverError`, which *does* know which ran, reports
+  -- `E0001` for the lexer (`Driver/Errors.lean`).
+  code _ := Diagnostics.unexpectedToken.code
   msgOf err := toString err
   posOf err := err.pos
   hintsOf err := err.hints
@@ -146,6 +150,9 @@ def ParserWarning.name : ParserWarning → String
 
 instance : CompilerDiagnostic ParserWarning String where
   isError := false
+  code
+    | .fairIgnored _ => Diagnostics.fairIgnored.code
+    | .unusedAnnotation _ => Diagnostics.unusedAnnotation.code
   name := ParserWarning.name
   msgOf
     | .fairIgnored _ => "'fair'/'fair+' is parsed but ignored: this compiler does not act on fairness (neither the Go nor the Join Calculus backend's runtime is fairness-aware)."

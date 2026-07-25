@@ -53,6 +53,7 @@ INCLUDES=(
 #   -R -KBUILD_TYPE=debug -KNO_CHECK_DOC \
 #   exec fugue \
 $FUGUE \
+  compile \
   -d "$(join_by "," "${DEBUG_OPTS[@]}")" \
   -f "$(join_by "," "${FEATURE_OPTS[@]}")" \
   -W "$(join_by "," "${WARN_OPTS[@]}")" \

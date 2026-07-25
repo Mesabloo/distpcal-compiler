@@ -39,6 +39,9 @@ inductive ComputableError : Type
 
 instance : CompilerDiagnostic ComputableError String where
   isError := true
+  code
+    | .notComputable .. => Diagnostics.notComputable.code
+    | .internalInvariantViolated .. => Diagnostics.computableInternalInvariant.code
   posOf
     | .notComputable pos _ => pos
     | .internalInvariantViolated pos _ => pos

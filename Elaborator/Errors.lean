@@ -59,6 +59,27 @@ inductive TCError : Type
 
 instance : CompilerDiagnostic TCError String where
   isError := true
+  code
+  | .todo .. => Diagnostics.typeCheckTodo.code
+  | .unboundVariable .. => Diagnostics.unboundVariable.code
+  | .failedToConvertTypes .. => Diagnostics.typeMismatch.code
+  | .expectedTypeAnnotation .. => Diagnostics.missingTypeAnnotation.code
+  | .cannotInferType .. => Diagnostics.cannotInferType.code
+  | .notASetType .. => Diagnostics.notASetType.code
+  | .notARecordType .. => Diagnostics.notARecordType.code
+  | .notIndexable .. => Diagnostics.notIndexable.code
+  | .unknownField .. => Diagnostics.unknownField.code
+  | .invalidTupleIndex .. => Diagnostics.invalidTupleIndex.code
+  | .notAnOperatorType .. => Diagnostics.notAnOperatorType.code
+  | .arityMismatch .. => Diagnostics.arityMismatch.code
+  | .ambiguousType _ => Diagnostics.ambiguousType.code
+  | .notAFunctionType .. => Diagnostics.notAFunctionType.code
+  | .notATupleType .. => Diagnostics.notATupleType.code
+  | .paramArityMismatch .. => Diagnostics.paramArityMismatch.code
+  | .notAChannelType .. => Diagnostics.notAChannelType.code
+  | .notShowable .. => Diagnostics.notShowable.code
+  | .notSendable .. => Diagnostics.notSendable.code
+  | .unconstrainedMetavariable _ => Diagnostics.unconstrainedMetavariable.code
   posOf
     | .todo pos _ => pos
     | .unboundVariable pos _ => pos
@@ -120,6 +141,7 @@ def TCWarning.name : TCWarning → String
 
 instance : CompilerDiagnostic TCWarning String where
   isError := false
+  code | .todo .. => Diagnostics.typeCheckTodoWarning.code
   name := TCWarning.name
   posOf | .todo pos _ => pos
   msgOf | .todo _ msg => msg

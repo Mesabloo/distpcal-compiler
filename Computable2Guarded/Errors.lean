@@ -23,6 +23,7 @@ inductive GuardedError : Type
 
 instance : CompilerDiagnostic GuardedError String where
   isError := true
+  code | .internalInvariantViolated .. => Diagnostics.guardedInternalInvariant.code
   posOf
     | .internalInvariantViolated pos _ => pos
   msgOf

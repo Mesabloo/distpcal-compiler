@@ -24,6 +24,7 @@ inductive G2NError : Type
 
 instance : CompilerDiagnostic G2NError String where
   isError := true
+  code | .internalInvariantViolated .. => Diagnostics.networkInternalInvariant.code
   posOf
     | .internalInvariantViolated pos _ => pos
   msgOf
