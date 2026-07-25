@@ -18,12 +18,13 @@ public section
     untouched by this.
 -/
 
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+
 /-- Rejects a Channel-shaped entry in one `Declarations` value's `variables` list. Position is
 the entry's own initializer expression if one exists, `SourceSpan.placeholder` otherwise (matches
 `WellFormedness/WellScoped.lean`'s `namesWithPos`, same gap — `variables` carries no position for
 the bare name token). -/
-private def checkNoChannelTypedVariables {m : Type → Type} [Monad m]
-    [MonadDiagnostic Empty WellFormednessError m] (d : TypedPlusCal.Declarations) : m Unit :=
+private def checkNoChannelTypedVariables (d : TypedPlusCal.Declarations) : m Unit :=
   d.variables.forM λ (x, τ, _, init) ↦ do
     if τ.isChannelLike then
       throw (.channelTypedVariable (init.elim SourceSpan.placeholder (posOf ·.2)) x)
@@ -32,16 +33,14 @@ private def checkNoChannelTypedVariables {m : Type → Type} [Monad m]
 always present and positioned (`Elaborator/PlusCal.lean` type-checks it via `checkExprR`), unlike
 the channel/fifo entries themselves, which don't exist to point at when the point is there
 shouldn't be any. -/
-private def checkNoLocalChannels {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
-    (p : TypedPlusCal.Process) : m Unit :=
+private def checkNoLocalChannels (p : TypedPlusCal.Process) : m Unit :=
   unless p.localState.channels.isEmpty ∧ p.localState.fifos.isEmpty do
     throw (.nonEmptyLocalChannels (posOf p.id) p.name)
 
 /-- The algorithm's own `globalState.variables` must be empty. Reuses
 `checkNoChannelTypedVariables`'s position convention, even though every entry here is an error
 regardless of its type. -/
-private def checkNoGlobalPlusCalVariables {m : Type → Type} [Monad m]
-    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit :=
+private def checkNoGlobalPlusCalVariables (algo : TypedPlusCal.Algorithm) : m Unit :=
   algo.globalState.variables.forM λ (x, _, _, init) ↦
     throw (.globalPlusCalVariable (init.elim SourceSpan.placeholder (posOf ·.2)) x)
 
@@ -51,8 +50,7 @@ is already banned regardless of its type, so checking channel-shapedness first w
 misleading "declare it via `channels`/`fifos` instead" when the real problem is that no
 `variables` keyword is allowed there at all. The channel-shapedness check still runs afterward,
 but is a no-op there by construction. -/
-def TypedPlusCal.Algorithm.checkDeclarations {m : Type → Type} [Monad m]
-    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
+def TypedPlusCal.Algorithm.checkDeclarations (algo : TypedPlusCal.Algorithm) : m Unit := do
   checkNoGlobalPlusCalVariables algo
   checkNoChannelTypedVariables algo.globalState
   for p in algo.processes do

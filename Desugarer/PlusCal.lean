@@ -48,7 +48,7 @@ namespace SurfacePlusCal
     deriving Inhabited
 
   variable {α β : Type} {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
-    [MonadLiftT IO m] [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
+    [MonadFresh m] [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
     [MonadReaderOf SegmentContext m] [MonadWithReaderOf SegmentContext m]
 
   /-- The reserved sentinel `goto` target meaning "this thread has terminated" — never needs a
@@ -271,18 +271,23 @@ namespace SurfacePlusCal
       pure ((firstLabel, block) :: extracted)
 
   /-- Run `SurfaceTLAPlus.Expression.desugar` on a single, self-contained expression — used for
-  `@mailbox`'s filter arguments (`extractMailbox` below). Fresh-name generation draws from
-  `Common/Fresh.lean`'s single process-wide `IO.Ref` counter, same as every other pass, not a
-  separate `0`-restarted namespace the way a locally-threaded `StateT Nat` would give it. -/
-  private def desugarMailboxArg (e : SurfaceTLAPlus.Expression (List Annotation)) :
-      DiagT DesugarWarning DesugarError IO (CoreTLAPlus.Expression (List Annotation)) :=
-    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) (DiagT DesugarWarning DesugarError IO) _ := e.desugar
+  `@mailbox`'s filter arguments (`extractMailbox` below). The only effect the caller's own `m`
+  doesn't already supply is the `@`-reader `Expression.desugar` wants, added as a local `ReaderT`
+  layer and run at `none` — a filter argument is never inside an `EXCEPT` update. Fresh-name
+  generation reaches `Common/Fresh.lean`'s single process-wide counter through `m` like every
+  other pass, rather than through a pinned `IO`, so this stays a separate namespace from nothing:
+  no `0`-restarted counter the way a locally-threaded `StateT Nat` would give it. -/
+  private def desugarMailboxArg {m : Type → Type} [Monad m]
+      [MonadDiagnostic DesugarWarning DesugarError m] [MonadFresh m]
+      (e : SurfaceTLAPlus.Expression (List Annotation)) :
+      m (CoreTLAPlus.Expression (List Annotation)) :=
+    let d : ReaderT (Option (CoreTLAPlus.Expression (List Annotation))) m _ := e.desugar
     d.run none
 
   /-- Validate and extract a `Process.ann` slot: at most one `@mailbox`, nothing else, with its
   filter arguments fully desugared (`desugarMailboxArg`). -/
   def extractMailbox {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
-      [MonadLiftT IO m] (anns : List Annotation) :
+      [MonadFresh m] (anns : List Annotation) :
       m (Option (String × List (CoreTLAPlus.Expression (List Annotation)))) := do
     let mut mailbox : Option (String × List (SurfaceTLAPlus.Expression (List Annotation))) := none
     for ann in anns do
@@ -295,7 +300,7 @@ namespace SurfacePlusCal
     match mailbox with
     | none => return none
     | some (name, args) =>
-      (some ∘ (name, ·)) <$> args.mapM λ e ↦ DiagT.lift id id (desugarMailboxArg e)
+      (some ∘ (name, ·)) <$> args.mapM desugarMailboxArg
 
   /-- Validate `@parameter`'s placement (only on a `∈`-initialized entry) and extract its
   *presence* into the dedicated `isParameter` field — a repeated `@parameter` is a warning, not
@@ -346,7 +351,8 @@ end SurfacePlusCal
 whether two indexed writes to the same base variable actually alias is out of scope for this
 syntactic check; `x[0] := 3` and `x[1] := 4` conflict even though they touch different
 elements. -/
-private def checkWrite {β} {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+private def checkWrite {β} {m : Type → Type} [Monad m]
+    [MonadDiagnostic DesugarWarning DesugarError m]
     (seen : List String) (r : CorePlusCal.Ref β) (pos : SourceSpan) : m (List String) :=
   if seen.contains r.name then throw (.conflictingAssignment pos r.name)
   else pure (r.name :: seen)
@@ -360,7 +366,8 @@ private def checkWrite {β} {m : Type → Type} [Monad m] [MonadExceptOf Desugar
 -/
 mutual
   partial def CorePlusCal.Statement.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
-      [MonadExceptOf DesugarError m] (seen : List String) (s : CorePlusCal.Statement α β b) : m (List String) :=
+      [MonadDiagnostic DesugarWarning DesugarError m]
+      (seen : List String) (s : CorePlusCal.Statement α β b) : m (List String) :=
     match_source s with
     | .assign asss, pos =>
       asss.foldlM (init := seen) λ seen (r, _) ↦ checkWrite seen r pos
@@ -378,12 +385,14 @@ mutual
     | .send _ _, _ | .multicast _ _, _ => pure seen
 
   partial def CorePlusCal.Block.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
-      [MonadExceptOf DesugarError m] (seen : List String) (B : CorePlusCal.Block α β b) : m (List String) := do
+      [MonadDiagnostic DesugarWarning DesugarError m]
+      (seen : List String) (B : CorePlusCal.Block α β b) : m (List String) := do
     let seen ← B.begin.foldlM (init := seen) λ seen s ↦ CorePlusCal.Statement.checkAssignConflicts seen s
     CorePlusCal.Statement.checkAssignConflicts seen B.end
 
   partial def CorePlusCal.Branches.checkAssignConflicts {α β b} {m : Type → Type} [Monad m]
-      [MonadExceptOf DesugarError m] (seen : List String) : CorePlusCal.Branches α β b → m (List String)
+      [MonadDiagnostic DesugarWarning DesugarError m]
+      (seen : List String) : CorePlusCal.Branches α β b → m (List String)
     | .either B => CorePlusCal.Block.checkAssignConflicts seen B
     | .or B rest => do
       let seen₁ ← CorePlusCal.Block.checkAssignConflicts seen B
@@ -393,9 +402,13 @@ end
 
 /-- Run `checkAssignConflicts` over every atomic step (one top-level `(label, Block)` pair per
 thread) of a whole algorithm — each starts with a fresh, empty `seen` set, since crossing a
-label is exactly crossing an atomic-step boundary. -/
+label is exactly crossing an atomic-step boundary.
+
+`DiagT … Id` rather than a bare `Except`, for the same reason as
+`CoreTLAPlus.Module.stripTLAPlusAnnotations` (`Desugarer/TLAPlus.lean`): one `MonadDiagnostic`
+shape for every entry point, absorbed by the caller with `DiagT.lift`. Emits no warnings today. -/
 def CorePlusCal.Algorithm.checkAssignConflicts {α β} (algo : CorePlusCal.Algorithm α β) :
-    Except DesugarError Unit := do
+    DiagT DesugarWarning DesugarError Id Unit := do
   for p in algo.processes do
     for thread in p.threads do
       for (_, block) in thread do
@@ -404,10 +417,11 @@ def CorePlusCal.Algorithm.checkAssignConflicts {α β} (algo : CorePlusCal.Algor
 
 /-- Validate and strip every remaining `@type`-only annotation slot in an already
 `Process.desugar`/`Declarations.desugarCheck`-processed algorithm, using the same `extractType`
-(`Desugarer/TLAPlus.lean`) as the TLA⁺ side. -/
+(`Desugarer/TLAPlus.lean`) as the TLA⁺ side — and, like it, reports through `DiagT … Id` rather
+than a bare `Except`. -/
 def CorePlusCal.Algorithm.stripEmbeddedTypeAnnotations
     (algo : CorePlusCal.Algorithm (List Annotation) (CoreTLAPlus.Expression (List Annotation))) :
-    Except DesugarError (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) :=
+    DiagT DesugarWarning DesugarError Id (CorePlusCal.Algorithm (Option SurfaceTLAPlus.Typ) (CoreTLAPlus.Expression (Option SurfaceTLAPlus.Typ))) :=
   bitraverse extractType (traverse extractType) algo
 
 /-- Run statement desugaring (fused with `@mailbox`/`@parameter` checking/extraction) against the
@@ -425,7 +439,7 @@ def SurfacePlusCal.Algorithm.runDesugarer (a : SurfacePlusCal.Algorithm (List An
   -- `DiagT` has its own `Monad`/`MonadExceptOf` instances (`Common/Errors.lean`) — bind directly,
   -- no manual unwrapping of the underlying `List DesugarWarning × Except DesugarError _` pair.
   let algo ← (desugar.run {}).run default
-  MonadExcept.ofExcept algo.checkAssignConflicts
-  MonadExcept.ofExcept algo.stripEmbeddedTypeAnnotations
+  DiagT.lift id id algo.checkAssignConflicts
+  DiagT.lift id id algo.stripEmbeddedTypeAnnotations
 
 end

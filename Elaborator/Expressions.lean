@@ -69,13 +69,14 @@ private def lubAll (pos : SourceSpan) : List Typ → m Typ
     | some τ'' => return τ''
     | none => throw (.ambiguousType pos)
 
-/-- Coerce an already-elaborated `e : τ'` into a known supertype `τ` — the synthesis-side
-counterpart of `checkExpr`'s `[Subtype]` case, for the rules that join already-inferred branches
-via `lubAll` rather than checking each branch against `τ` up front. Re-running `subtype` is what
-recovers the `Coercion` `lub` discarded (it goes through `isSubtype`, which keeps only the
-yes/no); each branch gets its own, including the `.comp` chains `tryAxioms` builds for
-transitivity. `.failure` is unreachable whenever `τ` came from `lubAll` over these very types,
-but is reported rather than asserted away. -/
+/-- Coerce an already-elaborated `e : τ'` into a known supertype `τ`. This *is* `checkExpr`'s
+`[Subtype]` rule — that case is one call to this — and it also serves the rules that join
+already-inferred branches via `lubAll` rather than checking each branch against `τ` up front.
+Re-running `subtype` is what recovers the `Coercion` `lub` discarded (it goes through
+`isSubtype`, which keeps only the yes/no); each branch gets its own, including the `.comp` chains
+`tryAxioms` builds for transitivity. `.failure` is unreachable whenever `τ` came from `lubAll`
+over these very types, but is reported rather than asserted away — and it is genuinely reachable
+from `[Subtype]`, which is where an ordinary type mismatch surfaces. -/
 private def coerceInto (pos : SourceSpan) (τ : Typ) : Typ × Expr → m Expr
   | (τ', e) => do
     match ← subtype τ' τ with
@@ -201,12 +202,7 @@ mutual
       ─────────────────────────── [Subtype]
              Γ ⊢ e ⇓ τ
     -/
-    | e, τ, pos => do
-      let (τ', e') ← inferExpr e
-      match ← subtype τ' τ with
-      | .success coe => return coe.apply e' @@ pos
-      | .pending n => return .mvar n e' @@ pos
-      | .failure => throw (.failedToConvertTypes pos (← resolveTypeMVarsForDisplay τ) (← resolveTypeMVarsForDisplay τ'))
+    | e, τ, pos => do coerceInto pos τ (← inferExpr e)
 
   /-- `Γ ⊢ e ⇑ τ` — see the module doc for the precise checking/synthesis split. -/
   partial def inferExpr (e : SrcExpr) : m (Typ × Expr) := match_source e with

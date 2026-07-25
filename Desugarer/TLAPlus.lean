@@ -297,7 +297,7 @@ def SurfaceTLAPlus.Module.runDesugarer {α} [Inhabited α] (mod : SurfaceTLAPlus
 /-- Validate an annotation slot known to be `@type`-only: must contain only `@type`, and at most
 one, then is replaced by the `Typ` it names. Shared between the TLA⁺ half below
 (`stripTLAPlusAnnotations`) and `Desugarer/PlusCal.lean`'s equivalent check. -/
-def extractType {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
+def extractType {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
     (anns : List Annotation) : m (Option SurfaceTLAPlus.Typ) := do
   let mut seenType : Option SurfaceTLAPlus.Typ := none
   for ann in anns do
@@ -316,9 +316,14 @@ def extractType {m : Type → Type} [Monad m] [MonadExceptOf DesugarError m]
 `SurfacePlusCal.Algorithm.desugar` covers separately — must contain only `@type`, and at most
 one (`extractType` above), and is replaced by the `Option Typ` it names. Runs after
 `Module.desugar`/`runDesugarer`, since this check is only meaningful once `α` is concretely
-`List Annotation`. -/
+`List Annotation`.
+
+`DiagT … Id` rather than a bare `Except`, so every diagnostics-producing entry point in the
+compiler reports through the same `MonadDiagnostic` shape — the caller absorbs it with
+`DiagT.lift`, exactly as it already does for `parseModule` and `runDesugarer`. This check emits
+no warnings today; the `List DesugarWarning` it pairs against its result is simply always `[]`. -/
 def CoreTLAPlus.Module.stripTLAPlusAnnotations {γ} (mod : CoreTLAPlus.Module γ (List Annotation)) :
-    Except DesugarError (CoreTLAPlus.Module γ (Option SurfaceTLAPlus.Typ)) :=
+    DiagT DesugarWarning DesugarError Id (CoreTLAPlus.Module γ (Option SurfaceTLAPlus.Typ)) :=
   bitraverse pure extractType mod
 
 end

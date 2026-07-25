@@ -14,13 +14,14 @@ public section
   shape below mirrors that function's style.
 -/
 
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+
 /-- Collect every label a process defines across all its threads (`Process.threads`, the label
 of every atomic block), rejecting a literal `"Done"` entry along the way — `"Done"` is a
 reserved fallthrough target, never itself a real label. No better position exists for a
 `redefinedDone` error than the labelled block's own terminal statement: labels are bare strings
 paired with a block, not positioned nodes in their own right. -/
-def TypedPlusCal.Process.labels {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
-    (p : TypedPlusCal.Process) : m (List String) := do
+def TypedPlusCal.Process.labels (p : TypedPlusCal.Process) : m (List String) := do
   let perThread ← p.threads.mapM λ thread ↦
     thread.mapM λ (label, blk) ↦ do
       if label = "Done" then throw (.redefinedDone (posOf blk.end))
@@ -28,8 +29,8 @@ def TypedPlusCal.Process.labels {m : Type → Type} [Monad m] [MonadDiagnostic E
   return perThread.flatten
 
 /-- Walks every `goto l` reachable from `s`, checking `l` against `labels ∪ {"Done"}`. -/
-partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Monad m]
-    [MonadDiagnostic Empty WellFormednessError m] (labels : List String) (s : TypedPlusCal.Statement b) : m Unit :=
+partial def TypedPlusCal.Statement.checkGotoTargets {b} (labels : List String)
+    (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
   | .goto l, pos => unless labels.contains l ∨ l = "Done" do throw (.unknownLabel pos l)
   | .if _ B₁ B₂, _ => do
@@ -45,8 +46,7 @@ partial def TypedPlusCal.Statement.checkGotoTargets {b} {m : Type → Type} [Mon
 /-- Well-labelledness over a whole algorithm: per process (labels are process-scoped, shared
 across all of that process's threads, per `Process.labels` above), check every `goto` in every
 thread of that same process. -/
-def TypedPlusCal.Algorithm.checkLabelling {m : Type → Type} [Monad m]
-    [MonadDiagnostic Empty WellFormednessError m] (algo : TypedPlusCal.Algorithm) : m Unit := do
+def TypedPlusCal.Algorithm.checkLabelling (algo : TypedPlusCal.Algorithm) : m Unit := do
   for p in algo.processes do
     let labels ← TypedPlusCal.Process.labels p
     for thread in p.threads do

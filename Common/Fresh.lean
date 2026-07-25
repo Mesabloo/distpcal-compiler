@@ -32,6 +32,15 @@ instance {m} [Monad m] [MonadStateOf Nat m] : MonadFresh m where
     set (n + 1)
     return n
 
+/-- Generic lift through `ReaderT` — same rationale as `WellFormedness/Monad.lean`'s lifts for
+`MonadForeignLookup`. Lets a pass that is only told `[MonadFresh m]` still add a local `ReaderT`
+layer and call something needing `MonadFresh` under it (`Desugarer/PlusCal.lean`'s
+`desugarMailboxArg` wraps `Expression.desugar`'s `@`-reader this way). The `MonadStateOf Nat`
+instance above can't cover that case: it needs the counter's *concrete* state effect, which an
+abstract `[MonadFresh m]` doesn't expose. -/
+instance {ρ m} [MonadFresh m] : MonadFresh (ReaderT ρ m) where
+  fresh := liftM (MonadFresh.fresh : m Nat)
+
 /-- Backing store for `MonadFresh`: one counter for the whole `fugue` process, mirroring
 `Driver/Modules.lean`'s `sourceRegistryRef`/`moduleCacheRef` pattern (a global `IO.Ref`, not a
 `StateT` layer threaded through each pass). Every pass — the checker, the desugarer,

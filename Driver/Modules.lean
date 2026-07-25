@@ -271,9 +271,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
         | .error e => throw (.annotation moduleId e)
         | .ok mod => pure mod
       let mod ← DiagT.lift (.desugar moduleId) (.desugar moduleId) mod.runDesugarer
-      let mod ← match mod.stripTLAPlusAnnotations with
-        | .error e => throw (.desugar moduleId e)
-        | .ok mod => pure mod
+      let mod ← DiagT.lift (.desugar moduleId) (.desugar moduleId) mod.stripTLAPlusAnnotations
       let algo ← match mod.pcalAlgorithm with
         | none => pure none
         | some algo => some <$> DiagT.lift (.desugar moduleId) (.desugar moduleId) algo.runDesugarer

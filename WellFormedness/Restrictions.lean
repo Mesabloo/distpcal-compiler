@@ -58,24 +58,30 @@ public section
     check here throws (stopping the whole pass) rather than continuing.
 -/
 
+variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+
+/-- The channel-shapedness check itself, at one type and one position — every node-level check
+below is this applied to whichever type that node carries. -/
+private def checkNotChannel (pos : SourceSpan) (τ : TypedTLAPlus.Typ) : m Unit :=
+  if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+
 /-- The per-node checks alone, no recursion of its own — `TypedPlusCal.Statement.walkReachable`'s
 shared traversal (`WellFormedness/Reachability.lean`) calls this once per node, as its
 `visitExpr`, forwarding into `Expression.walkReachable` for the actual
 recursion/resolution/memoization. Uses `resolveInModule` directly for the global-variable check
 — it must fire on every reference to a global variable, not just the first, unlike the transitive
 into-the-body recursion, which the walk already memoizes for its own purposes. -/
-def TypedTLAPlus.Expression.checkNode {m' : Type → Type} [Monad m']
-    [MonadDiagnostic Empty WellFormednessError m'] [MonadForeignLookup m']
+def TypedTLAPlus.Expression.checkNode [MonadForeignLookup m]
     (currentModule : String) (ownDecls : List Decl) (path : List String)
-    (e : TypedPlusCal.Expression) : m' Unit :=
+    (e : TypedPlusCal.Expression) : m Unit :=
   match_source e with
   | .var name τ origin, pos => do
-    if τ.isChannelLike then throw (.channelInExpression pos τ)
+    checkNotChannel pos τ
     match origin with
     | .binder | .intrinsic => pure ()
-    | .module m => do
-      match ← resolveInModule currentModule ownDecls m name with
-      | some (.variable _) => throw (.globalTLAPlusVariable pos name m)
+    | .module declModule => do
+      match ← resolveInModule currentModule ownDecls declModule name with
+      | some (.variable _) => throw (.globalTLAPlusVariable pos name declModule)
       | _ => pure ()
   | .opCall f _, pos => do
     match f with
@@ -86,11 +92,11 @@ def TypedTLAPlus.Expression.checkNode {m' : Type → Type} [Monad m']
   | .fforall .., pos => throw (.bareTemporalOrAction pos "\\AA" path)
   | .eexists .., pos => throw (.bareTemporalOrAction pos "\\EE" path)
   | .choose _ _ dom _, pos => if dom.isNone then throw (.unboundedQuantifier pos path) else pure ()
-  | .set _ τ, pos => if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
-  | .record fs, pos => fs.forM λ (τ, _, _) ↦ if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
-  | .recordSet fs, pos => fs.forM λ (τ, _, _) ↦ if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
-  | .tuple es, pos => es.forM λ (τ, _) ↦ if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
-  | .seq _ τ, pos => if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+  | .set _ τ, pos => checkNotChannel pos τ
+  | .record fs, pos => fs.forM λ (τ, _, _) ↦ checkNotChannel pos τ
+  | .recordSet fs, pos => fs.forM λ (τ, _, _) ↦ checkNotChannel pos τ
+  | .tuple es, pos => es.forM λ (τ, _) ↦ checkNotChannel pos τ
+  | .seq _ τ, pos => checkNotChannel pos τ
   | .stutter .., pos => throw (.bareTemporalOrAction pos "[.]_." path)
   | _, _ => pure ()
 
@@ -102,15 +108,10 @@ the reference's result type directly, without `Γ` — see `Core/TypedPlusCal/Sy
 index expressions (`Ref.args`, walked by `TypedPlusCal.Statement.walkReachable` itself) are
 checked. Supplied as `walkReachable`'s `visitStatement`; the expression-position checks are
 `Expression.checkNode`, supplied as its `visitExpr`. -/
-def TypedPlusCal.Statement.checkRefRestrictions {b} {m' : Type → Type} [Monad m']
-    [MonadDiagnostic Empty WellFormednessError m'] (s : TypedPlusCal.Statement b) : m' Unit :=
+def TypedPlusCal.Statement.checkRefRestrictions {b} (s : TypedPlusCal.Statement b) : m Unit :=
   match_source s with
-  | .assign asss, pos => asss.forM λ (r, _) ↦
-      let τ := TypedPlusCal.Ref.resultType r
-      if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
-  | .receive _ r _, pos =>
-      let τ := TypedPlusCal.Ref.resultType r
-      if τ.isChannelLike then throw (.channelInExpression pos τ) else pure ()
+  | .assign asss, pos => asss.forM λ (r, _) ↦ checkNotChannel pos (TypedPlusCal.Ref.resultType r)
+  | .receive _ r _, pos => checkNotChannel pos (TypedPlusCal.Ref.resultType r)
   | _, _ => pure ()
 
 /-- Runs all the above checks over a whole algorithm, via the shared
@@ -121,10 +122,9 @@ pass alone doesn't have them, since it only receives the embedded `pcalAlgorithm
 `ReachabilityClosure` memoization is scoped to this one call — a private `StateT` layer, run from
 `{}` and discarded (`.run'`) once this returns: whether an operator was already walked while
 checking a previous module has no bearing on checking this one. -/
-def TypedPlusCal.Algorithm.checkRestrictions {m' : Type → Type} [Monad m']
-    [MonadDiagnostic Empty WellFormednessError m'] [MonadForeignLookup m']
-    (currentModule : String) (ownDecls : List Decl) (algo : TypedPlusCal.Algorithm) : m' Unit :=
-  let go : StateT ReachabilityClosure m' Unit :=
+def TypedPlusCal.Algorithm.checkRestrictions [MonadForeignLookup m]
+    (currentModule : String) (ownDecls : List Decl) (algo : TypedPlusCal.Algorithm) : m Unit :=
+  let go : StateT ReachabilityClosure m Unit :=
     TypedPlusCal.Algorithm.walkReachable TypedPlusCal.Statement.checkRefRestrictions
       (TypedTLAPlus.Expression.checkNode currentModule ownDecls) currentModule ownDecls algo
   go.run' {}

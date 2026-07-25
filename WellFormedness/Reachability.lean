@@ -50,13 +50,15 @@ def Decl.resolve (name : String) : Decl → Option ResolvedDecl
   | d@(.operator _ f _ body) => if f == name then some (.operatorOrFunction d body) else none
   | d@(.function _ f _ body) => if f == name then some (.operatorOrFunction d body) else none
 
+variable {m : Type → Type} [Monad m] [MonadForeignLookup m]
+
 /-- Resolves `name` against `targetModule`'s own declaration list — `currentModule`'s own
 `ownDecls` (already in hand, no lookup) if `targetModule` is the module currently being walked,
 else `lookupForeign targetModule`'s (`WellFormedness/Monad.lean`). `none` if `targetModule` can't
 be found at all (should be unreachable — a name only carries `origin := .module m` because `m`
 already type-checked it) or `name` isn't in its list (an `ASSUME` entry, or genuinely absent). -/
-def resolveInModule {m' : Type → Type} [Monad m'] [MonadForeignLookup m']
-    (currentModule : String) (ownDecls : List Decl) (targetModule name : String) : m' (Option ResolvedDecl) := do
+def resolveInModule (currentModule : String) (ownDecls : List Decl) (targetModule name : String) :
+    m (Option ResolvedDecl) := do
   let decls ← if targetModule == currentModule then pure ownDecls
     else match ← lookupForeign targetModule with
       | some tm => pure (tm.declarations₁ ++ tm.declarations₂)
@@ -80,26 +82,25 @@ its body too (`path` extended by `name`). A `constant`/`variable` resolution is 
 recursed into. Resolutions after the first for an already-visited pair are no-ops for recursion —
 `visit` still runs on every node regardless, since some checks are per-reference, not
 per-declaration. -/
-partial def TypedTLAPlus.Expression.walkReachable {m' : Type → Type} [Monad m']
-    [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
-    (visit : List String → TypedPlusCal.Expression → m' Unit)
+partial def TypedTLAPlus.Expression.walkReachable [MonadStateOf ReachabilityClosure m]
+    (visit : List String → TypedPlusCal.Expression → m Unit)
     (currentModule : String) (ownDecls : List Decl) (path : List String)
-    (e : TypedPlusCal.Expression) : m' Unit := do
+    (e : TypedPlusCal.Expression) : m Unit := do
   visit path e
   let recurse := TypedTLAPlus.Expression.walkReachable visit currentModule ownDecls path
   match e with
   | .var name _ origin =>
     match origin with
     | .binder | .intrinsic => pure ()
-    | .module m => do
-      match ← resolveInModule currentModule ownDecls m name with
+    | .module declModule => do
+      match ← resolveInModule currentModule ownDecls declModule name with
       | some resolved => do
         let visited ← getThe ReachabilityClosure
-        unless visited.contains (m, name) do
-          modifyThe ReachabilityClosure (·.insert (m, name) resolved)
+        unless visited.contains (declModule, name) do
+          modifyThe ReachabilityClosure (·.insert (declModule, name) resolved)
           match resolved with
           | .operatorOrFunction _ body =>
-            TypedTLAPlus.Expression.walkReachable visit m ownDecls (path ++ [name]) body
+            TypedTLAPlus.Expression.walkReachable visit declModule ownDecls (path ++ [name]) body
           | _ => pure ()
       | none => pure ()
   | .opCall f args => do recurse f; args.forM recurse
@@ -149,19 +150,18 @@ LHS, `receive`'s destination `r`) are treated identically here — walking `args
 
 `partial`: recursion isn't visibly decreasing to Lean through the mutual `Block`/`Branches`
 nesting. -/
-partial def TypedPlusCal.Statement.walkReachable {b : Bool} {m' : Type → Type} [Monad m']
-    [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
-    (visitStatement : ∀ {b}, TypedPlusCal.Statement b → m' Unit)
-    (visitExpr : List String → TypedPlusCal.Expression → m' Unit)
+partial def TypedPlusCal.Statement.walkReachable {b : Bool} [MonadStateOf ReachabilityClosure m]
+    (visitStatement : ∀ {b}, TypedPlusCal.Statement b → m Unit)
+    (visitExpr : List String → TypedPlusCal.Expression → m Unit)
     (currentModule : String) (ownDecls : List Decl)
-    (s : TypedPlusCal.Statement b) : m' Unit := do
+    (s : TypedPlusCal.Statement b) : m Unit := do
   visitStatement s
-  let walkExpr (e : TypedPlusCal.Expression) : m' Unit :=
+  let walkExpr (e : TypedPlusCal.Expression) : m Unit :=
     TypedTLAPlus.Expression.walkReachable visitExpr currentModule ownDecls [] e
-  let walkRefArgs (r : TypedPlusCal.Ref) : m' Unit := r.args.forM λ
+  let walkRefArgs (r : TypedPlusCal.Ref) : m Unit := r.args.forM λ
     | .inl _ => pure ()
     | .inr e => walkExpr e
-  let recurse : ∀ {b}, TypedPlusCal.Statement b → m' Unit :=
+  let recurse : ∀ {b}, TypedPlusCal.Statement b → m Unit :=
     TypedPlusCal.Statement.walkReachable visitStatement visitExpr currentModule ownDecls
   match s with
   | .goto _ | .skip => pure ()
@@ -192,12 +192,11 @@ recurse into. Widened to cover this after `Typed2Computable` was found silently 
 `CONSTANTS`/`VARIABLES` entry referenced only from a process's own `id`/`Declarations` and never
 from a statement body — the same root cause left a banned construct hiding in such positions
 unchecked by `Restrictions.lean` too. -/
-def TypedPlusCal.Declarations.walkReachable {m' : Type → Type} [Monad m']
-    [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
-    (visitExpr : List String → TypedPlusCal.Expression → m' Unit)
+def TypedPlusCal.Declarations.walkReachable [MonadStateOf ReachabilityClosure m]
+    (visitExpr : List String → TypedPlusCal.Expression → m Unit)
     (currentModule : String) (ownDecls : List Decl)
-    (d : TypedPlusCal.Declarations) : m' Unit :=
-  let walkExpr (e : TypedPlusCal.Expression) : m' Unit :=
+    (d : TypedPlusCal.Declarations) : m Unit :=
+  let walkExpr (e : TypedPlusCal.Expression) : m Unit :=
     TypedTLAPlus.Expression.walkReachable visitExpr currentModule ownDecls [] e
   do
     d.variables.forM λ (_, _, _, init) ↦ init.forM λ (_, e) ↦ walkExpr e
@@ -210,13 +209,12 @@ and every process's own `localState`'s embedded expressions (`Declarations.walkR
 Doesn't wrap its own `ReachabilityClosure` `StateT` layer: callers choose `.run` (keep the closure
 — `Typed2Computable`'s use) or `.run'` (discard — `Restrictions.lean`'s use), same choice
 `Expression`/`Statement.walkReachable` leave open. -/
-def TypedPlusCal.Algorithm.walkReachable {m' : Type → Type} [Monad m']
-    [MonadForeignLookup m'] [MonadStateOf ReachabilityClosure m']
-    (visitStatement : ∀ {b}, TypedPlusCal.Statement b → m' Unit)
-    (visitExpr : List String → TypedPlusCal.Expression → m' Unit)
+def TypedPlusCal.Algorithm.walkReachable [MonadStateOf ReachabilityClosure m]
+    (visitStatement : ∀ {b}, TypedPlusCal.Statement b → m Unit)
+    (visitExpr : List String → TypedPlusCal.Expression → m Unit)
     (currentModule : String) (ownDecls : List Decl)
-    (algo : TypedPlusCal.Algorithm) : m' Unit := do
-  let walkExpr (e : TypedPlusCal.Expression) : m' Unit :=
+    (algo : TypedPlusCal.Algorithm) : m Unit := do
+  let walkExpr (e : TypedPlusCal.Expression) : m Unit :=
     TypedTLAPlus.Expression.walkReachable visitExpr currentModule ownDecls [] e
   TypedPlusCal.Declarations.walkReachable visitExpr currentModule ownDecls algo.globalState
   for p in algo.processes do
