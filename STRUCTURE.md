@@ -211,6 +211,11 @@ Network PlusCal → Go (§5.7) — in progress (phase 11). Target AST and code g
 - `Definition.lean` — `compileDeclaration` (§7.2.2): parameter-less operator → `var`, parametric
   operator → generic `func` with a dictionary parameter per type parameter, function definition →
   `FnConstructor`/`MkRecFn` depending on whether the body calls itself.
+- `Locks.lean` — lock inference (§7.1.2, Definition 7.1.3). Pure analysis, emits no Go: block
+  footprints (`exprFreeVars`/`blockShared`/`processFootprints`), domination, merging, locking
+  order, thread-confinement pruning. Answers with `ProcessLocks` — the locks in acquisition order
+  and, per block, which of them it takes — which `PlusCal.lean` turns into `Lock[struct{…}]`
+  parameters and `Acquire`/`Release` calls. A `Thread.rx` counts as a block over its `inbox`.
 - Entry point `Network2Go.lean`.
 - Missing: the PlusCal-side pass (`PlusCal.lean`, `network.toGo`), lock inference, collision
   renaming.

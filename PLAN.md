@@ -1018,20 +1018,34 @@ locks (one per variable in its footprint, after merging):
 1. For every atomic block `B` (computed over *all* blocks of the process, not just
    cross-thread pairs), let `shared(B)` be the set of process-local variables read from
    or written to in `B` (free variables in expression position, plus all
-   indexed-assignment targets, minus any `with`-bound temporaries).
+   indexed-assignment targets, minus any `with`-bound temporaries). A `Thread.rx` counts
+   as a block over its `inbox`, though it has neither label nor statements: it is the
+   second thread writing `inbox`, so omitting it would make `inbox` look thread-confined
+   and step 5 would delete the very lock the program needs. It is also what makes §7.3's
+   `inbox_Pong ≻ tmp2` strict rather than mutual. `self` needs no special case — it is
+   bound by `checkProcess`, not declared, and only declared variables are considered.
 2. Define domination: `x ⪰ y` iff every block with `y ∈ shared(B)` also has
    `x ∈ shared(B)`; `x ≻ y` (strict domination) when additionally `x ≠ y`.
 3. Lock selection (Definition 7.1.3): start with one fresh lock `ℓ_x` per variable `x`.
    For each variable `x`, if some `y ≻ x` exists, merge — redirect every variable
    currently assigned `ℓ_x` to `y`'s lock instead. This can only reduce the number of
-   distinct locks below one-per-variable, never increase it.
+   distinct locks below one-per-variable, never increase it. Redirecting *every* holder
+   of `ℓ_x` rather than `x` alone is what makes mutual domination — two variables used in
+   exactly the same blocks, each strictly dominating the other — settle instead of
+   oscillate.
 4. Pick any total order `<` over the resulting set of locks (needed since a block may now
    hold more than one lock at once — a fixed acquisition order across all blocks avoids
    lock-ordering deadlocks). At the start of each block `B`, acquire the locks of
-   `shared(B)` in that order; release them (order doesn't matter) at the end.
+   `shared(B)` in that order; release them (order doesn't matter) at the end. The
+   thesis leaves both this order and the choice among several dominators in step 3 free;
+   both are fixed to the process's variable declaration order, since a compiler that
+   grouped locks differently between two runs on one input could not be tested.
 5. Final pruning pass: any lock used only within a single thread can be dropped entirely —
    blocks within one thread are already mutually exclusive by construction (Network
-   PlusCal only ever runs one block of a given thread at a time).
+   PlusCal only ever runs one block of a given thread at a time). §7.1.2 describes this
+   pass and then declines it "for simplicity"; it is implemented here. The thesis phrases
+   the test on a lock's representative variable, which is equivalent to testing the lock
+   itself: `L(x) = ℓ_y` implies `y ⪰ x`, so `x` cannot reach a thread `y` does not.
 
 Different design from a simpler one-lock-per-block scheme: this one holds potentially
 several locks per block (ordered to avoid deadlock) rather than exactly one, groups by
@@ -1041,16 +1055,12 @@ directly against Definition 7.1.3 and Examples 7.1.1/7.1.4/7.1.5 in the thesis.
 `isFair` carried through unused: lock inference and Go's goroutine scheduler make no
 attempt at fairness (§2).
 
-**Identifier hygiene.** Per-block lock variable names are `Network2Go`-introduced, need
-the same collision-avoidance treatment as §2 describes — `Core/Go/Pretty.lean` already
-has a real, working mechanism for the adjacent problem (a PlusCal name colliding with a
-Go keyword): `keywords : Std.HashSet String` table and a `sanitize` function suffixing any
-colliding name with `__`, applied at every identifier-print point (record fields,
-struct-literal keys, variable references, field access). Extend `keywords` to also cover
-every name `Network2Go` itself introduces (lock variables and anything else lock inference
-adds). The printer escapes reserved words only; renaming user-chosen names off Go's
-*predeclared* identifiers is this pass's own job, against `Core/Go/Pretty.lean`'s exported
-`predeclared` set — see §2's hygiene row for why the two can't be one table.
+**Identifier hygiene.** Lock names are `Network2Go`-introduced and need no table of their
+own: they come from `freshName "lock"`, so `goIdent`'s escaping lands them in the
+odd-underscore-run half of the parity split, which no user name can reach however it is
+spelled. That is the same mechanism every other synthesized name in this pass relies on
+(see the naming paragraph above). What still needs a table is the *user's* names against
+Go's own vocabulary, which `binderName` handles against both `keywords` and `predeclared`.
 
 **Go representations of TLA+ types**, per thesis §7.2.1.1:
 - `Bool`/`Str` → `bool`/`string`, as local newtypes (one name for the compiler to emit, and
