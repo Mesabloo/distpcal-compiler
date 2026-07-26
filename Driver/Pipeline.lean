@@ -5,6 +5,7 @@ public import WellFormedness
 public import Typed2Computable
 public import Computable2Guarded
 public import Guarded2Network
+public import Network2Go
 
 public section
 
@@ -37,6 +38,8 @@ inductive PipelineError : Type
   | guarded (e : GuardedError)
   /-- `Guarded2Network`. -/
   | network (e : G2NError)
+  /-- `Network2Go`. -/
+  | go (e : N2GError)
 
 /-- Which stage produced this error. The driver's own error type already distinguishes its
 internal stages, so this is total and exact rather than a guess from message text. -/
@@ -55,6 +58,7 @@ def PipelineError.stage : PipelineError → Stage
   | .computable _ => .computable
   | .guarded _ => .guarded
   | .network _ => .network
+  | .go _ => .go
 
 /-- This error's diagnostic code, from whichever pass produced it. The same identity
 `CompilerDiagnostic.pretty` prints in `error[E0042]:`, available without going through the
@@ -65,6 +69,7 @@ def PipelineError.code : PipelineError → DiagnosticCode
   | .computable e => CompilerDiagnostic.code e
   | .guarded e => CompilerDiagnostic.code e
   | .network e => CompilerDiagnostic.code e
+  | .go e => CompilerDiagnostic.code e
 
 /-- Rendered form of `err`, against the source lines it belongs to: a driver error renders against
 its own module's lines (an error inside an `EXTENDS`-ed dependency is not about the main module),
@@ -77,6 +82,7 @@ def PipelineError.render (sources : SourceRegistry) (mainLines : List String.Sli
   | .computable e => CompilerDiagnostic.pretty e mainLines colored
   | .guarded e => CompilerDiagnostic.pretty e mainLines colored
   | .network e => CompilerDiagnostic.pretty e mainLines colored
+  | .go e => CompilerDiagnostic.pretty e mainLines colored
 
 /-- A compile's non-fatal diagnostics. Every pass past the driver reports at `MonadDiagnostic
 Empty ε`, i.e. cannot warn at all, so a warning is always a `DriverWarning` — this is an `abbrev`
@@ -106,6 +112,8 @@ structure PipelineResult : Type where
   guarded : Option ComputableGuardedPlusCal.Algorithm := none
   /-- `Guarded2Network`'s output. -/
   network : Option ComputableNetworkPlusCal.Algorithm := none
+  /-- `Network2Go`'s output: the whole compiled Go file, ready to write. -/
+  go : Option String := none
 
 /-- Did the compile succeed? -/
 def PipelineResult.succeeded (r : PipelineResult) : Bool := r.error.isNone
@@ -185,7 +193,24 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
   let network ← match ← runStage moduleId .network (guarded.toNetwork : DiagT Empty G2NError Base _) with
     | .error e => return { result with error := some (.network e) }
     | .ok network => pure network
-  return { result with reached := .network, network := some network }
+  result := { result with reached := .network, network := some network }
+
+  -- `-t join` selects the Join Calculus backend, which does not exist yet; a compile targeting it
+  -- stops here rather than silently producing Go.
+  unless (← readThe FlagsEnv).target matches .go do
+    return result
+
+  -- The Go backend compiles the module's own operator and function definitions alongside the
+  -- algorithm: both land in one package, and a process body may call any of them.
+  let goStage : DiagT Empty N2GError Base String := do
+    let defs ← Network2Go.compileDeclarations SourceSpan.placeholder
+      (computable.declarations₁ ++ computable.declarations₂)
+    let algo ← network.toGo
+    let package := (← FlagsEnv.getTargetOption "go-package").getD "main"
+    return Network2Go.emitFile package (defs ++ algo)
+  match ← runStage moduleId .go goStage with
+  | .error e => return { result with error := some (.go e) }
+  | .ok go => return { result with reached := .go, go := some go }
 
 /-- `runPipeline` with its flags and its state supplied: one compile, self-contained, from `IO`.
 Each call starts from a fresh `DriverState`, so nothing — module cache, fresh-name counter, source
@@ -241,7 +266,12 @@ def PipelineResult.renderSummary (r : PipelineResult) : Option String :=
     s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
 {typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
 declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
-algorithm). The rest of the pipeline (the backends, Network2Go/Network2JoinCalculus) isn't \
-implemented yet, so it stops after Guarded2Network."
+algorithm). " ++
+    if r.go.isSome then
+      "Compiled to Go."
+    else if typedMod.pcalAlgorithm.isNone then
+      "No PlusCal algorithm, so there was nothing for a backend to compile."
+    else
+      "The Join Calculus backend (Network2JoinCalculus) isn't implemented yet."
 
 end

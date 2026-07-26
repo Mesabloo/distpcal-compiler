@@ -35,6 +35,9 @@ def commPkg : String := "comm"
 /-- The `runtime/locks` package's qualifier. -/
 def locksPkg : String := "locks"
 
+/-- The `runtime/sched` package's qualifier. -/
+def schedPkg : String := "sched"
+
 /-- A qualified reference to a name in one of the runtime packages, `pkg.name`. Go's package
 qualifier is an ordinary part of the identifier as far as this AST is concerned — `Go.Typ.named`
 and `Go.Expression.var` both carry it as one string. -/
@@ -63,6 +66,9 @@ def commVar {α} (name : String) : Go.Expression α := .var (qualified commPkg n
 
 /-- A reference to a `runtime/locks` function: `locks.Acquire`, `locks.MkLock`. -/
 def locksVar {α} (name : String) : Go.Expression α := .var (qualified locksPkg name)
+
+/-- A reference to a `runtime/sched` function: `sched.Rand`. -/
+def schedVar {α} (name : String) : Go.Expression α := .var (qualified schedPkg name)
 
 /-- `tlaplus.f(e₁, …, eₙ)`. -/
 def tlaplusCall {α} (name : String) (args : List (Go.Expression α)) : Go.Expression α :=
@@ -229,6 +235,51 @@ free to differ. -/
 def fieldName (name : String) : String :=
   let name := goIdent name
   if startsUppercase name then marked name else mapFirst Unicode.getUpperChar name
+
+/-!
+  ## Names this pass invents at package level
+
+  §7.2.3 needs a Go function per atomic block, per branch, per thread and per process, plus the
+  `Network` struct type — none of which the specification names. They land in the same package
+  namespace as the compiled TLA⁺ definitions, so they need to be disjoint from those *and* from
+  each other, and the thesis's own spellings are not: §7.3 calls `sndPi`'s scheduler `SndPi`,
+  which `definitionName` would also produce for a definition named `sndPi`, and calls the process
+  function `Pong` — while `PingPongs.tla` has both a process named `Ping` and a `CONSTANT` named
+  `Ping`, whose compiled names would then be the same identifier. So the readable names cannot be
+  used as-is.
+
+  **The shape is `<Kind>_<parts…>`, and the single underscore is what makes it safe.** `goIdent`
+  doubles every user underscore, so a single one can only come from a `$` — which no user name
+  contains. A compiler name whose first underscore is followed by more characters is therefore
+  unreachable from any `definitionName` output, whose only single underscore is the trailing mark.
+  The parts are `goIdent`-escaped, so distinct sources give distinct names: `goIdent` is injective
+  on `$`-free strings, which user labels and process names are.
+
+  Every one of these is capitalized and so exported. That is deliberate for the process function —
+  it is the entry point whoever wires the system together calls — and harmless for the rest.
+-/
+
+/-- The Go type name for the network shape (§7.3's `Network` struct). One per compiled algorithm,
+not per process. -/
+def networkTypName : String := "Net_Network"
+
+/-- The scheduler function for an atomic block: the `Rand`-driven loop over its branches. -/
+def blockName (proc label : String) : String := s!"Blk_{goIdent proc}_{goIdent label}"
+
+/-- The function for one branch of an atomic block, `i` counting from 1 as in §7.3's `SndPi1`. -/
+def branchName (proc label : String) (i : Nat) : String :=
+  s!"Brn_{goIdent proc}_{goIdent label}_{i}"
+
+/-- The function for a thread, `k` its index in the process. -/
+def threadName (proc : String) (k : Nat) : String := s!"Thr_{goIdent proc}_{k}"
+
+/-- The function for a receiving thread (§7.3's `Thread_rx`), `k` its index in the process. Kept
+distinct from `threadName` rather than sharing its numbering: the two have different signatures,
+and a reader should not have to count threads to tell which is which. -/
+def rxThreadName (proc : String) (k : Nat) : String := s!"Rx_{goIdent proc}_{k}"
+
+/-- The function for a whole process — the one the user calls to start it. -/
+def processName (proc : String) : String := s!"Proc_{goIdent proc}"
 
 /-- The Go name of tuple component `i`, counting from 1.
 

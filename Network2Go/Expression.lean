@@ -72,9 +72,15 @@ private def builtinModuleNames : Std.HashSet String :=
   { "Naturals", "Integers", "Sequences", "FiniteSets", "Bags", "TLC" }
 
 /-- `bool(e)` — Go's conversion out of the runtime's `Bool`, needed wherever a real `bool` is
-required: an `if` condition, and every predicate the runtime library takes. -/
-private def goBool (e : ComputableGo.Expression) : ComputableGo.Expression :=
-  .call (.var "bool") [e]
+required: an `if` condition, and every predicate the runtime library takes.
+
+Cancels against `tlaBool` rather than nesting inside it. The two meet constantly — every runtime
+predicate answers in Go's `bool`, gets wrapped so that the TLA⁺ expression has a TLA⁺ type, and is
+then unwrapped again by whatever consumes it as a condition — and `bool(tlaplus.Bool(e))` is
+merely `e`, so a compiled guard reads as one comparison instead of three nested calls. -/
+def goBool : ComputableGo.Expression → ComputableGo.Expression
+  | .call (.var f) [e] => if f == qualified tlaplusPkg "Bool" then e else .call (.var "bool") [.call (.var f) [e]]
+  | e => .call (.var "bool") [e]
 
 /-- `tlaplus.Bool(e)` — the conversion back, wrapping anything that produced a Go `bool`. -/
 private def tlaBool (e : ComputableGo.Expression) : ComputableGo.Expression :=

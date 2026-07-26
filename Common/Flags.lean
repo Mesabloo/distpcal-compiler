@@ -25,6 +25,9 @@ structure FlagsEnv where
   features : Std.HashMap String (Option String) := {}
   /-- `-W<name>` / `-Wno-<name>` per-warning enable/disable. -/
   warnings : Std.HashMap String Bool := {}
+  /-- `-X<name>[=<value>]` backend options. Named for the target rather than the compiler: what
+  is valid depends on which backend `-t` selects. -/
+  targetOptions : Std.HashMap String (Option String) := {}
   /-- `-o`/`--output`. -/
   output : Option System.FilePath := none
   /-- `-t`/`--target go|join`. -/
@@ -48,6 +51,10 @@ def getDebugOption (name : String) : m (Option String) := do
 /-- Is `-f<name>` (with or without a value) present? -/
 def getFeatureFlag (name : String) : m Bool := do
   return (← readThe FlagsEnv).features.contains name
+
+/-- The value attached to `-X<name>=<value>`, if any (also `none` for a valueless `-X<name>`). -/
+def getTargetOption (name : String) : m (Option String) := do
+  return (← readThe FlagsEnv).targetOptions.get? name |>.join
 
 /-- The value attached to `-f<name>=<value>`, if any. -/
 def getFeatureOption (name : String) : m (Option String) := do

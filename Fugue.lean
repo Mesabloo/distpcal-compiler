@@ -72,7 +72,7 @@ instance : ParseableType Target where
     | _ => none
 
 /-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
-private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-guarded", "dump-network", "dump-dir"]
+private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-guarded", "dump-network", "dump-go", "dump-dir"]
 
 /-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
 private def knownFeatures : Array String := #["no-color", "no-progress"]
@@ -80,6 +80,16 @@ private def knownFeatures : Array String := #["no-color", "no-progress"]
 /-- `-W<name>` names recognized so far — matches every `ParserWarning.name`
 (`Parser_/Common.lean`) and `DesugarWarning.name` (`Desugarer/Errors.lean`), extend likewise. -/
 private def knownWarnings : Array String := #["fair", "duplicate-parameter"]
+
+/-- `-X<name>[=<value>]` backend options. One table, not one per backend: an option a backend does
+not understand is a mistake worth reporting either way, and the alternative is a table whose
+contents depend on a flag parsed in the same pass.
+
+`go-package` names the Go package the emitted file declares, defaulting to `main`. It is not a
+`-f` toggle because it is a property of the *output*, not of how the compiler behaves; and not a
+Go build tag, unlike the integer representation, because the compiler is what writes the
+`package` clause. -/
+private def knownTargetOptions : Array String := #["go-package"]
 
 /-- Collect `<name>[=<value>]` options into a map, rejecting an unknown or duplicate `name`. -/
 private def NamedOption.toMap (kind : String) (known : Array String) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
@@ -157,6 +167,7 @@ private def validateFlags (p : Parsed) : IO FlagsEnv := do
   let debug ← NamedOption.toMap "debug" knownDebugOptions <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let features ← NamedOption.toMap "feature" knownFeatures <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let warnings ← WarningToggle.toMap knownWarnings <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
+  let targetOptions ← NamedOption.toMap "target" knownTargetOptions <| p.flag? "target-option" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let output := p.flag? "output" |>.map (·.as! System.FilePath)
   let target := p.flag? "target" |>.map (·.as! Target) |>.getD .go
   let searchPath := p.flag? "include" |>.map (·.as! (Array System.FilePath)) |>.getD #[] |>.toList
@@ -165,7 +176,11 @@ private def validateFlags (p : Parsed) : IO FlagsEnv := do
   | some none => throw ↑"debug option 'dump-dir' requires a path, e.g. -d dump-dir=.fugue/debug"
   | _ => pure ()
 
-  return { debug, features, warnings, output, target, searchPath }
+  match targetOptions.get? "go-package" with
+  | some none => throw ↑"target option 'go-package' requires a name, e.g. -X go-package=pingpong"
+  | _ => pure ()
+
+  return { debug, features, warnings, targetOptions, output, target, searchPath }
 
 private def runCli (p : Parsed) : IO UInt32 := do
   let flags ← validateFlags p
@@ -241,10 +256,23 @@ private def runCli (p : Parsed) : IO UInt32 := do
       IO.Process.exit 1
     | _, _ => pure ()
 
+    -- `-o` names a *file*, not a directory: a compile produces exactly one Go file. Everything
+    -- lands in one package, and the only thing that could split it — a file per process — would
+    -- buy nothing, since Go compiles a package as a unit and the declarations reference each
+    -- other freely. Parent directories are created, so `-o build/spec.go` works without a mkdir.
+    if let some code := result.go then
+      match flags.output with
+      | some path =>
+        if let some dir := path.parent then
+          IO.FS.createDirAll dir
+        IO.FS.writeFile path code
+        spinner.log s!"Wrote {path}."
+      | none => IO.println code
+
     spinner.success s!"Build done ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
 
     if let some summary := result.renderSummary then
-      IO.println summary
+      IO.eprintln summary
   return 0
 
 /-- Directory layouts `fugue explain` accepts a diagnostics corpus in, relative to some ancestor of
@@ -328,9 +356,10 @@ private def compileCmd : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-guarded, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
+    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-guarded, dump-network, dump-go, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
     f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[=value]` pairs."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
+    "X", "target-option" : Array NamedOption; "Backend options (go-package=<name> — the package the emitted Go declares, default `main`), comma-separated `name[=value]` pairs."
 
   ARGS:
     input : Input; "The input TLA+ file to compile, or `-` to read from standard input."

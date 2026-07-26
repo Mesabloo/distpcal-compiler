@@ -10,6 +10,7 @@ they exist so each `lean_lib` target resolves (`lake build Fugue.<Lib>`) and `do
 entry point per library. `Fugue.lean` is the `lean_exe` root, the CLI.
 
 ## `Common/`
+Root module `Common.lean` re-exports the lot, so `lake build Fugue.Common` resolves.
 - `Errors.lean` — shared error-reporting typeclasses.
 - `Position.lean` — `SourceSpan`/`Located`.
 - `Flags.lean` — CLI flag definitions (`FlagsEnv`, supplied per compile as a reader — no global),
@@ -87,9 +88,10 @@ expressions are *compiled* into them rather than carried through as parameters.
   (annotation carrier `α`, short-circuit `and`/`or` distinct from strict `binary`, composite
   literals), `Ref` (§6.6.11, no type annotation, so `Functor`/`Traversable` rather than the
   bifunctor pair), `Statement` (blocks are `List Statement`), `SelectClause`/`SwitchClause`,
-  `Function`, `Declaration` (top-level: a `Function`, or the `var x τ = e` §7.2.2 compiles a
-  parameter-less operator and every function definition to). Instances are `partial def` +
-  explicit instance. Pins itself as `ComputableGo` at its own `Go.Typ`.
+  `Function`, `Declaration` (top-level: a `Function`, the `var x τ = e` §7.2.2 compiles a
+  parameter-less operator and every function definition to, or the `type N τ` §7.2.3 needs for the
+  `Network` struct). `Statement.expr` covers a call evaluated for its effect, which §6.6 has no
+  form for and `Send`/`Release` need. Instances are `partial def` + explicit instance. Pins itself as `ComputableGo` at its own `Go.Typ`.
 - `Pretty.lean` — **the code generator**, not a debug dump: the shipped `.go` file is what this
   prints. Go operator precedence, always-breaking blocks, and `keywords`/`sanitize` (ported
   verbatim from prior art) at every identifier-print site.
@@ -211,11 +213,22 @@ Network PlusCal → Go (§5.7) — in progress (phase 11). Target AST and code g
 - `Definition.lean` — `compileDeclaration` (§7.2.2): parameter-less operator → `var`, parametric
   operator → generic `func` with a dictionary parameter per type parameter, function definition →
   `FnConstructor`/`MkRecFn` depending on whether the body calls itself.
-- `Locks.lean` — lock inference (§7.1.2, Definition 7.1.3). Pure analysis, emits no Go: block
-  footprints (`exprFreeVars`/`blockShared`/`processFootprints`), domination, merging, locking
-  order, thread-confinement pruning. Answers with `ProcessLocks` — the locks in acquisition order
-  and, per block, which of them it takes — which `PlusCal.lean` turns into `Lock[struct{…}]`
-  parameters and `Acquire`/`Release` calls. A `Thread.rx` counts as a block over its `inbox`.
+- `PlusCal.lean` — the PlusCal half (§7.2.3). One `bool`-returning function per branch, one
+  `Rand`-driven scheduler function per atomic block, one per thread, one per process, plus the
+  `Network` struct type. `goto` spawns a goroutine rather than calling, so a block chain cannot
+  overflow a stack. Entry point `ComputableNetworkPlusCal.Algorithm.toGo`, outside the namespace
+  so dot notation reaches it.
+- `Emit.lean` — a compiled declaration list as a `.go` *file*: package clause (`-X go-package`,
+  default `main`), import block, declarations. Imports are computed by walking the AST for
+  qualified names, not assumed — Go rejects an unused import, so a specification with no `either`
+  (no `sched`) or no process-local variables (no `locks`) must not get one.
+- `Locks.lean` — lock inference (§7.1.2, Definition 7.1.3). Pure analysis, emits no Go:
+  per-*branch* footprints (`exprFreeVars`/`branchShared`/`processFootprints`), domination, merging,
+  locking order. Answers with `ProcessLocks` — the locks in acquisition order plus the
+  variable-to-lock map, from which `acquiredBy` derives any code's lock set — which `PlusCal.lean`
+  turns into `Lock[struct{…}]` parameters and `Acquire`/`Release` calls. A `Thread.rx` contributes
+  a footprint over its `inbox`. No thread-confinement pruning: a lock is also the variable's
+  storage.
 - Entry point `Network2Go.lean`.
 - Missing: the PlusCal-side pass (`PlusCal.lean`, `network.toGo`), lock inference, collision
   renaming.
@@ -242,6 +255,12 @@ Go, not Lean — the library generated code links against (§5.7). Signatures fr
   without being held), `MkLock`/`Acquire`/`Release`. Non-reentrancy and acquisition order are
   lock inference's obligations, not enforced here.
 
+### `runtime/sched/`
+- `sched.go` — `Rand(lo, hi)`, the branch scheduler's picker (§7.2.3.1). A thin wrapper over
+  `math/rand/v2`, deliberately unfair, matching `isFair` being carried through unused. Its own
+  package rather than a corner of `locks/` because it is not mutual exclusion, and because a
+  fairer picker would go here if fairness ever stops being ignored.
+
 ### `runtime/tlaplus/`
 One file per TLA⁺ concept/stdlib module.
 - `ord.go` — `Ord[T]`, the equality-and-ordering **dictionary struct** (`Eq`/`Lt` fields) every
@@ -252,6 +271,8 @@ One file per TLA⁺ concept/stdlib module.
   `SeqUpdate`/`Head`/`Tail`/`Append`/`SeqEq`/`SeqCmp`/`SeqOrd`. `SeqUpdate` backs `EXCEPT`/`:=`.
   Covers exactly `Driver/Builtins.lean`'s `sequencesDeclarations`. Literals built with `MkSeq`.
 - `{bool,str}.go` — `Bool`/`Str` newtypes and their `BoolOrd`/`StrOrd` dictionaries.
+- `print.go` — `Print`, what PlusCal's `print` compiles to. Go's builtin `println` takes only
+  basic types, and every TLA⁺ value here is a defined type or a struct.
 - `int_big.go`, `int_machine.go` — the two `Int` representations, by build tag. **`int_big.go`
   (`math/big`) is the default**; `go build -tags fugue_machint` selects the other. Each carries
   `Int`, `IntOrd`, `MkInt`/`ToInt`, `Add`/`Sub`/`Neg`/`Mul` — the whole representation-dependent

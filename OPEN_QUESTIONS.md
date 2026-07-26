@@ -32,13 +32,15 @@ Not blockers, none hit by §8's subset:
   pre-Apalache dialect (`Channel[{type: string, agent: T}]`) is not.
 
 ### 9.3 CLI / UX — remaining details
-Flag surface settled (§2), including `-X<name>`, which currently has **no members**. Open:
+Flag surface settled (§2), `-X<name>` included. One thing left open:
 - **Join Calculus "flavors"** (`-t join[jocaml]`, `-t join[jerlang]`) — selecting between
   lowerings for different Join Calculus runtimes; ties into §9.1. Possibly not worth the
   complexity — don't build unless asked.
-- **`-p` (Go package name)** — own flag, folded into `-t go[package=...]`, or something else.
-- Whether `-o`/`--output` names a file or a directory — matters once Go may emit more than one
-  file. Revisit once `Network2Go`'s output shape is concrete (phase 11 item 7).
+
+Resolved: the Go package name is `-X go-package=<name>`, defaulting to `main` — a property of the
+output rather than of the compiler's behaviour, so `-X` rather than a `-p` of its own. `-o` names a
+**file**: a compile emits one Go file, because everything lands in one package and Go compiles a
+package as a unit, so splitting per process would buy nothing.
 
 ### 9.4 Join Calculus operational semantics — low priority
 `Core/JoinCalculus/Semantics/` (RCHAM heating/cooling + reaction rules, thesis Fig.
@@ -54,9 +56,27 @@ needs a bounded loop/comprehension inside a reaction body, not obviously support
 target calculus) or something else.
 
 Thesis §7.2.3.1 omits multicast from the Go statement-compilation rules, saying only in prose
-that it's "a simple 'iterated send'" — no loop construct, no compiled Go. Needs real design
-(which set-comprehension form, sequential vs. concurrent sends) before `Network2Go` tasklist
-item 3/6 can implement it.
+that it's "a simple 'iterated send'" — no loop construct, no compiled Go.
+
+**Go side, settled in outline by the owner** (kept here rather than in `PLAN.md` until the
+remaining piece below is decided). `comm.Multicast` takes three arguments:
+
+- the channel, `net.x`, as a `map[Address]Sender[τ]`;
+- the recipient set, `e₁`, as a `Set[Address]`;
+- the payload as a function `f`, the compilation of `func (y τ') τ { return e₂ }`.
+
+It iterates the set in any order and sends `f(y)` to `net.x[y]` for each `y`. Sequential versus
+concurrent is left to the implementation, since the specification's `multicast` says nothing about
+the order sends are observed in. `Network2Go` therefore has no loop to emit: the iteration lives in
+the runtime library, and the compiled statement is one call.
+
+**Still open: the AST shape it compiles from.** `GuardedPlusCal.MulticastFilter` is the plain
+surface form — a list of binds plus a value — which forces the backend to reconstruct which bind is
+the recipient and which are ordinary `with`-style temporaries. A desugared form bundling the
+arguments, with set membership reconstructed rather than pattern-matched out, would be a better
+input. Which pass introduces it, and what it looks like, is undecided.
+
+The Join Calculus side (above) is untouched by any of this.
 
 ### 9.6 Runtime value representation in Go: channel capacity
 TLA+ `Int`/`Nat` are unbounded and FIFOs uncapacitated; Go's types and channels are bounded.
@@ -100,6 +120,15 @@ Consequence: `Channel(τ)`'s Go representation is two different things per side.
 real local `inbox` sequence, realizable as a Go `chan`/queue, matching §5.3's "channels are
 encoded as `Seq(τ)`". Sender: addressing a remote process can't be a shared Go `chan` at all,
 so it goes through the nameserver-plus-network path.
+
+**Narrowed by tasklist item 3.** The compiler's own obligation is now discharged and needs no
+further design: generated code emits `net.c[e₁].Send(e₂)` and takes `mailbox Receiver[τ]` as a
+parameter, both of them interfaces, so it never opens a connection, serializes anything, or names
+a nameserver. What remains is not a compilation question but a scope one — whether this project
+ships a *reference* implementation of `Sender`/`Receiver` (TCP or Unix sockets, a serialization
+format, address discovery) alongside the compiler. The owner's answer is yes, eventually, but
+deliberately not yet; nothing in the compiler blocks on it, and a specification can be run today
+against hand-written endpoints, which is how the Ping-Pong end-to-end check works.
 
 Thesis pins the generated-code API surface on both sides, but not the internals:
 - §7.2.3.1: `send(c[e1], e2)` compiles to `net.c[e1].Send(e2)`, `send(c, e2)` to
@@ -431,3 +460,23 @@ address is never recycled by the heap allocator, so the read returns `default` (
 span. `Common/Errors.lean`'s renderer no longer panics on such a line — it degrades to a blank
 quoted line — so the symptom is a bad-looking diagnostic, not a crash. Which constants these are
 was not tracked down.
+
+### 9.25 `Str2Seq` is a placeholder name with no runtime counterpart, and the Go backend now hits it
+`Core/{Typed,Computable}TLAPlus/Coercion.lean` compile the `Str <: Seq(Int)` axiom into
+`Sequences!Str2Seq(e)`, with a comment saying the name is "a placeholder builtin name pending a
+real bundled-stub". Nothing supplies it. `Driver/Builtins.lean` does not declare it and
+`runtime/tlaplus/sequences.go` has no such function, so `Network2Go`'s `compileIntrinsic` does not
+recognize it either and reports an internal-invariant violation instead:
+
+```
+'Sequences!Str2Seq' applied to 1 arguments, which type checking should already have rejected
+```
+
+Reachable from ordinary input — `Tests/regression/AcceptReceiveCoercionStringToFunction.tla` and
+`AcceptAxiomChainStringToFunction.tla` both trigger it — so a well-typed specification fails to
+compile with a bug-report message. The same is likely true of every other coercion axiom that
+compiles to a named operator; only this one has a fixture reaching the Go backend so far.
+
+Two decisions, neither made: what the operator is actually called (the current name is provisional
+and picking one bakes it into the runtime's API), and what it means — TLA⁺'s `Str` is a primitive
+here, so "the sequence of a string" needs its element type pinned down before it can be written.

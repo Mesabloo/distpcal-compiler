@@ -21,36 +21,46 @@ public section
   §7.1 recovers it with locks — and then the whole question is how *few* locks suffice, since one
   global lock per process would serialize threads that never touch the same variable.
 
-  **The scheme, from [HFP06] by way of §7.1.2.** For each atomic block `B`, `shared(B)` is the set
-  of process-local variables it reads or writes. A variable `x` *dominates* `y` (`x ⪰ y`) when
-  every block whose footprint contains `y` also contains `x`; then `y` can be guarded by `x`'s
-  lock at no cost in concurrency, because every block that had to lock `y` was going to lock `x`
-  anyway. Merging along strict domination (Definition 7.1.3) collapses the one-lock-per-variable
-  assignment down without ever forcing two independent blocks to serialize — [HFP06, Lemma 2],
-  which is the property that makes this worth doing rather than just locking everything.
+  **The scheme, from [HFP06] by way of §7.1.2.** `shared` is the set of process-local variables a
+  piece of code reads or writes. A variable `x` *dominates* `y` (`x ⪰ y`) when every footprint
+  containing `y` also contains `x`; then `y` can be guarded by `x`'s lock at no cost in
+  concurrency, because everything that had to lock `y` was going to lock `x` anyway. Merging along
+  strict domination (Definition 7.1.3) collapses the one-lock-per-variable assignment down without
+  ever forcing two independent pieces of code to serialize — [HFP06, Lemma 2], which is the
+  property that makes this worth doing rather than just locking everything.
 
-  Two things are decided here that the thesis leaves open, and one that it declines to do:
+  Three things are decided here that the thesis leaves open, and one that it declines to do:
 
+  - **Footprints are per branch**, where Definition 7.1.2 states them per atomic block. The branch
+    is what executes atomically; the block only chooses among branches, and §7.2.3.1 acquires per
+    branch for that reason (Remark 7.2.4). See `processFootprints` for why the block-level reading
+    serializes exactly the branches that remark wants concurrent.
   - **`self` is never locked.** §7.1.2 excludes it explicitly as read-only. Nothing special is
     needed for that here: `self` is bound by `Elaborator/PlusCal.lean`'s `checkProcess` rather
     than declared in `localState.variables`, and only declared variables are considered, so it
     drops out of every footprint on its own.
-  - **A receiving thread counts as a block over its `inbox`.** `Thread.rx` has no label and no
-    statements, but it does write the `inbox` sequence, concurrently with the code threads that
-    drain it — and the whole reason `Guarded2Network` introduced `inbox` is that two threads
-    share it. Leaving it out would make `inbox` look thread-confined and the pruning pass below
-    would then delete exactly the lock the program needs. §7.3's worked example depends on this:
-    it is what makes `inbox_Pong ≻ tmp2` *strict*, and what keeps `ℓ0` alive.
-  - **Thread-confinement pruning is implemented**, which §7.1.2 describes and then declines
-    ("we could add this as a last pass of the algorithm, though choose not to for simplicity").
-    A lock touched from only one thread guards nothing: Network PlusCal runs at most one block of
-    a given thread at a time, so its blocks are already mutually exclusive. The thesis phrases
-    the test on a lock's representative variable; testing the lock itself is equivalent, since
-    `L(x) = ℓ_y` implies `y ⪰ x` ([HFP06, Lemma 1]) and so every block containing `x` contains
-    `y` — `x` cannot reach a thread `y` does not.
+  - **A receiving thread has a footprint of its own, over its `inbox`.** `Thread.rx` has no label,
+    no branches and no statements, but it does write the `inbox` sequence, concurrently with the
+    code threads that drain it — and the whole reason `Guarded2Network` introduced `inbox` is that
+    two threads share it. Leaving it out does not break correctness (the receiving thread still
+    acquires whatever lock holds `inbox`) but it merges away the concurrency: in Ping-Pong's
+    `Ping`, without it every footprint containing `inbox` also contains `tmp1`, so `tmp1 ≻ inbox`
+    and the two share a lock — and the receiving thread then blocks a `send` that touches only
+    `tmp1`. It is also what makes §7.3's `inbox_Pong ≻ tmp2` strict rather than mutual.
+  - **Thread-confinement pruning is *not* implemented**, and the reason is stronger than the
+    "for simplicity" §7.1.2 gives. A lock touched from only one thread does guard nothing —
+    Network PlusCal runs at most one block of a given thread at a time, so its blocks are already
+    mutually exclusive — but in this compilation scheme a lock is not only a mutex, it is the
+    variable's *storage*: §7.2.3.1's branch functions read their variables out of the struct a
+    lock carries, and `INIT_LOCKS` is the only place a variable's initial value is ever written.
+    Dropping a lock therefore leaves its variables with nowhere to live. Pruning would need
+    thread-confined variables to become goroutine-local state instead, which the compilation
+    shape rules out: each atomic block is its own top-level function, so it cannot mutate a
+    local of the thread function that started the chain. Worth revisiting only together with
+    that, and it was implemented and reverted here once already.
 
-  Verified by hand against Examples 7.1.1, 7.1.4 and 7.1.5, and against §7.3's Ping-Pong
-  compilation; `Tests/` covers the same four.
+  Verified by hand against Examples 7.1.1, 7.1.4 and 7.1.5, against §7.3's Ping-Pong compilation,
+  and against Two-Phase Commit.
 -/
 
 namespace Network2Go
@@ -170,31 +180,33 @@ block can fire, and the block's lock set has to cover every way. -/
 def blockShared (B : ComputableNetworkPlusCal.AtomicBlock) : List String :=
   B.branches.foldl (λ acc br ↦ unionVars acc (branchShared br)) []
 
-/-- One atomic block's footprint, tagged with the thread it belongs to.
+/--
+  Every footprint of a process — one per **branch**, plus one per receiving thread — narrowed to
+  the process's *declared* variables.
 
-`label` is `none` for the implicit block of a `Thread.rx`, which has no label to carry: it is
-still a unit of concurrent access to `inbox` and so still constrains the inference — see the
-module doc. `thread` is the index into `Process.threads`, used only by the pruning pass. -/
-structure BlockFootprint where
-  thread : Nat
-  label : Option String
-  shared : List String
-  deriving Repr, Inhabited
+  **Per branch, not per block, and Definition 7.1.2 is stated over blocks.** The unit that
+  executes atomically is the branch; a block only chooses among its branches, and §7.2.3.1
+  acquires locks per branch for exactly that reason (Remark 7.2.4). Taking the block's footprint —
+  the union over its branches — makes two branches that touch disjoint variables look like joint
+  users of both, so those variables dominate each other, merge into one lock, and each branch then
+  acquires a lock bundling the other's variables. That serializes precisely the pair Remark 7.2.4
+  wants to keep concurrent. Branch footprints are the finer relation and merge strictly less;
+  correctness is unaffected, since any assignment giving each variable exactly one lock is sound
+  and every branch still acquires every lock covering what it touches.
 
-/-- Every block of a process, with its footprint narrowed to the process's *declared* variables.
+  A `Thread.rx` contributes one footprint over its `inbox` although it has neither label nor
+  branches — see the module doc for why leaving it out would be wrong.
 
-Narrowing here rather than inside `exprFreeVars` is what keeps `self`, quantifier binders and
-operator parameters out without naming any of them: none of the three is declared. -/
-def processFootprints (p : ComputableNetworkPlusCal.Process) : List BlockFootprint :=
+  Narrowing here rather than inside `exprFreeVars` is what keeps `self`, quantifier binders and
+  operator parameters out without naming any of them: none of the three is declared.
+-/
+def processFootprints (p : ComputableNetworkPlusCal.Process) : List (List String) :=
   let declared := p.localState.variables.map (·.1)
   let keep (xs : List String) := xs.filter declared.contains
-  p.threads.zipIdx.flatMap λ (t, k) ↦
+  p.threads.flatMap λ t ↦
     match t with
-    | .code blocks => blocks.map λ B ↦
-      { thread := k, label := some B.label, shared := keep (blockShared B) }
-    | .rx chan _ _ inbox =>
-      [{ thread := k, label := none,
-         shared := keep (unionVars [inbox] (refReads [] chan)) }]
+    | .code blocks => blocks.flatMap λ B ↦ B.branches.map λ br ↦ keep (branchShared br)
+    | .rx chan _ _ inbox => [keep (unionVars [inbox] (refReads [] chan))]
 
 /-! ## Lock selection -/
 
@@ -208,25 +220,38 @@ structure Lock where
   vars : List String
   deriving Repr, Inhabited
 
-/-- A process's whole lock assignment: the locks in *locking order*, and for each block the
-indices into that list it must acquire.
+/-- A process's whole lock assignment: the locks in *locking order*, and which lock (if any) each
+process-local variable is guarded by.
 
-Indices, not names, so that a caller cannot accidentally acquire in a different order than the
-one that avoids deadlock — the sublist is already sorted, and acquiring in list order is the
-contract. Every generated function takes *all* the locks as parameters regardless (§7.3), since a
-`goto` may hand control to a block with a different footprint; `blockLocks` says only which ones
-that block actually acquires.
+A variable missing from `ofVar` is one no lock protects — either nothing touches it, or its lock
+was pruned as thread-confined. Reading or writing it needs no `Acquire` at all.
 
-Keyed by `(thread, label)` rather than by label alone: a `Thread.rx` has no label to key on, and a
-process may have more than one of them. -/
+The set a given piece of code acquires is derived on demand through `acquiredBy` rather than
+tabulated per block, because §7.2.3's Remark 7.2.4 acquires **per branch**, not per block: a block
+whose two branches touch disjoint variables should let a concurrent block touching one of them run
+while the other branch holds only its own. Blocks are still the unit the *inference* runs over —
+`shared(B)` in Definition 7.1.2 is a block-level set — so the two granularities genuinely differ
+and neither replaces the other.
+
+Every generated function takes *all* the locks as parameters regardless (§7.2.3.1, Remark 7.2.1),
+since a `goto` may hand control to a block with a different footprint. -/
 structure ProcessLocks where
   locks : List Lock
-  blockLocks : List ((Nat × Option String) × List Nat)
+  ofVar : List (String × Nat)
   deriving Repr, Inhabited
 
+/-- The locks a piece of code touching `shared` must hold, as indices into `locks`, ascending.
+
+Ascending is the whole point: acquiring in one fixed order everywhere is what rules out a
+lock-ordering deadlock between two blocks that need the same pair. Callers acquire in list order
+and may release in any. -/
+def ProcessLocks.acquiredBy (ls : ProcessLocks) (shared : List String) : List Nat :=
+  ls.locks.zipIdx.filterMap λ (l, i) ↦
+    if shared.any l.vars.contains then some i else none
+
 /-- `x ⪰ y` (Definition 7.1.2): every block whose footprint contains `y` also contains `x`. -/
-private def dominates (fps : List BlockFootprint) (x y : String) : Bool :=
-  fps.all λ fp ↦ !fp.shared.contains y || fp.shared.contains x
+private def dominates (fps : List (List String)) (x y : String) : Bool :=
+  fps.all λ fp ↦ !fp.contains y || fp.contains x
 
 /-- Definition 7.1.3, steps 1–2. Lock identities are represented by the variable that originally
 owned them — `ℓ_x` is just `x` — so a merge is a rewrite of one identity to another and the final
@@ -242,7 +267,7 @@ Mutual domination is why the merge rewrites *every* variable currently holding `
 `x` alone. Two variables used in exactly the same blocks each strictly dominate the other; the
 second iteration then finds nothing left pointing at the lock it would have redirected, and the
 assignment is stable instead of oscillating. -/
-private def selectLocks (fps : List BlockFootprint) (vars : List String) : List (String × String) :=
+private def selectLocks (fps : List (List String)) (vars : List String) : List (String × String) :=
   vars.foldl (init := vars.map λ x ↦ (x, x)) λ assign x ↦
     let lx := (assign.lookup x).getD x
     match vars.find? λ y ↦ y != x && dominates fps y x with
@@ -260,23 +285,15 @@ private def selectLocks (fps : List BlockFootprint) (vars : List String) : List 
   so keeping it callable on a bare footprint list is what lets those be checked as written.
 -/
 def assignLocks {m : Type → Type} [Monad m] [MonadFresh m]
-    (fps : List BlockFootprint) (vars : List String) : m ProcessLocks := do
+    (fps : List (List String)) (vars : List String) : m ProcessLocks := do
   let assign := selectLocks fps vars
   -- Distinct lock identities, ordered by the first variable that carries them: the locking order.
   let ids := vars.foldl (init := []) λ acc x ↦ insertVar acc ((assign.lookup x).getD x)
-  -- Thread-confinement pruning: a lock only ever touched from one thread guards nothing.
-  let threadsOf (id : String) : List Nat :=
-    fps.foldl (init := []) λ acc fp ↦
-      if fp.shared.any (λ x ↦ (assign.lookup x).getD x == id) && !acc.contains fp.thread
-      then acc ++ [fp.thread] else acc
-  let ids := ids.filter λ id ↦ (threadsOf id).length > 1
   let locks ← ids.mapM λ id ↦ do
     return { name := goIdent (← freshName "lock")
              vars := vars.filter λ x ↦ (assign.lookup x).getD x == id : Lock }
-  let blockLocks := fps.map λ fp ↦
-    ((fp.thread, fp.label), ids.zipIdx.filterMap λ (id, i) ↦
-      if fp.shared.any λ x ↦ (assign.lookup x).getD x == id then some i else none)
-  return { locks, blockLocks }
+  let ofVar := locks.zipIdx.flatMap λ (l, i) ↦ l.vars.map (·, i)
+  return { locks, ofVar }
 
 /--
   The whole inference for one process: compute every block's footprint, then assign locks.
@@ -287,7 +304,7 @@ def inferLocks {m : Type → Type} [Monad m] [MonadFresh m]
     (p : ComputableNetworkPlusCal.Process) : m ProcessLocks :=
   let fps := processFootprints p
   -- Declaration order, restricted to what is actually touched somewhere.
-  assignLocks fps ((p.localState.variables.map (·.1)).filter λ x ↦ fps.any (·.shared.contains x))
+  assignLocks fps ((p.localState.variables.map (·.1)).filter λ x ↦ fps.any (·.contains x))
 
 end Network2Go
 

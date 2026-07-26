@@ -219,6 +219,7 @@ partial def Expression.pretty {α} [Std.ToFormat α] (e : Expression α) (prec :
 
 partial def Statement.pretty {α} [Std.ToFormat α] : Statement α → Std.Format
   | .skip => .nil
+  | .expr e => Expression.pretty e 0
   | .print e => "println" ++ .paren (Expression.pretty e 0)
   | .panic e => "panic" ++ .paren (Expression.pretty e 0)
   | .return es => "return " ++ .joinSep (es.map (Expression.pretty · 0)) ", "
@@ -227,7 +228,9 @@ partial def Statement.pretty {α} [Std.ToFormat α] : Statement α → Std.Forma
     .joinSep (lhs.map (Ref.pretty (Expression.pretty · 0))) ", " ++ " = "
       ++ .joinSep (rhs.map (Expression.pretty · 0)) ", "
   | .make name τ capacity =>
-    f!"{sanitize name} := make({τ}"
+    -- `τ` is the channel's *element* type (`Statement.make`'s doc); the `chan` is the statement's
+    -- own, which is what distinguishes it from `Expression.make`'s map and slice forms.
+    f!"{sanitize name} := make(chan {τ}"
       ++ (capacity.elim .nil (λ e ↦ ", " ++ Expression.pretty e 0)) ++ ")"
   | .close c => "close" ++ .paren (Expression.pretty c 0)
   | .send c e => Expression.pretty c 0 ++ " <- " ++ Expression.pretty e 0
@@ -277,6 +280,7 @@ def Declaration.pretty {α} [Std.ToFormat α] : Declaration α → Std.Format
   | .var name τ value =>
     f!"var {sanitize name} {τ}"
       ++ value.elim .nil (λ e ↦ " = " ++ Expression.pretty e 0)
+  | .typ name τ => f!"type {sanitize name} {τ}"
 
 instance {α} [Std.ToFormat α] : Std.ToFormat (Declaration α) := ⟨Declaration.pretty⟩
 

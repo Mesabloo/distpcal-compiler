@@ -60,7 +60,7 @@ verification not expected within this plan — north star, not milestone.
 | Source positions | **Out-of-band side map, keyed on pointer address, registered at every construction site.** `Common/Position.lean`'s `registerSource`/`@@` and `posOf`/`match_source` attach spans to arbitrary values through an `IO.Ref (HashMap USize SourceSpan)`, rather than a `Located`-style field on each AST node. The address key is what makes `@@` free to write at any node without changing its type, and keeps every AST generic in exactly the parameters the pass needs. The cost is that a node whose position is never registered is indistinguishable from one whose address a dead node left an entry under, and `posOf` answers with that dead node's span rather than failing. **So registration is an obligation, not an optimization: every pass registers every position-carrying node it builds, at the span of the node it was built from.** Position-carrying node kinds are `Expression` (all TLA⁺ stages), `Statement` (all PlusCal stages), `Module`, `Process`, `Algorithm`; `Ref`, `Block`, `Branches` and `Declarations` carry none and nothing reads a span off one. This applies to *rebuilding* just as much as translating — substitution (`CoreTLAPlus.Expression.subst`, `ComputableTLAPlus.Expression.subst`), coercion discharge (`Coercion.apply`/`.applyComputable`), and every `Bifunctor`/`Bitraversable` instance rebuild nodes and re-register them. A node the compiler synthesizes with no source text of its own takes the span of the construct it stands for (an `await` from a rewritten `if`, a `with`-chain link, a `receive`'s consumption assignments); one that stands for nothing in the source at all — a fall-through `goto`, an empty body's `skip` — takes `SourceSpan.placeholder`, which is line `1` rather than `0` precisely so it renders as a real line. Two limits are inherent to the address key and are not bugs to chase: **nullary constructors** (`Expression.true`, `Statement.skip`) are unboxed scalars sharing one address program-wide, so they can never carry per-occurrence positions (`Parser_/Annotations.lean` gives `Annotation` explicit `pos` fields for exactly this reason); and **compiled-in constants** (`Driver/Builtins.lean`'s stdlib operator bodies) have no source text, so they are registered at `SourceSpan.placeholder`. `runPipelineIO` still calls `forgetSourcePositions` before each compile — the map is global, so entries outlive the compile that made them — and that clear is itself destructive, which is why `lake test` stays `-j 1`. |
 | Build config format / toolchain | **`lakefile.lean` (Lean DSL), not `lakefile.toml`.** Current stable Lean toolchain, not a stale pin — update `mathlib`/`batteries`/other pinned deps to match. Expect real breakage from the bump, not just cosmetic, including in `Extra/`'s vendored lemmas. |
 | CLI shape | **Subcommands**: `fugue compile [FLAGS] <input>` compiles, `fugue explain <code>` prints what a diagnostic code means (`--list` for all of them, `Common/Diagnostics/Registry.lean`). `explain` finds its `docs/diagnostics/<code>.md` corpus by walking up from the *executable's* own path (`docs/diagnostics`, or `share/fugue/diagnostics` when installed), never from the working directory, which has no reason to be near the compiler; `$FUGUE_DOCS` overrides. |
-| CLI flag surface | GCC/Clang-style flags on `leanprover/Cli` (`--help`/`--version` free), all on `compile`: `-d<name>[=<value>]` (debug options — AST dumps, `-dtiming` per-pass timing), `-f<name>[=<value>]` (feature toggles, e.g. `-fno-color` disables ANSI diagnostics — `Common/Errors.lean`'s `CompilerDiagnostic.pretty` takes `colored` flag), `-W<name>`/`-Wno-<name>` (per-warning control, e.g. `-Wno-fair`), `-X<name>[=<value>]` (target-specific backend options; the category exists but its allowlist is currently empty — see §9.3), `-o`/`--output`, `-t`/`--target go|join`, `-I <path>` (module search path, §5.3). Two details open — Join Calculus "flavors", Go `-p` package name — see §9.3. `leanprover/Cli` rejects a named flag given twice and parses `Array α`-typed flags as one comma-separated occurrence, not true repetition, so `-d`/`-f`/`-W`/`-X`/`-I` are each one Cli flag of `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style. `-d dump-dir=<path>` (default `.fugue/debug`) sets where `-d dump-tokens`/`-d dump-cst` write output — `<dump-dir>/<input-file-name>-tokens`/`-cst`, not stdout; value-less `-d dump-dir` is a hard error. `-d dtiming` dumps per-pass timing to `<dump-dir>/time.log`, one line per pass per input file, appended across passes/files in one run. `-d`/`-f`/`-W`/`-X` names validated against hardcoded allowlists (`knownDebugOptions`/`knownFeatures`/`knownWarnings`/`knownTargetOptions`, `Fugue.lean`) — unrecognized name is a hard CLI error. Extend these arrays by hand as later phases add dump points/features/warnings/target-options — no registration mechanism, set stays small. |
+| CLI flag surface | GCC/Clang-style flags on `leanprover/Cli` (`--help`/`--version` free), all on `compile`: `-d<name>[=<value>]` (debug options — AST dumps, `-dtiming` per-pass timing), `-f<name>[=<value>]` (feature toggles, e.g. `-fno-color` disables ANSI diagnostics — `Common/Errors.lean`'s `CompilerDiagnostic.pretty` takes `colored` flag), `-W<name>`/`-Wno-<name>` (per-warning control, e.g. `-Wno-fair`), `-X<name>[=<value>]` (target-specific backend options; `go-package=<name>` sets the `package` clause the Go backend emits, defaulting to `main`), `-o`/`--output` (a **file**, not a directory — a compile produces one Go file, since everything lands in one package and Go compiles a package as a unit; parent directories are created), `-t`/`--target go|join`, `-I <path>` (module search path, §5.3). One detail open — Join Calculus "flavors" — see §9.3. The Go package name is `-X go-package`, not a `-p` of its own: it is a property of the output, not of how the compiler behaves, and `-X` is where backend-specific settings belong. `leanprover/Cli` rejects a named flag given twice and parses `Array α`-typed flags as one comma-separated occurrence, not true repetition, so `-d`/`-f`/`-W`/`-X`/`-I` are each one Cli flag of `Array`-typed `ParseableType` (`-d name1,name2=value`, `-I dir1,dir2`, `-W name,no-other`), not literally repeatable GCC-style. `-d dump-dir=<path>` (default `.fugue/debug`) sets where `-d dump-tokens`/`-d dump-cst` write output — `<dump-dir>/<input-file-name>-tokens`/`-cst`, not stdout; value-less `-d dump-dir` is a hard error. `-d dtiming` dumps per-pass timing to `<dump-dir>/time.log`, one line per pass per input file, appended across passes/files in one run. `-d`/`-f`/`-W`/`-X` names validated against hardcoded allowlists (`knownDebugOptions`/`knownFeatures`/`knownWarnings`/`knownTargetOptions`, `Fugue.lean`) — unrecognized name is a hard CLI error. Extend these arrays by hand as later phases add dump points/features/warnings/target-options — no registration mechanism, set stays small. |
 | Diagnostic identity | **A `rustc`-shaped code per diagnostic**: `E0042`/`W0003`, four digits, rendered in the header (`error[E0026]: …`). `CompilerDiagnostic.code` has no default, so every error/warning instance must map *every* constructor to a registry entry — a new constructor fails to compile until it is registered. `Common/Diagnostics/Registry.lean` is the single allocator: each entry carries its stage, its `-W` name if it has one, and a one-line summary, and instances name entries rather than writing number literals, so a code in use but unregistered cannot exist. Numbers are permanent — never renumbered, never reused, gaps left where a drafted code turned out unnecessary. Wording is free to change; the code is the identity a regression fixture, a build-log grep, and `fugue explain` all key on. |
 | Go runtime library location | **`runtime/tlaplus/` + top-level `persistent/treemap/` in this repo**, versioned with the compiler targeting it, not a separate repo — one file per TLA+ concept/stdlib module (`sequences.go`, `sets.go`, etc.), not one flat package. See §5.7. |
 | `Int` representation dispatch: machine `int` vs. `math/big` | **Go build tag, not a Fugue flag.** `math/big` is the default (matches the unbounded integers of the semantics being verified against); `go build -tags fugue_machint` opts into machine `int` for speed. Emitted code is identical either way — arithmetic goes through runtime functions, literals through `MkInt` — so the compiler has nothing to dispatch on. Whole compiled output, not per-declaration. See §5.7. |
@@ -1015,17 +1015,30 @@ entirely — that compilation scheme is undescribed, §9.7.
 are assigned **per process-local variable**, and a block may need to acquire *several*
 locks (one per variable in its footprint, after merging):
 
-1. For every atomic block `B` (computed over *all* blocks of the process, not just
-   cross-thread pairs), let `shared(B)` be the set of process-local variables read from
-   or written to in `B` (free variables in expression position, plus all
-   indexed-assignment targets, minus any `with`-bound temporaries). A `Thread.rx` counts
-   as a block over its `inbox`, though it has neither label nor statements: it is the
-   second thread writing `inbox`, so omitting it would make `inbox` look thread-confined
-   and step 5 would delete the very lock the program needs. It is also what makes §7.3's
-   `inbox_Pong ≻ tmp2` strict rather than mutual. `self` needs no special case — it is
-   bound by `checkProcess`, not declared, and only declared variables are considered.
-2. Define domination: `x ⪰ y` iff every block with `y ∈ shared(B)` also has
-   `x ∈ shared(B)`; `x ≻ y` (strict domination) when additionally `x ≠ y`.
+1. For every **branch** (computed over *all* branches of the process, not just cross-thread
+   pairs), let `shared` be the set of process-local variables read from or written to in it
+   (free variables in expression position, plus all indexed-assignment targets, minus any
+   `with`-bound temporaries).
+
+   **Per branch, where Definition 7.1.2 says per block.** The branch is the unit that
+   executes atomically — a block only chooses among its branches — and §7.2.3.1 acquires
+   locks per branch for that reason (Remark 7.2.4). A block's footprint is the union over
+   its branches, which reports two branches touching disjoint variables as joint users of
+   both; that makes those variables dominate each other, merge into one lock, and each
+   branch then acquire a lock covering the other's variables. It costs concurrency, not
+   correctness — every assignment giving each variable exactly one lock is sound — but it
+   serializes exactly the pairs Remark 7.2.4 exists to keep concurrent.
+
+   A `Thread.rx` contributes a footprint over its `inbox`, though it has neither label nor
+   branches nor statements: it is the second thread writing `inbox`. Omitting it is again a
+   concurrency loss rather than a correctness one — in Ping-Pong's `Ping` every footprint
+   containing `inbox` would then also contain `tmp1`, so `tmp1 ≻ inbox`, the two share a
+   lock, and the receiving thread blocks a `send` touching only `tmp1`. It is also what
+   makes §7.3's `inbox_Pong ≻ tmp2` strict rather than mutual. `self` needs no special case
+   — it is bound by `checkProcess`, not declared, and only declared variables are
+   considered.
+2. Define domination: `x ⪰ y` iff every footprint containing `y` also contains `x`;
+   `x ≻ y` (strict domination) when additionally `x ≠ y`.
 3. Lock selection (Definition 7.1.3): start with one fresh lock `ℓ_x` per variable `x`.
    For each variable `x`, if some `y ≻ x` exists, merge — redirect every variable
    currently assigned `ℓ_x` to `y`'s lock instead. This can only reduce the number of
@@ -1040,12 +1053,16 @@ locks (one per variable in its footprint, after merging):
    thesis leaves both this order and the choice among several dominators in step 3 free;
    both are fixed to the process's variable declaration order, since a compiler that
    grouped locks differently between two runs on one input could not be tested.
-5. Final pruning pass: any lock used only within a single thread can be dropped entirely —
-   blocks within one thread are already mutually exclusive by construction (Network
-   PlusCal only ever runs one block of a given thread at a time). §7.1.2 describes this
-   pass and then declines it "for simplicity"; it is implemented here. The thesis phrases
-   the test on a lock's representative variable, which is equivalent to testing the lock
-   itself: `L(x) = ℓ_y` implies `y ⪰ x`, so `x` cannot reach a thread `y` does not.
+5. Final pruning pass — a lock used only within a single thread could in principle be
+   dropped entirely, since blocks within one thread are already mutually exclusive by
+   construction. **Not done**, and the reason is stronger than the "for simplicity" §7.1.2
+   gives: in this compilation scheme a lock is also the variable's *storage*. §7.2.3.1's
+   branch functions read their variables out of the struct the lock carries, and
+   `INIT_LOCKS` is the only place an initial value is ever written, so a dropped lock
+   leaves its variables with nowhere to live. Pruning would need thread-confined variables
+   to become goroutine-local state, which the compilation shape rules out — each atomic
+   block is its own top-level function and cannot mutate a local of the thread function
+   that started the chain. Revisit only together with that.
 
 Different design from a simpler one-lock-per-block scheme: this one holds potentially
 several locks per block (ordered to avoid deadlock) rather than exactly one, groups by
@@ -1387,6 +1404,33 @@ process, `l_1` the label of its syntactically-first atomic block:
 
 Thread-code block chaining, `Thread.rx` receive-loop compilation, and `Process`/`Algorithm`
 top-level wiring are all direct ports of the schemes above, not fresh design.
+
+**Settled while implementing §7.2.3.**
+
+- **Acquisition is per branch** (Remark 7.2.4), and so is the inference — see step 1 of the
+  lock-inference algorithm above, which departs from Definition 7.1.2's block-level phrasing
+  for the same reason. `ProcessLocks` therefore records the variable-to-lock map and derives
+  each acquisition set on demand rather than tabulating one per block.
+- **Synthesized top-level names are `<Kind>_<parts…>`** — `Blk_`/`Brn_`/`Thr_`/`Rx_`/`Proc_`,
+  each part `goIdent`-escaped and qualified by the process. §7.3's own spellings cannot be used:
+  it calls `sndPi`'s scheduler `SndPi`, which is also what a definition named `sndPi` compiles
+  to, and names the process function after the process — while `PingPongs.tla` has a process
+  `Ping` beside a `CONSTANT Ping`. A single underscore can only come from a `$`, which no user
+  name contains, so a compiler name whose first underscore is followed by more characters is
+  unreachable from `definitionName`, whose only single underscore is the trailing mark.
+- **`r ≔ e` through a path compiles like `EXCEPT`**, not by "compiling each index individually"
+  as §7.2.3.1 has it. That phrasing assumes a TLA⁺ function is a Go map; here it is a
+  `LazyFunction` and a sequence is 1-indexed, so `x[i].f := e` goes through the same
+  `compileExcept` the expression form uses.
+- **`print` compiles to a runtime `tlaplus.Print`**, not Go's builtin `println`, which accepts
+  only basic types while every TLA⁺ value is a defined type or a struct.
+- **`Rand` lives in a new `runtime/sched`**, wrapping `math/rand/v2` rather than implementing a
+  generator. It is neither a TLA⁺ value operation nor a lock, and a fairer picker would go there
+  if `isFair` ever stops being ignored.
+- **`Core/Go/Syntax.lean` gained two nodes** §6.6 has no form for: `Declaration.typ` for the
+  `Network` struct (without a named type, every signature mentioning it would have to spell out
+  the same anonymous struct), and `Statement.expr` for a call evaluated for its effect (`Send`
+  and `Release` return nothing, so `_ = f(…)` does not apply).
 
 **Worked example, thesis §7.3.** The Ping-Pong `Pong` process end to end (`Ping` left as a
 mirror-image exercise) — the reference to check `Network2Go`'s output against, same role as

@@ -181,6 +181,12 @@ inductive Expression (α : Type) : Type
 /-- Go statements (§6.6.3.4). Blocks are `List Statement` — see the module doc. -/
 inductive Statement (α : Type) : Type
   | skip
+  /-- A call evaluated for its effect, `f(e₁, …)`. Go accepts only a call in this position, never
+  an arbitrary expression, so nothing else should be built here.
+
+  Not in §6.6, but §7.2.3 needs it: `net.c.Send(e)` and `Release(ℓ, st)` both return nothing, so
+  the `_ = f(…)` form that covers a value-returning call is not available for them. -/
+  | expr (e : Expression α)
   | print (e : Expression α)
   | panic (e : Expression α)
   /-- `return e₁, …, eₙ` — Go's multi-valued return, widened from §6.6.12's single `e`. -/
@@ -268,6 +274,7 @@ partial def Expression.map {α β} (f : α → β) : Expression α → Expressio
 
 partial def Statement.map {α β} (f : α → β) : Statement α → Statement β
   | .skip => .skip
+  | .expr e => .expr (Expression.map f e)
   | .print e => .print (Expression.map f e)
   | .panic e => .panic (Expression.map f e)
   | .return es => .return (Expression.map f <$> es)
@@ -339,6 +346,7 @@ partial def Expression.traverse {F : Type _ → Type _} [Applicative F] {α β} 
 partial def Statement.traverse {F : Type _ → Type _} [Applicative F] {α β} (f : α → F β) :
     Statement α → F (Statement β)
   | .skip => pure .skip
+  | .expr e => .expr <$> Expression.traverse f e
   | .print e => .print <$> Expression.traverse f e
   | .panic e => .panic <$> Expression.traverse f e
   | .return es => .return <$> Traversable.traverse (Expression.traverse f) es
@@ -419,18 +427,26 @@ inductive Declaration (α : Type) : Type
   | function (F : Function α)
   /-- `var x τ = e`, with `e` absent for a zero-initialized declaration. -/
   | var (name : String) (τ : α) (value : Option (Expression α))
+  /-- `type N τ` — a *defined* type, not an alias (`type N = τ`).
+
+  Not in §6.6, which has no top-level type declarations, but §7.2.3 needs one: the `Network`
+  struct every generated function takes a parameter of is an anonymous struct type otherwise, and
+  Go would then require it spelled out identically at every signature that mentions it. -/
+  | typ (name : String) (τ : α)
   deriving Repr, Inhabited
 
 instance : Functor Declaration where
   map f
     | .function F => .function (f <$> F)
     | .var name τ value => .var name (f τ) (Expression.map f <$> value)
+    | .typ name τ => .typ name (f τ)
 
 instance : Traversable Declaration where
   traverse f
     | .function F => .function <$> Traversable.traverse f F
     | .var name τ value =>
       (.var name · ·) <$> f τ <*> Traversable.traverse (Expression.traverse f) value
+    | .typ name τ => .typ name <$> f τ
 
 end Go
 
