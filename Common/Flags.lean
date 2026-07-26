@@ -19,13 +19,13 @@ inductive Target
   `Std.Do.WP`-based proofs need a transparent Reader effect to reason about, not an opaque one.
 -/
 structure FlagsEnv where
-  /-- `-d<name>[=<value>]` debugging options. -/
+  /-- `-d<name>[:<value>]` debugging options. -/
   debug : Std.HashMap String (Option String) := {}
-  /-- `-f<name>[=<value>]` feature/config toggles. -/
+  /-- `-f<name>[:<value>]` feature/config toggles. -/
   features : Std.HashMap String (Option String) := {}
   /-- `-W<name>` / `-Wno-<name>` per-warning enable/disable. -/
   warnings : Std.HashMap String Bool := {}
-  /-- `-X<name>[=<value>]` backend options. Named for the target rather than the compiler: what
+  /-- `-X<name>[:<value>]` backend options. Named for the target rather than the compiler: what
   is valid depends on which backend `-t` selects. -/
   targetOptions : Std.HashMap String (Option String) := {}
   /-- `-o`/`--output`. -/
@@ -79,10 +79,10 @@ driver (`Driver/Modules.lean`, which dumps the per-module stages it runs — tok
 desugared, typed) and the CLI (`Fugue.lean`, which dumps the pipeline stages that run past the
 driver — computable, guarded, network) write them, and the two must agree on the directory. -/
 
-/-- Default value of `-d dump-dir=<path>`. -/
+/-- Default value of `-ddump-dir:<path>`. -/
 def defaultDumpDir : System.FilePath := ".fugue/debug"
 
-/-- The directory `-d dump-*` artifacts are written to: `-d dump-dir=<path>` if given,
+/-- The directory `-d dump-*` artifacts are written to: `-ddump-dir:<path>` if given,
 `defaultDumpDir` otherwise. Named like the `getDebugOption`/`getFeatureFlag` accessors above,
 which it is one of. -/
 def getDumpDir {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] : m System.FilePath := do

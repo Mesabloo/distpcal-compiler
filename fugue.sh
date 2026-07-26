@@ -12,7 +12,7 @@ function join_by {
 ###################
 
 DEBUG_OPTS=(
-    # "dump-dir=.fugue"
+    "dump-dir:.fugue/debug"
     "dump-tokens"
     "dump-cst"
     "dump-desugared"
@@ -20,6 +20,7 @@ DEBUG_OPTS=(
     "dump-computable"
     "dump-guarded"
     "dump-network"
+    "dump-go"
 )
 
 FEATURE_OPTS=(
@@ -34,8 +35,8 @@ WARN_OPTS=(
 TARGET_OPTS=(
     "-t"
     "go"
-    # "-X"
-    # "go-package=main"
+    "-X"
+    "go-pkg:main"
 )
 
 

@@ -218,7 +218,7 @@ Network PlusCal → Go (§5.7) — in progress (phase 11). Target AST and code g
   `Network` struct type. `goto` spawns a goroutine rather than calling, so a block chain cannot
   overflow a stack. Entry point `ComputableNetworkPlusCal.Algorithm.toGo`, outside the namespace
   so dot notation reaches it.
-- `Emit.lean` — a compiled declaration list as a `.go` *file*: package clause (`-X go-package`,
+- `Emit.lean` — a compiled declaration list as a `.go` *file*: package clause (`-Xgo-pkg`,
   default `main`), import block, declarations. Imports are computed by walking the AST for
   qualified names, not assumed — Go rejects an unused import, so a specification with no `either`
   (no `sched`) or no process-local variables (no `locks`) must not get one.

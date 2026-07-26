@@ -113,7 +113,7 @@ def usedPackages (decls : List Declaration) : List String :=
 declarations.
 
 `package` defaults to `main` — the shape a user most often wants to drop a `func main` beside —
-and `-Xgo-package=<name>` overrides it. The compiler emits no `main` of its own: which processes
+and `-Xgo-pkg:<name>` overrides it. The compiler emits no `main` of its own: which processes
 run, where, and how they find each other is not something a specification says (§7.3), so the
 generated file is a library its caller drives. -/
 def emitFile (packageName : String) (decls : List Declaration) : String :=

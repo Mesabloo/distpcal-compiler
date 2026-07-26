@@ -206,7 +206,7 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
     let defs ← Network2Go.compileDeclarations SourceSpan.placeholder
       (computable.declarations₁ ++ computable.declarations₂)
     let algo ← network.toGo
-    let package := (← FlagsEnv.getTargetOption "go-package").getD "main"
+    let package := (← FlagsEnv.getTargetOption "go-pkg").getD "main"
     return Network2Go.emitFile package (defs ++ algo)
   match ← runStage moduleId .go goStage with
   | .error e => return { result with error := some (.go e) }

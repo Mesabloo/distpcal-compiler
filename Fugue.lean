@@ -34,18 +34,28 @@ instance : ParseableType Input where
     | "-" => some .stdin
     | str => some (.path ↑str)
 
-/-- The `<name>[=<value>]` shape shared by `-d`/`-f`'s options. -/
+/-- The `<name>[:<value>]` shape shared by `-d`/`-f`/`-X`'s options.
+
+**`:`, not `=`.** `leanprover/Cli` splits a long flag on its own first `=`, so a `=`-separated
+option value would read `--debug=dump-dir=/tmp/x` — the same character doing two different jobs in
+one word — and, worse, would be split by Cli *before* short-name matching, making the attached
+form `-ddump-dir=/tmp/x` parse as a flag literally named `-ddump-dir`. `:` sidesteps both: it is
+ordinary to Cli, so the attached and separated spellings work identically with no argument
+rewriting. It is also the established spelling for this shape of flag — `javac -Xlint:all`,
+`scalac -Xprint:typer`. -/
 structure NamedOption : Type where
   name : String
   value : Option String
   deriving Inhabited
 
 instance : ParseableType NamedOption where
-  name := "<name>[=<value>]"
-  parse? str := match str.splitOn "=" with
-    | [name, value] => some { name, value := some value }
+  name := "<name>[:<value>]"
+  -- Only the *first* `:` separates: everything after it is the value, colons and all, so a
+  -- Windows path or a URL survives being one.
+  parse? str := match str.splitOn ":" with
+    | [] => none
     | [name] => some { name, value := none }
-    | _ => none
+    | name :: rest => some { name, value := some (String.intercalate ":" rest) }
 
 /-- The `<name>` (enable) / `no-<name>` (disable) shape of `-W`'s per-warning toggles. -/
 structure WarningToggle : Type where
@@ -81,17 +91,17 @@ private def knownFeatures : Array String := #["no-color", "no-progress"]
 (`Parser_/Common.lean`) and `DesugarWarning.name` (`Desugarer/Errors.lean`), extend likewise. -/
 private def knownWarnings : Array String := #["fair", "duplicate-parameter"]
 
-/-- `-X<name>[=<value>]` backend options. One table, not one per backend: an option a backend does
+/-- `-X<name>[:<value>]` backend options. One table, not one per backend: an option a backend does
 not understand is a mistake worth reporting either way, and the alternative is a table whose
 contents depend on a flag parsed in the same pass.
 
-`go-package` names the Go package the emitted file declares, defaulting to `main`. It is not a
+`go-pkg` names the Go package the emitted file declares, defaulting to `main`. It is not a
 `-f` toggle because it is a property of the *output*, not of how the compiler behaves; and not a
 Go build tag, unlike the integer representation, because the compiler is what writes the
 `package` clause. -/
-private def knownTargetOptions : Array String := #["go-package"]
+private def knownTargetOptions : Array String := #["go-pkg"]
 
-/-- Collect `<name>[=<value>]` options into a map, rejecting an unknown or duplicate `name`. -/
+/-- Collect `<name>[:<value>]` options into a map, rejecting an unknown or duplicate `name`. -/
 private def NamedOption.toMap (kind : String) (known : Array String) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
   let mut map : Std.HashMap String (Option String) := {}
   for opt in opts do
@@ -167,17 +177,17 @@ private def validateFlags (p : Parsed) : IO FlagsEnv := do
   let debug ← NamedOption.toMap "debug" knownDebugOptions <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let features ← NamedOption.toMap "feature" knownFeatures <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let warnings ← WarningToggle.toMap knownWarnings <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
-  let targetOptions ← NamedOption.toMap "target" knownTargetOptions <| p.flag? "target-option" |>.map (·.as! (Array NamedOption)) |>.getD #[]
+  let targetOptions ← NamedOption.toMap "target" knownTargetOptions <| p.flag? "X" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let output := p.flag? "output" |>.map (·.as! System.FilePath)
   let target := p.flag? "target" |>.map (·.as! Target) |>.getD .go
   let searchPath := p.flag? "include" |>.map (·.as! (Array System.FilePath)) |>.getD #[] |>.toList
 
   match debug.get? "dump-dir" with
-  | some none => throw ↑"debug option 'dump-dir' requires a path, e.g. -d dump-dir=.fugue/debug"
+  | some none => throw ↑"debug option 'dump-dir' requires a path, e.g. -ddump-dir:.fugue/debug"
   | _ => pure ()
 
-  match targetOptions.get? "go-package" with
-  | some none => throw ↑"target option 'go-package' requires a name, e.g. -X go-package=pingpong"
+  match targetOptions.get? "go-pkg" with
+  | some none => throw ↑"target option 'go-pkg' requires a name, e.g. -Xgo-pkg:pingpong"
   | _ => pure ()
 
   return { debug, features, warnings, targetOptions, output, target, searchPath }
@@ -356,10 +366,10 @@ private def compileCmd : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-guarded, dump-network, dump-go, dump-dir=<path> — defaults to `.fugue/debug`), comma-separated `name[=value]` pairs."
-    f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[=value]` pairs."
+    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-guarded, dump-network, dump-go, dump-dir:<path> — defaults to `.fugue/debug`), comma-separated `name[:value]` pairs."
+    f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[:value]` pairs."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
-    "X", "target-option" : Array NamedOption; "Backend options (go-package=<name> — the package the emitted Go declares, default `main`), comma-separated `name[=value]` pairs."
+    "X", "X" : Array NamedOption; "Backend options (go-pkg:<name> — the package the emitted Go declares, default `main`), comma-separated `name[:value]` pairs."
 
   ARGS:
     input : Input; "The input TLA+ file to compile, or `-` to read from standard input."

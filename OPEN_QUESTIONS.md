@@ -37,7 +37,7 @@ Flag surface settled (§2), `-X<name>` included. One thing left open:
   lowerings for different Join Calculus runtimes; ties into §9.1. Possibly not worth the
   complexity — don't build unless asked.
 
-Resolved: the Go package name is `-X go-package=<name>`, defaulting to `main` — a property of the
+Resolved: the Go package name is `-Xgo-pkg:<name>`, defaulting to `main` — a property of the
 output rather than of the compiler's behaviour, so `-X` rather than a `-p` of its own. `-o` names a
 **file**: a compile emits one Go file, because everything lands in one package and Go compiles a
 package as a unit, so splitting per process would buy nothing.
