@@ -31,6 +31,9 @@ inductive N2GError : Type
 
 instance : CompilerDiagnostic N2GError String where
   isError := true
+  code
+    | .internalInvariantViolated .. => Diagnostics.goInternalInvariant.code
+    | .unsupported .. => Diagnostics.goUnsupported.code
   posOf
     | .internalInvariantViolated pos _ | .unsupported pos _ _ => pos
   msgOf

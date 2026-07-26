@@ -65,10 +65,10 @@ partial def compileTyp : Typ → m Go.Typ
   | .operator τs τ => return .func (← τs.mapM compileTyp) [← compileTyp τ]
   -- A rigid type variable becomes a Go type parameter. Binding it is the enclosing definition's
   -- job (§7.2.2: type variables are propagated to the nearest enclosing function definition).
-  | .var a => return .var a
+  | .var a => return .var (binderName a)
   -- An uninterpreted constant type is left with the name it had: the user supplies it when
   -- building a runnable system, the same boundary `CONSTANT` values themselves sit on.
-  | .const c => return .named c []
+  | .const c => return .named (definitionName (isLocal := false) c) []
   | .address => return commTyp "Address"
   | .channel τ =>
     throw (.internalInvariantViolated SourceSpan.placeholder

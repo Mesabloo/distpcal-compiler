@@ -295,6 +295,17 @@ def guardedInternalInvariant : Entry :=
 def networkInternalInvariant : Entry :=
   { code := e 58, stage := .network, summary := "Internal invariant violated in Guarded2Network (compiler bug)." }
 
+/-! ## `Network2Go` -/
+
+/-- An invariant `Network2Go` relies on did not hold — a compiler bug. -/
+def goInternalInvariant : Entry :=
+  { code := e 60, stage := .go, summary := "Internal invariant violated in Network2Go (compiler bug)." }
+
+/-- A well-typed construct the Go backend has no way to compile. -/
+def goUnsupported : Entry :=
+  { code := e 61, stage := .go,
+    summary := "A construct with no Go counterpart (infinite set, Bags, function equality)." }
+
 /-! ## Module identity -/
 
 /-- A file whose `MODULE` name is not the file's own name. -/
@@ -342,6 +353,7 @@ def entries : List Entry :=
     channelTypedVariable, nonEmptyLocalChannels, globalPlusCalVariable, globalTLAPlusVariable,
     bareTemporalOrAction, unboundedQuantifier,
     notComputable, computableInternalInvariant, guardedInternalInvariant, networkInternalInvariant,
+    goInternalInvariant, goUnsupported,
     moduleNameMismatch,
     fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning ]
 

@@ -404,6 +404,34 @@ instance : Traversable Function where
       <*> Traversable.traverse f F.returnType
       <*> Traversable.traverse (Statement.traverse f) F.body
 
+/--
+  A top-level declaration: what a generated `.go` file is a list of.
+
+  §6.6 has only `Function`, which is enough for the statement layer, but §7.2.2 compiles a
+  parameter-less operator and *every* function definition to a package-level `var` — the former
+  because Go's `const` accepts only a small class of types, none of which a TLA⁺ definition
+  generally has, the latter because a function is a `LazyFunction` value rather than a Go `func`.
+
+  A package-level `var` cannot be generic in Go, which is what forces both forms to reject a type
+  variable in their type; only `Function` carries `typeParams`.
+-/
+inductive Declaration (α : Type) : Type
+  | function (F : Function α)
+  /-- `var x τ = e`, with `e` absent for a zero-initialized declaration. -/
+  | var (name : String) (τ : α) (value : Option (Expression α))
+  deriving Repr, Inhabited
+
+instance : Functor Declaration where
+  map f
+    | .function F => .function (f <$> F)
+    | .var name τ value => .var name (f τ) (Expression.map f <$> value)
+
+instance : Traversable Declaration where
+  traverse f
+    | .function F => .function <$> Traversable.traverse f F
+    | .var name τ value =>
+      (.var name · ·) <$> f τ <*> Traversable.traverse (Expression.traverse f) value
+
 end Go
 
 -- Pinned for `Network2Go`'s use, mirroring `Core/NetworkPlusCal/Syntax.lean`'s
@@ -418,6 +446,7 @@ abbrev Statement := Go.Statement Go.Typ
 abbrev SelectClause := Go.SelectClause Statement
 abbrev SwitchClause := Go.SwitchClause Expression Statement
 abbrev Function := Go.Function Go.Typ
+abbrev Declaration := Go.Declaration Go.Typ
 
 end ComputableGo
 

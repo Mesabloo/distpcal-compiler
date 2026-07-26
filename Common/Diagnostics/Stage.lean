@@ -38,6 +38,8 @@ inductive Stage : Type
   | guarded
   /-- `Guarded2Network`. -/
   | network
+  /-- `Network2Go`, the Go backend. -/
+  | go
   deriving DecidableEq, Repr, Inhabited, Ord, BEq
 
 namespace Stage
@@ -47,14 +49,14 @@ def name : Stage → String
   | .read => "read" | .lex => "lex" | .parse => "parse" | .annotation => "annotation"
   | .desugar => "desugar" | .resolve => "resolve" | .typeCheck => "typecheck"
   | .wellFormedness => "wellformedness" | .computable => "computable" | .guarded => "guarded"
-  | .network => "network"
+  | .network => "network" | .go => "go"
 
 instance : ToString Stage := ⟨Stage.name⟩
 
 /-- Every stage, in pipeline order. -/
 def list : List Stage :=
   [.read, .lex, .parse, .annotation, .desugar, .resolve, .typeCheck, .wellFormedness,
-   .computable, .guarded, .network]
+   .computable, .guarded, .network, .go]
 
 /-- The stage `s` names, if it names one. -/
 def ofName? (s : String) : Option Stage := Stage.list.find? (·.name == s)
@@ -73,6 +75,7 @@ def predecessor : Stage → Stage
   | .computable => .wellFormedness
   | .guarded => .computable
   | .network => .guarded
+  | .go => .network
 
 /-- Did a compile that reached `self` get at least as far as `target`? A plain `Bool` function
 rather than an `LE`/`Decidable` instance pair: comparing two stages is a question about pipeline

@@ -1223,15 +1223,64 @@ correctness sketch is the chapter's only remaining stub):
   first specification that needs it, so that nothing pays for a path nothing exercises.
 - **Operator/function definitions.** Parameter-less operators compile to a plain
   (mutable, in Go's own type system — "immutable" is a documentation convention here, not
-  compiler-enforced) `var`, initialized once. Parametric operators — recursive or not, Go
-  supports mutually-recursive top-level functions natively — compile straightforwardly to
+  compiler-enforced) `var`, initialized once; Go's `const` accepts only a small class of types,
+  which a TLA+ definition generally has none of. Parametric operators — Go supports
+  mutually-recursive top-level functions natively — compile straightforwardly to
   Go functions; names capitalized in generated code (Go's public/private convention)
-  regardless of original casing, except `LOCAL` definitions. **Recursive *functions***
-  (as opposed to recursive operators) need a bootstrapping trick, since the generator
-  closure has to call back into the very `LazyFunction` it's building: `MkRecFn` allocates
-  the `LazyFunction` first with a `nil` generator, then overwrites `.gen` with a closure
-  capturing the function itself by reference (Go closures capture variables, not values)
-  — "ties the knot."
+  regardless of original casing, except `LOCAL` definitions. **An operator is never recursive
+  here**: `RECURSIVE` is outside the accepted language and the `[Operator definition]` rule
+  checks a body without the operator in `Γ`, so nothing needs the mutual-recursion machinery
+  the thesis's `Even`/`Odd` listing shows off.
+  **Recursive *functions*** (as opposed to recursive operators) need a bootstrapping trick,
+  since the generator closure has to call back into the very `LazyFunction` it's building:
+  `MkRecFn` allocates the `LazyFunction` first with a `nil` generator, then overwrites `.gen`
+  with a closure capturing the function itself by reference (Go closures capture variables, not
+  values) — "ties the knot." A function definition always *may* recurse (its own name is bound
+  while its body is checked), so `FnConstructor` and `MkRecFn` are chosen by looking for the
+  self-reference rather than by a keyword; the reference is exact, since a definition's own name
+  reads as a binder inside its body and as a module-level name everywhere else. Because a
+  definition's binder is a Go function parameter and the top-level name is capitalized, the two
+  never collide — the one case that would, a binder spelled exactly like its own function, is
+  rejected.
+  **Only the parametric-operator form can be polymorphic.** A rigid type variable becomes a Go
+  type parameter carrying a dictionary parameter beside it; the other three forms are all
+  package-level `var`s, and Go has no generic `var`, so there is nowhere to bind either
+  parameter. A multi-binder function definition is rejected too: its domain is the Cartesian
+  product of the binders' domains, and set product is not a runtime operation.
+  A generated file is therefore a list of two kinds of top-level declaration, a `func` and a
+  `var` — the only forms emitted, records and tuples needing no type declarations of their own.
+- **Name spelling: `_` becomes `__`, `$` becomes `_`, at every name crossing into Go.** `$` is what
+  makes `freshName`'s scheme collision-free (§2) and is not a legal Go identifier character, so the
+  guarantee is re-established in Go's alphabet rather than carried over. Escaping both sides keeps
+  the two name-spaces disjoint by construction, and **parity is what carries it**: an underscore run
+  in the output is a sum of two-per-`_` and one-per-`$`, so it is odd exactly when it covers an odd
+  number of `$`s. A user name has none and so is all-even; a fresh name has exactly one and so
+  carries exactly one odd run. Any lengths with those parities work — the only unusable choice is
+  leaving `_` as itself, which merges the two classes. The argument needs nothing of fresh prefixes:
+  a prefix's own underscores contribute evenly and leave the `$`'s parity intact. Escaping fresh
+  names alone would not do — `set_1` would stay reachable from a user who writes it — so
+  definitions, record fields, binders, parameters, type variables and constant type names all route
+  through the same function. Not injective in general (`_$` and `$_` coincide), which costs nothing,
+  since separating the two name-spaces is all that is asked; a *second* `$` in one name would flip a
+  run back to even and break it. `ord` is reserved as a `freshName` prefix, the dictionary
+  parameter `ord_a` otherwise being spelled like an escaped `ord$a`.
+  What remains is user-against-user and user-against-Go, and is settled the same way.
+- **Renaming is a pure function of the name, not a collision map.** Forced by record fields: Go
+  identifies struct types *structurally*, so a field must receive the same Go name at every
+  occurrence or two identically-shaped records become two different types, and the field sorting
+  above stops making the shapes coincide. A map would have to be built from every field name in the
+  program before anything is emitted, and fields occur in inferred types, not only declared ones.
+  The disambiguation mark is one appended `_`, which composes with the parity split rather than
+  competing with it — an escaped name's trailing run is even, so adding one lands in the compiler's
+  half. Which side is marked follows each class's convention in the source language: a definition
+  must start uppercase and TLA+ definitions are conventionally capitalized, so `Init` is clean and
+  `init` marked; record fields must be capitalized too but are conventionally lowercase, so the
+  marking reverses and `from` gives `From`. Package-level names and struct field names share no
+  namespace, so the two schemes cannot interfere. Uppercasing is Unicode-aware, not ASCII: `élan`
+  becomes `Élan_` and is genuinely exported, Go's export rule reading the first character's Unicode
+  class. Binders are not capitalized (§7.2.2 leaves variables alone) but are moved off Go's
+  reserved words *and* its predeclared identifiers — the silent case, since a binder named `len`
+  would otherwise capture the `len` a compiled quantifier emits beside it.
 
 **Compiling atomic blocks**, per thesis §7.2.3.1. Let `l : either B1 or ... or Bn` be an
 atomic block. Compiles to one

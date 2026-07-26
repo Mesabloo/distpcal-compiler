@@ -1,6 +1,6 @@
 module
 
-public import Network2Go.Typ
+public import Network2Go.Ord
 public import Core.ComputablePlusCal.Syntax
 public import Core.Go.Syntax
 public import Common.Fresh
@@ -37,21 +37,24 @@ public section
     `f[e]`'s head type is recorded for a different reason — it is a three-way dispatch, between a
     function application, a sequence index and a tuple projection, not a type to emit.
   - **Operator applications dispatch on the head's `Origin`.** `\in`, `=` and friends are not Go
-    functions with those names — `x \in S` reverses its arguments into `SetIn(S, x)` and `=` picks
-    between `Eq`, `SetEq` and `SeqEq` by operand type — so a builtin head is matched at the
-    application site rather than compiled to a name and applied. A *bare* builtin reference (one
-    passed around rather than applied) has no Go counterpart at all and is rejected.
+    functions with those names — `x \in S` reverses its arguments into `SetIn(o, S, x)` and `=`
+    picks between the element dictionary's `Eq`, `SetEq` and `SeqEq` by operand type — so a builtin
+    head is matched at the application site rather than compiled to a name and applied. A *bare*
+    builtin reference (one passed around rather than applied) has no Go counterpart at all and is
+    rejected.
+  - **Every comparison is a dictionary call, and the dictionary comes from the type.** `Ord[T]` is
+    a struct of two functions, not an interface, so nothing is a method on the value being
+    compared: `x = y` at type `τ` is `⟦τ⟧ᴼʳᵈ.Eq(x, y)`, and every runtime operation that compares
+    (`MkSet`, `SetIn`, `SetUnion`, `FnApply`, …) takes the dictionary as its first argument. Which
+    dictionary a `Set` was built with is not recorded in the set, so every operation on it must be
+    handed the same one — guaranteed here by deriving both from the same `Typ`, via `ordDict`. The
+    operations that never compare (`SetFilter`, `Choose`, `Cardinality`, and all of `Sequences`
+    except equality) take none.
 
   Deliberately not handled here, since they are not expression forms: operator and function
-  *definitions* (§7.2.2, including `MkRecFn` for recursive ones) and the renaming of user-chosen
-  names that collide after capitalization. Both are the pass's own later steps.
-
-  **Known limitation, needs the record-type work before it is real.** `compileTyp` gives records and
-  tuples *anonymous* Go struct types, and Go cannot define methods on those, so a compiled record
-  satisfies neither `Eq` nor `Ord`. Every use below that puts a record inside a set, a sequence or a
-  function key therefore emits code that will not compile until record and tuple types are emitted
-  as named declarations carrying generated `Eq`/`Ord` methods. That is the open half of
-  `runtime/tlaplus/records.go`'s question, and it is a design step of its own.
+  *definitions* (§7.2.2, including `MkRecFn` for recursive ones), which live in
+  `Network2Go/Definition.lean`, and the renaming of user-chosen names that collide after
+  capitalization.
 -/
 
 namespace Network2Go
@@ -83,17 +86,17 @@ private def wrongArity (pos : SourceSpan) (name : String) (n : Nat) : m Computab
   throw (.internalInvariantViolated pos
     s!"'{name}' applied to {n} arguments, which type checking should already have rejected")
 
-/-- TLA⁺ `=` and `#`, dispatched on the operand type: the runtime gives `Eq` as a *method* on each
-value type, but `Set` and `Seq` are slice types whose equality cannot be a method (it needs more of
-the element type than the type declaration demands), so those are free functions instead.
+/-- TLA⁺ `=` and `#`, dispatched on the operand type. Most types compare through their dictionary's
+`Eq`, but `Set` and `Seq` are slice types: their equality needs the *element* dictionary and walks
+the two slices, so the runtime gives it as a free function taking that dictionary.
 
 Functions have no equality at all: comparing two lazy maps means comparing them on every point of
 their domain, which the representation deliberately does not do (`§7.2.1.2`). -/
 private def compileEq (pos : SourceSpan) (τ : Typ) (x y : ComputableGo.Expression) :
     m ComputableGo.Expression :=
   match τ with
-  | .set _ => return tlaplusCall "SetEq" [x, y]
-  | .seq _ => return tlaplusCall "SeqEq" [x, y]
+  | .set ρ => return tlaplusCall "SetEq" [← ordDict ρ, x, y]
+  | .seq ρ => return tlaplusCall "SeqEq" [← ordDict ρ, x, y]
   | .function _ _ =>
     throw (.unsupported pos "="
       "two functions can only be compared by comparing them at every point of their domain, which \
@@ -101,7 +104,15 @@ private def compileEq (pos : SourceSpan) (τ : Typ) (x y : ComputableGo.Expressi
   | .operator _ _ =>
     throw (.internalInvariantViolated pos
       "an operator reached '=', but operators are not values in TLA⁺")
-  | _ => return .call (.field x "Eq") [y]
+  | _ => return .call (.field (← ordDict τ) "Eq") [x, y]
+
+/-- The element dictionary of a set-typed operand — what every set-to-set runtime operation takes
+as its first argument. `name` is the operator asking, for the diagnostic. -/
+private def setElemDict (pos : SourceSpan) (name : String) : Typ → m ComputableGo.Expression
+  | .set ρ => ordDict ρ
+  | τ =>
+    throw (.internalInvariantViolated pos
+      s!"'{name}' was applied to {repr τ}, which type checking should already have rejected")
 
 mutual
 
@@ -119,7 +130,7 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
   | .false, _ => return tlaBool .false
   -- A bound variable — a quantifier's, a process's, a branch's — keeps the name it had: §7.2.2
   -- capitalizes *definitions*, not variables.
-  | .var name _ .binder, _ => return .var name
+  | .var name _ .binder, _ => return .var (binderName name)
   | .var name τ (.module mod), pos =>
     if builtinModuleNames.contains mod then compileBuiltinVar pos mod name τ
     -- A user definition. `LOCAL` ones keep their case, which this reference cannot see; the
@@ -145,7 +156,7 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
     return tlaplusCall "Choose" [← compileExpr dom, ← compilePredicate x τ body]
   | .set es τ, _ => do
     if es.isEmpty then return .sliceLit (tlaplusTyp "Set" [← compileTyp τ]) []
-    else return tlaplusCall "MkSet" (← es.mapM compileExpr)
+    else return tlaplusCall "MkSet" ((← ordDict τ) :: (← es.mapM compileExpr))
   | .seq es τ, _ => do
     if es.isEmpty then return .sliceLit (tlaplusTyp "Seq" [← compileTyp τ]) []
     else return tlaplusCall "MkSeq" (← es.mapM compileExpr)
@@ -153,18 +164,21 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
     return tlaplusCall "SetFilter" [← compileExpr dom, ← compilePredicate x τ body]
   | .map' body x τ cod dom, _ => do
     -- `SetMap` renormalizes its result: the mapping function is neither monotone nor injective in
-    -- general, so neither the sortedness nor the duplicate-freedom invariant survives it.
+    -- general, so neither the sortedness nor the duplicate-freedom invariant survives it. It is
+    -- therefore the *result* dictionary it needs — nothing here compares an element of the source.
     return tlaplusCall "SetMap"
-      [← compileExpr dom,
-        .funcLit [(x, ← compileTyp τ)] [← compileTyp cod] [.return [← compileExpr body]]]
+      [← ordDict cod, ← compileExpr dom,
+        .funcLit [(binderName x, ← compileTyp τ)] [← compileTyp cod] [.return [← compileExpr body]]]
   | .fn x τ cod dom body, _ =>
     return tlaplusCall "FnConstructor"
-      [← compileExpr dom,
-        .funcLit [(x, ← compileTyp τ)] [← compileTyp cod] [.return [← compileExpr body]]]
+      [← ordDict τ, ← compileExpr dom,
+        .funcLit [(binderName x, ← compileTyp τ)] [← compileTyp cod] [.return [← compileExpr body]]]
   | .fnCall f fnTyp i, pos => do
     let f' ← compileExpr f
     match fnTyp with
-    | .function _ _ => return tlaplusCall "FnApply" [f', ← compileExpr i]
+    -- `FnApply` needs a dictionary despite the lazy map already holding a comparator: the domain
+    -- check goes through `SetIn`, which needs one of its own.
+    | .function dom _ => return tlaplusCall "FnApply" [← ordDict dom, f', ← compileExpr i]
     | .seq _ => return tlaplusCall "SeqIndex" [f', ← compileExpr i]
     -- A tuple is a struct, so its components are reachable only by name, and the name is fixed by
     -- the index — which therefore has to be a literal.
@@ -223,7 +237,7 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
 the body converts. -/
 partial def compilePredicate (x : String) (τ : Typ) (body : ComputablePlusCal.Expression) :
     m ComputableGo.Expression :=
-  return .funcLit [(x, ← compileTyp τ)] [.bool] [.return [goBool (← compileExpr body)]]
+  return .funcLit [(binderName x, ← compileTyp τ)] [.bool] [.return [goBool (← compileExpr body)]]
 
 /--
   `\A x \in S : P` and `\E x \in S : P`, per §7.2.1.2: a search of `S` for the first
@@ -237,8 +251,9 @@ partial def compilePredicate (x : String) (τ : Typ) (body : ComputablePlusCal.E
 partial def compileQuantifier (isForall : Bool) (x : String) (τ : Typ)
     (dom body : ComputablePlusCal.Expression) : m ComputableGo.Expression := do
   let elemτ ← compileTyp τ
-  let s ← freshName "set"
-  let i ← freshName "i"
+  let x := binderName x
+  let s := goIdent (← freshName "set")
+  let i := goIdent (← freshName "i")
   let body' ← compileExpr body
   -- `\A` stops at the first element failing `P`, `\E` at the first satisfying it; each then
   -- returns the opposite of whatever it would have returned had the loop run out.
@@ -271,9 +286,10 @@ partial def compileExcept (pos : SourceSpan) (τ : Typ) (base : ComputableGo.Exp
   | .inr i :: rest => do
     let i' ← compileExpr i
     match τ with
-    | .function _ ρ =>
+    | .function δ ρ => do
+      let dict ← ordDict δ
       return tlaplusCall "FnOverload"
-        [base, i', ← compileExcept pos ρ (tlaplusCall "FnApply" [base, i']) rest rhs]
+        [dict, base, i', ← compileExcept pos ρ (tlaplusCall "FnApply" [dict, base, i']) rest rhs]
     | .seq ρ =>
       return tlaplusCall "SeqUpdate"
         [base, i', ← compileExcept pos ρ (tlaplusCall "SeqIndex" [base, i']) rest rhs]
@@ -312,7 +328,7 @@ partial def compileStructUpdate (pos : SourceSpan) (τ : Typ) (field : String) (
     (base : ComputableGo.Expression) (rest : List (String ⊕ ComputablePlusCal.Expression))
     (rhs : ComputablePlusCal.Expression) : m ComputableGo.Expression := do
   let goτ ← compileTyp τ
-  let r ← freshName "rec"
+  let r := goIdent (← freshName "rec")
   let inner ← compileExcept pos fieldτ (.field (.var r) field) rest rhs
   return .call (.funcLit [(r, goτ)] [goτ]
     [.assign [.field (.var r) field] [inner], .return [.var r]]) [base]
@@ -343,14 +359,34 @@ partial def compileIntrinsic (pos : SourceSpan) (name : String) (τ : Typ)
   | "\\/", [x, y] => return .binary .or x y
   | "\\neg", [x] => return .unary .not x
   | "=>", [x, y] => return .binary .or (.unary .not x) y
-  | "<=>", [x, y] => return tlaBool (.call (.field x "Eq") [y])
-  -- The runtime takes the set first, TLA⁺ writes the element first.
-  | "\\in", [x, s] => return tlaBool (tlaplusCall "SetIn" [s, x])
-  | "\\notin", [x, s] => return tlaBool (.unary .not (tlaplusCall "SetIn" [s, x]))
-  | "\\subseteq", [s, t] => return tlaBool (tlaplusCall "SetSubseteq" [s, t])
-  | "\\cup", [s, t] => return tlaplusCall "SetUnion" [s, t]
-  | "\\cap", [s, t] => return tlaplusCall "SetIntersect" [s, t]
-  | "\\", [s, t] => return tlaplusCall "SetDifference" [s, t]
+  | "<=>", [x, y] => return tlaBool (.call (.field (tlaplusVar "BoolOrd") "Eq") [x, y])
+  -- The runtime takes the dictionary first and the set before the element; TLA⁺ writes the element
+  -- first. `\in`'s left operand type *is* the element type, so no destructuring is needed here.
+  | "\\in", [x, s] => do
+    let some α := operandτ
+      | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
+    return tlaBool (tlaplusCall "SetIn" [← ordDict α, s, x])
+  | "\\notin", [x, s] => do
+    let some α := operandτ
+      | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
+    return tlaBool (.unary .not (tlaplusCall "SetIn" [← ordDict α, s, x]))
+  -- These four take two sets, so the dictionary they need is one level down from the operand type.
+  | "\\subseteq", [s, t] => do
+    let some α := operandτ
+      | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
+    return tlaBool (tlaplusCall "SetSubseteq" [← setElemDict pos name α, s, t])
+  | "\\cup", [s, t] => do
+    let some α := operandτ
+      | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
+    return tlaplusCall "SetUnion" [← setElemDict pos name α, s, t]
+  | "\\cap", [s, t] => do
+    let some α := operandτ
+      | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
+    return tlaplusCall "SetIntersect" [← setElemDict pos name α, s, t]
+  | "\\", [s, t] => do
+    let some α := operandτ
+      | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
+    return tlaplusCall "SetDifference" [← setElemDict pos name α, s, t]
   | "DOMAIN", [f] => return tlaplusCall "Domain" [f]
   -- Banned from anything reachable from the algorithm by `WellFormedness/Restrictions.lean`'s
   -- check 3, so reaching code generation means that check did not run or did not hold.
@@ -377,8 +413,9 @@ partial def compileBuiltinVar (pos : SourceSpan) (mod name : String) (_τ : Typ)
     throw (.internalInvariantViolated pos
       s!"'{mod}!{name}' is not a value exported by a standard module")
 
-/-- A builtin operator from a standard module, applied. `Naturals`'s comparisons are methods on
-`Int`, except `=<`/`>=` which the runtime derives generically from `Lt`/`Eq`. -/
+/-- A builtin operator from a standard module, applied. `Naturals`'s comparisons all go through
+`tlaplus.IntOrd` — `Lt` is one of the dictionary's two primitive fields, `Gt`/`Le`/`Ge` are methods
+the runtime derives from it once. Arithmetic is not a comparison and takes no dictionary. -/
 partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
     (args : List ComputableGo.Expression) : m ComputableGo.Expression :=
   match mod, name, args with
@@ -386,10 +423,10 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   | "Naturals", "-", [x, y] => return tlaplusCall "Sub" [x, y]
   | "Naturals", "-.", [x] => return tlaplusCall "Neg" [x]
   | "Naturals", "*", [x, y] => return tlaplusCall "Mul" [x, y]
-  | "Naturals", "<", [x, y] => return tlaBool (.call (.field x "Lt") [y])
-  | "Naturals", ">", [x, y] => return tlaBool (.call (.field x "Gt") [y])
-  | "Naturals", "=<", [x, y] => return tlaBool (tlaplusCall "Le" [x, y])
-  | "Naturals", ">=", [x, y] => return tlaBool (tlaplusCall "Ge" [x, y])
+  | "Naturals", "<", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Lt") [x, y])
+  | "Naturals", ">", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Gt") [x, y])
+  | "Naturals", "=<", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Le") [x, y])
+  | "Naturals", ">=", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Ge") [x, y])
   | "Naturals", "..", [x, y] => return tlaplusCall "IntRange" [x, y]
   | "Sequences", "Len", [s] => return tlaplusCall "Len" [s]
   | "Sequences", "Head", [s] => return tlaplusCall "Head" [s]

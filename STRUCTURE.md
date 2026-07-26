@@ -87,8 +87,9 @@ expressions are *compiled* into them rather than carried through as parameters.
   (annotation carrier `α`, short-circuit `and`/`or` distinct from strict `binary`, composite
   literals), `Ref` (§6.6.11, no type annotation, so `Functor`/`Traversable` rather than the
   bifunctor pair), `Statement` (blocks are `List Statement`), `SelectClause`/`SwitchClause`,
-  `Function`. Instances are `partial def` + explicit instance. Pins itself as `ComputableGo` at
-  its own `Go.Typ`.
+  `Function`, `Declaration` (top-level: a `Function`, or the `var x τ = e` §7.2.2 compiles a
+  parameter-less operator and every function definition to). Instances are `partial def` +
+  explicit instance. Pins itself as `ComputableGo` at its own `Go.Typ`.
 - `Pretty.lean` — **the code generator**, not a debug dump: the shipped `.go` file is what this
   prints. Go operator precedence, always-breaking blocks, and `keywords`/`sanitize` (ported
   verbatim from prior art) at every identifier-print site.
@@ -187,16 +188,32 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 
 ## `Network2Go/`
 Network PlusCal → Go (§5.7) — in progress (phase 11). Target AST and code generator landed
-(`Core/Go/`); compilation passes not written.
-- `Errors.lean` — `N2GError` (currently just `internalInvariantViolated`).
-- `Naming.lean` — runtime package qualifiers (`tlaplus`/`comm`/`locks`) and §7.2.2's
-  capitalization of definitions, record fields, tuple `Proj`ections.
+(`Core/Go/`); the TLA⁺ half (types, expressions, definitions) is compiled, the PlusCal half is not.
+- `Errors.lean` — `N2GError`: `internalInvariantViolated` and `unsupported`.
+- `Naming.lean` — runtime package qualifiers (`tlaplus`/`comm`/`locks`), §7.2.2's capitalization of
+  definitions, record fields, tuple `Proj`ections, `ordParamName`, and `goIdent`, the escaping
+  (`_`→`__`, `$`→`_`) every source name crosses into Go through, which keeps user-written and
+  compiler-synthesized names disjoint by parity: user names produce only even-length underscore
+  runs, a fresh name's single `$` makes exactly one odd. On top of it, the renaming that keeps user
+  names distinct from *each other* and off Go's vocabulary — `definitionName`/`fieldName` mark
+  opposite sides of the capitalization (so `Init` and `from` both stay clean), `binderName` steps
+  around `keywords`/`predeclared`. Pure functions, not a collision map: Go types struct fields
+  structurally, so a field name must map identically at every occurrence.
 - `Typ.lean` — `compileTyp : ComputableTLAPlus.Typ → m Go.Typ` (§7.2.1.1). Primitives go to the
   runtime newtypes; record fields sorted so source order can't change the compiled type;
   `Channel(τ)` throws.
+- `Ord.lean` — `ordDict : Typ → m Go.Expression`, the second fold over `Typ`, mirroring
+  `compileTyp`: the `tlaplus.Ord[τ]` dictionary every comparing runtime operation is handed.
+  Closed expressions for the runtime's own types, an inline literal for records/tuples (anonymous
+  structs carry no methods), a parameter for a type variable. Plus `Typ.typeVars`.
+- `Expression.lean` — `compileExpr` (§7.2.1.2). Always one expression, never a statement prelude;
+  dictionaries threaded at every runtime call site.
+- `Definition.lean` — `compileDeclaration` (§7.2.2): parameter-less operator → `var`, parametric
+  operator → generic `func` with a dictionary parameter per type parameter, function definition →
+  `FnConstructor`/`MkRecFn` depending on whether the body calls itself.
 - Entry point `Network2Go.lean`.
-- Missing: TLA⁺ → Go expression and definition compilation (§7.2.1.2/§7.2.2), the PlusCal-side
-  pass (`PlusCal.lean`, `network.toGo`), lock inference.
+- Missing: the PlusCal-side pass (`PlusCal.lean`, `network.toGo`), lock inference, collision
+  renaming.
 
 ## `Network2JoinCalculus/`
 Network PlusCal → Join Calculus (§8) — not started.

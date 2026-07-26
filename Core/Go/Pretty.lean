@@ -39,8 +39,12 @@ public section
 namespace Go
 
 /-- Go's 25 reserved words. These can never be identifiers, in any position, so the printer escapes
-them unconditionally. -/
-private def keywords : Std.HashSet String := {
+them unconditionally.
+
+Exported alongside `predeclared` so that `Network2Go` can rename a user-chosen name *out* of this
+set rather than leaving it to `sanitize` below — a rename that knows the name's provenance can pick
+a spelling that stays distinct from every other name, which a blind suffix cannot. -/
+def keywords : Std.HashSet String := {
   "break", "case", "chan", "const", "continue", "default",
   "defer", "else", "fallthrough", "for", "func", "go", "goto",
   "if", "import", "interface", "map", "package", "range", "return",
@@ -74,10 +78,18 @@ def predeclared : Std.HashSet String := {
 }
 
 /-- Escape an identifier that would otherwise be a Go reserved word. Applied at every
-identifier-print site — a backstop, not the whole hygiene story: see `predeclared`. -/
+identifier-print site — a backstop, not the whole hygiene story: see `predeclared`.
+
+Unreachable for anything `Network2Go` emits, which renames user-chosen names out of `keywords`
+itself; this catches only a name reaching the printer from somewhere that did not.
+
+The suffix is a *single* `_`, not the doubled one prior art used, because `Network2Go` spends
+underscore-run parity to separate user-written names from compiler-introduced ones (see its
+`Naming.lean`): a doubled suffix lands in the user half, so `type` and a user's own `type_` would
+both print `type__`. An odd-length suffix cannot collide with either. -/
 @[inline]
 def sanitize (name : String) : String :=
-  if name ∈ keywords then name ++ "__" else name
+  if name ∈ keywords then name ++ "_" else name
 
 /-- A `{ … }` block. Built by hand rather than with `Std.Format.bracket`, which `group`s its
 contents (so short blocks would collapse onto one line) and `nest`s the closing brace by the
@@ -256,6 +268,17 @@ def Function.pretty {α} [Std.ToFormat α] (F : Function α) : Std.Format :=
     ++ formatBlock Statement.pretty F.body
 
 instance {α} [Std.ToFormat α] : Std.ToFormat (Function α) := ⟨Function.pretty⟩
+
+/-- A top-level declaration. The `var` form spells its type even when there is an initializer, so
+that a `nil`-valued or otherwise uninferable right-hand side still declares the right thing, and
+because §7.2.2's own listings do. -/
+def Declaration.pretty {α} [Std.ToFormat α] : Declaration α → Std.Format
+  | .function F => Function.pretty F
+  | .var name τ value =>
+    f!"var {sanitize name} {τ}"
+      ++ value.elim .nil (λ e ↦ " = " ++ Expression.pretty e 0)
+
+instance {α} [Std.ToFormat α] : Std.ToFormat (Declaration α) := ⟨Declaration.pretty⟩
 
 end Go
 
