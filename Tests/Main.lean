@@ -83,13 +83,16 @@ private def discover (dir : System.FilePath) : IO (List Fixture) := do
     | .error e => return { name, path, expectation := base, sidecarError := some e }
 
 /-- The `FlagsEnv` a fixture compiles under: bare apart from colour, plus whichever `-W` names
-`suppressed` turns off. Bare so that what a fixture asserts is what the compiler does by *default* —
-a fixture that needs a flag to be interesting should say so, not inherit it from the harness.
-Colour follows the runner's own setting, since the only place these diagnostics go is its failure
-output. -/
-private def compileFlags (colored : Bool) (suppressed : List String := []) : FlagsEnv :=
+`suppressed` turns off and whichever `-I` directories its sidecar asked for. Bare so that what a
+fixture asserts is what the compiler does by *default* — a fixture that needs a flag to be
+interesting should say so, not inherit it from the harness, which is exactly what the sidecar's
+`searchPath` is. Colour follows the runner's own setting, since the only place these diagnostics go
+is its failure output. -/
+private def compileFlags (colored : Bool) (searchPath : List System.FilePath := [])
+    (suppressed : List String := []) : FlagsEnv :=
   { features := if colored then {} else Std.HashMap.ofList [("no-color", none)]
-    warnings := Std.HashMap.ofList (suppressed.map (·, false)) }
+    warnings := Std.HashMap.ofList (suppressed.map (·, false))
+    searchPath }
 
 /-- Run `act`, giving up after `timeoutMs`. `none` means it did not finish in time.
 
@@ -121,7 +124,7 @@ def runFixture (style : ReportStyle) (timeoutMs : Nat) (fx : Fixture) : IO Fixtu
     return { name := fx.name, verdict := .skip, reason := fx.expectation.reason }
 
   let source ← IO.FS.readFile fx.path
-  let flags := compileFlags style.colored
+  let flags := compileFlags style.colored fx.expectation.searchPath
 
   let start ← IO.monoMsNow
   let finished ← withTimeout timeoutMs
@@ -140,7 +143,7 @@ def runFixture (style : ReportStyle) (timeoutMs : Nat) (fx : Fixture) : IO Fixtu
              checks := [crashed], elapsedMs, reason := fx.expectation.reason }
   | .ok result =>
     let suppressionChecks ← fx.expectation.suppressible.mapM λ warningName ↦ do
-      let suppressedFlags := compileFlags style.colored [warningName]
+      let suppressedFlags := compileFlags style.colored fx.expectation.searchPath [warningName]
       match ← (runPipelineIO suppressedFlags source fx.path.parent fx.name fx.path.fileStem).toBaseIO with
       | .error e =>
         return { name := s!"suppression of -W{warningName}", status := .fail,

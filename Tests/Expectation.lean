@@ -95,6 +95,11 @@ structure Expectation : Type where
   /-- `-W` names whose suppression is re-checked: the fixture is compiled again with each disabled,
   and the warning must disappear without the outcome changing. -/
   suppressible : List String := []
+  /-- `-I` directories the fixture compiles under, already resolved against its own directory —
+  the one flag a fixture may ask the harness for, since `EXTENDS` resolution is the only compiler
+  behaviour that has no expression to trigger it. Empty by default, keeping every other fixture
+  on a bare search path. -/
+  searchPath : List System.FilePath := []
   /-- Normal / known-broken / not run. -/
   status : FixtureStatus := .ok
   /-- Why this fixture is `xfail` or `skip`. Shown in the runner's output. -/
@@ -163,6 +168,8 @@ private structure Sidecar : Type where
   allowExtraWarnings : Option Bool := none
   /-- `-W` names whose suppression is re-checked. -/
   suppressible : Option (List String) := none
+  /-- `-I` directories, written relative to the fixture's own directory. -/
+  searchPath : Option (List String) := none
   /-- `"ok"`, `"xfail"` or `"skip"`. -/
   status : Option String := none
   /-- Why, for a non-`ok` status. -/
@@ -185,8 +192,13 @@ private def parseStage (what raw : String) : Except String Stage := do
 {String.intercalate ", " (Stage.list.map (·.name))}"
   return stage
 
-/-- Apply a parsed sidecar on top of the filename's defaults. -/
-private def Sidecar.applyTo (s : Sidecar) (base : Expectation) : Except String Expectation := do
+/-- Apply a parsed sidecar on top of the filename's defaults. `dir` is the fixture's own directory,
+which `searchPath`'s entries are written relative to — so a sidecar stays valid however the corpus
+is checked out, and `["."]` means "this fixture's directory", the case that makes `-I` point back
+at the module's own directory. `FilePath.join` returns an absolute entry unchanged, so an absolute
+one still works. -/
+private def Sidecar.applyTo (s : Sidecar) (dir : Option System.FilePath) (base : Expectation) :
+    Except String Expectation := do
   let outcome ← match s.outcome with
     | none => pure base.outcome
     | some raw => match Outcome.ofName? raw with
@@ -202,7 +214,12 @@ private def Sidecar.applyTo (s : Sidecar) (base : Expectation) : Except String E
   let errorCode ← s.error.mapM λ e ↦ parseCode "error.code" e.code
   let warnings ← (s.warnings.getD []).mapM λ w ↦ do
     return { code := ← parseCode "warnings[].code" w.code, count := w.count.getD 1 }
-  return { outcome, status, failsAt, reaches, errorCode, warnings
+  let searchPath := match s.searchPath with
+    | none => base.searchPath
+    | some entries => entries.map λ entry ↦ match dir with
+      | none => (⟨entry⟩ : System.FilePath)
+      | some dir => dir / entry
+  return { outcome, status, failsAt, reaches, errorCode, warnings, searchPath
            allowExtraWarnings := s.allowExtraWarnings.getD base.allowExtraWarnings
            suppressible := s.suppressible.getD base.suppressible
            reason := s.reason.getD base.reason }
@@ -227,7 +244,7 @@ def Expectation.load (fixture : System.FilePath) (base : Expectation) :
   let sidecar ← match fromJson? (α := Sidecar) json with
     | .error e => return .error s!"{path}: {e}"
     | .ok sidecar => pure sidecar
-  match sidecar.applyTo base with
+  match sidecar.applyTo fixture.parent base with
   | .error e => return .error s!"{path}: {e}"
   | .ok expectation => return .ok expectation
 

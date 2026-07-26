@@ -164,15 +164,30 @@ variable {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] [MonadReaderOf
 /-- Every directory searched for `EXTENDS name`, in order: the directory containing the
 extending module (if any — absent when read from stdin), then `-I`'s search path. The builtin
 table is checked as one more candidate source, so a name present in both a searched directory
-and `builtinModules` is ambiguous, not silently resolved one way. -/
+and `builtinModules` is ambiguous, not silently resolved one way.
+
+Two searched directories naming the *same* file contribute one candidate, not two — `-I foo` on
+`foo/Main.tla`, where `foo` is already the containing directory, is a duplicate rather than an
+ambiguity. Sameness is decided by `IO.FS.realPath`, so a relative and an absolute spelling of one
+directory, a `.`/`..` detour, and a symlink all collapse; what a genuine ambiguity then reports is
+still each candidate as it was *spelled*, since that is what the user wrote and what they would
+have to change. -/
 private def locate (name : String) (containingDir : Option System.FilePath) : m Candidate := do
   let mut found : List (String × Candidate) := []
+  let mut seen : List String := []
   if let some mod := builtinModules[name]? then
     found := found ++ [("<builtin>", .builtin mod)]
   for dir in containingDir.toList ++ (← readThe FlagsEnv).searchPath do
     let path := dir / s!"{name}.tla"
     if ← liftM path.pathExists.toIO then
-      found := found ++ [(toString path, .file path)]
+      -- `realPath` throws only if the file went away between `pathExists` and here; the spelling
+      -- itself is a fine key in that case, since nothing else will canonicalize onto it either.
+      let canonical : IO String := do
+        try return toString (← IO.FS.realPath path) catch _ => return toString path
+      let key ← liftM canonical
+      unless seen.contains key do
+        seen := seen ++ [key]
+        found := found ++ [(toString path, .file path)]
   match found with
   | [] => throw (.moduleNotFound name)
   | [(_, candidate)] => return candidate

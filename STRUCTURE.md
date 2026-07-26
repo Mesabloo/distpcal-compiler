@@ -320,7 +320,7 @@ here on purpose — see this directory directly for contents.
 - `regression/` — hand-written fixtures (`Accept*.tla`/`Reject*.tla`), each named after the TLA⁺
   module it contains, as TLA⁺ requires (`EXTENDS Foo` finds only `Foo.tla`), and each with
   an optional `<fixture>.expect.json` sidecar saying which stage must reject it, which code it
-  must carry, and which warnings must fire. Run by `lake test`, not by a script.
+  must carry, which warnings must fire, and (`searchPath`) which `-I` directories it needs. Run by `lake test`, not by a script.
 - `examples/` — larger worked examples (Ping-Pong, Two-Phase Commit, Lamport mutex).
 
 The runner itself lives at the top of this directory (`lake test -- [FILTER…]`), a `lean_exe`

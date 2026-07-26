@@ -291,20 +291,6 @@ distinction is implemented). Two options, neither committed:
 Revisit before §5.7 needs a real answer for how these compile, and once §9.14's recognizer-table
 shape settles (it determines how cheap a fix is).
 
-### 9.16 `EXTENDS` reports false "ambiguous module" when `-I` names the importing module's own directory
-`Driver/Modules.lean`'s `locate` (§5.3) builds candidates by walking `containingDir.toList ++
-(-I)'s searchPath`, appending one entry per directory with a matching `<name>.tla` — no dedup by
-resolved path. `-I dir` where `dir` is the importing module's own directory produces two entries
-for the literal same file, reported as `ambiguousModule` with the identical path listed twice.
-Confirmed: `fugue -I foo foo/Main.tla` (`Main.tla EXTENDS Dep`, `Dep.tla` also in `foo`) fails;
-dropping `-I` or pointing it elsewhere works.
-
-**Open:** how to dedup — compare `System.FilePath` values directly (fails when `containingDir`
-and a `-I` entry spell the same directory differently, relative vs. absolute), or canonicalize
-each candidate first (needs an `IO`-level realpath, not used anywhere in this codebase yet).
-Either way the dedup must land before `locate`'s final `match found with | [] | [_] | multiple`
-— a false ambiguity is a hard compile error, not a warning.
-
 ### 9.17 No proof `subtype` and `Coercion.apply`/`.applyComputable` agree on type
 `Coercion` is real closed data, not an opaque closure, which makes a real theorem statable; none
 written. Checked only empirically — `tests/regression/` fixtures plus one hand-verified dump.
