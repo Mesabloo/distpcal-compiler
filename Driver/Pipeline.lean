@@ -136,8 +136,7 @@ private def runStage {ε} {γ} [Repr γ] (dumpName : String) (stage : Stage)
     (act : DiagT Empty ε Base γ) : Base (Except ε γ) := do
   let (_, result) ← DiagT.run act
   if let .ok value := result then
-    if ← FlagsEnv.getDebugFlag s!"dump-{stage.name}" then
-      dumpToFile (reprStr value) (← getDumpDir) s!"{dumpName}-{stage.name}"
+    dumpStage stage dumpName value
   return result
 
 /-- Compile `source` all the way through, reporting progress through `hooks`.
@@ -225,9 +224,6 @@ def runPipelineIO (flags : FlagsEnv) (source : String) (containingDir : Option S
   -- process behave like a first.
   forgetSourcePositions
   StateT.run' (ReaderT.run (runPipeline source containingDir moduleId expectedName hooks) flags) {}
-
-/-- Whether ANSI styling is on for this compile's output (`-fno-color` turns it off). -/
-private def FlagsEnv.colored (flags : FlagsEnv) : Bool := !flags.features.contains "no-color"
 
 /-- The warnings this compile actually reports, in the order they were raised: everything a pass
 raised, minus what `-Wno-<name>` turns off.

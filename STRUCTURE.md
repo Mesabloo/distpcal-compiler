@@ -44,7 +44,7 @@ Lexer/parser, ported from `distpcal-compiler`'s local `Parser_/` (§5.1).
 
 ## `Core/SurfacePlusCal/`, `Core/SurfaceTLAPlus/`
 Parser output, annotations still attached.
-- `Syntax.lean`, `Pretty.lean` (each) — AST types; pretty-printers for `-d dump-cst`.
+- `Syntax.lean`, `Pretty.lean` (each) — AST types; pretty-printers for `-d dump-parse`.
 
 ## `Core/CorePlusCal/`, `Core/CoreTLAPlus/`
 Desugared AST — annotations stripped into concrete fields (types, mailbox, parameter flag).

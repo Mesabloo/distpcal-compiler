@@ -90,7 +90,7 @@ interesting should say so, not inherit it from the harness, which is exactly wha
 is its failure output. -/
 private def compileFlags (colored : Bool) (searchPath : List System.FilePath := [])
     (suppressed : List String := []) : FlagsEnv :=
-  { features := if colored then {} else Std.HashMap.ofList [("no-color", none)]
+  { features := if colored then {} else Std.HashMap.ofList [(Feature.noColor.name, none)]
     warnings := Std.HashMap.ofList (suppressed.map (·, false))
     searchPath }
 
@@ -218,8 +218,10 @@ path — it runs once per fixture per filter. -/
 private def matchesFilter (name pattern : String) : Bool :=
   pattern.isEmpty || (name.splitOn pattern).length > 1
 
-/-- `-f<name>` toggles the runner recognises. -/
-private def knownFeatures : Array String := #["no-color"]
+/-- `-f<name>` toggles the runner recognises: deliberately a *subset* of the compiler's `Feature`
+set, not all of it — the runner draws no spinner, so `-fno-progress` would have nothing to turn
+off. Spelled through `Feature` all the same, so the name cannot drift from the compiler's. -/
+private def knownFeatures : Array String := #[Feature.noColor.name]
 
 private def runTests (p : Parsed) : IO UInt32 := do
   let features := p.flag? "feature" |>.map (·.as! (Array String)) |>.getD #[]
@@ -230,7 +232,7 @@ private def runTests (p : Parsed) : IO UInt32 := do
       return 2
 
   let style : ReportStyle :=
-    { colored := ← wantsColor (features.contains "no-color"), verbose := p.hasFlag "verbose" }
+    { colored := ← wantsColor (features.contains Feature.noColor.name), verbose := p.hasFlag "verbose" }
   let jobs := p.flag? "jobs" |>.map (·.as! Nat) |>.getD 1
   -- Generous on purpose: the slowest fixture in the corpus runs in a quarter of a second, so
   -- anything near this limit is a hang, not a slow test.

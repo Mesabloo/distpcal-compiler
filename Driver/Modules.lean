@@ -295,21 +295,17 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
     (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M TypedModule := do
-  let dumpDir ← getDumpDir
-
   registerSource moduleId source
 
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
     | .inl e => throw (.lex moduleId e)
     | .inr tokens => pure tokens
 
-  if ← FlagsEnv.getDebugFlag "dump-tokens" then
-    dumpToFile (reprStr tokens) dumpDir s!"{moduleId}-tokens"
+  dumpStage .lex moduleId tokens
 
   let mod ← DiagT.lift (.parser moduleId) (.parse moduleId) (SurfaceTLAPlus.Parser.parseModule tokens)
 
-  if ← FlagsEnv.getDebugFlag "dump-cst" then
-    dumpToFile (reprStr mod) dumpDir s!"{moduleId}-cst"
+  dumpStage .parse moduleId mod
 
   -- TLA⁺ requires a module to live in a file named after it: `locate` builds its candidate path as
   -- `<dir>/<name>.tla` and looks nowhere else, so a module whose declared name differs from its
@@ -339,8 +335,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
           some <$> DiagT.lift (.desugar moduleId) (.desugar moduleId) desugared
       let mod := { mod with pcalAlgorithm := algo }
 
-      if ← FlagsEnv.getDebugFlag "dump-desugared" then
-        dumpToFile (reprStr mod) dumpDir s!"{moduleId}-desugared"
+      dumpStage .desugar moduleId mod
 
       pure mod
     let deps ← reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name <|
@@ -355,8 +350,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
       let typed ← DiagT.lift (.typeCheck moduleId) (.typeCheck moduleId)
         (CoreTLAPlus.Module.runChecker Γ₀ mod : DiagT TCWarning TCError Base _)
 
-      if ← FlagsEnv.getDebugFlag "dump-typed" then
-        dumpToFile (reprStr typed) dumpDir s!"{moduleId}-typed"
+      dumpStage .typeCheck moduleId typed
 
       return typed
 

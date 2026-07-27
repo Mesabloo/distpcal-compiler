@@ -2,6 +2,7 @@ module
 
 meta import CustomPrelude
 public import Std.Data.HashMap.Basic
+public import Common.Diagnostics.Stage
 
 public section
 
@@ -10,6 +11,38 @@ inductive Target
   | go
   | join
   deriving Repr, DecidableEq, Inhabited
+
+/-- A `-f<name>` feature toggle.
+
+This enumeration is the *only* place a toggle's spelling is written: the CLI validates `-f`
+against `Feature.list`, and every consumer reads one through the accessor named after it
+(`FlagsEnv.colored`, `FlagsEnv.progress`), never through a string literal. Adding a toggle and
+registering it are therefore the same edit — which is what the hand-maintained `knownFeatures`
+array could not guarantee (§9.20). -/
+inductive Feature : Type
+  /-- `-fno-color`: no ANSI styling in diagnostics or progress output. -/
+  | noColor
+  /-- `-fno-progress`: no animated spinner, just plain lines. -/
+  | noProgress
+  deriving Repr, DecidableEq, Inhabited
+
+namespace Feature
+
+/-- The `-f<name>` spelling of a toggle. -/
+def name : Feature → String
+  | .noColor => "no-color"
+  | .noProgress => "no-progress"
+
+/-- Every toggle, in the order `-f`'s help text lists them. -/
+def list : List Feature := [.noColor, .noProgress]
+
+instance : ToString Feature := ⟨Feature.name⟩
+
+-- No two toggles may share a spelling: `-f` matches on the string, so a collision would make one
+-- of them unreachable.
+#guard (list.map name).length == (list.map name).eraseDups.length
+
+end Feature
 
 /--
   The fully-parsed CLI flag surface, computed once by the driver from `Cli.Parsed` and
@@ -48,17 +81,27 @@ def getDebugFlag (name : String) : m Bool := do
 def getDebugOption (name : String) : m (Option String) := do
   return (← readThe FlagsEnv).debug.get? name |>.join
 
-/-- Is `-f<name>` (with or without a value) present? -/
-def getFeatureFlag (name : String) : m Bool := do
-  return (← readThe FlagsEnv).features.contains name
+/-- Is `f` (with or without a value) present? The non-monadic form: the CLI and the driver hold a
+`FlagsEnv` directly rather than reading one out of a monad. -/
+def hasFeature (flags : FlagsEnv) (f : Feature) : Bool := flags.features.contains f.name
+
+/-- Is ANSI styling on for this compile's output? `-fno-color` turns it off. -/
+def colored (flags : FlagsEnv) : Bool := !flags.hasFeature .noColor
+
+/-- Is the animated progress spinner on? `-fno-progress` turns it off. -/
+def progress (flags : FlagsEnv) : Bool := !flags.hasFeature .noProgress
+
+/-- Is `f` (with or without a value) present? -/
+def getFeatureFlag (f : Feature) : m Bool := do
+  return (← readThe FlagsEnv).hasFeature f
 
 /-- The value attached to `-X<name>=<value>`, if any (also `none` for a valueless `-X<name>`). -/
 def getTargetOption (name : String) : m (Option String) := do
   return (← readThe FlagsEnv).targetOptions.get? name |>.join
 
 /-- The value attached to `-f<name>=<value>`, if any. -/
-def getFeatureOption (name : String) : m (Option String) := do
-  return (← readThe FlagsEnv).features.get? name |>.join
+def getFeatureOption (f : Feature) : m (Option String) := do
+  return (← readThe FlagsEnv).features.get? f.name |>.join
 
 /-- Is warning `name` enabled? Defaults to `true` (warnings are on unless `-Wno-<name>` was given). -/
 def isWarningEnabled (name : String) : m Bool := do
@@ -93,5 +136,17 @@ def dumpToFile {m : Type → Type} [Monad m] [MonadLiftT IO m] (content : String
     (dir : System.FilePath) (name : String) : m Unit := do
   IO.FS.createDirAll dir
   IO.FS.writeFile (dir / name) content
+
+/-- Write `value` to `<dump-dir>/<name>-<stage>` if `-d dump-<stage>` was given; do nothing
+otherwise.
+
+The one dump point. Every `-d dump-*` artifact goes through it — the per-module stages the driver
+runs (`Driver/Modules.lean`) and the stages the pipeline runs past it (`Driver/Pipeline.lean`) —
+so a stage's flag name, the file it writes and its `Stage.dumpable` entry cannot disagree, and
+`Fugue.lean` can derive the whole `-d` allowlist from `Stage.list` (§9.20). -/
+def dumpStage {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
+    {α : Type} [Repr α] (stage : Stage) (name : String) (value : α) : m Unit := do
+  if ← FlagsEnv.getDebugFlag stage.dumpOption then
+    dumpToFile (reprStr value) (← getDumpDir) s!"{name}-{stage.name}"
 
 end

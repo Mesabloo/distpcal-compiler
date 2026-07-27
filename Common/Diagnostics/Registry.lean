@@ -367,6 +367,17 @@ def entries : List Entry :=
 -- diagnostic. Checked here, at build time, rather than trusted.
 #guard entries.length == (entries.map (·.code) |>.eraseDups).length
 
+/-- Every `-W<name>` a warning can be suppressed under, in code order. What the CLI validates `-W`
+against, so the set of accepted names is the set of warnings that exist: `Entry.code` has no
+default, so a warning cannot be emitted without an entry here to derive its name from, and a name
+here with no warning behind it would have nothing to suppress. -/
+def warningNames : List String :=
+  entries.filterMap λ e ↦ if e.warningName.isEmpty then none else some e.warningName
+
+-- No two warnings may share a `-W` name: `-Wno-<name>` matches on the string, so a collision
+-- would silence both or neither, never the one asked for.
+#guard warningNames.length == warningNames.eraseDups.length
+
 /-- The entry for `code`, if it is registered. -/
 def find? (code : DiagnosticCode) : Option Entry := entries.find? (·.code == code)
 

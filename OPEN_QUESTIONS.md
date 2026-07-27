@@ -107,11 +107,11 @@ problem.
 
 **What's in the tree meanwhile:** `ParserWarning.unusedAnnotation` (`Parser_/Common.lean`) is
 declared with a `msgOf`/`posOf`/`name` instance but never constructed — the emit site is exactly
-what's blocked above. Its `-W` name is also absent from `Fugue.lean`'s `knownWarnings`, so
-`-Wno-unused-annotation` is rejected as an unknown option today (§9.20). Open: keep the
-constructor as the landing site for whenever the combinator question is settled, or delete it and
-reintroduce it then. Keeping it costs the `knownWarnings` gap; deleting it loses nothing but the
-signpost.
+what's blocked above. `-Wno-unused-annotation` used to be rejected as an unknown option on top of
+that; it is now accepted, since `knownWarnings` is derived from the diagnostic registry (§9.20) —
+it just has nothing to suppress yet. Open: keep the constructor as the landing site for whenever
+the combinator question is settled, or delete it and reintroduce it then. Keeping it now costs
+nothing but the dead constructor; deleting it loses the signpost.
 
 ### 9.10 `LAMBDA` — designed, not implemented
 Thesis has typing rules (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression` nor
@@ -325,23 +325,45 @@ the question is whether `Declarations` is *expected* to diverge at the Guarded s
 through Network, and no planned pass adds a field to it. If nothing is expected, the copy is
 buying only the option to diverge cheaply later.
 
-### 9.20 `knownDebugOptions`/`knownFeatures`/`knownWarnings` are hand-maintained arrays
-`Fugue.lean` validates `-d`/`-f`/`-W` names against three literal `Array String`s. `knownWarnings`
-has already drifted: it lists `fair` and `duplicate-parameter` but not `ParserWarning
-.unusedAnnotation`'s name, so `-Wno-unused-annotation` is rejected as unknown (§9.8). Nothing
-makes the arrays and the `CompilerDiagnostic.name` instances agree — the drift is silent, and the
-same failure mode is available to every warning added later.
+### 9.20 `knownDebugOptions`/`knownFeatures`/`knownWarnings` were hand-maintained arrays
+`Fugue.lean` validated `-d`/`-f`/`-W` names against literal `Array String`s that nothing tied to
+the things they name. `knownWarnings` had drifted furthest: it listed `fair` and
+`duplicate-parameter` but not `unused-annotation`, `todo`, or `partial-multicast-annotation`, so
+all three were rejected as unknown `-Wno-` names (§9.8 covers the first).
 
-The warning half of this is now derivable and wasn't when it was written:
-`Common/Diagnostics/Registry.lean` carries a `warningName` on every entry, so `knownWarnings` can
-be `Diagnostics.entries.filterMap` over it — and since `CompilerDiagnostic.code` has no default,
-a new warning cannot exist without an entry to derive from. That fixes §9.8's rejected
-`-Wno-unused-annotation` as a side effect.
+**Resolved: all three are now derived**, each from the declaration site of the thing it validates.
 
-**Open:** the debug/feature arrays, which have no derivable source at all — no declaration site
-anywhere names `dump-guarded` except the `getDebugFlag` call that reads it. Cheapest partial fix,
-if a registry for them isn't wanted: move each array next to what it validates, so adding a dump
-point and registering its name are the same edit.
+- **`-f`** — the toggles are an enumeration, `Feature` (`Common/Flags.lean`), with `Feature.name`
+  the one place a spelling is written and `Feature.list` what `knownFeatures` maps over. Consumers
+  read a toggle through the accessor named for it — `FlagsEnv.colored`, `FlagsEnv.progress` — so
+  `"no-color"`/`"no-progress"` no longer appear as literals at their use sites. A `#guard` rejects
+  two toggles sharing a spelling. The regression runner keeps a deliberately *narrower* set
+  (`#[Feature.noColor.name]` — it draws no spinner, so `-fno-progress` would toggle nothing) but
+  spells it through `Feature`, so its name cannot drift from the compiler's.
+- **`-W`** — `Diagnostics.warningNames` (`Common/Diagnostics/Registry.lean`) is
+  `entries.filterMap` over `Entry.warningName`, and `knownWarnings` is that. Since `Entry.code` has
+  no default, a warning cannot be emitted without an entry to derive its name from. A `#guard`
+  rejects two warnings sharing a `-W` name. This is also what fixes §9.8's rejected
+  `-Wno-unused-annotation`.
+- **`-d`** — `Stage` gained `dumpable` (matched exhaustively, so a stage added later must say
+  whether it has an artifact rather than defaulting to one) and `dumpOption`, and
+  `knownDebugOptions` is `Stage.list.filter (·.dumpable) |>.map (·.dumpOption)` plus `dump-dir`,
+  which configures where dumps go rather than naming one. Every dump site — the driver's four and
+  the pipeline's `runStage` — now goes through the single `dumpStage` helper (`Common/Flags.lean`),
+  so a flag, the file it writes and the stage it names cannot disagree.
+
+**User-visible rename, `-d` only.** The four driver-side dumps were spelled off-name and are now
+their stage's name: `dump-tokens` → `dump-lex`, `dump-cst` → `dump-parse`, `dump-desugared` →
+`dump-desugar`, `dump-typed` → `dump-typecheck`. The files they write are renamed to match
+(`<dump-dir>/<module>-lex`, etc.). `fugue.sh`'s `DEBUG_OPTS` was updated with them.
+
+**Left hand-maintained on purpose:** `knownTargetOptions` (one entry, `go-pkg`). Deriving it would
+need a backend-option registry that does not exist and that one option does not justify; it is
+also the only array that has never drifted. Revisit if `-X` grows.
+
+`leanprover/Cli` takes a string *literal* for a flag's description, not a term, so the three help
+texts cannot be derived and would each be a second copy of a list. They name no individual option
+instead; passing a wrong name prints the real, derived list.
 
 ### 9.23 Three fixtures assert something they do not exercise, and are parked as `Skip*`
 Found by phase 4's sidecars: every rejection now records the stage and code it must produce, and

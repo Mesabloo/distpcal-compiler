@@ -81,15 +81,23 @@ instance : ParseableType Target where
     | "join" => some .join
     | _ => none
 
-/-- `-d<name>` options recognized so far — extend as later phases add more dump points. -/
-private def knownDebugOptions : Array String := #["dump-tokens", "dump-cst", "dump-desugared", "dump-typed", "dump-computable", "dump-guarded", "dump-network", "dump-go", "dump-dir"]
+/-- `-d<name>` options recognized: one `dump-<stage>` per stage with an artifact to write, derived
+from `Stage` (`Common/Diagnostics/Stage.lean`) rather than listed here, plus `dump-dir`, which
+configures where they go rather than naming a dump point of its own. Adding a stage and giving it
+a flag are the same edit — `Stage.dumpable` is matched exhaustively, so a new stage cannot skip
+the question. -/
+private def knownDebugOptions : Array String :=
+  (Stage.list.filter (·.dumpable) |>.map (·.dumpOption) |>.toArray).push "dump-dir"
 
-/-- `-f<name>` toggles recognized so far — extend as later phases add more. -/
-private def knownFeatures : Array String := #["no-color", "no-progress"]
+/-- `-f<name>` toggles recognized, derived from `Feature` (`Common/Flags.lean`) rather than
+listed here: a toggle nothing can read cannot be accepted, and one a pass reads cannot be
+rejected. -/
+private def knownFeatures : Array String := (Feature.list.map (·.name)).toArray
 
-/-- `-W<name>` names recognized so far — matches every `ParserWarning.name`
-(`Parser_/Common.lean`) and `DesugarWarning.name` (`Desugarer/Errors.lean`), extend likewise. -/
-private def knownWarnings : Array String := #["fair", "duplicate-parameter"]
+/-- `-W<name>` names recognized, derived from the diagnostic registry
+(`Common/Diagnostics/Registry.lean`) rather than listed here: a warning cannot exist without a
+registry entry, so it cannot exist without its `-W` name being accepted. -/
+private def knownWarnings : Array String := Diagnostics.warningNames.toArray
 
 /-- `-X<name>[:<value>]` backend options. One table, not one per backend: an option a backend does
 not understand is a mistake worth reporting either way, and the alternative is a table whose
@@ -158,7 +166,7 @@ private def Progress.success : Progress → String → IO Unit
   | .quiet, msg => IO.println s!"🎉 {msg}"
 
 private def withProgress {α : Type} (flags : FlagsEnv) (msg : String) (act : Progress → IO α) : IO α := do
-  if flags.features.contains "no-progress" then
+  if !flags.progress then
     act .quiet
   else
     let spinner ← Spinner.newOnStream Spinners.dotsCircle msg (← IO.getStderr)
@@ -195,7 +203,7 @@ private def validateFlags (p : Parsed) : IO FlagsEnv := do
 private def runCli (p : Parsed) : IO UInt32 := do
   let flags ← validateFlags p
 
-  let colored := !flags.features.contains "no-color"
+  let colored := flags.colored
 
   let input := p.positionalArg! "input" |>.as! Input
   let dumpName := match input with
@@ -366,9 +374,13 @@ private def compileCmd : Cmd := `[Cli|
     o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    d, debug : Array NamedOption; "Debugging options (dump-tokens, dump-cst, dump-desugared, dump-typed, dump-computable, dump-guarded, dump-network, dump-go, dump-dir:<path> — defaults to `.fugue/debug`), comma-separated `name[:value]` pairs."
-    f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[:value]` pairs."
-    "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated."
+    -- These descriptions name no individual option on purpose: `leanprover/Cli` takes a string
+    -- literal here, not a term, so an enumeration could not be derived and would be a third copy
+    -- of a list that has already drifted twice (§9.20). Passing a wrong name prints the real one,
+    -- derived, from `NamedOption.toMap`/`WarningToggle.toMap`.
+    d, debug : Array NamedOption; "Debugging options, comma-separated `name[:value]` pairs: `dump-<stage>` writes that stage's artifact, `dump-dir:<path>` sets where they go (default `.fugue/debug`). Naming an unknown one lists them all."
+    f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[:value]` pairs. Naming an unknown one lists them all."
+    "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated. Naming an unknown one lists them all."
     "X", "X" : Array NamedOption; "Backend options (go-pkg:<name> — the package the emitted Go declares, default `main`), comma-separated `name[:value]` pairs."
 
   ARGS:

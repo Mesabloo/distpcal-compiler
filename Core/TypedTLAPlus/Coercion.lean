@@ -25,7 +25,7 @@ public section
   Two structural recursions consume this data, one per concrete expression type: `Coercion.apply`
   (below) and `Coercion.applyComputable` (`Core/ComputableTLAPlus/Coercion.lean`).
 
-  `Repr Coercion` is a placeholder: `-d dump-typed` renders any `receive`'s coercion as the literal
+  `Repr Coercion` is a placeholder: `-d dump-typecheck` renders any `receive`'s coercion as the literal
   string `"<coercion>"`.
 -/
 

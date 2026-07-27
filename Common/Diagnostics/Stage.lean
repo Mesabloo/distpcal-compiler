@@ -53,6 +53,22 @@ def name : Stage → String
 
 instance : ToString Stage := ⟨Stage.name⟩
 
+/-- Does this stage produce an artifact worth writing out? Four do not: `read` has only the source
+text the user already has, `resolve` produces its dependencies' modules rather than one of its own
+(each dumps itself as it is compiled), and `annotation`/`wellFormedness` transform nothing —
+they check, and hand their input onward unchanged.
+
+Matched exhaustively on purpose: a stage added later must say which it is, rather than defaulting
+to dumpable and acquiring a `-d` flag that writes nothing. -/
+def dumpable : Stage → Bool
+  | .read | .annotation | .resolve | .wellFormedness => false
+  | .lex | .parse | .desugar | .typeCheck | .computable | .guarded | .network | .go => true
+
+/-- The `-d dump-<name>` option that dumps this stage's artifact. Spelled from `name`, so the flag,
+the file it writes (`<dump-dir>/<module>-<name>`) and the stage a diagnostic reports all use one
+spelling. -/
+def dumpOption (s : Stage) : String := s!"dump-{s.name}"
+
 /-- Every stage, in pipeline order. -/
 def list : List Stage :=
   [.read, .lex, .parse, .annotation, .desugar, .resolve, .typeCheck, .wellFormedness,

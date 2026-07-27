@@ -13,10 +13,10 @@ function join_by {
 
 DEBUG_OPTS=(
     "dump-dir:.fugue/debug"
-    "dump-tokens"
-    "dump-cst"
-    "dump-desugared"
-    "dump-typed"
+    "dump-lex"
+    "dump-parse"
+    "dump-desugar"
+    "dump-typecheck"
     "dump-computable"
     "dump-guarded"
     "dump-network"
