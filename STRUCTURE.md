@@ -346,9 +346,14 @@ what it checks is structured rather than an exit code.
 - `Fugue.lean` — CLI entry point.
 - `Desugarer.lean`, `Driver.lean`, `Parser_.lean`, `ProgressBar.lean` — top-level re-exports.
 - `CustomPrelude.lean` — project-wide prelude imports/settings.
-- `VERSION` — the compiler's version, one line. The only place it is written; `Fugue.lean` reads
-  it with `include_str` at compile time.
-- `lakefile.lean` — build config, `lean_lib` per pass (`Fugue.G2N`, etc.).
+- `lakefile.lean` — build config, `lean_lib` per pass (`Fugue.G2N`, etc.). Also where the
+  compiler's version is set (`package Fugue`'s `version`), and where `Version.lean` is generated
+  from it.
+- `.lake/version/Version.lean` — **generated, not in the repo.** Carries `fugueVersion` (a
+  `String`) into compiled code for `Fugue.lean`'s `--version`. Written by `lakefile.lean` when it
+  is elaborated; claimed by `lean_lib Fugue.Version`, whose `srcDir` points here. Outside
+  `.lake/build/` so `lake clean` cannot remove it without also removing the configuration that
+  writes it. Delete it by hand and the next build fails until `lakefile.lean` is touched.
 - `lean-toolchain`, `lake-manifest.json` — toolchain pin and dependency lockfile.
 - `fugue.sh` — dev-mode CLI wrapper.
 - `AGENTS.md` — caveman-mode config for non-Claude-Code agents.

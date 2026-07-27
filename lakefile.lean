@@ -41,15 +41,80 @@ abbrev leanOptions : Array LeanOption := #[
 @[inherit_doc Package.moreServerOptions]
 abbrev moreServerOptions : Array LeanOption := #[]
 
+------ Version
+
+/--
+  The compiler's version, and the one place it is written: the `version` field below takes it,
+  `lake` reports it, and the generated `Version.lean` — see `versionModule` — is what the CLI
+  prints.
+-/
+def fugueVersion : LeanVer := v!"0.1.0"
+
+/-- Where the generated `Version.lean` is written, relative to the package root. Under `.lake/`
+but *outside* `.lake/build/`, which is what `lake clean` deletes: the generated source and the
+compiled configuration that writes it must disappear together (`rm -rf .lake`) or survive
+together, never one without the other. -/
+def versionSrcDir : System.FilePath := ".lake" / "version"
+
+/--
+  The contents of `Version.lean`, the generated module that carries `fugueVersion` into compiled
+  code.
+
+  A generated *source file* rather than a Lean option, which is the obvious channel and the wrong
+  one: the compiler elaborates with `leanOptions`/`moreLeanArgs` and the language server with
+  `moreServerOptions`, so the two disagree about the elaboration environment and overwrite each
+  other's `.olean`s. A source file is read identically by both.
+
+  It is also the only channel Lake traces. A module's build depends on its own source, its
+  options, its imports and the toolchain, and on nothing else — so an `input_file` named in
+  `extraDepTargets` would not rebuild anything either (that trace reaches the module's *setup*,
+  not the build of its artifacts).
+-/
+def versionModule : String := String.intercalate "\n" [
+  "module",
+  "",
+  "/-!",
+  "  GENERATED FILE — do not edit, and do not commit.",
+  "",
+  "  Written by `lakefile.lean` from the `Fugue` package's `version` field, which is the one place",
+  "  the compiler's version is set. Rewritten whenever `lakefile.lean` is elaborated, which is",
+  "  whenever it changes.",
+  "-/",
+  "",
+  "public section",
+  "",
+  "/-- The compiler's version, as `fugue --version` reports it. -/",
+  s!"abbrev fugueVersion : String := \"{fugueVersion}\"",
+  "",
+  "end",
+  ""
+]
+
 run_cmd do
   println! "Building package in {buildType} mode (with missing docs := {warnOnMissingDocs})"
+  -- Runs when this file is elaborated, which is when it changes and no oftener — exactly when the
+  -- version can have changed. Rewritten only when the contents would differ, so an unchanged
+  -- version does not touch the file and Lake does not rebuild anything.
+  let path := __dir__ / versionSrcDir / "Version.lean"
+  let current ← if ← path.pathExists then IO.FS.readFile path else pure ""
+  unless current == versionModule do
+    IO.FS.createDirAll (__dir__ / versionSrcDir)
+    IO.FS.writeFile path versionModule
 
 ------- Config
 package Fugue where
+  version := fugueVersion
   leanOptions := leanOptions
   moreLeanArgs := moreLeanArgs.map λ o ↦ o.asCliArg
   moreServerOptions := moreServerOptions
   buildType := buildType
+
+/-- The generated `Version.lean`. A `lean_lib` of its own for two reasons: `Fugue.lean` can only
+import a module some library claims (see `Fugue.Tests` below), and scoping it here means a version
+bump rebuilds this module and the CLI rather than everything sharing a library with it. -/
+lean_lib Fugue.Version where
+  srcDir := versionSrcDir
+  roots := #[`Version]
 
 /-- A custom prelude with various tactics and additional imports. -/
 lean_lib CustomPrelude

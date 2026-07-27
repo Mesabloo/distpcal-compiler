@@ -139,36 +139,17 @@ private def runStage {ε} {γ} [Repr γ] (dumpName : String) (stage : Stage)
     dumpStage stage dumpName value
   return result
 
-/-- Compile `source` all the way through, reporting progress through `hooks`.
+/-- Everything past the driver, against the already-checked `typed`: well-formedness,
+`Typed2Computable`, `Computable2Guarded`, `Guarded2Network`, `Network2Go`. Split out of
+`runPipeline` so that the root module's outcome can be reported *after* all of it — the early
+`return` on each stage's failure is exactly what makes that awkward to do inline.
 
-`containingDir` is where `EXTENDS` resolution starts looking (`none` when the source came from
-stdin, which has no directory of its own); `moduleId` is the key this module's source is
-registered under, and the one `DriverError`s from it are tagged with; `expectedName` is what the
-module must call itself, i.e. its file's stem — `none` for stdin, which has no filename to agree
-with.
-
-Never throws and never exits: every failure comes back as `PipelineResult.error`, tagged with the
-stage it came from. -/
-def runPipeline (source : String) (containingDir : Option System.FilePath) (moduleId : String)
-    (expectedName : Option String := none) (hooks : PipelineHooks := {}) : Base PipelineResult := do
-  let (warnings, driverResult) ← runM <| compileModule source containingDir moduleId expectedName
-    (onModuleEvent := λ name outcome ↦ liftM (hooks.onModuleEvent name outcome))
-    (onModuleProgress := λ name ↦ liftM (hooks.onModuleProgress name))
-    (logLine := λ line ↦ liftM (hooks.logLine line))
-
-  -- The source registry is read back out of the state *after* the driver has run, error or not:
-  -- rendering the error is exactly what needs it, and `Base`'s state layer sits under `DiagT`
-  -- precisely so a throw does not discard it.
-  let sourcesOf : Base SourceRegistry := (·.sources) <$> getThe DriverState
-
-  let typed ← match driverResult with
-    | .error e =>
-      return { warnings, error := some (.driver e), reached := (PipelineError.stage (.driver e)).predecessor
-               sources := ← sourcesOf }
-    | .ok typed => pure typed
-
+`warnings` and `sources` are what the driver produced; `moduleId` is the key each stage's `-d
+dump-<stage>` artifact is named after. -/
+private def runPostDriver (moduleId : String) (warnings : List PipelineWarning)
+    (sources : SourceRegistry) (typed : TypedModule) : Base PipelineResult := do
   let mut result : PipelineResult :=
-    { warnings, reached := .typeCheck, sources := ← sourcesOf, typed := some typed }
+    { warnings, reached := .typeCheck, sources, typed := some typed }
 
   match ← DiagT.run (TypedTLAPlus.Module.checkWellFormed typed : DiagT Empty WellFormednessError Base Unit) with
     | (_, .error e) => return { result with error := some (.wellFormedness e) }
@@ -210,6 +191,45 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
   match ← runStage moduleId .go goStage with
   | .error e => return { result with error := some (.go e) }
   | .ok go => return { result with reached := .go, go := some go }
+
+/-- Compile `source` all the way through, reporting progress through `hooks`.
+
+`containingDir` is where `EXTENDS` resolution starts looking (`none` when the source came from
+stdin, which has no directory of its own); `moduleId` is the key this module's source is
+registered under, and the one `DriverError`s from it are tagged with; `expectedName` is what the
+module must call itself, i.e. its file's stem — `none` for stdin, which has no filename to agree
+with.
+
+Never throws and never exits: every failure comes back as `PipelineResult.error`, tagged with the
+stage it came from. -/
+def runPipeline (source : String) (containingDir : Option System.FilePath) (moduleId : String)
+    (expectedName : Option String := none) (hooks : PipelineHooks := {}) : Base PipelineResult := do
+  let (warnings, driverResult) ← runM <| compileModule source containingDir moduleId expectedName
+    (isRoot := true)
+    (onModuleEvent := λ name outcome ↦ liftM (hooks.onModuleEvent name outcome))
+    (onModuleProgress := λ name ↦ liftM (hooks.onModuleProgress name))
+    (logLine := λ line ↦ liftM (hooks.logLine line))
+
+  -- The source registry is read back out of the state *after* the driver has run, error or not:
+  -- rendering the error is exactly what needs it, and `Base`'s state layer sits under `DiagT`
+  -- precisely so a throw does not discard it.
+  let sourcesOf : Base SourceRegistry := (·.sources) <$> getThe DriverState
+
+  let typed ← match driverResult with
+    | .error e =>
+      return { warnings, error := some (.driver e), reached := (PipelineError.stage (.driver e)).predecessor
+               sources := ← sourcesOf }
+    | .ok typed => pure typed
+
+  let result ← runPostDriver moduleId warnings (← sourcesOf) typed
+
+  -- The root module's outcome *is* the compile's, so it is reported here, where that is known,
+  -- rather than at type-check time inside `compileModule` — which is why that call passes
+  -- `isRoot := true`. `hadWarnings` is `warnings` in full for the same reason it was there: a
+  -- module's scoped warnings include those of everything it `EXTENDS`.
+  liftM <| hooks.onModuleEvent typed.name <|
+    if result.succeeded then .built !warnings.isEmpty else .failed
+  return result
 
 /-- `runPipeline` with its flags and its state supplied: one compile, self-contained, from `IO`.
 Each call starts from a fresh `DriverState`, so nothing — module cache, fresh-name counter, source

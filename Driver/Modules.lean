@@ -289,9 +289,15 @@ is reported inside its own recursive `compileModule` call, never duplicated here
 
 `moduleId` is the registry key `DriverError`'s variants tag themselves with, registered against
 `source` before lexing runs. For a dependency this is the `EXTENDS`-requested name; for the main
-module it's whatever identifier `Fugue.lean` passes. -/
+module it's whatever identifier `Fugue.lean` passes.
+
+`isRoot` marks the compile's own module, as opposed to an `EXTENDS`-ed dependency, and suppresses
+its `.built`: type checking is where a *dependency* is finished, but the root goes on through
+every pass past the driver, so reporting it built here would claim success for a compile that can
+still fail. `Driver/Pipeline.lean` reports the root's outcome once it knows it. `.failed` is not
+suppressed — a driver failure ends the compile there, so it is already the final word. -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
-    (expectedName : Option String := none)
+    (expectedName : Option String := none) (isRoot : Bool := false)
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
     (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M TypedModule := do
@@ -358,7 +364,8 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   match result with
   | .error e => throw e
   | .ok typed =>
-    onModuleEvent mod.name (.built (!warnings.isEmpty))
+    unless isRoot do
+      onModuleEvent mod.name (.built (!warnings.isEmpty))
     -- flushWarnings lines colored logLine warnings
     return typed
 
