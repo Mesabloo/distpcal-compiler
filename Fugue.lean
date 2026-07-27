@@ -6,6 +6,23 @@ import Common.Errors
 public import Driver.Pipeline
 import ProgressBar
 import Colorized
+meta import Lean.Elab.Command
+
+/-- Elaborates to the contents of the repository's `VERSION` file, trimmed, as a string literal.
+
+`VERSION` is the one place the compiler's version is written. `include_str` reads it while *this*
+module is compiled, and the trimming happens in this elaborator, so `fugueVersion` below is a
+string literal in the built binary — nothing is read, trimmed or allocated at run time.
+
+Lake does not track `include_str` as an input: a module's trace is its own source, its options and
+its imports, and none of those change when `VERSION` does (`extraDepTargets` does not help — that
+trace reaches the module's *setup*, not the build of its artifacts). Editing `VERSION` alone
+therefore leaves the previous string compiled in until something else rebuilds this module. -/
+elab "version_string%" : term => return Lean.mkStrLit (include_str "VERSION").trimAscii.toString
+
+/-- The version `fugue --version` reports. Every `[Cli|…]` block below is stamped with it, rather
+than with a literal of its own. -/
+private def fugueVersion : String := version_string%
 
 public section
 
@@ -81,23 +98,55 @@ instance : ParseableType Target where
     | "join" => some .join
     | _ => none
 
+/-- One name a `-d`/`-f`/`-W`/`-X` flag accepts, with the value it takes and what it does.
+
+The allowlist and the help text are the same table on purpose: an option that cannot be listed
+cannot be accepted either, so `fugue help` cannot drift from what the parser takes. -/
+private structure OptionDoc : Type where
+  /-- The name, spelled as it is written after the flag. -/
+  name : String
+  /-- The value the option takes, as a placeholder (`<path>`), or `none` if it takes none. -/
+  value : Option String := none
+  /-- One line: what the option does. -/
+  description : String
+
+/-- How the option is written on the command line, value placeholder included. -/
+private def OptionDoc.spelling (doc : OptionDoc) : String :=
+  doc.value.elim doc.name λ v ↦ s!"{doc.name}:{v}"
+
+/-- Render `docs` as a two-column block, one option per line, descriptions aligned past the
+widest spelling. -/
+private def OptionDoc.render (docs : List OptionDoc) : String :=
+  let width := docs.foldl (λ w doc ↦ max w doc.spelling.length) 0
+  String.intercalate "\n" <| docs.map λ doc ↦
+    let pad := String.replicate (width - doc.spelling.length + 2) ' '
+    s!"  {doc.spelling}{pad}{doc.description}"
+
 /-- `-d<name>` options recognized: one `dump-<stage>` per stage with an artifact to write, derived
 from `Stage` (`Common/Diagnostics/Stage.lean`) rather than listed here, plus `dump-dir`, which
 configures where they go rather than naming a dump point of its own. Adding a stage and giving it
-a flag are the same edit — `Stage.dumpable` is matched exhaustively, so a new stage cannot skip
-the question. -/
-private def knownDebugOptions : Array String :=
-  (Stage.list.filter (·.dumpable) |>.map (·.dumpOption) |>.toArray).push "dump-dir"
+a flag are the same edit — `Stage.artifact?` is matched exhaustively, so a new stage cannot skip
+the question, and what it answers is also what `fugue help -d` prints. -/
+private def debugOptionDocs : List OptionDoc :=
+  (Stage.list.filterMap λ s ↦ s.artifact?.map λ artifact ↦
+    { name := s.dumpOption, description := s!"Write {artifact}." })
+  ++ [ { name := "dump-dir", value := "<path>"
+       , description := s!"Where the `dump-*` artifacts go. Defaults to `{defaultDumpDir}`." } ]
 
 /-- `-f<name>` toggles recognized, derived from `Feature` (`Common/Flags.lean`) rather than
 listed here: a toggle nothing can read cannot be accepted, and one a pass reads cannot be
 rejected. -/
-private def knownFeatures : Array String := (Feature.list.map (·.name)).toArray
+private def featureOptionDocs : List OptionDoc :=
+  Feature.list.map λ f ↦ { name := f.name, description := f.description }
 
 /-- `-W<name>` names recognized, derived from the diagnostic registry
 (`Common/Diagnostics/Registry.lean`) rather than listed here: a warning cannot exist without a
-registry entry, so it cannot exist without its `-W` name being accepted. -/
-private def knownWarnings : Array String := Diagnostics.warningNames.toArray
+registry entry, so it cannot exist without its `-W` name being accepted. Each is listed with the
+code it suppresses, so `fugue help -W` and `fugue explain <code>` name the same thing. -/
+private def warningOptionDocs : List OptionDoc :=
+  Diagnostics.entries.filterMap λ e ↦
+    if e.warningName.isEmpty then none
+    else some { name := e.warningName, description := s!"{e.code}: {e.summary}" }
 
 /-- `-X<name>[:<value>]` backend options. One table, not one per backend: an option a backend does
 not understand is a mistake worth reporting either way, and the alternative is a table whose
@@ -107,25 +156,94 @@ contents depend on a flag parsed in the same pass.
 `-f` toggle because it is a property of the *output*, not of how the compiler behaves; and not a
 Go build tag, unlike the integer representation, because the compiler is what writes the
 `package` clause. -/
-private def knownTargetOptions : Array String := #["go-pkg"]
+private def targetOptionDocs : List OptionDoc :=
+  [ { name := "go-pkg", value := "<name>"
+    , description := "The package clause the emitted Go declares. Defaults to `main`." } ]
+
+/-- A flag whose names `fugue help` explains one by one: the four that take a table of names
+rather than a single value. -/
+private inductive HelpTopic : Type
+  | debug
+  | feature
+  | warn
+  | target
+
+namespace HelpTopic
+
+/-- Every topic, in the order `fugue help` lists them. -/
+private def list : List HelpTopic := [.debug, .feature, .warn, .target]
+
+/-- The `compile` flag this topic explains, and the `fugue help` flag that selects it. -/
+private def flag : HelpTopic → String
+  | .debug => "d" | .feature => "f" | .warn => "W" | .target => "X"
+
+/-- The topic's `fugue help` flag, spelled long — what `Cli.Parsed.hasFlag` matches on. -/
+private def longFlag : HelpTopic → String
+  | .debug => "debug" | .feature => "feature" | .warn => "warn" | .target => "X"
+
+/-- What one of this flag's names is called in an error message ("unknown debug option 'x'"). -/
+private def kind : HelpTopic → String
+  | .debug => "debug option" | .feature => "feature toggle"
+  | .warn => "warning" | .target => "target option"
+
+/-- The names this flag accepts, with what each does. -/
+private def options : HelpTopic → List OptionDoc
+  | .debug => debugOptionDocs | .feature => featureOptionDocs
+  | .warn => warningOptionDocs | .target => targetOptionDocs
+
+/-- Just the names, for validating what was passed. -/
+private def names (t : HelpTopic) : Array String := (t.options.map (·.name)).toArray
+
+/-- How the flag is written on the command line, value shape included. -/
+private def spelling : HelpTopic → String
+  | .debug => "-d<name>[:<value>]"
+  | .feature => "-f<name>"
+  | .warn => "-W<name> / -Wno-<name>"
+  | .target => "-X<name>[:<value>]"
+
+/-- One line: what the flag is for. -/
+private def summary : HelpTopic → String
+  | .debug => "Debugging options: stage dumps, and where they are written."
+  | .feature => "Feature toggles: how the compiler behaves, not what it emits."
+  | .warn => "Per-warning control: `<name>` enables a warning, `no-<name>` silences it."
+  | .target => "Backend options: properties of the emitted code."
+
+/-- What `fugue compile --help` says about the flag: the summary, and where the names are. The
+short form is derived from the long one rather than written twice — the copies are what drifted
+before. -/
+private def flagDescription (t : HelpTopic) : String :=
+  s!"{t.summary} Comma-separate to pass several. Run `fugue help -{t.flag}` for the names."
+
+/-- Print the topic: how the flag is written, then one line per name it accepts. -/
+private def print (t : HelpTopic) : IO Unit := do
+  IO.println s!"{t.spelling}  {t.summary}"
+  IO.println "Comma-separate names to pass several at once."
+  IO.println ""
+  IO.println (OptionDoc.render t.options)
+  IO.println ""
+
+end HelpTopic
 
 /-- Collect `<name>[:<value>]` options into a map, rejecting an unknown or duplicate `name`. -/
-private def NamedOption.toMap (kind : String) (known : Array String) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
+private def NamedOption.toMap (topic : HelpTopic) (opts : Array NamedOption) : IO (Std.HashMap String (Option String)) := do
   let mut map : Std.HashMap String (Option String) := {}
   for opt in opts do
-    unless known.contains opt.name do
-      throw ↑s!"unknown {kind} option '{opt.name}'. Known {kind} options: {String.intercalate ", " known.toList}."
+    unless topic.names.contains opt.name do
+      throw ↑s!"unknown {topic.kind} '{opt.name}'. Known: {String.intercalate ", " topic.names.toList}. \
+Run 'fugue help -{topic.flag}' for what each does."
     if map.contains opt.name then
-      throw ↑s!"{kind} option '{opt.name}' specified multiple times."
+      throw ↑s!"{topic.kind} '{opt.name}' specified multiple times."
     map := map.insert opt.name opt.value
   return map
 
 /-- Collect `-W`'s toggles into a map, rejecting an unknown or duplicate `name`. -/
-private def WarningToggle.toMap (known : Array String) (toggles : Array WarningToggle) : IO (Std.HashMap String Bool) := do
+private def WarningToggle.toMap (toggles : Array WarningToggle) : IO (Std.HashMap String Bool) := do
+  let known := HelpTopic.warn.names
   let mut map : Std.HashMap String Bool := {}
   for toggle in toggles do
     unless known.contains toggle.name do
-      throw ↑s!"unknown warning '{toggle.name}'. Known warnings: {String.intercalate ", " known.toList}."
+      throw ↑s!"unknown warning '{toggle.name}'. Known: {String.intercalate ", " known.toList}. \
+Run 'fugue help -W' for what each reports."
     if map.contains toggle.name then
       throw ↑s!"warning '{toggle.name}' specified multiple times."
     map := map.insert toggle.name toggle.enabled
@@ -182,10 +300,10 @@ private def withProgress {α : Type} (flags : FlagsEnv) (msg : String) (act : Pr
   resulting value is handed to `runPipelineIO`, which supplies it to every pass as a reader.
 -/
 private def validateFlags (p : Parsed) : IO FlagsEnv := do
-  let debug ← NamedOption.toMap "debug" knownDebugOptions <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
-  let features ← NamedOption.toMap "feature" knownFeatures <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
-  let warnings ← WarningToggle.toMap knownWarnings <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
-  let targetOptions ← NamedOption.toMap "target" knownTargetOptions <| p.flag? "X" |>.map (·.as! (Array NamedOption)) |>.getD #[]
+  let debug ← NamedOption.toMap .debug <| p.flag? "debug" |>.map (·.as! (Array NamedOption)) |>.getD #[]
+  let features ← NamedOption.toMap .feature <| p.flag? "feature" |>.map (·.as! (Array NamedOption)) |>.getD #[]
+  let warnings ← WarningToggle.toMap <| p.flag? "warn" |>.map (·.as! (Array WarningToggle)) |>.getD #[]
+  let targetOptions ← NamedOption.toMap .target <| p.flag? "X" |>.map (·.as! (Array NamedOption)) |>.getD #[]
   let output := p.flag? "output" |>.map (·.as! System.FilePath)
   let target := p.flag? "target" |>.map (·.as! Target) |>.getD .go
   let searchPath := p.flag? "include" |>.map (·.as! (Array System.FilePath)) |>.getD #[] |>.toList
@@ -366,29 +484,56 @@ Use '--list' to see every code."
       ok := false
   return if ok then 0 else 1
 
+private def runHelp (p : Parsed) : IO UInt32 := do
+  match HelpTopic.list.filter (λ t ↦ p.hasFlag t.longFlag) with
+  | [] =>
+    IO.println "Detailed help for the `compile` flags that take a table of names."
+    IO.println "Pass one of these to see what names it accepts:"
+    IO.println ""
+    HelpTopic.list.forM λ t ↦ IO.println s!"  -{t.flag}  {t.summary}"
+    IO.println ""
+    IO.println "Run `fugue compile --help` for the flags themselves, and `fugue explain <code>` \
+for a diagnostic."
+  | topics => topics.forM (·.print)
+  return 0
+
+/-! `leanprover/Cli` takes an identifier as well as a string literal where a description goes, so
+each of these four is `HelpTopic.flagDescription` rather than a hand-written second copy of it. -/
+
+/-- `-d`'s description in `fugue compile --help`. -/
+private def debugFlagDescription : String := HelpTopic.debug.flagDescription
+
+/-- `-f`'s description in `fugue compile --help`. -/
+private def featureFlagDescription : String := HelpTopic.feature.flagDescription
+
+/-- `-W`'s description in `fugue compile --help`. -/
+private def warnFlagDescription : String := HelpTopic.warn.flagDescription
+
+/-- `-X`'s description in `fugue compile --help`. -/
+private def targetFlagDescription : String := HelpTopic.target.flagDescription
+
 private def compileCmd : Cmd := `[Cli|
-  compile VIA runCli; ["0.1.0"]
+  compile VIA runCli; [fugueVersion]
   "Compile a TLA+ module."
 
   FLAGS:
-    o, output : System.FilePath; "The file to output compiled code to. If omitted, code is printed to standard output."
+    o, output : System.FilePath; "Write the compiled code to this file. Defaults to standard output."
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
-    "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
-    -- These descriptions name no individual option on purpose: `leanprover/Cli` takes a string
-    -- literal here, not a term, so an enumeration could not be derived from the allowlists above
-    -- and would be a second copy of each — the copies are what drifted before. Passing a wrong
-    -- name prints the real list, derived, from `NamedOption.toMap`/`WarningToggle.toMap`.
-    d, debug : Array NamedOption; "Debugging options, comma-separated `name[:value]` pairs: `dump-<stage>` writes that stage's artifact, `dump-dir:<path>` sets where they go (default `.fugue/debug`). Naming an unknown one lists them all."
-    f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[:value]` pairs. Naming an unknown one lists them all."
-    "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated. Naming an unknown one lists them all."
-    "X", "X" : Array NamedOption; "Backend options (go-pkg:<name> — the package the emitted Go declares, default `main`), comma-separated `name[:value]` pairs."
+    "I", "include" : Array System.FilePath; "Add a module search path. Comma-separate to add several: `-I dir1,dir2`."
+    -- Each of these names no individual option: the list lives in one place, `HelpTopic.options`,
+    -- and is printed by `fugue help` and by the error for an unknown name. A second copy here is
+    -- what drifted before.
+    d, debug : Array NamedOption; debugFlagDescription
+    f, feature : Array NamedOption; featureFlagDescription
+    "W", warn : Array WarningToggle; warnFlagDescription
+    "X", "X" : Array NamedOption; targetFlagDescription
 
   ARGS:
     input : Input; "The input TLA+ file to compile, or `-` to read from standard input."
 ]
 
 private def explainCmd : Cmd := `[Cli|
-  explain VIA runExplain; ["0.1.0"]
+  explain VIA runExplain; [fugueVersion]
   "Explain a diagnostic code, e.g. 'fugue explain E0042'."
 
   FLAGS:
@@ -398,11 +543,22 @@ private def explainCmd : Cmd := `[Cli|
     ...codes : String; "The codes to explain."
 ]
 
+private def helpCmd : Cmd := `[Cli|
+  help VIA runHelp; [fugueVersion]
+  "Explain what names `compile`'s `-d`/`-f`/`-W`/`-X` flags accept."
+
+  FLAGS:
+    d, debug; "List the debugging options `-d` accepts."
+    f, feature; "List the feature toggles `-f` accepts."
+    "W", warn; "List the warnings `-W` controls."
+    "X", "X"; "List the backend options `-X` accepts."
+]
+
 private def cli : Cmd := `[Cli|
-  "fugue" NOOP; ["0.1.0"]
+  "fugue" NOOP; [fugueVersion]
   "Fugue — a verified compiler for Distributed PlusCal targeting Go and the Join Calculus."
 
-  SUBCOMMANDS: compileCmd; explainCmd
+  SUBCOMMANDS: compileCmd; explainCmd; helpCmd
 ]
 
 /-- The `fugue` executable's entry point. -/

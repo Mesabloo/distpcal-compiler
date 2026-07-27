@@ -53,16 +53,29 @@ def name : Stage → String
 
 instance : ToString Stage := ⟨Stage.name⟩
 
-/-- Does this stage produce an artifact worth writing out? Four do not: `read` has only the source
-text the user already has, `resolve` produces its dependencies' modules rather than one of its own
-(each dumps itself as it is compiled), and `annotation`/`wellFormedness` transform nothing —
-they check, and hand their input onward unchanged.
+/-- What `-d dump-<name>` writes out for this stage, and `none` for a stage with nothing worth
+writing. Four have nothing: `read` has only the source text the user already has, `resolve`
+produces its dependencies' modules rather than one of its own (each dumps itself as it is
+compiled), and `annotation`/`wellFormedness` transform nothing — they check, and hand their input
+onward unchanged.
 
-Matched exhaustively on purpose: a stage added later must say which it is, rather than defaulting
-to dumpable and acquiring a `-d` flag that writes nothing. -/
-def dumpable : Stage → Bool
-  | .read | .annotation | .resolve | .wellFormedness => false
-  | .lex | .parse | .desugar | .typeCheck | .computable | .guarded | .network | .go => true
+One function rather than a `Bool` and a separate description because the two answers must agree:
+`fugue help -d` lists exactly the stages with an artifact, labelled with what that artifact is.
+Matched exhaustively on purpose: a stage added later must say what it dumps, rather than
+defaulting to dumpable and acquiring a `-d` flag that writes nothing. -/
+def artifact? : Stage → Option String
+  | .read | .annotation | .resolve | .wellFormedness => none
+  | .lex => some "the token stream"
+  | .parse => some "the surface AST, annotations still attached"
+  | .desugar => some "the Core AST, annotations resolved into fields"
+  | .typeCheck => some "the typed AST"
+  | .computable => some "the computable fragment"
+  | .guarded => some "Guarded PlusCal"
+  | .network => some "Network PlusCal"
+  | .go => some "the emitted Go"
+
+/-- Does this stage produce an artifact worth writing out? -/
+def dumpable (s : Stage) : Bool := s.artifact?.isSome
 
 /-- The `-d dump-<name>` option that dumps this stage's artifact. Spelled from `name`, so the flag,
 the file it writes (`<dump-dir>/<module>-<name>`) and the stage a diagnostic reports all use one

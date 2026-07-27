@@ -387,3 +387,37 @@ address is never recycled by the heap allocator, so the read returns `default` (
 span. `Common/Errors.lean`'s renderer no longer panics on such a line — it degrades to a blank
 quoted line — so the symptom is a bad-looking diagnostic, not a crash. Which constants these are
 was not tracked down.
+
+### 9.26 Should casts between representations be writable, including unsafe downcasts?
+`StrToSeq` is an intrinsic no source text can name (`PLAN.md`, type-system section): the `Str <:
+Seq(Int)` coercion is the only thing that builds it. Proposed instead: make casts part of the
+surface, both the safe ones subtyping already performs and Apalache-style *unsafe* downcasts
+(`FunAsSeq(fn, len)`, a function read back as a sequence — the direction `<:` cannot give).
+
+For the safe direction the gain is narrower than it looks. The coercion already fires in any
+*checking* position, with no cast written: `\* @type: Int; N == Len("abc")` and `\* @type: Seq(Int);
+S == "abc"` are both accepted today. What fails is *synthesis*: `"abc"[2]` is rejected with E0031
+(`Str` is not a function, tuple, or sequence type), because a `fnCall`'s head is inferred with no
+expected type to drive the axioms. There is currently no way to write that expression at all —
+the usual escape, an annotated `LET`-bound intermediate, needs a `LET`/`IN` parser rule this
+project does not have (§9.2). So the case for a *safe* cast rests entirely on synthesis positions,
+and the alternative fix is in the checker, not the surface: try `tryAxioms` when a `fnCall`'s head
+synthesizes a `Str`, adding no vocabulary.
+
+The unsafe direction is genuinely new expressiveness and genuinely new risk. `FunAsSeq` is partial
+— undefined unless `DOMAIN fn = 1..len` — so it compiles to a runtime check that panics. The
+runtime already panics for `Head(<<>>)` and an out-of-range index, so this is not a new *category*
+of undefinedness, but it is a new way for a specification a model checker accepts to abort as a
+program, which is the artifact this compiler produces.
+
+Where such operators would be declared is part of the question: not `Sequences`, which real TLA⁺
+exports none of them from — a project-owned builtin module (Apalache declares its own in
+`Apalache.tla`) that `Driver/Builtins.lean` would carry like any other. If `StrToSeq` were
+re-exported there, the intrinsic spelling and the module spelling must not both survive as separate
+code paths; pick one. Note also that a user-written cast is an ordinary builtin operator call, not
+a `Coercion`, so none of it is covered by §9.17's obligation.
+
+Machinery is cheap — a `builtinModules` entry, a `BuiltinOp` constructor, a `compileBuiltinCall`
+arm, a runtime function, no checker changes — so cost is not the deciding factor. Open: whether
+unsafe casts belong in a language whose output is a program rather than a model, which casts the
+set would contain, and whether the safe half should be a cast at all rather than a checker fix.

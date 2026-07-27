@@ -33,6 +33,12 @@ def name : Feature → String
   | .noColor => "no-color"
   | .noProgress => "no-progress"
 
+/-- What the toggle does, as `fugue help -f` lists it. Here rather than in `Fugue.lean` for the
+same reason the spelling is: a toggle added without a description could not be listed. -/
+def description : Feature → String
+  | .noColor => "Turn off ANSI styling in diagnostics and progress output."
+  | .noProgress => "Turn off the animated progress spinner; report plain lines instead."
+
 /-- Every toggle, in the order `-f`'s help text lists them. -/
 def list : List Feature := [.noColor, .noProgress]
 

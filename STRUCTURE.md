@@ -346,6 +346,8 @@ what it checks is structured rather than an exit code.
 - `Fugue.lean` — CLI entry point.
 - `Desugarer.lean`, `Driver.lean`, `Parser_.lean`, `ProgressBar.lean` — top-level re-exports.
 - `CustomPrelude.lean` — project-wide prelude imports/settings.
+- `VERSION` — the compiler's version, one line. The only place it is written; `Fugue.lean` reads
+  it with `include_str` at compile time.
 - `lakefile.lean` — build config, `lean_lib` per pass (`Fugue.G2N`, etc.).
 - `lean-toolchain`, `lake-manifest.json` — toolchain pin and dependency lockfile.
 - `fugue.sh` — dev-mode CLI wrapper.
