@@ -219,7 +219,7 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
     | .error e =>
       return { warnings, error := some (.driver e), reached := (PipelineError.stage (.driver e)).predecessor
                sources := ← sourcesOf }
-    | .ok typed => pure typed
+    | .ok resolved => pure resolved.mod
 
   let result ← runPostDriver moduleId warnings (← sourcesOf) typed
 

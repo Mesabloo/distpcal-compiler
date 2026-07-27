@@ -262,30 +262,46 @@ private def Decl.bindings (moduleName : String) : Decl → List (String × Bindi
   | .function τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName })]
 
 /-- Every binding `mod`'s *own* declarations introduce, each tagged `Origin.module mod.name`. Not
-transitive: what a module re-exports through its own `EXTENDS` is added by `resolveModule`, which
-is the only place that knows each re-exported binding's real declaring module. -/
+transitive on its own: what a module re-exports through its own `EXTENDS` is `ResolvedDep.
+inherited`, whose entries were tagged by whichever recursive call resolved their declaring
+module. -/
 private def TypedModule.ownBindings (mod : TypedModule) : List (String × Binding) :=
   (mod.declarations₁ ++ mod.declarations₂).flatMap (Decl.bindings mod.name)
 
-/-- What `resolveModule` hands back for one `EXTENDS`-ed dependency.
+/-- What `compileModule`/`resolveModule` hand back for one module.
 
-`bindings` is the whole set of names that dependency brings into scope, re-exports included, each
-already tagged with the module that *declared* it — which is why it is carried here rather than
-recomputed by the caller from `mod`'s declaration list. A re-exported declaration is
-indistinguishable from an own one inside a `List Decl`, so a caller folding `Decl.bindings` over a
-merged list has no name to tag with but the re-exporting module's, and would attribute
-`Naturals`'s `<` to whichever of `Sequences`/`Integers`/`FiniteSets`/`Bags` it arrived through.
-`Origin` is what `TypedTLAPlus.builtinOpOf?` and `Network2Go.compileBuiltinCall` dispatch on, so
-that misattribution is not cosmetic: it makes a builtin uncompilable. -/
+`inherited` is what that module's own `EXTENDS` list brought into scope, each entry already tagged
+with the module that *declared* it, and `bindings` below appends the module's own declarations to
+it — so `EXTENDS` is transitive, and identically so for a builtin and for a `.tla` file on disk.
+Neither field is a choice a construction site gets to make: there is no way to build a
+`ResolvedDep` that exports its own declarations but not its dependencies', which is what a `.file`
+module used to do.
+
+The `inherited` entries are carried here rather than recomputed by the caller from `mod`'s
+declaration list because a re-exported declaration is indistinguishable from an own one inside a
+`List Decl`: a caller folding `Decl.bindings` over a merged list has no name to tag with but the
+re-exporting module's, and would attribute `Naturals`'s `<` to whichever of `Sequences`/
+`Integers`/`FiniteSets`/`Bags`/user module it arrived through. `Origin` is what
+`TypedTLAPlus.builtinOpOf?` and `Network2Go.compileBuiltinCall` dispatch on, so that
+misattribution is not cosmetic: it makes a builtin uncompilable. -/
 structure ResolvedDep : Type where
   /-- Whether this module was recomputed just now (as opposed to replayed from `Ξ` or read out of
   the builtin table) — threaded up so a dependent can tell whether it must recompute in turn. -/
   recomputed : Bool
-  /-- The checked module itself. -/
+  /-- The checked module itself, exactly as its own compile (or the builtin table) produced it —
+  dependency declarations never spliced in, so it agrees with what
+  `MonadForeignLookup.lookupForeign` answers for the same name. -/
   mod : TypedModule
-  /-- Every binding it brings into scope, own and re-exported, correctly origin-tagged. -/
-  bindings : List (String × Binding)
+  /-- Everything `mod`'s own `EXTENDS` list brings into scope, each entry origin-tagged by its
+  declaring module. -/
+  inherited : List (String × Binding)
   deriving Inhabited
+
+/-- Every binding this module brings into scope: what it inherited through `EXTENDS`, then its
+own declarations. Order is what makes an own declaration shadow an inherited one of the same name,
+since `compileModule` folds this list into `Γ₀` with `insert`. -/
+def ResolvedDep.bindings (dep : ResolvedDep) : List (String × Binding) :=
+  dep.inherited ++ dep.mod.ownBindings
 
 -- `compileModule`/`resolveModule` call each other recursively (a module's own `EXTENDS` list is
 -- resolved by calling `resolveModule`, which falls back to `compileModule` on a cache
@@ -322,12 +338,18 @@ module it's whatever identifier `Fugue.lean` passes.
 its `.built`: type checking is where a *dependency* is finished, but the root goes on through
 every pass past the driver, so reporting it built here would claim success for a compile that can
 still fail. `Driver/Pipeline.lean` reports the root's outcome once it knows it. `.failed` is not
-suppressed — a driver failure ends the compile there, so it is already the final word. -/
+suppressed — a driver failure ends the compile there, so it is already the final word.
+
+Returns a `ResolvedDep` rather than the bare `TypedModule` because the bindings this module's
+`EXTENDS` list brought in are known only here, and a dependent needs them to re-export them in
+turn (`ResolvedDep.bindings`). `recomputed` is always `true`: reaching this function is what being
+recomputed means. A caller that only wants the module itself — `Driver/Pipeline.lean`, for the
+root — takes `.mod`. -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
     (expectedName : Option String := none) (isRoot : Bool := false)
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
-    (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M TypedModule := do
+    (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M ResolvedDep := do
   registerSource moduleId source
 
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
@@ -384,16 +406,16 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
 
       dumpStage .typeCheck moduleId typed
 
-      return typed
+      return { recomputed := true, mod := typed, inherited := importedBindings }
 
   tell warnings
   match result with
   | .error e => throw e
-  | .ok typed =>
+  | .ok resolved =>
     unless isRoot do
       onModuleEvent mod.name (.built (!warnings.isEmpty))
     -- flushWarnings lines colored logLine warnings
-    return typed
+    return resolved
 
 /-- The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on
 not-found/ambiguous), check `Ξ`, and recompute if `name`'s source changed or anything it
@@ -406,15 +428,16 @@ hit with nothing changed); every other outcome is reported by whichever `compile
 makes. Not for `.builtin`, which is static. `onModuleProgress name` fires once, at the top of the
 `.file` case.
 
-A builtin's own `EXTENDS` edges are re-exported (`ResolvedDep.bindings` concatenates its
-dependencies' bindings ahead of its own, so a later own declaration still shadows an inherited one
-of the same name), and each inherited binding keeps the `Origin` its declaring module gave it —
-`Naturals`'s `<` stays `Naturals!<` when reached through `EXTENDS Sequences`. The returned `mod`
-is left exactly as the builtin table has it, dependency declarations *not* spliced in, so it
-agrees with what `MonadForeignLookup.lookupForeign` answers for the same name.
+`EXTENDS` is transitive, for a builtin and for a `.tla` file alike: every path here supplies
+`ResolvedDep.inherited`, and `ResolvedDep.bindings` puts it ahead of the module's own bindings, so
+a later own declaration still shadows an inherited one of the same name. Each inherited binding
+keeps the `Origin` its declaring module gave it — `Naturals`'s `<` stays `Naturals!<` whether it
+is reached through `EXTENDS Sequences` or through a user module that `EXTENDS Naturals` itself.
 
-A `.file` module re-exports nothing: only its own declarations become bindings, matching what its
-`TypedModule` records. -/
+On the one path that replays a cached module without recompiling it, `inherited` is rebuilt from
+the dependency resolutions the cache check already had to perform for change detection: nothing
+recompiles, and by that check's own conclusion — no dependency recomputed — those bindings are
+what the cached module was compiled against. -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
     (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
     (onModuleProgress : String → M Unit := fun _ ↦ pure ())
@@ -425,7 +448,7 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
   | .builtin mod => do
     let deps ← mod.extends.mapM λ dep ↦
       withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
-    return { recomputed := false, mod, bindings := deps.flatMap (·.bindings) ++ mod.ownBindings }
+    return { recomputed := false, mod, inherited := deps.flatMap (·.bindings) }
   | .file path => do
     onModuleProgress name
     let src ← IO.FS.readFile path
@@ -437,22 +460,23 @@ partial def resolveModule (containingDir : Option System.FilePath) (name : Strin
           withReader (name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
         if depResults.all (¬ ·.recomputed) then
           onModuleEvent name .replayed
-          return { recomputed := false, mod := entry.value, bindings := entry.value.ownBindings }
+          return { recomputed := false, mod := entry.value,
+                   inherited := depResults.flatMap (·.bindings) }
         else
-          let mod ← compileModule src path.parent name (expectedName := some name)
+          let dep ← compileModule src path.parent name (expectedName := some name)
             (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
-          storeModule name { sourceHash := h, «extends» := entry.extends, value := mod }
-          return { recomputed := true, mod, bindings := mod.ownBindings }
+          storeModule name { sourceHash := h, «extends» := entry.extends, value := dep.mod }
+          return dep
       else
-        let mod ← compileModule src path.parent name (expectedName := some name)
+        let dep ← compileModule src path.parent name (expectedName := some name)
           (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
-        storeModule name { sourceHash := h, «extends» := mod.extends, value := mod }
-        return { recomputed := true, mod, bindings := mod.ownBindings }
+        storeModule name { sourceHash := h, «extends» := dep.mod.extends, value := dep.mod }
+        return dep
     | none =>
-      let mod ← compileModule src path.parent name (expectedName := some name)
+      let dep ← compileModule src path.parent name (expectedName := some name)
         (onModuleEvent := onModuleEvent) (onModuleProgress := onModuleProgress) (logLine := logLine)
-      storeModule name { sourceHash := h, «extends» := mod.extends, value := mod }
-      return { recomputed := true, mod, bindings := mod.ownBindings }
+      storeModule name { sourceHash := h, «extends» := dep.mod.extends, value := dep.mod }
+      return dep
 end
 
 end

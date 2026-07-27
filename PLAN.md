@@ -836,25 +836,37 @@ deviation (polymorphism instantiation, below):
   `finiteSetsDeclarations`/`integersDeclarations`, cross-checked against the real
   standard-module sources); a module only sees `+`/`Len`/… via an actual
   `EXTENDS Naturals`/`EXTENDS Sequences`, resolved through the same `Γ₀`-merge machinery
-  `compileModule` uses for ordinary dependencies. Builtin-`EXTENDS`ing-builtin works too
-  (`Sequences` itself `EXTENDS Naturals`, matching real TLA⁺, `«extends» := ["Naturals"]`
-  on its table entry) — `resolveModule`'s `.builtin` case resolves `mod.extends`
-  recursively the same way its `.file` case does, and **re-exports what they declare as
-  *bindings*, never as merged declarations**: `resolveModule` returns a `ResolvedDep` whose
-  `bindings` field is already `Origin`-tagged per declaring module, and `compileModule`
-  concatenates those lists rather than re-deriving bindings from a dependency's declaration
-  list. A `List Decl` cannot say who declared what, so re-deriving would tag `Naturals`'s `<`
-  with whichever of `Sequences`/`Integers`/`FiniteSets`/`Bags` it arrived through, and
-  `Origin` is the dispatch key for `TypedTLAPlus.builtinOpOf?` and
-  `Network2Go.compileBuiltinCall` — a re-exporting module's name matches no arm there, so a
-  misattributed builtin type-checks and then fails code generation. Order within a merge is
-  dependencies first, own declarations last, so an own declaration still shadows an inherited
-  one of the same name; between sibling `EXTENDS` entries the later one wins, and because
-  every path to a re-exported operator now yields the same `Origin`, `EXTENDS Naturals,
-  Sequences` and `EXTENDS Sequences, Naturals` agree. A builtin's returned `TypedModule` keeps
-  exactly the declaration list the table gives it, so it agrees with what
-  `MonadForeignLookup.lookupForeign` answers for the same name. `.file` dependencies export
-  their own declarations only.
+  `compileModule` uses for ordinary dependencies. **`EXTENDS` is transitive, and identically
+  so for a builtin and for a `.tla` file on disk** — matching real TLA⁺, and the more so
+  because `INSTANCE` is out of scope (§8), which leaves `EXTENDS` as the only import there
+  is: a module offered no way to depend on another *without* re-exporting it would otherwise
+  have no way to depend on one at all. `Bar EXTENDS Foo` with `Foo EXTENDS Naturals` sees
+  `Naturals`'s `<`, and `Sequences` — itself `EXTENDS Naturals`, `«extends» := ["Naturals"]`
+  on its table entry — gives it to whoever extends `Sequences`.
+  What is re-exported is **the *bindings* a dependency brings into scope, never merged
+  declarations**: `resolveModule`/`compileModule` return a `ResolvedDep` storing the module
+  plus `inherited`, the already-`Origin`-tagged bindings its own `EXTENDS` list brought in,
+  and `ResolvedDep.bindings` derives the export list as `inherited ++ mod.ownBindings`. That
+  the export list is derived rather than stored is what keeps the two resolution paths from
+  diverging: there is no `ResolvedDep` that exports its own declarations but not its
+  dependencies'. Callers concatenate those lists rather than re-deriving bindings from a
+  dependency's declaration list, because a `List Decl` cannot say who declared what:
+  re-deriving would tag `Naturals`'s `<` with whichever of
+  `Sequences`/`Integers`/`FiniteSets`/`Bags`/user module it arrived through, and `Origin` is
+  the dispatch key for `TypedTLAPlus.builtinOpOf?` and `Network2Go.compileBuiltinCall` — a
+  re-exporting module's name matches no arm there, so a misattributed builtin type-checks and
+  then fails code generation. Order within a merge is inherited first, own declarations last,
+  so an own declaration shadows an inherited one of the same name; between sibling `EXTENDS`
+  entries the later one wins, and because every path to a re-exported operator yields the same
+  `Origin`, `EXTENDS Naturals, Sequences` and `EXTENDS Sequences, Naturals` agree. Every
+  module's returned `TypedModule` holds exactly its own declarations — the builtin table's list
+  verbatim for a builtin, `compileModule`'s output for a file, dependency declarations never
+  spliced in — so it agrees with what `MonadForeignLookup.lookupForeign` answers for the same
+  name, which is what `WellFormedness/Reachability.lean` reads. Origins therefore point at
+  declaring modules throughout, and a transitive re-export needs no change there. On the one
+  path that replays a cached module rather than recompiling it, `inherited` is rebuilt from the
+  dependency resolutions the cache check already performs for change detection — a `flatMap`,
+  not another compile.
   Each `«extends»` list mirrors its real module's full top-of-file dependency list,
   `LOCAL INSTANCE` included, not just plain `EXTENDS`. A `LOCAL`-declared helper (e.g.
   `Bags`'s `Sum`) stays excluded from the exported declaration list. `RealTime`/`Reals`
