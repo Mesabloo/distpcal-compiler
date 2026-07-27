@@ -1,0 +1,4 @@
+{
+  "warnings": [{ "code": "W0006" }],
+  "suppressible": ["extends-algorithm"]
+}

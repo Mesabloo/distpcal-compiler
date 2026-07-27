@@ -340,6 +340,12 @@ def partialMulticastAnnotation : Entry :=
   { code := w 5, stage := .desugar, warningName := "partial-multicast-annotation",
     summary := "Only some components of a multicast recipient carry a @type annotation." }
 
+/-- An `EXTENDS`-ed module with a PlusCal algorithm of its own, which `EXTENDS` does not carry
+over. -/
+def extendsAlgorithm : Entry :=
+  { code := w 6, stage := .resolve, warningName := "extends-algorithm",
+    summary := "An EXTENDS-ed module contains a PlusCal algorithm, which EXTENDS does not import." }
+
 /-- Every registered diagnostic, in code order. `fugue explain --list` prints this; the regression
 runner's coverage report walks it to find codes no fixture exercises. -/
 def entries : List Entry :=
@@ -361,7 +367,7 @@ def entries : List Entry :=
     goInternalInvariant, goUnsupported,
     moduleNameMismatch,
     fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning,
-    partialMulticastAnnotation ]
+    partialMulticastAnnotation, extendsAlgorithm ]
 
 -- No two entries may share a number: the whole point of a code is that it identifies exactly one
 -- diagnostic. Checked here, at build time, rather than trusted.

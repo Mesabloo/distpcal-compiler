@@ -891,6 +891,19 @@ deviation (polymorphism instantiation, below):
   call. `CONSTANT`/`VARIABLE` declarations and every ordinary binder (operator/function
   parameters, quantifiers, `CHOOSE`, `EXCEPT`, PlusCal variables/channels) stay
   monomorphic — `extend`/`extendAll` hardcoded to insert monomorphically, by construction.
+- **An `EXTENDS`-ed module's own PlusCal algorithm is dropped, and warned about (`W0006`,
+  `-Wextends-algorithm`).** `EXTENDS` re-exports bindings; an algorithm is not a binding, so a
+  dependency's algorithm is silently absent from the extending module and nothing downstream ever
+  mentions it again. `compileModule` warns as soon as both halves are known — right after its
+  `mod.extends.mapM resolveModule` — for each direct dependency whose `pcalAlgorithm.isSome`.
+  Reported against the **extending** module: `moduleId` is its source-registry key and the span is
+  the dependency's identifier in its own `EXTENDS` clause (`posOf` on the name — the parser
+  registers it and desugaring carries the list over pointer-identically), so the caret lands where
+  the user would have to make a change rather than in a file that is well-formed on its own. Direct
+  dependencies only: a transitive one has no clause here to point at, and the module that does
+  extend it gets the warning on its own compile. Builtins never carry an algorithm. Because the
+  warning is raised inside `compileModule`, it is not re-raised for a module replayed from `Ξ` —
+  the same as every other warning.
 - **Process/algorithm judgments** thread `self : Address` into scope, require process-ID
   sets to be `Set(Address)`, require all channel declarations to be functions of
   addresses to `Channel(τ)`.

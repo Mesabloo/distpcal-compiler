@@ -97,18 +97,31 @@ inductive DriverWarning : Type
   | parser (moduleId : String) (w : ParserWarning)
   | desugar (moduleId : String) (w : DesugarWarning)
   | typeCheck (moduleId : String) (w : TCWarning)
+  /-- `EXTENDS dep`, where `dep` has a PlusCal algorithm of its own. `EXTENDS` imports
+  declarations, never an algorithm, so that algorithm is silently absent from the extending
+  module — and the extending module is the one that has to change, which is why `moduleId` is
+  *its* key and `span` is the `dep` identifier in *its* `EXTENDS` clause rather than anything in
+  the file the algorithm is in.
+
+  Carries the span outright instead of leaving the caller to `posOf` the name at render time:
+  positions are keyed on a value's address (`Common/Position.lean`), and by then the parsed
+  `EXTENDS` list may be gone. -/
+  | extendsAlgorithm (moduleId : String) (dep : String) (span : SourceSpan)
 
 /-- The `-W<name>`/`-Wno-<name>` name a given warning is filtered under — forwards to whichever
-wrapped warning's own `.name`. -/
+wrapped warning's own `.name`, except for the driver's own warnings, which name their registry
+entry directly. -/
 def DriverWarning.name : DriverWarning → String
   | .parser _ w => ParserWarning.name w
   | .desugar _ w => DesugarWarning.name w
   | .typeCheck _ w => TCWarning.name w
+  | .extendsAlgorithm .. => Diagnostics.extendsAlgorithm.warningName
 
 /-- The `moduleId` a given warning is tagged with — every variant carries one, unlike
 `DriverError` (whose `moduleNotFound`/`ambiguousModule`/`cyclicExtends` carry none). -/
 def DriverWarning.moduleId : DriverWarning → String
-  | .parser moduleId _ | .desugar moduleId _ | .typeCheck moduleId _ => moduleId
+  | .parser moduleId _ | .desugar moduleId _ | .typeCheck moduleId _
+  | .extendsAlgorithm moduleId .. => moduleId
 
 instance : CompilerDiagnostic DriverWarning String where
   isError := false
@@ -117,13 +130,17 @@ instance : CompilerDiagnostic DriverWarning String where
     | .parser _ w => CompilerDiagnostic.code w
     | .desugar _ w => CompilerDiagnostic.code w
     | .typeCheck _ w => CompilerDiagnostic.code w
+    | .extendsAlgorithm .. => Diagnostics.extendsAlgorithm.code
   posOf
     | .parser _ w => CompilerDiagnostic.posOf w
     | .desugar _ w => CompilerDiagnostic.posOf w
     | .typeCheck _ w => CompilerDiagnostic.posOf w
+    | .extendsAlgorithm _ _ span => span
   msgOf
     | .parser _ w => CompilerDiagnostic.msgOf w
     | .desugar _ w => CompilerDiagnostic.msgOf w
     | .typeCheck _ w => CompilerDiagnostic.msgOf w
+    | .extendsAlgorithm _ dep _ =>
+      s!"Module '{dep}' contains a PlusCal algorithm, which EXTENDS does not import."
 
 end

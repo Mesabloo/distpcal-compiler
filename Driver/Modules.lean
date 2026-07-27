@@ -396,6 +396,17 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
     let deps ← reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name <|
       mod.extends.mapM λ dep ↦
         withReader (mod.name :: ·) (resolveModule containingDir dep onModuleEvent onModuleProgress logLine)
+    -- `EXTENDS` brings a module's declarations into scope and nothing else: a dependency's own
+    -- PlusCal algorithm is dropped, and nothing downstream would ever mention it again. Warned
+    -- about here, at the point both halves are known, and reported against *this* module's
+    -- `EXTENDS` clause — the dependency is fine on its own, and the clause is what the user would
+    -- have to change. `posOf` on the name is the identifier's own span: `parseIdentifier`
+    -- registered it (`Parser_/TLAPlus.lean`), and desugaring carries the list over
+    -- pointer-identically. Direct dependencies only, since only they have a clause here to point
+    -- at. Builtins never carry an algorithm, so the table's entries never match.
+    for (dep, resolved) in mod.extends.zip deps do
+      if resolved.mod.pcalAlgorithm.isSome then
+        tell [.extendsAlgorithm moduleId dep (posOf dep)]
     onModuleProgress mod.name
 
     reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name do
