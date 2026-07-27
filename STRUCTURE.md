@@ -54,7 +54,7 @@ Desugared AST — annotations stripped into concrete fields (types, mailbox, par
 ## `Core/TypedPlusCal/`, `Core/TypedTLAPlus/`
 `Elaborator`'s output; every annotation resolved to a concrete `Typ`.
 - `Syntax.lean` (`TypedTLAPlus/`) — the AST types.
-- `Syntax.lean` (`TypedPlusCal/`) — `ElaboratedPlusCal.{Ref,MulticastFilter,Statement,Block,
+- `Syntax.lean` (`TypedPlusCal/`) — `ElaboratedPlusCal.{Ref,Multicast,Statement,Block,
   Branches,Declarations,Process,Algorithm}`, generic over `(τ ε : Type)`, plus `TypedPlusCal`'s
   pin of that layer at `TypedTLAPlus.Typ`/`Expression`. `Core/ComputablePlusCal/Syntax.lean`
   pins the same generic layer at `ComputableTLAPlus`'s types.
@@ -75,10 +75,10 @@ Desugared AST — annotations stripped into concrete fields (types, mailbox, par
 Outputs of `Computable2Guarded` and `Guarded2Network` (§5.4/§5.5).
 - `Syntax.lean` (`GuardedPlusCal/`) — `Statement` flat (10 constructors, no nested `Block`/
   `Branches`; every `if`/`while`/`either` already in `AtomicBranch`'s precondition/action split),
-  reuses `ElaboratedPlusCal.Ref`/`.MulticastFilter`. Pins itself as `ComputableGuardedPlusCal`.
+  reuses `ElaboratedPlusCal.Ref`/`.Multicast`. Pins itself as `ComputableGuardedPlusCal`.
 - `Syntax.lean` (`NetworkPlusCal/`) — `Statement` identical minus `receive` (compiled into a
   `Thread.rx` constructor, a real second kind of thread); reuses `GuardedPlusCal.Block`/`Ref`/
-  `MulticastFilter`/`Declarations`. Pins itself as `ComputableNetworkPlusCal`.
+  `Multicast`/`Declarations`. Pins itself as `ComputableNetworkPlusCal`.
 
 ## `Core/Go/`
 `Network2Go`'s target AST (§5.7) — the Go fragment of thesis §6.6 plus what §7.2's listings
@@ -244,8 +244,10 @@ Go, not Lean — the library generated code links against (§5.7). Signatures fr
 ### `runtime/comm/`
 - `comm.go` — `Sender[T]`/`Receiver[T]` (Listings 7.2.9/7.2.10). Interfaces, not concrete types:
   a Distributed PlusCal channel has no runtime representation of its own, so generated code
-  holds an endpoint supplied by whoever wires the system. `Multicast` lands here once tasklist
-  item 4 settles its signature (§9.5).
+  holds an endpoint supplied by whoever wires the system.
+- `multicast.go` — `Multicast[T](ch map[Address]Sender[T], to tlaplus.Set[Address], f func(Address) T)`,
+  the whole compiled form of a `multicast` statement. Holds the iteration `Network2Go` does not
+  emit: the specification fixes no order on the sends, so the choice stays the library's (§5.7).
 - `address.go` — `Address`, unspecified beyond its `Eq`/`Lt` methods, plus `AddressOrd` bridging
   them into a `tlaplus.Ord` dictionary. Here rather than `tlaplus/` because an address names the
   peer a `Sender` reaches.
@@ -290,7 +292,6 @@ One file per TLA⁺ concept/stdlib module.
   dictionary literal emitted beside each — no library type, no generated one, hence no arity cap
   on tuples. `records_test.go` stands in for generated code, pinning that a dictionary orders an
   unnameable type and that identically-shaped structs are one type.
-- Missing: `comm/multicast.go` (blocked on tasklist item 4).
 
 ## `persistent/`
 Go, not Lean — data structures the runtime needs (§5.7). Root `go.mod`, module

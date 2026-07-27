@@ -93,17 +93,30 @@ inductive DesugarWarning : Type
   /-- A `@parameter` marker repeated on the same variable — content-free, so a warning rather
   than `DesugarError.duplicateAnnotation`. -/
   | duplicateParameterAnnotation (pos : SourceSpan)
+  /-- A `multicast` filter whose components carry `@type` annotations on some binds but not all.
+  The desugarer collapses the components into one binder over their Cartesian product, whose
+  declared type is the tuple of theirs — which it can only build when every component supplies
+  one. The annotations that were written are dropped, and the recipient's type comes from the
+  channel's own declared domain instead. -/
+  | partialMulticastAnnotation (pos : SourceSpan)
   deriving Repr, Inhabited, BEq
 
 /-- The `-W<name>`/`-Wno-<name>` name a given warning is filtered under. -/
 def DesugarWarning.name : DesugarWarning → String
   | .duplicateParameterAnnotation _ => "duplicate-parameter"
+  | .partialMulticastAnnotation _ => "partial-multicast-annotation"
 
 instance : CompilerDiagnostic DesugarWarning String where
   isError := false
-  code | .duplicateParameterAnnotation _ => Diagnostics.duplicateParameterAnnotation.code
+  code
+    | .duplicateParameterAnnotation _ => Diagnostics.duplicateParameterAnnotation.code
+    | .partialMulticastAnnotation _ => Diagnostics.partialMulticastAnnotation.code
   name := DesugarWarning.name
-  posOf | .duplicateParameterAnnotation pos => pos
-  msgOf | .duplicateParameterAnnotation _ => "Only one '@parameter' is needed per variable; the extra one(s) have no additional effect."
+  posOf
+    | .duplicateParameterAnnotation pos => pos
+    | .partialMulticastAnnotation pos => pos
+  msgOf
+    | .duplicateParameterAnnotation _ => "Only one '@parameter' is needed per variable; the extra one(s) have no additional effect."
+    | .partialMulticastAnnotation _ => "This multicast's recipients are a tuple, so a declared type for them can only be built when every component is annotated; the annotations given here are ignored."
 
 end

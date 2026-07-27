@@ -145,8 +145,8 @@ private structure Footprint where
   bound : List String
 
 /-- One statement's contribution. `send`'s channel is not a footprint entry: a channel is not
-process state, so only its index expressions and payload are read. `multicast`'s filter binds its
-own names, scoped left to right and over the value. -/
+process state, so only its index expressions and payload are read. `multicast`'s recipient set is
+read like any other expression, and the recipient it binds is subtracted from the payload. -/
 private def stepStatement {b b'} (f : Footprint) :
     ComputableNetworkPlusCal.Statement b b' → Footprint
   | .skip | .goto _ => f
@@ -159,9 +159,8 @@ private def stepStatement {b b'} (f : Footprint) :
     { f with shared :=
         unionVars (unionVars (insertVar f.shared r.name) (refReads f.bound r)) (exprFreeVars f.bound e) }
   | .multicast _ filter =>
-    let inner := filter.binds.foldl (init := f) λ acc (name, _, _, e) ↦
-      { shared := unionVars acc.shared (exprFreeVars acc.bound e), bound := insertVar acc.bound name }
-    { f with shared := unionVars inner.shared (exprFreeVars inner.bound filter.val) }
+    let shared := unionVars f.shared (exprFreeVars f.bound filter.set)
+    { f with shared := unionVars shared (exprFreeVars (insertVar f.bound filter.recipient) filter.val) }
 
 /-- Every statement of a block, in order. -/
 private def stepBlock {α : Bool → Type} {b}

@@ -183,7 +183,7 @@ partial def TypedPlusCal.Statement.walkReachable {b : Bool} [MonadStateOf Reacha
   | .receive c r _ => do walkRefArgs c; walkRefArgs r
   | .send c e => do walkRefArgs c; walkExpr e
   | .multicast _ filter => do
-    filter.binds.forM λ (_, _, _, e) ↦ walkExpr e
+    walkExpr filter.set
     walkExpr filter.val
 
 /-- Walks every expression embedded in `d` — every `variables` entry's initializer, every

@@ -1,4 +1,0 @@
-{
-  "status": "xfail",
-  "reason": "type-checks, but the Go backend has no multicast yet — OPEN_QUESTIONS §9.5, tasklist item 4"
-}

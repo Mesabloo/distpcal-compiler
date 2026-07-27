@@ -12,12 +12,13 @@ public section
   `@type` annotation) into a `TypedPlusCal.Algorithm`.
 
   A few notable points:
-  - `[Multicast]`'s `e1` premise is checked against `Set(τ)`: multicast's desugared semantics
-    tests `y ∈ e1`, which only type-checks if `e1 : Set(τ)`.
+  - `[Multicast]`'s `e1` premise is checked against `Set(τ)` for the channel's own declared
+    domain `τ`: `e1` is the set of recipients, and each is what indexes the channel.
   - Algorithm-level `variables` (`Algorithm.globalState.variables`) are checked the same way as a
     process's own local variables (`checkVariables` below, shared by both).
-  - A `with`-bound variable's/`variables` entry's/multicast bind's optional annotation is checked
-    against when present, otherwise inferred from the initializer.
+  - A `with`-bound variable's/`variables` entry's optional annotation is checked against when
+    present, otherwise inferred from the initializer. A `multicast` recipient's is not consulted
+    at all — see `[Multicast]` below.
   - `[Goto]` performs no type check at all — label existence is the well-formedness pass's job.
   - A `receive`/`send`'s channel reference, and a `with`/`variables` entry's Ref-typed
     destination, are checked via `inferRef` below, not `Elaborator/Expressions.lean`'s
@@ -41,7 +42,7 @@ abbrev SrcBranches (b : Bool) := CorePlusCal.Branches (Option Typ) SrcExpr b
 abbrev SrcDeclarations := CorePlusCal.Declarations (Option Typ) SrcExpr
 abbrev SrcProcess := CorePlusCal.Process (Option Typ) SrcExpr
 abbrev SrcAlgorithm := CorePlusCal.Algorithm (Option Typ) SrcExpr
-abbrev SrcMulticastFilter := SurfacePlusCal.MulticastFilter (Option Typ) SrcExpr
+abbrev SrcMulticast := CorePlusCal.Multicast (Option Typ) SrcExpr
 
 /-- The `showable` predicate, used by `print`: `Int`/`Bool`/`Str`/`Address` atomic;
 `Function`/`Set`/`Seq`/`Tuple`/`Record` recursively (a `Function` is showable when both its domain
@@ -189,30 +190,6 @@ def checkPlusCalDeclarations (decls : SrcDeclarations) : m (TypedPlusCal.Declara
       return ({ «variables» := vars', channels := channels', fifos := fifos' },
         varBindings ++ chBindings ++ fifoBindings)
 
-/-- One `MulticastFilter.binds` entry, checked against the channel's own declared domain type
-`domTy`: an `=`-bind is a plain, `domTy`-independent let (infer/check its own value); an
-`∈`-bind is checked against `Set(domTy)`, taking `domTy` itself as the bound variable's type. -/
-private def checkMulticastBind (domTy : Typ) (x : String) (ann : Option Typ) (isEq : Bool)
-    (e : SrcExpr) : m (Typ × (String × Typ × Bool × TypedPlusCal.Expression)) := do
-  if isEq then do
-    let (τ, e') ← match ann with
-      | some τ => pure (τ, ← checkExprR e τ)
-      | none => inferExprR e
-    return (τ, x, τ, true, e')
-  else do
-    let e' ← checkExprR e (.set domTy)
-    return (domTy, x, domTy, false, e')
-
-/-- `checkMulticastBind` over the whole bind list, threaded the same way `checkVariables` is. -/
-private def checkMulticastBinds (domTy : Typ) :
-    List (String × Option Typ × Bool × SrcExpr) →
-      m (List (String × Typ × Bool × TypedPlusCal.Expression) × List (String × Typ))
-  | [] => return ([], [])
-  | (x, ann, isEq, e) :: rest => do
-    let (τ, entry) ← checkMulticastBind domTy x ann isEq e
-    let (rest', bindings) ← extend x τ (checkMulticastBinds domTy rest)
-    return (entry :: rest', (x, τ) :: bindings)
-
 mutual
   /-- `Γ|Ξ⊩S ok` — a transform, not a pure `ok`-judgment: every embedded
   `CoreTLAPlus.Expression`/`Ref` becomes a checked `TypedPlusCal.Expression`/`Ref`, and `receive`
@@ -353,15 +330,20 @@ mutual
        x:τ→Channel(τ')∈Γ       Γ|Ξ⊢e1⇓Set(τ)       Γ,y:τ|Ξ⊢e2⇓τ'
       ──────────────────────────────────────────────────────────── [Multicast]
                     Γ|Ξ⊩ multicast(x,[y∈e1↦e2]) ok
-      (`Set(τ)` on `e1`; generalized to a whole bind list rather than a single one.)
+      (The desugarer has already collapsed the surface bind list to this single binder, so the
+      rule is the thesis's own, not a generalization of it. `y`'s type is the channel's declared
+      domain — it is what indexes the channel — so an `@type` annotation on it has nothing to
+      disambiguate and is not consulted, unlike `with`'s.)
     -/
     | .multicast x filter, pos => do
       match (← readThe Context).get? x with
       | none => throw (.unboundVariable pos x)
       | some { type := .function domTy (.channel elemTy), .. } => do
-        let (binds', bindings) ← checkMulticastBinds domTy filter.binds
-        let val' ← extendAll bindings (checkExprR filter.val elemTy)
-        return .multicast x { binds := binds', val := val' } @@ pos
+        let set' ← checkExprR filter.set (.set domTy)
+        let val' ← extend filter.recipient domTy (checkExprR filter.val elemTy)
+        return .multicast x
+          ({ recipient := filter.recipient, ann := domTy, set := set', val := val' } @@ posOf filter)
+          @@ pos
       | some got => throw (.notAChannelType pos got.type)
 
   /-- `Γ|Ξ⊩B ok` for atomic blocks — check every non-terminal statement, then the terminal one. -/

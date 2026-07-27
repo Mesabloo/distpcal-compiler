@@ -1,0 +1,6 @@
+{
+  "status": "xfail",
+  "reason": "W0005 fires as asserted; the compile still fails at codegen because a tuple-domain channel has no `map[comm.Address]` Network field shape",
+  "warnings": [{ "code": "W0005" }],
+  "suppressible": ["partial-multicast-annotation"]
+}

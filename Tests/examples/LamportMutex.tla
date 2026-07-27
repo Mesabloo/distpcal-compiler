@@ -35,27 +35,29 @@ Acknowledge(agt, c) == [ type |-> "ack", clock |-> c, agent |-> agt ]
             \* @type: Set(Address);
             ack = {},
             \* @type: {type: Str, clock: Int, agent: Address};
-            msg = Request(self, 0);
+            msg = Request(self, 0),
+            \* @type: Address;
+            sndr = self;
     {
 ncs:    while (TRUE) {
             skip;  \* non-critical section
 try:        clock := clock + 1; req[self] := clock; ack := {self};
-            multicast(network, [m = self, nd \in Nodes |-> Request(clock)]);
+            multicast(network, [nd \in Nodes |-> Request(self, clock)]);
 enter:      await (ack = Nodes /\ \A nd \in Nodes \ {self} : beats(req, self, nd));
 cs:         skip;  \* critical section
 exit:       clock := clock + 1;
-            multicast(network, [m = self, nd \in Nodes \ {self} |-> Release(clock)]);
+            multicast(network, [nd \in Nodes \ {self} |-> Release(self, clock)]);
         } 
     } 
     {
 rcv:    while (TRUE) { 
             with (nd \in Nodes) {
-                receive(network[nd,self], msg); sndr := nd;
+                receive(network[self], msg); sndr := nd;
                 clock := Max(clock, msg.clock) + 1
             };
 handle:     if (msg.type = "request") {
                 req[sndr] := msg.clock;
-                send(network[self, sndr], Acknowledge(clock))
+                send(network[sndr], Acknowledge(self, clock))
             } else if (msg.type = "ack") { 
                 ack := ack \cup {sndr}; 
             } else if (msg.type = "release") { 

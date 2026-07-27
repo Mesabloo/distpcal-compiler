@@ -160,8 +160,8 @@ private def processPrecondition (chans : Guarded2NetworkChans) (inboxName : Stri
 
 /-- Every action-class constructor `GuardedPlusCal.Statement`/`NetworkPlusCal.Statement` share
 verbatim (all but `receive`, already compiled away above, and `with`, guard-class only) — `Ref`/
-`MulticastFilter` are the same types under both pinnings (`Core/NetworkPlusCal/Syntax.lean` reuses
-`GuardedPlusCal.Ref`/`.MulticastFilter` directly), so this is a plain re-tagging, not a
+`Multicast` are the same types under both pinnings (`Core/NetworkPlusCal/Syntax.lean` reuses
+`GuardedPlusCal.Ref`/`.Multicast` directly), so this is a plain re-tagging, not a
 translation. -/
 private def convertActionStmt {b} (s : ComputableGuardedPlusCal.Statement false b) :
     ComputableNetworkPlusCal.Statement false b :=

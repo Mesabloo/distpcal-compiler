@@ -53,6 +53,13 @@ def builtinContext : Context := Std.HashMap.ofList [
   ("\\cup", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
+  -- Binary, matching how the parser treats it (`Core/SurfaceTLAPlus/Syntax.lean` notes `\X` is
+  -- not really a binary operator in TLA⁺'s grammar; here it has a precedence and left
+  -- associativity like any other). So `A \X B \X C` is `(A \X B) \X C` and its elements are
+  -- pairs whose first component is a pair, not the flat triples TLA⁺ means — a three-component
+  -- product is rejected downstream by the tuple-index bound rather than accepted with the wrong
+  -- shape.
+  ("\\X", { type := .operator [.set (.var "a"), .set (.var "b")] (.set (.tuple [.var "a", .var "b"])), isScheme := true, origin := .intrinsic }),
   ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
   -- Temporal/action operators. `^+`/`^*`/`^#` are deliberately excluded — no typing rule exists
   -- for them, so they're left unbound. `WellFormedness/Restrictions.lean` bans all eight names

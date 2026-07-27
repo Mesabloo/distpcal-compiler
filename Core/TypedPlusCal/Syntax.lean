@@ -19,7 +19,7 @@ public import Core.CorePlusCal.Syntax
   TypedTLAPlus.Typ`. `Core/ComputablePlusCal/Syntax.lean` pins the same layer at
   `ComputableTLAPlus`'s types, reusing these definitions rather than re-copying them: neither
   `Ref.type` nor `receive`'s `Coercion` field change shape across the two, so no second
-  monomorphic copy is needed. `MulticastFilter` is reused generically from `SurfacePlusCal` (its
+  monomorphic copy is needed. `Multicast` is reused generically from `CorePlusCal` (its
   target is a bare `String`, not a `Ref`, so no type to carry either way).
 -/
 
@@ -41,8 +41,8 @@ structure Ref (τ ε : Type) : Type where
   baseType : τ
   deriving Repr
 
-/-- `SurfacePlusCal.MulticastFilter`, reused generically. -/
-abbrev MulticastFilter (τ ε : Type) := SurfacePlusCal.MulticastFilter τ ε
+/-- `CorePlusCal.Multicast`, reused generically. -/
+abbrev Multicast (τ ε : Type) := CorePlusCal.Multicast τ ε
 
 mutual
   /-- A fresh copy of `CorePlusCal.Statement`'s shape, not an `abbrev` over it: parameterized over
@@ -64,7 +64,7 @@ mutual
     upcast for the value read off the channel at runtime. -/
     | receive (c r : Ref τ ε) (coe : TypedTLAPlus.Coercion) : Statement τ ε false
     | send (c : Ref τ ε) (e : ε) : Statement τ ε false
-    | multicast (c : String) (filter : MulticastFilter τ ε) : Statement τ ε false
+    | multicast (c : String) (filter : Multicast τ ε) : Statement τ ε false
     deriving Repr
 
   /-- A fresh copy of `CorePlusCal.Block`'s shape. -/
@@ -186,7 +186,7 @@ namespace TypedPlusCal
 abbrev Expression := TypedTLAPlus.Expression TypedTLAPlus.Typ
 
 abbrev Ref := ElaboratedPlusCal.Ref TypedTLAPlus.Typ Expression
-abbrev MulticastFilter := ElaboratedPlusCal.MulticastFilter TypedTLAPlus.Typ Expression
+abbrev Multicast := ElaboratedPlusCal.Multicast TypedTLAPlus.Typ Expression
 abbrev Statement := ElaboratedPlusCal.Statement TypedTLAPlus.Typ Expression
 abbrev Block := ElaboratedPlusCal.Block TypedTLAPlus.Typ Expression
 abbrev Branches := ElaboratedPlusCal.Branches TypedTLAPlus.Typ Expression

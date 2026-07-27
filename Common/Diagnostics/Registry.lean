@@ -335,6 +335,11 @@ def typeCheckTodoWarning : Entry :=
   { code := w 4, stage := .typeCheck, warningName := "todo",
     summary := "An unnamed type-checking warning (placeholder)." }
 
+/-- A `multicast` filter annotating only some of its components. -/
+def partialMulticastAnnotation : Entry :=
+  { code := w 5, stage := .desugar, warningName := "partial-multicast-annotation",
+    summary := "Only some components of a multicast recipient carry a @type annotation." }
+
 /-- Every registered diagnostic, in code order. `fugue explain --list` prints this; the regression
 runner's coverage report walks it to find codes no fixture exercises. -/
 def entries : List Entry :=
@@ -355,7 +360,8 @@ def entries : List Entry :=
     notComputable, computableInternalInvariant, guardedInternalInvariant, networkInternalInvariant,
     goInternalInvariant, goUnsupported,
     moduleNameMismatch,
-    fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning ]
+    fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning,
+    partialMulticastAnnotation ]
 
 -- No two entries may share a number: the whole point of a code is that it identifies exactly one
 -- diagnostic. Checked here, at build time, rather than trusted.

@@ -154,7 +154,7 @@ guidance.
 | 4 | "Compiler verification, denotationally" | Stub (title only) |
 | 5 | Guarded PlusCal → Network PlusCal | Stub in thesis — but *implemented and proved* in `fugue` `main`. Read code, not thesis. |
 | 6 | Denotational account of Go | Fully written, heavy domain theory. See §6.4. |
-| 7 | Network PlusCal → Go, lock inference | §7.1 (atomicity/lock inference) fully written (§5.7). §7.2.1.1 (Go representations of each TLA+ type, incl. `Channel(τ)` resolution) and §7.2.1.2 (compiling TLA+ expressions — booleans/quantifiers, sets, functions) fully written. §7.2.2 ("Compiling operator and function definitions") fully written (non-recursive vs. parametric operators, recursive functions via tie-the-knot `MkRecFn`). **§7.2.3.1 ("Compiling atomic blocks") and §7.2.3.2 ("Compiling threads and whole processes") both fully written** — branch-as-function scheduling loop, lock parameters, `LOCK`/`UNLOCK`, per-construct statement/guard compilation rules, thread chaining, the receive-relay thread, full process wiring (`INIT_LOCKS`, `done`/`done'` channels); see §5.7. **§7.3 is a fully worked Go compilation of the Ping-Pong example** (the Pong process end to end: lock inference result, every atomic block's generated function, both threads, the process function, the concrete `Network` struct) — cross-check §5.7's implementation against it directly, same role as §8.6's worked example for the Join Calculus backend. §7.4 ("informal correctness proof sketch") states a named conjecture (`proc(net, mailbox, self)` refines `P` in isolation, assuming the network is correctly wired) but explicitly leaves both the informal argument and any mechanization as future work — still effectively a stub for verification purposes, no proof obligation added to this project's scope. `Channel(τ)`: "channels are not first-class citizens in Distributed PlusCal, we do not (need to) represent `Channel(τ)` in the general case" — narrows but doesn't close §9.7. See §5.7. |
+| 7 | Network PlusCal → Go, lock inference | §7.1 (atomicity/lock inference) fully written (§5.7). §7.2.1.1 (Go representations of each TLA+ type, incl. `Channel(τ)` resolution) and §7.2.1.2 (compiling TLA+ expressions — booleans/quantifiers, sets, functions) fully written. §7.2.2 ("Compiling operator and function definitions") fully written (non-recursive vs. parametric operators, recursive functions via tie-the-knot `MkRecFn`). **§7.2.3.1 ("Compiling atomic blocks") and §7.2.3.2 ("Compiling threads and whole processes") both fully written** — branch-as-function scheduling loop, lock parameters, `LOCK`/`UNLOCK`, per-construct statement/guard compilation rules, thread chaining, the receive-relay thread, full process wiring (`INIT_LOCKS`, `done`/`done'` channels); see §5.7. **§7.3 is a fully worked Go compilation of the Ping-Pong example** (the Pong process end to end: lock inference result, every atomic block's generated function, both threads, the process function, the concrete `Network` struct) — cross-check §5.7's implementation against it directly, same role as §8.6's worked example for the Join Calculus backend. §7.4 ("informal correctness proof sketch") states a named conjecture (`proc(net, mailbox, self)` refines `P` in isolation, assuming the network is correctly wired) but explicitly leaves both the informal argument and any mechanization as future work — still effectively a stub for verification purposes, no proof obligation added to this project's scope. `Channel(τ)`: "channels are not first-class citizens in Distributed PlusCal, we do not (need to) represent `Channel(τ)` in the general case" — that plus §7.2.3's `.Send`/`mailbox` API surface is the whole of what the compiler owes the wire mechanism; endpoint internals are outside the thesis and outside this compiler. See §5.7. |
 | 8 | Network PlusCal → the Join Calculus | Fully written, worked Ping-Pong example. Primary spec for new backend; §5.6 is condensed version. |
 | 9 | Conclusion | Stub (title only) |
 
@@ -453,6 +453,27 @@ Two independent halves:
     calls it; `WithContext`'s
     bound-name tracking extends with *every* binder's name for the *whole* original body
     in one step regardless.
+  - **A `multicast` filter collapses to a single binder over a set of recipients.**
+    `multicast(c, [x₁ ⋈₁ e₁, …, xₙ ⋈ₙ eₙ ↦ v])` reaches every `c[y]` for `y` in the
+    **Cartesian product** of the components: an `∈`-bind contributes its own set, an
+    `=`-bind the singleton `{e}`. The components therefore name the parts of a recipient
+    *tuple* rather than a chain of lets, and do **not** scope over one another — a later
+    component mentioning an earlier one's name is an unbound variable, reported as such by
+    the checker with no rule of its own. Any number of components in any order is legal;
+    `n = 1` (every real specification so far) is the thesis's own `[y ∈ e1 ↦ e2]`.
+    `Desugarer/PlusCal.lean`'s `MulticastFilter.collapse` builds one fresh binder over
+    `D₁ \X … \X Dₙ` and rewrites each original name in `v` to its projection off that
+    binder — the same transformation, and the same `SurfaceTLAPlus.tupleProj`/
+    `cartesianProduct` helpers, that collapse a multi-binder function literal
+    (`collapseToSingleBinder`); `n = 1` passes through untouched.
+    `CorePlusCal.Multicast` (`recipient`/`ann`/`set`/`val`) replaces the surface
+    `MulticastFilter` from `CorePlusCal` down, so **no pass after the desugarer
+    reconstructs which bind was which** — the backends receive a set and a payload.
+    The collapsed binder's declared type is the tuple of the components' own `@type`s,
+    available only when every component carries one: a filter annotating some but not all
+    warns (`partial-multicast-annotation`, W0005) and keeps none, the recipient's type
+    being fixed by the channel's declared domain either way. An empty component list is
+    unrepresentable — the parser reads the list with `sepBy1`.
   - **Every function call/`EXCEPT` index is unary.** `CoreTLAPlus.Expression.fnCall`/
     `.except` take a single `Expression α` each (not `List (Expression α)`) — a surface
     multi-index call `f[e₁, …, eₙ]` (`n > 1`, same for an `EXCEPT` path step
@@ -1012,11 +1033,31 @@ backend. Also directly reusable: hand-written runtime scaffolding in
 process for cross-machine address discovery — the practical, already-prototyped Go
 analogue of §5.6's `register`/`lookup`).
 
-**Caveat: that covers *intra-process* concurrency only, not `send`/`receive`'s
-cross-process wire mechanism.** Goroutines over Go's native `chan` handle plumbing *within*
-one compiled process (a thread and its `T_rx` counterpart passing buffered messages). But
-`send(c, e)` addressed to a different, possibly remote process has to leave the process
-entirely — that compilation scheme is undescribed, §9.7.
+**The wire mechanism, and what the compiler owes it — settled.** Goroutines over Go's
+native `chan` handle plumbing *within* one compiled process (a thread and its `T_rx`
+counterpart passing buffered messages), but `send(c, e)` addressed to a different, possibly
+remote process has to leave the process entirely. The compiler's answer is to not answer:
+`send(c[e₁], e₂)` compiles to `net.c[e₁].Send(e₂)` and each compiled process takes
+`mailbox comm.Receiver[τ]` as a parameter — both interfaces (see `Channel(τ)` under
+"Go representations", below). Generated code therefore never opens a connection, serializes
+anything, picks a capacity, or names a nameserver; connection lifecycle, serialization
+format, and how a channel's identity travels with its payload are all the endpoint
+implementation's business, supplied by whoever wires the system together. This is the
+thesis's own division (§7.2.3.1 pins the `.Send` call site, §7.2.3.2 makes `mailbox`
+caller-supplied; neither specifies internals), and it is implemented: `Network2Go/
+PlusCal.lean` emits exactly this, and `runtime/comm/` ships the two interfaces and nothing
+behind them.
+
+**Deferred scope, deliberately: a *reference* transport.** A TCP-or-Unix-socket
+`Sender`/`Receiver` with a concrete serialization format and address discovery (the natural
+starting point being prior art's `distpcal-compiler/tests/*/{lib,nameserver}`, TCP/UDP
+address resolution plus a name-server process — the already-prototyped Go analogue of
+§5.6's `register`/`lookup`) is wanted eventually but is not being built now. Nothing in the
+compiler blocks on it: a specification is runnable today against hand-written endpoints,
+which is how the Ping-Pong end-to-end check runs (§7.3's worked example, generated
+`Proc_Ping`/`Proc_Pong` wired over Go channels, `go test -race` clean). Writing one is a
+scope decision, not an open compilation question — the only thing it would reopen is §9.6's
+capacity hypothesis for a socket-backed endpoint.
 
 **Lock inference, concretely** — follows thesis §7.1.2's [HFP06]-derived scheme. Locks
 are assigned **per process-local variable**, and a block may need to acquire *several*
@@ -1150,15 +1191,15 @@ Go's own vocabulary, which `binderName` handles against both `keywords` and `pre
   first-class citizens in Distributed PlusCal" — a channel is never stored, passed
   around, or put in a data structure as an ordinary TLA+ value, only ever appears indexed
   (`c[α]`) at a `send`/`receive` site. What generated code holds instead are *endpoints*:
-  `channels.Sender[τ]` (`Send(τ)`, may block, no error result — a specification has no
-  vocabulary for medium failure) and `channels.Receiver[τ]` (`Recv() (τ, bool)`, blocks
+  `comm.Sender[τ]` (`Send(τ)`, may block, no error result — a specification has no
+  vocabulary for medium failure) and `comm.Receiver[τ]` (`Recv() (τ, bool)`, blocks
   while the medium is alive, returns the zero value and `false` once it has vanished, which
   is what lets a receive loop terminate). Interfaces, not concrete types, since the compiler
   emits no `main` and takes no position on the medium — Go channel, Unix socket, TCP
   connection all satisfy them, and the choice belongs to whoever wires the system together.
-  Answers "what Go type represents a channel value" (none needed) — doesn't answer "what
-  does `send(c, e)` to a different process actually compile to on the wire," still open,
-  §9.7.
+  That answers both halves: "what Go type represents a channel value" (none needed) *and*
+  "what does `send(c, e)` to a different process compile to" (an interface call — see
+  "The wire mechanism, and what the compiler owes it" below).
 
 **Compiling TLA+ expressions, operators, functions** (thesis §7.2.1.2/§7.2.2; §7.4's
 correctness sketch is the chapter's only remaining stub):
@@ -1364,12 +1405,41 @@ scheduler function named `l` plus one function per branch `B_i`, named `l_i`:
   constraint solver), not merely deferred.
 - **Statements**: `skip` is a no-op; `print e`/`assert e`/assignment compile structurally
   (`assert` panics on failure); `send(c[e1], e2)` compiles to `net.c[e1].Send(e2)`
-  (indexed channel) or `net.c.Send(e2)` (non-indexed) — multicast is explicitly *not*
-  covered here, thesis treats it as "a simple iterated send" in prose only, no compiled
-  form given (§9.5 stays open); `goto l'` compiles to `done <- struct{}{}` when `l'` is
+  (indexed channel) or `net.c.Send(e2)` (non-indexed); **`multicast(c, [y ∈ e1 ↦ e2])`
+  compiles to one call, `comm.Multicast(net.c, e1, func(y comm.Address) τ { return e2 })`**
+  — see "Multicast" below; `goto l'` compiles to `done <- struct{}{}` when `l'` is
   the special label `Done`, otherwise to `go { l'(ℓ1, ..., ℓk, net, self, done) }` —
   spawning a fresh goroutine per transition specifically to avoid stack overflow (Go
   goroutines start with a small growable stack, a plain tail call wouldn't be safe here).
+
+**Multicast.** The thesis omits it from §7.2.3.1's rules, calling the construct "a simple
+iterated send" in prose and giving no compiled form. It compiles here to a single call into
+the runtime library, `comm.Multicast(ch, to, f)`:
+
+- `ch` is `net.c`, the `Network` field for the channel, a `map[comm.Address]comm.Sender[τ]`.
+  A multicast target is always an *indexed* channel — the recipient is what indexes it — so
+  the non-indexed `Sender[τ]` field shape never arises here.
+- `to` is the recipient set, `tlaplus.Set[comm.Address]`, compiled from the collapsed
+  filter's `set` (§5.2).
+- `f` is `func (y comm.Address) τ { return e2 }`, the payload as a function of the
+  recipient, since the source construct binds it and the message may mention it.
+
+**`Network2Go` emits no loop**: the iteration lives in the library. The specification fixes
+no order on the sends and gives no way to observe one, so any order refines it — leaving the
+choice (and a later move to sending concurrently) to the library rather than freezing one
+into every compiled program. A recipient with no entry in `ch` panics, that being a function
+indexed outside its domain, which is the same treatment every other undefined TLA⁺
+expression gets.
+
+The payload's function literal is the reason `ProcEnv` carries the channels' element types
+(`channelTyps`, gathered algorithm-wide like the `Network` struct's own fields): Go demands
+a literal state its result type, and no other statement needs a channel's element type to be
+recoverable away from the channel reference.
+
+**A tuple-domain recipient is rejected**, `unsupported`, exactly as an over-indexed `send` is:
+a channel declared over more than one index group has no `map[comm.Address]` field shape to
+index. Multi-component filters (§5.2) are what produce one, so they compile only once a
+channel can be declared with a tuple domain.
 
 **Compiling threads and whole processes**, per thesis §7.2.3.2. Let `T_k` be a thread of a
 process, `l_1` the label of its syntactically-first atomic block:
@@ -1448,14 +1518,14 @@ function shapes above, verbatim. Also pins down the concrete shape of the `Netwo
 struct type `Network2Go` must generate: one field per channel, named after the channel;
 a non-indexed channel (`ping`) gets a plain `Sender[τ]` field (Listing 7.2.9); an
 address-indexed channel (`pong[Pongs]`) gets a `map[Address]Sender[τ]` field instead — the
-per-address fan-out `net.c[e1].Send(e2)` (§9.7) resolves against.
+per-address fan-out `net.c[e1].Send(e2)` resolves against.
 
 **Runtime library.** `Core/Go`'s pretty-printer assumes a companion Go package (prior
 art: `github.com/mesabloo/distpcal-compiler/lib`, needs furnishing under this project's
 own import path) providing: TLA+ value encodings (`Seq`, `Set`, functions, records),
-`Address`, address resolution/discovery for cross-process `send` (generalize the
-hand-written `nameserver` package under `distpcal-compiler/tests/*/`, if it turns out to
-still fit once `send`'s wire mechanism is pinned down, §9.7). Part of this project's
+`Address`, and the `Sender`/`Receiver` endpoint interfaces — but *not* address
+resolution/discovery or any transport behind those interfaces: generalizing the hand-written
+`nameserver` package under `distpcal-compiler/tests/*/` is deferred scope, above. Part of this project's
 deliverables — **lives in `runtime/` in this repo**, versioned with the compiler: value
 types in `runtime/tlaplus/`, one file per TLA+ concept/stdlib module (`sequences.go`,
 `sets.go`, `functions.go`, `ord.go`, …, mirroring `Driver/Builtins.lean`'s `builtinModules`
@@ -1636,11 +1706,10 @@ lands new design) to warrant its own check-in.
       (multicast compilation scheme).
     - **`Network2Go`** (§5.7): port the pass (already real, goroutine-based codegen), plus
       the lock inference algorithm described there, plus a runtime library skeleton
-      (value encodings + address/nameserver primitives, generalizing
-      `distpcal-compiler/tests/*/{lib,nameserver}`). Must resolve during this phase:
-      §9.6/§9.7 (numeric representation, `send`'s wire mechanism), §9.5 (multicast
-      codegen). Once both backends exist, the CLI's target selection (phase 3) is
-      complete.
+      (value encodings + `Address` + the `Sender`/`Receiver` interfaces; no transport
+      behind them, deferred scope per §5.7). Must resolve during this phase: §9.6
+      (numeric representation). Once both backends exist, the CLI's target selection
+      (phase 3) is complete.
 12. **Stretch, out of this plan's committed scope, natural next milestones:** Join
     Calculus execution strategy (§9.1); broadening verified coverage beyond §6.2;
     revisiting Go's denotational semantics (§6.4); a real example/regression suite; a

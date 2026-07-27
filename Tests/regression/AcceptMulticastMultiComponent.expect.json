@@ -1,0 +1,4 @@
+{
+  "status": "xfail",
+  "reason": "type-checks now that `\\X` is in builtinContext; rejected at codegen because a tuple-domain channel has no `map[comm.Address]` Network field shape"
+}

@@ -13,7 +13,7 @@ public import Mathlib.Control.Bitraversable.Instances
 
 /-!
   The output of `Computable2Guarded`: every guard (`await`/`receive`/`with`) sits at the very
-  start of its atomic branch. Reuses `ElaboratedPlusCal.Ref`/`.MulticastFilter` rather than
+  start of its atomic branch. Reuses `ElaboratedPlusCal.Ref`/`.Multicast` rather than
   redefining them — `Computable2Guarded`'s `Ref` field-access fix (`Core/TypedPlusCal/Syntax.lean`)
   flows through automatically. Unlike `ElaboratedPlusCal`, `Statement` here is genuinely flat: by
   this stage every `if`/`while`/`either` has already been rewritten away into `AtomicBranch`'s
@@ -55,7 +55,7 @@ def Block.traverse {α β : Bool → Type} {m : Type → Type} [Applicative m]
   Block.mk <$> B.begin.traverse (f (b := _)) <*> f B.last
 
 abbrev Ref (Typ Expr : Type) := ElaboratedPlusCal.Ref Typ Expr
-abbrev MulticastFilter (Typ Expr : Type) := SurfacePlusCal.MulticastFilter Typ Expr
+abbrev Multicast (Typ Expr : Type) := CorePlusCal.Multicast Typ Expr
 
 /-- `ElaboratedPlusCal.Ref` carries no `Bifunctor`/`Bitraversable` instance (it has an extra
 `baseType : τ` field, same reason `Typed2Computable/PlusCal.lean`'s `Ref.toComputable` is
@@ -84,7 +84,7 @@ inductive Statement (Typ Expr : Type) : Bool → Bool → Type
   | print (e : Expr) : Statement Typ Expr false false
   | assert (e : Expr) : Statement Typ Expr false false
   | send (c : Ref Typ Expr) (e : Expr) : Statement Typ Expr false false
-  | multicast (c : String) (filter : MulticastFilter Typ Expr) : Statement Typ Expr false false
+  | multicast (c : String) (filter : Multicast Typ Expr) : Statement Typ Expr false false
   /-- Single target — parallel assignment is eliminated by `𝒞_par` before reaching this type. -/
   | assign (r : Ref Typ Expr) (e : Expr) : Statement Typ Expr false false
   | goto (label : String) : Statement Typ Expr false true
@@ -232,7 +232,7 @@ end GuardedPlusCal
 namespace ComputableGuardedPlusCal
 
 abbrev Ref := GuardedPlusCal.Ref ComputableTLAPlus.Typ ComputablePlusCal.Expression
-abbrev MulticastFilter := GuardedPlusCal.MulticastFilter ComputableTLAPlus.Typ ComputablePlusCal.Expression
+abbrev Multicast := GuardedPlusCal.Multicast ComputableTLAPlus.Typ ComputablePlusCal.Expression
 abbrev Statement := GuardedPlusCal.Statement ComputableTLAPlus.Typ ComputablePlusCal.Expression
 abbrev AtomicBranch := GuardedPlusCal.AtomicBranch ComputableTLAPlus.Typ ComputablePlusCal.Expression
 abbrev AtomicBlock := GuardedPlusCal.AtomicBlock ComputableTLAPlus.Typ ComputablePlusCal.Expression

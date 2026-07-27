@@ -1,4 +1,4 @@
 {
   "status": "xfail",
-  "reason": "`\\X` is unbound: not desugared, or missing from builtinContext — OPEN_QUESTIONS §9.12"
+  "reason": "types now that `\\X` is in builtinContext, but has no Go compilation — a product's elements are pairs, and a tuple is an anonymous struct only its own site can name"
 }

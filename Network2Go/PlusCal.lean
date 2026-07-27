@@ -45,9 +45,13 @@ public section
     `compileExcept`, which already knows all three cases (function, sequence, tuple).
   - **`LOCK`/`UNLOCK`** are `locks.Acquire`/`locks.Release` calls, not raw channel operations, so
     that `Lock[τ] = chan τ` stays inside the runtime library (§7.3, Listing 7.2.11).
-  - **`multicast`** is rejected. The thesis omits it too, calling it "a simple iterated send" in
-    prose with no compiled form; what it will become here is a `Multicast` runtime call, once the
-    wire mechanism it needs is settled.
+  - **`multicast`** compiles to a single `comm.Multicast` call, the thesis having omitted it
+    entirely (it calls the construct "a simple iterated send" in prose and gives no compiled
+    form). The iteration lives in the runtime library rather than in emitted code: the
+    specification fixes no order on the sends, so there is nothing for a generated loop to say
+    that the library cannot. The payload becomes a function literal from the recipient, which is
+    why `ProcEnv` carries the channels' element types — Go infers a literal's parameter types
+    from nothing, and demands its result type outright.
 -/
 
 namespace Network2Go
@@ -96,6 +100,11 @@ structure ProcEnv where
   locks : ProcessLocks
   /-- Declared process-local variables and their types, in declaration order. -/
   varTyps : List (String × Typ)
+  /-- Every channel of the whole specification and the type it carries — the `Network` struct is
+  algorithm-wide, so a process may `send`/`multicast` on one another process declared. Needed
+  where a channel's element type cannot be read off the statement: `multicast`'s payload compiles
+  to a function literal, and Go requires a literal to state its result type. -/
+  chanTyps : List (String × Typ)
   net : String
   self : String
   done : String
@@ -203,9 +212,22 @@ def compileAction (env : ProcEnv) {b} :
       return [.assign [lhs]
         [← compileExcept (posOf s) r.baseType (.var (binderName r.name)) r.args e]]
   | s@(.send c e) => return [← compileSend env (posOf s) c e]
-  | s@(.multicast c _) =>
-    throw (.unsupported (posOf s) s!"multicast on the channel '{c}'"
-      "the compilation scheme for it is an iterated send whose wire mechanism is not settled yet")
+  | s@(.multicast c filter) => do
+    let some elemTy := env.chanTyps.lookup c
+      | throw (.internalInvariantViolated (posOf s)
+          s!"multicast targets '{c}', which is not a declared channel")
+    -- The recipient's type is the channel's declared domain, and `Network`'s field for an indexed
+    -- channel is a `map[comm.Address]`, so a tuple domain (a channel declared over more than one
+    -- index group) has no field shape to index — the same limit `compileSend` runs into.
+    let .address := filter.ann
+      | throw (.unsupported (posOf s) s!"multicast on the channel '{c}'"
+          "a channel indexed by more than one bracket group has no Network field shape to compile \
+           against")
+    return [.expr (.call (commVar "Multicast")
+      [ .field (.var env.net) (fieldName c)
+      , ← compileExpr filter.set
+      , .funcLit [(binderName filter.recipient, ← compileTyp filter.ann)] [← compileTyp elemTy]
+          [.return [← compileExpr filter.val]] ])]
   | .goto l =>
     -- `Done` is the sentinel `WellFormedness/Labelling.lean` reserves; it labels no block.
     pure <| if l == "Done" then
@@ -412,10 +434,11 @@ def initLocks (env : ProcEnv) (inits : List (String × Option (Bool × Computabl
   `main` and takes no position on how processes find each other — whoever assembles the system
   supplies a `Receiver` backed by a socket, a queue, or a Go channel.
 -/
-def compileProcess (p : ComputableNetworkPlusCal.Process) : m (List ComputableGo.Declaration) := do
+def compileProcess (chanTyps : List (String × Typ)) (p : ComputableNetworkPlusCal.Process) :
+    m (List ComputableGo.Declaration) := do
   let locks ← inferLocks p
   let env : ProcEnv :=
-    { proc := p.name, locks
+    { proc := p.name, locks, chanTyps
       varTyps := p.localState.variables.map λ (x, τ, _, _) ↦ (x, τ)
       net := goIdent (← freshName "net")
       self := binderName "self"
@@ -462,6 +485,14 @@ def compileProcess (p : ComputableNetworkPlusCal.Process) : m (List ComputableGo
         ++ starts ++ [aggregator, .return [.var doneVar]] }
   return decls ++ [.function proc]
 
+/-- Every channel and FIFO of the whole specification, algorithm-level and process-local alike, as
+`(name, element type, index-domain expressions)`. Both the `Network` struct below and `ProcEnv`'s
+own channel table are built from this one list — the struct is algorithm-wide, so a process may
+name a channel another process declared. -/
+def channelTyps (algo : ComputableNetworkPlusCal.Algorithm) :
+    List (String × Typ × List ComputablePlusCal.Expression) :=
+  (algo.globalState :: algo.processes.map (·.localState)).flatMap λ d ↦ d.channels ++ d.fifos
+
 /-- The `Network` struct type (§7.3): one field per channel of the whole specification, holding
 the *sending* end only — a process reads from its own mailbox, which it is handed directly, and
 never from the network at large.
@@ -469,8 +500,7 @@ never from the network at large.
 A channel declared with an index domain (`pong[Pongs]`) becomes a `map[Address]Sender[τ]`, which
 is what makes `net.c[e].Send(…)` resolve; one declared without becomes a plain `Sender[τ]`. -/
 def networkTyp (algo : ComputableNetworkPlusCal.Algorithm) : m ComputableGo.Declaration := do
-  let decls := algo.globalState :: algo.processes.map (·.localState)
-  let chans := decls.flatMap λ d ↦ d.channels ++ d.fifos
+  let chans := channelTyps algo
   let fields ← chans.mapM λ (c, τ, idx) ↦ do
     let sender := commTyp "Sender" [← compileTyp τ]
     return (fieldName c, if idx.isEmpty then sender else .map (commTyp "Address") sender)
@@ -489,7 +519,8 @@ Sits outside `namespace Network2Go` so that `algo.toGo` resolves by dot notation
 way. -/
 def ComputableNetworkPlusCal.Algorithm.toGo {m : Type → Type} [Monad m]
     [MonadDiagnostic Empty N2GError m] [MonadFresh m] (algo : ComputableNetworkPlusCal.Algorithm) :
-    m (List ComputableGo.Declaration) :=
-  return (← networkTyp algo) :: (← algo.processes.flatMapM compileProcess)
+    m (List ComputableGo.Declaration) := do
+  let chanTyps := (channelTyps algo).map λ (c, τ, _) ↦ (c, τ)
+  return (← networkTyp algo) :: (← algo.processes.flatMapM (compileProcess chanTyps))
 
 end

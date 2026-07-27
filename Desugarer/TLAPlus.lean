@@ -64,8 +64,10 @@ namespace SurfaceTLAPlus
     | .«\notin» => "\\notin" | .«\» => "\\"
 
   /-- Cartesian product, used to collapse a multi-binder function literal/set-map into a single
-  fresh tuple binder (see `flattenBound`/`collapseToSingleBinder` below). -/
-  private def cartesianProduct : InfixOperator := .«\X » 0
+  fresh tuple binder (see `flattenBound`/`collapseToSingleBinder` below). Reused by
+  `Desugarer/PlusCal.lean` for `multicast`'s own filter collapse, which builds the same product
+  out of the filter's components. -/
+  def cartesianProduct : InfixOperator := .«\X » 0
 
   -- `[Inhabited α]`: needed wherever a synthesized binder (fresh tuple/product variables, or an
   -- unbounded binder with no per-variable annotation) needs some annotation value to use.
@@ -110,8 +112,9 @@ namespace SurfaceTLAPlus
 
   /-- The `z[i]` (1-based, TLA⁺-style) tuple projection — a single index, so no `<<…>>`
   wrapping (`wrapIndices` below) is needed. Registered at `pos`, the span of the tuple-pattern
-  binder this projection was synthesized to replace. -/
-  private def tupleProj {α} (pos : SourceSpan) (z : String) (i : Nat) : CoreTLAPlus.Expression α :=
+  binder this projection was synthesized to replace. Reused by `Desugarer/PlusCal.lean`, which
+  rewrites a collapsed `multicast` filter's component names the same way. -/
+  def tupleProj {α} (pos : SourceSpan) (z : String) (i : Nat) : CoreTLAPlus.Expression α :=
     .fnCall (.var z @@ pos) (.nat (toString (i + 1)) @@ pos) @@ pos
 
   /-- `f[e₁, …, eₙ]`'s/`![e₁, …, eₙ]`'s indices, collapsed to the single `CoreTLAPlus.Expression`

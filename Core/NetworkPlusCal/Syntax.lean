@@ -13,7 +13,7 @@ public section
   The output of `Guarded2Network`: a `receive` is no longer an abstract guard statement — it's
   compiled into a genuine second kind of thread, `Thread.rx`, that loops reading a process-local
   `inbox` sequence variable, and every later `await`/`with` guard that referenced the received
-  value now reads that `inbox` instead. Reuses `GuardedPlusCal.Block`/`Ref`/`MulticastFilter`/
+  value now reads that `inbox` instead. Reuses `GuardedPlusCal.Block`/`Ref`/`Multicast`/
   `Declarations` unchanged — none of those shapes are affected by this pass, only `Statement`
   (drops `receive`) and `Thread` (gains a second, non-`code` constructor) are.
 
@@ -36,7 +36,7 @@ public section
 
 namespace NetworkPlusCal
 
-open GuardedPlusCal (Block Ref Ref.bimap Ref.bitraverse MulticastFilter Declarations)
+open GuardedPlusCal (Block Ref Ref.bimap Ref.bitraverse Multicast Declarations)
 
 /-- A statement in the Network PlusCal language — identical to `GuardedPlusCal.Statement` minus
 `receive` (compiled away into `Thread.rx` by this pass), including `with`'s `ann : Typ` field
@@ -50,7 +50,7 @@ inductive Statement (Typ Expr : Type) : Bool → Bool → Type
   | print (e : Expr) : Statement Typ Expr false false
   | assert (e : Expr) : Statement Typ Expr false false
   | send (c : Ref Typ Expr) (e : Expr) : Statement Typ Expr false false
-  | multicast (c : String) (filter : MulticastFilter Typ Expr) : Statement Typ Expr false false
+  | multicast (c : String) (filter : Multicast Typ Expr) : Statement Typ Expr false false
   | assign (r : Ref Typ Expr) (e : Expr) : Statement Typ Expr false false
   | goto (label : String) : Statement Typ Expr false true
   deriving Repr
@@ -188,7 +188,7 @@ end NetworkPlusCal
 namespace ComputableNetworkPlusCal
 
 abbrev Ref := GuardedPlusCal.Ref ComputableTLAPlus.Typ ComputablePlusCal.Expression
-abbrev MulticastFilter := GuardedPlusCal.MulticastFilter ComputableTLAPlus.Typ ComputablePlusCal.Expression
+abbrev Multicast := GuardedPlusCal.Multicast ComputableTLAPlus.Typ ComputablePlusCal.Expression
 abbrev Statement := NetworkPlusCal.Statement ComputableTLAPlus.Typ ComputablePlusCal.Expression
 abbrev AtomicBranch := NetworkPlusCal.AtomicBranch ComputableTLAPlus.Typ ComputablePlusCal.Expression
 abbrev AtomicBlock := NetworkPlusCal.AtomicBlock ComputableTLAPlus.Typ ComputablePlusCal.Expression

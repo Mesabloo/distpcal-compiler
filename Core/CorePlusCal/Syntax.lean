@@ -27,13 +27,38 @@ public import Core.SurfacePlusCal.Syntax
   sequence of labelled atomic blocks within one thread).
 
   `Process`/`Declarations`/`Algorithm` share the same `α`/`β` as `Statement`/`Block`/`Branches`/
-  `MulticastFilter`: `α` is the declared-type annotation at whatever stage of checking it's
+  `Multicast`: `α` is the declared-type annotation at whatever stage of checking it's
   currently at. Content that can't be expressed via this shared `α` (`@mailbox`'s channel
   name/index expressions, `@parameter`'s presence-as-a-`Bool`) instead gets a concrete field
   (`Process.mailbox`, `Declarations.variables`' `isParameter`).
 -/
 namespace CorePlusCal
-  open SurfacePlusCal (MulticastFilter)
+  /-- A `multicast`'s recipients and payload, after the desugarer has collapsed
+  `SurfacePlusCal.MulticastFilter`'s bind list to a single binder.
+
+  The surface form `[x₁ ⋈₁ e₁, …, xₙ ⋈ₙ eₙ ↦ v]` names the components of a recipient *tuple*, not
+  a chain of lets: it reaches every `c[y]` for `y` in the Cartesian product of the components,
+  where an `∈`-bind contributes its set and an `=`-bind the singleton containing its value. The
+  desugarer turns that product into one set (`set`) over one binder (`recipient`), rewriting each
+  original name in `val` to a projection of it — the same collapse a multi-binder function
+  literal `[x ∈ A, y ∈ B ↦ e]` already gets. So nothing downstream reconstructs which bind was
+  which, and `n = 1` — the overwhelmingly common case — passes through untouched. -/
+  structure Multicast (α β : Type) : Type where
+    recipient : String
+    /-- The recipient's declared-type annotation slot, at whatever stage of checking this is: the
+    channel's own domain type once checked, since the recipient is what indexes the channel. -/
+    ann : α
+    /-- The set of recipients, always of the channel's domain type. -/
+    set : β
+    val : β
+    deriving Repr, Inhabited
+
+  instance : Bifunctor Multicast where
+    bimap f g m := { recipient := m.recipient, ann := f m.ann, set := g m.set, val := g m.val } @@ posOf m
+
+  instance : Bitraversable Multicast where
+    bitraverse f g m :=
+      (Multicast.mk m.recipient · · · @@ posOf m) <$> f m.ann <*> g m.set <*> g m.val
 
   /-- `SurfacePlusCal.Ref`, but each bracket group's own index is unary: `x[e₁, …, eₙ]` (`n > 1`)
   desugars to `x[<<e₁, …, eₙ>>]`. `x[e₁][e₂]` (two separate bracket groups) is unaffected —
@@ -71,7 +96,7 @@ namespace CorePlusCal
       | «while» {b} (cond : β) (B : Block α β b) : Statement α β false
       | receive (c : Ref β) (r : Ref β) : Statement α β false
       | send (c : Ref β) (e : β) : Statement α β false
-      | multicast (c : String) (filter : MulticastFilter α β) : Statement α β false
+      | multicast (c : String) (filter : Multicast α β) : Statement α β false
       deriving Repr
 
     /-- A block is a (possibly empty) sequence of non-terminal statements followed by a
@@ -179,7 +204,7 @@ namespace CorePlusCal
 
   /-- The declarations at the top of an `algorithm` or `process` block — the annotation-carrying
   counterpart is `SurfacePlusCal.Declarations`. Shares the same `α` as `Statement`/`Block`/
-  `Branches`/`MulticastFilter`. -/
+  `Branches`/`Multicast`. -/
   structure Declarations (α β : Type) : Type where
     /-- `(name, declared-type annotation, isParameter, initializer)`; `isParameter` is `true`
     only on a `@parameter`-annotated, `∈`-initialized entry. The initializer's `Bool` is `true`

@@ -48,97 +48,41 @@ package as a unit, so splitting per process would buy nothing.
 compile is the near-term goal. Only matters once there's appetite to prove something about
 that pass (prerequisite for §9.1).
 
-### 9.5 Multicast compilation is undescribed for both backends
-`multicast(x, [y ∈ e1 ↦ e2])` is in the v1 subset (§8), yet neither backend's scheme shows how
-it compiles. §5.6's Join Calculus scheme only shows a single `send(c[α],e)` folded into a
-reaction body — unclear whether emitting to a filtered set means one atom per recipient (which
-needs a bounded loop/comprehension inside a reaction body, not obviously supported by the
-target calculus) or something else.
+### 9.5 Multicast compilation is undescribed for the Join Calculus backend
+`multicast(x, [y ∈ e1 ↦ e2])` is in the v1 subset (§8). §5.6's Join Calculus scheme only shows a
+single `send(c[α],e)` folded into a reaction body — unclear whether emitting to a filtered set
+means one atom per recipient (which needs a bounded loop/comprehension inside a reaction body,
+not obviously supported by the target calculus) or something else.
 
-Thesis §7.2.3.1 omits multicast from the Go statement-compilation rules, saying only in prose
-that it's "a simple 'iterated send'" — no loop construct, no compiled Go.
-
-**Go side, settled in outline by the owner** (kept here rather than in `PLAN.md` until the
-remaining piece below is decided). `comm.Multicast` takes three arguments:
-
-- the channel, `net.x`, as a `map[Address]Sender[τ]`;
-- the recipient set, `e₁`, as a `Set[Address]`;
-- the payload as a function `f`, the compilation of `func (y τ') τ { return e₂ }`.
-
-It iterates the set in any order and sends `f(y)` to `net.x[y]` for each `y`. Sequential versus
-concurrent is left to the implementation, since the specification's `multicast` says nothing about
-the order sends are observed in. `Network2Go` therefore has no loop to emit: the iteration lives in
-the runtime library, and the compiled statement is one call.
-
-**Still open: the AST shape it compiles from.** `GuardedPlusCal.MulticastFilter` is the plain
-surface form — a list of binds plus a value — which forces the backend to reconstruct which bind is
-the recipient and which are ordinary `with`-style temporaries. A desugared form bundling the
-arguments, with set membership reconstructed rather than pattern-matched out, would be a better
-input. Which pass introduces it, and what it looks like, is undecided.
-
-The Join Calculus side (above) is untouched by any of this.
+The Go side is settled and implemented (§5.2 for the filter collapse, §5.7 for the compiled
+call), and does not constrain this: what it settles is that the *iteration* need not appear in
+emitted code, which is an option the Go runtime library has and the target calculus may not.
+What it does supply is the input shape — `CorePlusCal.Multicast` is a recipient set plus a
+payload keyed by recipient, with no bind list left to destructure, so whatever this backend
+emits starts from the same two pieces.
 
 ### 9.6 Runtime value representation in Go: channel capacity
 TLA+ `Int`/`Nat` are unbounded and FIFOs uncapacitated; Go's types and channels are bounded.
 The numeric side is resolved (§2, §5.7): arbitrary precision by default, machine integers
 behind the `fugue_machint` build tag, no Fugue-level flag.
 
-The channel-capacity side is an unverified hypothesis: because lock inference (§5.7) already
-serializes atomic blocks touching shared state, a `send` blocking on a bounded Go channel
-shouldn't change *which* transitions are enabled — at worst it slows execution. Worth
-confirming against a concrete backend. Caveat: this reasoning assumes a literal Go `chan`, so
-it covers a same-process channel cleanly. Per §9.7 a cross-process `send` isn't a Go `chan` at
-all — its blocking is a property of a socket plus runtime buffering. Re-check once §9.7 pins
-down what a cross-process `Channel(τ)` compiles to.
+The channel-capacity side no longer belongs to the compiler at all (settled, §5.7): `send`
+compiles to `Sender[τ]`'s `Send`, whose contract is "may block, no error result", so capacity
+is a property of whichever endpoint implementation the person wiring the system supplies —
+generated code neither picks it nor can observe it.
 
-**Known, accepted risk:** a block that blocks on a channel op *while holding its component's
+What remains is a hypothesis about *any* bounded implementation: because lock inference (§5.7)
+already serializes atomic blocks touching shared state, a blocking `Send` shouldn't change
+*which* transitions are enabled — at worst it slows execution. Holds for the Go-channel-backed
+endpoints in the Ping-Pong end-to-end run (§5.7). Unconfirmed for a socket-backed endpoint,
+where blocking comes out of the socket plus runtime buffering rather than a capacity anyone
+chose; re-check whenever a reference transport gets written (§5.7's deferred-scope note).
+
+**Known, accepted risk:** a block that blocks in `Send`/`Recv` *while holding its component's
 lock* freezes every other block sharing that lock — potentially including the process's own
 `T_rx` thread. Stays local to that one process; what unblocks it is the peer's own code
 eventually receiving. Failure mode is "one process goes locally unresponsive," not a
 system-wide deadlock.
-
-### 9.7 `send(c, e)`'s actual Go compilation scheme is unknown
-`Channel(τ)` needs no general-purpose Go value representation, since channels "are not
-first-class citizens in Distributed PlusCal" (§5.7) — never stored, passed, or placed in a data
-structure; only ever indexed (`c[α]`) at a `send`/`receive` site. That answers representation,
-not wire mechanics: connection lifecycle, serialization format, how a channel's identity travels
-with its payload once `send(c, e)` targets a different process.
-
-§5.7 calls `Network2Go/PlusCal.lean` "already gets essentially everything right" except lock
-inference, and separately lists the hand-written `tests/*/{lib,nameserver}` scaffolding (TCP/UDP
-address resolution, name-server process) as reusable — nothing says how the two connect.
-
-Natural shape, **not confirmed against the pass or committed to**: look up the target address
-(the `α` in `c[α]`, per §5.3's `Channel(τ)` covariance) via the nameserver client; obtain a
-connection (new per message, or pooled — unspecified); serialize the channel's identity together
-with the payload (the receiver may have several channels, so identity must travel with the
-message); transmit; on the receiving end a listener — the Go analogue of §5.6's `T_rx` reaction
-— accepts, deserializes, appends the payload to the local `inbox` for that channel, which is
-what `receive` reduces to reading (§5.5).
-
-Consequence: `Channel(τ)`'s Go representation is two different things per side. Receiver: a
-real local `inbox` sequence, realizable as a Go `chan`/queue, matching §5.3's "channels are
-encoded as `Seq(τ)`". Sender: addressing a remote process can't be a shared Go `chan` at all,
-so it goes through the nameserver-plus-network path.
-
-**Narrowed by tasklist item 3.** The compiler's own obligation is now discharged and needs no
-further design: generated code emits `net.c[e₁].Send(e₂)` and takes `mailbox Receiver[τ]` as a
-parameter, both of them interfaces, so it never opens a connection, serializes anything, or names
-a nameserver. What remains is not a compilation question but a scope one — whether this project
-ships a *reference* implementation of `Sender`/`Receiver` (TCP or Unix sockets, a serialization
-format, address discovery) alongside the compiler. The owner's answer is yes, eventually, but
-deliberately not yet; nothing in the compiler blocks on it, and a specification can be run today
-against hand-written endpoints, which is how the Ping-Pong end-to-end check works.
-
-Thesis pins the generated-code API surface on both sides, but not the internals:
-- §7.2.3.1: `send(c[e1], e2)` compiles to `net.c[e1].Send(e2)`, `send(c, e2)` to
-  `net.c.Send(e2)` — `Network`'s fields are per-channel, each with an indexable `.Send`. What
-  `.Send` does internally is unspecified.
-- §7.2.3.2: each compiled process is `func p(net Network, mailbox Receiver[τ], self Address)
-  (chan struct{})` — `mailbox` (`Receiver[T]`, blocking `Recv() (T, bool)`) is
-  **caller-supplied**, not constructed by generated code. So the generated code's obligation is
-  just "accept something implementing `Receiver[τ]`"; how a real implementation accepts
-  connections, deserializes, and demultiplexes by channel identity stays outside the compiler.
 
 ### 9.8 "Floating annotation" warning blocked by combinator backtracking
 A warning for an annotation-shaped comment with *no* consuming site nearby (as opposed to a real
@@ -206,21 +150,37 @@ thesis, not standard TLA⁺ as far as traced. Left unbound in `builtinContext`; 
 fails at `unboundVariable`. Their canonical names are in `WellFormedness/Restrictions.lean`'s
 check-3 list for forward-compatibility, currently inert.
 
-### 9.12 Three regression fixtures parked as `xfail`
-All three run, all three still fail as described, and an unexpected pass is reported as XPASS.
-They were `skip_*` files until phase 4; skipping meant they could quietly start working and nobody
-would know.
+### 9.12 Regression fixtures parked as `xfail`
+All run, all still fail as described, and an unexpected pass is reported as XPASS. They were
+`skip_*` files until phase 4; skipping meant they could quietly start working and nobody would
+know.
 - `AcceptFunctionDefinitionMultiArgTupleDomain.tla` — parser rejects `f[x \in S, y \in T] ==
-  ...` (`unexpected identifier f`).
+  ...` (`unexpected identifier f`). Looks like a `Parser_/TLAPlus.lean` gap, not traced.
 - `AcceptUnboundedChooseWithExpectedType.tla` — parser rejects bare `CHOOSE m : m = m` as a
   `with`/variable initializer (`unexpected keyword 'CHOOSE'`) — §9.2's `CHOOSE` gap.
-- `AcceptFunctionLiteralCartesianProductBinder.tla` — `\X` either isn't desugared to its
-  canonical operator name, or that name is missing from `builtinContext`/`Naturals` (`Unbound
-  variable` `\X`).
+- `AcceptFunctionLiteralCartesianProductBinder.tla` — types now (`\X` is in `builtinContext` at
+  `(Set(a), Set(b)) => Set(<<a,b>>)`), but has **no Go compilation**: a product's elements are
+  pairs, and a tuple compiles to an *anonymous* struct that only the site building it can name,
+  so a runtime `SetProduct` cannot construct its own elements the way `SetUnion` does. It would
+  have to take the pair constructor as a callback, the way `SetMap` takes its function — not
+  written, nothing needing it yet.
+- `AcceptMulticastMultiComponent.tla`, `AcceptMulticastPartialAnnotation.tla` — a multi-component
+  multicast filter (§5.2) makes the recipients a tuple, so the channel's domain is one, and the
+  `Network` struct holds `map[comm.Address]`. Same limit `compileSend` has for a channel indexed
+  by more than one bracket group. The second of the two is also the only route to W0005
+  (`partial-multicast-annotation`), which therefore has no *passing* fixture, though the warning
+  itself does fire and is asserted.
 
-First two look like `Parser_/TLAPlus.lean` gaps, third like `Desugarer/TLAPlus.lean`/
-`Driver/Builtins.lean` — neither traced. Fix at the root, drop the `xfail` from the sidecar,
-re-run the suite. Don't patch the fixture unless it encodes an unsupported construct (check §8 first).
+Fix at the root, drop the `xfail` from the sidecar, re-run the suite. Don't patch the fixture
+unless it encodes an unsupported construct (check §8 first).
+
+**`\X` is binary here**, with a precedence and left associativity, though
+`Core/SurfaceTLAPlus/Syntax.lean` notes it is not really binary in TLA⁺'s grammar. So `A \X B \X
+C` is `(A \X B) \X C`, whose elements are pairs holding a pair rather than the flat triples TLA⁺
+means. Nothing accepts the wrong shape — `collapseToSingleBinder` projects component `i` as
+`z[i]`, and `z[3]` on a pair is caught by the tuple-index bound — but a genuinely n-ary `\X`
+(needed before three-component products of any kind work, including multicast filters) is
+unwritten.
 
 ### 9.13 Three well-formedness checks are currently unreachable
 The rule is right in each case; the parser/type-checker just can't produce the triggering input:

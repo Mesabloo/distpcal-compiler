@@ -47,7 +47,7 @@ namespace SurfacePlusCal
     fallthrough : String
     deriving Inhabited
 
-  variable {α β : Type} {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
+  variable {β : Type} {m : Type → Type} [Monad m] [MonadDiagnostic DesugarWarning DesugarError m]
     [MonadFresh m] [MonadReaderOf WithContext m] [MonadWithReaderOf WithContext m]
     [MonadReaderOf SegmentContext m] [MonadWithReaderOf SegmentContext m]
 
@@ -57,6 +57,13 @@ namespace SurfacePlusCal
 
   /-- The concrete expression type used once `β` is fixed to `CoreTLAPlus.Expression`. -/
   abbrev CoreExpr := CoreTLAPlus.Expression (List Annotation)
+
+  /-- The annotation slot every PlusCal node carries through desugaring: the raw comment
+  annotations parsed at each site, which `stripEmbeddedTypeAnnotations` later turns into an
+  `Option Typ`. Pinned rather than left generic, matching `Declarations.desugarCheck` below —
+  collapsing a `multicast` filter has to read `@type` off each component and build one for the
+  binder it synthesizes, which no generic annotation type allows. -/
+  abbrev CoreAnn := List Annotation
 
   /-- `x[e₁, …, eₙ]`'s indices, per bracket group, collapsed to `CorePlusCal.Ref`'s own unary
   shape via `SurfaceTLAPlus.wrapIndices`; `.field` segments pass through unchanged. `pos` is the
@@ -68,22 +75,69 @@ namespace SurfacePlusCal
   def Ref.desugarRef (pos : SourceSpan) (r : SurfacePlusCal.Ref CoreExpr) : CorePlusCal.Ref CoreExpr :=
     { name := r.name, args := r.args.map (Sum.map id (SurfaceTLAPlus.wrapIndices pos)) }
 
+  /-- Collapse a `multicast`'s surface filter to `CorePlusCal.Multicast`'s single binder.
+
+  `multicast(c, [x₁ ⋈₁ e₁, …, xₙ ⋈ₙ eₙ ↦ v])` reaches every `c[y]` for `y` in the Cartesian
+  product of the components, an `∈`-bind contributing its own set and an `=`-bind the singleton
+  `{e}` — so the components name the parts of a recipient *tuple* and do not scope over one
+  another. One component is already that binder. Several collapse to a fresh one over
+  `D₁ \X … \X Dₙ`, with each original name rewritten in `v` to its projection off it, exactly as
+  `SurfaceTLAPlus.collapseToSingleBinder` does for a multi-binder function literal.
+
+  The synthesized binder's declared type is the tuple of the components' own, which is available
+  only when every one of them carries a `@type`; a filter annotating some but not all warns
+  (`partialMulticastAnnotation`) and keeps none, the recipient's type being fixed by the
+  channel's declared domain regardless. Annotations of other kinds on a collapsed component are
+  dropped with it — `stripEmbeddedTypeAnnotations` is what would otherwise reject them, and
+  there is no longer a site for them to sit at. -/
+  def MulticastFilter.collapse (pos : SourceSpan)
+      (f : SurfacePlusCal.MulticastFilter CoreAnn CoreExpr) :
+      m (CorePlusCal.Multicast CoreAnn CoreExpr) := do
+    -- An `=`-bind is the singleton component `{e}`; an `∈`-bind is its set as written.
+    let components := f.binds.map λ (x, anns, isEq, e) ↦
+      (x, anns, if isEq then (.set [e] @@ pos : CoreExpr) else e)
+    match components with
+    -- The parser reads the bind list with `sepBy1` and nothing else builds a filter, so an empty
+    -- one is unreachable — the same footing `SurfaceTLAPlus.collapseToSingleBinder`'s own empty
+    -- case stands on.
+    | [] => unreachable!
+    | [(recipient, ann, set)] => return { recipient, ann, set, val := f.val } @@ pos
+    | (_, _, dom₀) :: rest =>
+      let recipient ← freshName "recipient"
+      let set := rest.foldl (init := dom₀) λ acc (_, _, dom) ↦
+        .opCall (.var SurfaceTLAPlus.cartesianProduct.canonicalName @@ pos) [acc, dom] @@ pos
+      let val := components.zipIdx.foldr (init := f.val) λ ((x, _, _), i) val ↦
+        SurfaceTLAPlus.CoreTLAPlus.Expression.subst x (SurfaceTLAPlus.tupleProj pos recipient i) val
+      return { recipient, ann := ← tupleAnnotation pos (components.map (·.2.1)), set, val } @@ pos
+  where
+    /-- `<<τ₁, …, τₙ>>` from the components' own `@type` annotations, or none at all (with a
+    warning) when only some of them have one. -/
+    tupleAnnotation (pos : SourceSpan) (anns : List CoreAnn) : m CoreAnn := do
+      let types := anns.map λ as ↦ as.findSome? λ
+        | .«@type» _ τ => some τ
+        | _ => none
+      match types.mapM id with
+      | some τs => return [.«@type» pos (.tuple τs)]
+      | none =>
+        if types.any (·.isSome) then warn (.partialMulticastAnnotation pos)
+        return []
+
   mutual
     /-- Does this statement need the extraction-capable desugaring path (`desugarSegment`) rather
     than the cheap always-non-terminal one (`desugarLabelFreeBlock`)? True if a label appears
     anywhere within it, an `if`/`either` branch or `while` body ends in a bare `goto`, or a
     `while` appears anywhere. A `with` body never needs extraction. -/
-    partial def Statement.needsExtraction : Statement α β → Bool
+    partial def Statement.needsExtraction : Statement CoreAnn β → Bool
       | .if _ b1 b2 => b1.needsExtraction || (b2.map (·.needsExtraction)).getD false
       | .either bs => bs.any (·.needsExtraction)
       | .while _ b => b.needsExtraction
       | .with .. | .skip | .goto _ | .print _ | .assign _ | .await _ | .assert _
       | .receive .. | .send .. | .multicast .. => false
 
-    /-- Declared at the root `List` namespace so dot-notation on a `List (String ⊕ Statement α
+    /-- Declared at the root `List` namespace so dot-notation on a `List (String ⊕ Statement CoreAnn
     β)` resolves to it. `true` as soon as a label is found anywhere, the last element is a bare
     `goto`, any statement (`Statement.needsExtraction`) does, or a `while` appears in the list. -/
-    partial def _root_.List.needsExtraction : List (String ⊕ Statement α β) → Bool
+    partial def _root_.List.needsExtraction : List (String ⊕ Statement CoreAnn β) → Bool
       | [] => false
       | .inl _ :: _ => true
       | .inr (.while ..) :: _ => true
@@ -97,7 +151,7 @@ namespace SurfacePlusCal
 
   /-- Reject any statement-list entry that is a label — used for `with` bodies, the one
   construct real PlusCal never allows a label inside. -/
-  def rejectLabels : List (String ⊕ Statement α β) → m (List (Statement α β))
+  def rejectLabels : List (String ⊕ Statement CoreAnn β) → m (List (Statement CoreAnn β))
     | [] => pure []
     | .inl l :: _ => throw (.nestedLabel (posOf l))
     | .inr s :: rest => (s :: ·) <$> rejectLabels rest
@@ -111,8 +165,8 @@ namespace SurfacePlusCal
   Every link of the chain is registered at `pos`, the whole surface `with`'s own span: the chain
   is one source construct, and no binder past the first has a narrower span of its own to
   report. -/
-  def buildWithChain (pos : SourceSpan) (vars : List (String × α × Bool × β))
-      (B : CorePlusCal.Block α β false) : CorePlusCal.Statement α β false :=
+  def buildWithChain (pos : SourceSpan) (vars : List (String × CoreAnn × Bool × β))
+      (B : CorePlusCal.Block CoreAnn β false) : CorePlusCal.Statement CoreAnn β false :=
     match vars with
     | [] => unreachable! -- `with` always binds at least one variable, by construction of the parser (`sepBy1`)
     | [(x, ann, eq, e)] => .with x ann eq e B @@ pos
@@ -126,7 +180,7 @@ namespace SurfacePlusCal
     Reads `WithContext` for which names are currently `with`-bound. A `while` is rejected outright
     if any are bound (`whileInWith`); an `assign` or `receive` targeting a bound name is likewise
     rejected (`withBoundVarWritten`). -/
-    partial def Statement.desugarLabelFree (s : Statement α CoreExpr) : m (CorePlusCal.Statement α CoreExpr false) := match_source s with
+    partial def Statement.desugarLabelFree (s : Statement CoreAnn CoreExpr) : m (CorePlusCal.Statement CoreAnn CoreExpr false) := match_source s with
       | .goto _, pos => throw (.gotoNotInTailPosition pos)
       | .skip, pos => pure (.skip @@ pos)
       | .print e, pos => pure (.print e @@ pos)
@@ -152,16 +206,16 @@ namespace SurfacePlusCal
         if ctx.boundVars.contains r.name then throw (.withBoundVarWritten pos r.name)
         else pure (.receive (Ref.desugarRef pos c) (Ref.desugarRef pos r) @@ pos)
       | .send c e, pos => pure (.send (Ref.desugarRef pos c) e @@ pos)
-      | .multicast c f, pos => pure (.multicast c f @@ pos)
+      | .multicast c f, pos => (.multicast c · @@ pos) <$> MulticastFilter.collapse (posOf f) f
 
     /-- Desugar a statement-list known to be entirely label-free into a non-terminal block:
     every entry desugars via `Statement.desugarLabelFree`, except the last, whose own natural
     terminality (a bare `goto`, or an `if`/`either` that recursively is) is preserved. -/
-    partial def desugarLabelFreeBlock (stmts : List (String ⊕ Statement α CoreExpr)) :
-        m (CorePlusCal.Block α CoreExpr false) := do
+    partial def desugarLabelFreeBlock (stmts : List (String ⊕ Statement CoreAnn CoreExpr)) :
+        m (CorePlusCal.Block CoreAnn CoreExpr false) := do
       go (← rejectLabels stmts)
     where
-      go : List (Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr false)
+      go : List (Statement CoreAnn CoreExpr) → m (CorePlusCal.Block CoreAnn CoreExpr false)
         | [] => pure ⟨[], .skip @@ SourceSpan.placeholder⟩
         | [s] => match_source s with
           | .goto _, pos => throw (.gotoNotInTailPosition pos)
@@ -171,15 +225,15 @@ namespace SurfacePlusCal
           let block ← go rest
           pure ⟨s' :: block.begin, block.end⟩
 
-    partial def Branches.desugarLabelFree (branches : List (List (String ⊕ Statement α CoreExpr))) :
-        m (CorePlusCal.Branches α CoreExpr false) := match branches with
+    partial def Branches.desugarLabelFree (branches : List (List (String ⊕ Statement CoreAnn CoreExpr))) :
+        m (CorePlusCal.Branches CoreAnn CoreExpr false) := match branches with
       | [] => unreachable! -- `either` always has ≥2 branches, by construction of the parser
       | [b] => .either <$> desugarLabelFreeBlock b
       | b :: bs => .or <$> desugarLabelFreeBlock b <*> Branches.desugarLabelFree bs
   end
 
   /-- Turn a list of desugared branch-blocks into `CorePlusCal.Branches`. -/
-  def buildBranches : List (CorePlusCal.Block α β true) → CorePlusCal.Branches α β true
+  def buildBranches : List (CorePlusCal.Block CoreAnn β true) → CorePlusCal.Branches CoreAnn β true
     | [] => unreachable!
     | [b] => .either b
     | b :: bs => .or b (buildBranches bs)
@@ -193,8 +247,8 @@ namespace SurfacePlusCal
 
   `acc` accumulates the segment's own non-terminal statements so far, in order — an explicit
   parameter rather than folded into the `Reader` context (module doc above). -/
-  partial def desugarSegment (acc : List (CorePlusCal.Statement α CoreExpr false)) :
-      List (String ⊕ Statement α CoreExpr) → m (CorePlusCal.Block α CoreExpr true × List (String × CorePlusCal.Block α CoreExpr true))
+  partial def desugarSegment (acc : List (CorePlusCal.Statement CoreAnn CoreExpr false)) :
+      List (String ⊕ Statement CoreAnn CoreExpr) → m (CorePlusCal.Block CoreAnn CoreExpr true × List (String × CorePlusCal.Block CoreAnn CoreExpr true))
     | [] => do
       let ctx ← readThe SegmentContext
       pure (⟨acc, .goto ctx.fallthrough @@ SourceSpan.placeholder⟩, [])
@@ -258,7 +312,7 @@ namespace SurfacePlusCal
     the ambient `SegmentContext.fallthrough` if `rest` is empty, or `notFollowedByLabel`
     otherwise. -/
     desugarContinuation :
-        List (String ⊕ Statement α CoreExpr) → m (String × List (String × CorePlusCal.Block α CoreExpr true))
+        List (String ⊕ Statement CoreAnn CoreExpr) → m (String × List (String × CorePlusCal.Block CoreAnn CoreExpr true))
       | [] => do
         let ctx ← readThe SegmentContext
         pure (ctx.fallthrough, [])
@@ -271,7 +325,7 @@ namespace SurfacePlusCal
   /-- Desugar one parallel thread (`{...}` block) into its sequence of labelled, terminal
   `CorePlusCal.Block`s — the thread's own top-level labels plus everything extracted from
   nested labels within `if`/`while`/`either` bodies. -/
-  def Thread.desugar : List (String ⊕ Statement α CoreExpr) → m (List (String × CorePlusCal.Block α CoreExpr true))
+  def Thread.desugar : List (String ⊕ Statement CoreAnn CoreExpr) → m (List (String × CorePlusCal.Block CoreAnn CoreExpr true))
     | [] => pure []
     | .inr s :: _ => throw (.unlabelledStatement (posOf s))
     | .inl firstLabel :: rest => do

@@ -7,7 +7,7 @@ public import Core.ComputablePlusCal.Syntax
 public section
 
 /-!
-  `TypedPlusCal.{Ref,MulticastFilter,Statement,Block,Branches,Declarations,Process,Algorithm}
+  `TypedPlusCal.{Ref,Multicast,Statement,Block,Branches,Declarations,Process,Algorithm}
   .toComputable` — translates a checked PlusCal algorithm (and its pieces) into `ComputablePlusCal`,
   delegating every leaf `TypedTLAPlus.Expression` to `Expression.toComputable`
   (`Typed2Computable/TLAPlus.lean`). `τ` fields (`Ref.baseType`, `Statement.with`'s `ann`,
@@ -26,8 +26,8 @@ public section
   `Branches`/`Declarations`/`Process`/`Algorithm` each get a hand-written `toComputable` below,
   mirroring `CorePlusCal.Statement.bitraverse`'s own per-constructor shape
   (`Core/CorePlusCal/Syntax.lean:134-163`) with `f := pure` (the `τ`-side function, always the
-  identity here) folded away. `MulticastFilter` is the one exception: it's reused generically from
-  `SurfacePlusCal`, which *does* carry a registered `Bitraversable` instance, so its `toComputable`
+  identity here) folded away. `Multicast` is the one exception: it's reused generically from
+  `CorePlusCal`, which *does* carry a registered `Bitraversable` instance, so its `toComputable`
   is just `bitraverse pure Expression.toComputable` (same precedent as `Desugarer/TLAPlus.lean`'s
   own `bitraverse pure Expression.desugar` calls).
 
@@ -49,10 +49,10 @@ def TypedPlusCal.Ref.toComputable (r : TypedPlusCal.Ref) : m ComputablePlusCal.R
     | .inr e => Sum.inr <$> TypedTLAPlus.Expression.toComputable e
   pure { r with args }
 
-/-- `SurfacePlusCal.MulticastFilter`'s own registered `Bitraversable` instance, with the `τ`-side
+/-- `CorePlusCal.Multicast`'s own registered `Bitraversable` instance, with the `τ`-side
 function fixed to `pure` (identity) — see the module doc above. -/
-def TypedPlusCal.MulticastFilter.toComputable (filter : TypedPlusCal.MulticastFilter) :
-    m ComputablePlusCal.MulticastFilter :=
+def TypedPlusCal.Multicast.toComputable (filter : TypedPlusCal.Multicast) :
+    m ComputablePlusCal.Multicast :=
   bitraverse pure TypedTLAPlus.Expression.toComputable filter
 
 mutual
@@ -82,7 +82,7 @@ mutual
     | .receive c r coe, pos => (.receive · · coe @@ pos) <$> TypedPlusCal.Ref.toComputable c
         <*> TypedPlusCal.Ref.toComputable r
     | .send c e, pos => (.send · · @@ pos) <$> TypedPlusCal.Ref.toComputable c <*> e.toComputable
-    | .multicast c filter, pos => (.multicast c · @@ pos) <$> TypedPlusCal.MulticastFilter.toComputable filter
+    | .multicast c filter, pos => (.multicast c · @@ pos) <$> TypedPlusCal.Multicast.toComputable filter
 
   /-- Mirrors `CorePlusCal.Block.bitraverse`. -/
   partial def TypedPlusCal.Block.toComputable {b : Bool} :

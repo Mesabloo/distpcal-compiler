@@ -394,6 +394,14 @@ partial def compileIntrinsic (pos : SourceSpan) (name : String) (τ : Typ)
       | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
     return tlaplusCall "SetDifference" [← setElemDict pos name α, s, t]
   | "DOMAIN", [f] => return tlaplusCall "Domain" [f]
+  -- Typed (`builtinContext`) but not compiled. A product's elements are pairs, and a tuple
+  -- compiles to an *anonymous* struct built at the site that needs it — so a runtime product
+  -- cannot construct its own elements the way `SetUnion` can, and would have to take the pair
+  -- constructor as a callback the way `SetMap` takes its function.
+  | "\\X", _ =>
+    throw (.unsupported pos name
+      "a Cartesian product has no runtime representation: its elements are pairs, and a tuple \
+       compiles to an anonymous struct that only the site building it can name")
   -- Banned from anything reachable from the algorithm by `WellFormedness/Restrictions.lean`'s
   -- check 3, so reaching code generation means that check did not run or did not hold.
   | "ENABLED", _ | "UNCHANGED", _ | "[]", _ | "<>", _ | "'", _ =>

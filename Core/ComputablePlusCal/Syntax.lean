@@ -20,7 +20,7 @@ namespace ComputablePlusCal
 abbrev Expression := ComputableTLAPlus.Expression ComputableTLAPlus.Typ
 
 abbrev Ref := ElaboratedPlusCal.Ref ComputableTLAPlus.Typ Expression
-abbrev MulticastFilter := ElaboratedPlusCal.MulticastFilter ComputableTLAPlus.Typ Expression
+abbrev Multicast := ElaboratedPlusCal.Multicast ComputableTLAPlus.Typ Expression
 abbrev Statement := ElaboratedPlusCal.Statement ComputableTLAPlus.Typ Expression
 abbrev Block := ElaboratedPlusCal.Block ComputableTLAPlus.Typ Expression
 abbrev Branches := ElaboratedPlusCal.Branches ComputableTLAPlus.Typ Expression

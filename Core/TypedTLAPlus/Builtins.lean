@@ -29,7 +29,7 @@ inductive BuiltinOp : Type
   -- `builtinContext` (`Elaborator/Declarations.lean`) — `Origin.intrinsic`.
   | eq | neq
   | and | or | implies | iff | neg
-  | inSet | notInSet | subseteq | cup | cap | setMinus
+  | inSet | notInSet | subseteq | cup | cap | setMinus | cartesianProduct
   | domain
   | enabled | unchanged | always | eventually | prime
   -- `Naturals` (`Driver/Builtins.lean`).
@@ -55,6 +55,7 @@ def builtinOpOf? : Origin → String → Option BuiltinOp
     | "\\neg" => some .neg
     | "\\in" => some .inSet | "\\notin" => some .notInSet | "\\subseteq" => some .subseteq
     | "\\cup" => some .cup | "\\cap" => some .cap | "\\" => some .setMinus
+    | "\\X" => some .cartesianProduct
     | "DOMAIN" => some .domain
     | "ENABLED" => some .enabled | "UNCHANGED" => some .unchanged
     | "[]" => some .always | "<>" => some .eventually | "'" => some .prime
