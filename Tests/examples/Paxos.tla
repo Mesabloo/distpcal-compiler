@@ -5,7 +5,7 @@
 (* and learner. Leader election is not modeled: any process that suspects   *)
 (* the current leader to have crashed may initiate a new ballot.            *)
 (****************************************************************************)
-EXTENDS Integers, Bags, FiniteSets
+EXTENDS Integers, Bags, FiniteSets, Fugue
 
 CONSTANTS
     \* number of nodes

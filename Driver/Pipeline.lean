@@ -279,10 +279,10 @@ def PipelineResult.renderDiagnostics (flags : FlagsEnv) (mainLines : List String
 producing a checked module. -/
 def PipelineResult.renderSummary (r : PipelineResult) : Option String :=
   r.typed.map λ typedMod ↦
-    s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
-{typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
-declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
-algorithm). " ++
+--     s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
+-- {typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
+-- declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
+-- algorithm). " ++
     if r.go.isSome then
       "Compiled to Go."
     else if typedMod.pcalAlgorithm.isNone then

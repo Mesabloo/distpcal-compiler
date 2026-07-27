@@ -412,16 +412,16 @@ private def runCli (p : Parsed) : IO UInt32 := do
         if let some dir := path.parent then
           IO.FS.createDirAll dir
         IO.FS.writeFile path code
-        spinner.log s!"Wrote {path}."
+        -- spinner.log s!"Wrote {path}."
       -- Through the spinner, not `IO.println`: standard output is not the handle the animation
       -- is drawn on, but it is the same terminal, so the emitted file has to be sequenced
       -- against the animation like any other line.
       | none => spinner.logOn (← IO.getStdout) code
 
-    spinner.success s!"Build done ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
+    spinner.success s!"Build completed successfully ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
 
-    if let some summary := result.renderSummary then
-      IO.eprintln summary
+    -- if let some summary := result.renderSummary then
+    --   IO.eprintln summary
   return 0
 
 /-- Directory layouts `fugue explain` accepts a diagnostics corpus in, relative to some ancestor of
