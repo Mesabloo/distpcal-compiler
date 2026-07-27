@@ -100,20 +100,38 @@ private def compileFlags (colored : Bool) (searchPath : List System.FilePath := 
       if goPackage then Std.HashMap.ofList [("go-pkg", some GoBuild.packageName)] else {}
     searchPath }
 
+/-- How often `withTimeout` looks at the work it is waiting on. Small enough that the poll is
+invisible next to a fixture's own compile, large enough that the wait costs no measurable CPU. -/
+private def pollIntervalMs : UInt32 := 2
+
 /-- Run `act`, giving up after `timeoutMs`. `none` means it did not finish in time.
 
-Lean has no timed wait, so this races the real work against a sleeper and takes whichever lands
-first. What it cannot do is *stop* the loser: a Lean task has no cancellation, so an abandoned
+Lean has no timed wait, so this polls the work task against a deadline. The obvious spelling —
+race the work against an `IO.sleep timeoutMs` alarm and take whichever `IO.waitAny` lands first —
+is wrong in a way that costs the whole suite: `IO.waitAny` returns as soon as the work wins, but
+nothing stops the *loser*, and the runtime joins outstanding tasks before the process exits. Every
+fixture would leave a thread sleeping out its full timeout, and `lake test` would print its summary
+and then sit there for `timeoutMs` (30 seconds, by default) with no work left to do. `IO.cancel`
+does not rescue that spelling either: `IO.sleep` on a dedicated thread is an uninterruptible sleep
+and never observes the flag.
+
+Polling spawns nothing to wait *with*, so a fixture that finishes leaves nothing behind. What this
+still cannot do is *stop* a fixture that does not: a Lean task has no cancellation, so an abandoned
 compile keeps running — and keeps a core — until the process exits. That is the honest cost of
 reporting the culprit instead of hanging forever with no indication of which fixture is at fault,
 and it is why the timeout is a backstop rather than something a fixture should ever reach. -/
 private def withTimeout {α : Type} (timeoutMs : Nat) (act : IO α) : IO (Option α) := do
   let work ← IO.asTask act .dedicated
-  let alarm ← IO.asTask (do IO.sleep timeoutMs.toUInt32) .dedicated
-  match ← IO.waitAny [work.map (·.map Sum.inl), alarm.map (·.map Sum.inr)] with
-  | .error e => throw e
-  | .ok (.inl a) => return some a
-  | .ok (.inr _) => return none
+  let deadline := (← IO.monoMsNow) + timeoutMs
+  repeat
+    if ← IO.hasFinished work then
+      match ← IO.wait work with
+      | .error e => throw e
+      | .ok a => return some a
+    if (← IO.monoMsNow) ≥ deadline then
+      return none
+    IO.sleep pollIntervalMs
+  return none
 
 /-- Compile one fixture and judge it.
 
