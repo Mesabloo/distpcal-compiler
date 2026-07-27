@@ -13,10 +13,11 @@ public section
   knowledge — `Naming.lean` is where the runtime's package qualifiers are decided, so this is
   where the paths they resolve to belong.
 
-  **Imports are computed, never assumed.** Go rejects an unused import, so emitting all four
+  **Imports are computed, never assumed.** Go rejects an unused import, so emitting all three
   runtime packages unconditionally would break every program that happens not to need one — a
-  specification with no `either` uses no `sched`, one with no process-local variables uses no
-  `locks`. `usedPackages` walks the declarations for qualified names instead.
+  specification whose processes never exchange a message uses no `comm`, one with no
+  process-local variables uses no `locks`. `usedPackages` walks the declarations for qualified
+  names instead.
 -/
 
 namespace Network2Go
@@ -28,8 +29,7 @@ since that is what appears in the compiled AST. -/
 def runtimeImports : List (String × String) :=
   [ (tlaplusPkg, "github.com/mesabloo/fugue/runtime/tlaplus"),
     (commPkg, "github.com/mesabloo/fugue/runtime/comm"),
-    (locksPkg, "github.com/mesabloo/fugue/runtime/locks"),
-    (schedPkg, "github.com/mesabloo/fugue/runtime/sched") ]
+    (locksPkg, "github.com/mesabloo/fugue/runtime/locks") ]
 
 /-- The package qualifier of `pkg.Name`, if the name has one. Qualified names are single strings
 in this AST (`Naming.lean`'s `qualified`), so the split is textual — but only names *this pass*

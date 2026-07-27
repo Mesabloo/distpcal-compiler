@@ -35,9 +35,6 @@ def commPkg : String := "comm"
 /-- The `runtime/locks` package's qualifier. -/
 def locksPkg : String := "locks"
 
-/-- The `runtime/sched` package's qualifier. -/
-def schedPkg : String := "sched"
-
 /-- A qualified reference to a name in one of the runtime packages, `pkg.name`. Go's package
 qualifier is an ordinary part of the identifier as far as this AST is concerned — `Go.Typ.named`
 and `Go.Expression.var` both carry it as one string. -/
@@ -66,9 +63,6 @@ def commVar {α} (name : String) : Go.Expression α := .var (qualified commPkg n
 
 /-- A reference to a `runtime/locks` function: `locks.Acquire`, `locks.MkLock`. -/
 def locksVar {α} (name : String) : Go.Expression α := .var (qualified locksPkg name)
-
-/-- A reference to a `runtime/sched` function: `sched.Rand`. -/
-def schedVar {α} (name : String) : Go.Expression α := .var (qualified schedPkg name)
 
 /-- `tlaplus.f(e₁, …, eₙ)`. -/
 def tlaplusCall {α} (name : String) (args : List (Go.Expression α)) : Go.Expression α :=

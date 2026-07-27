@@ -8,12 +8,11 @@
 \* `if`/`else if` chain), `𝒞_flat` (hoisting the `if`s' `either`s), and `𝒞_reord` (floating
 \* `receive`'s guard past nothing here, but floating the loop's own re-entry `await` past the
 \* preceding `receive`/`assign`s).
-
 CONSTANTS
     \* @type: Set(Address);
-    Agents,
-    \* @type: Address;
-    Coord
+    Agents,    \* @type: Address;
+         Coord
+
 
 (*--algorithm TwoPhaseCommit {
     channels
@@ -23,14 +22,11 @@ CONSTANTS
         agt[Agents];
 
     process (a \in Agents)
-        variable aState = "unknown";
+        variable 
+            \* @parameter
+            aState \in {"accept", "refuse"};
     {
-    a1: if (aState = "unknown") {
-            with (st \in {"accept", "refuse"}) {
-                aState := st;
-                send(coord, [type |-> st, agent |-> self]);
-            };
-        };
+    a1: send(coord, [type |-> aState, agent |-> self]);
     a2: await(aState \in {"commit", "abort"});
     }
     {
@@ -66,5 +62,4 @@ CONSTANTS
         }
     }
 }*)
-
 ====

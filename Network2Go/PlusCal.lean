@@ -299,7 +299,11 @@ def compileBranch (env : ProcEnv) (label : String) (i : Nat) (br : ComputableNet
 `shouldContinue = !branch(…)` is the whole protocol — a branch returns whether it fired, and the
 loop stops exactly when one did. With a single branch the `switch` is redundant (`Rand(0, 1)` is
 always `0`); the thesis emits it anyway and so does this, leaving the peephole to a later pass
-rather than special-casing the shape here. -/
+rather than special-casing the shape here.
+
+The `ToInt` around the switch head is load-bearing rather than cosmetic. `Rand` is typed over the
+runtime's `Int`, which under the default arbitrary-precision build is a struct — an `Int`-valued
+switch head could not match the integer-literal cases, and Go would reject the function. -/
 def compileBlock (env : ProcEnv) (B : ComputableNetworkPlusCal.AtomicBlock) :
     m (List ComputableGo.Declaration) := do
   if B.branches.isEmpty then
@@ -318,7 +322,11 @@ def compileBlock (env : ProcEnv) (B : ComputableNetworkPlusCal.AtomicBlock) :
       body :=
         [ .var continueVar goBoolTyp, .assign [.var continueVar] [.true],
           .for (.var continueVar)
-            [.switch (.call (schedVar "Rand") [.nat "0", .nat (toString branches.length)]) cases []],
+            [.switch (tlaplusCall "ToInt"
+                       [tlaplusCall "Rand"
+                         [tlaplusCall "MkInt" [.nat "0"],
+                          tlaplusCall "MkInt" [.nat (toString branches.length)]]])
+                     cases []],
           .return [unitVal] ] }
   return (branches ++ [scheduler]).map .function
 
@@ -392,30 +400,98 @@ def compileRxThread (env : ProcEnv) (k : Nat) (τ : Typ) (inbox : String) :
     releaseLockOf (_env : ProcEnv) (l : Lock) (st : String) : m ComputableGo.Statement :=
       return .expr (locksCall "Release" [.var l.name, .var st])
 
-/-- One process's initial lock values (`INIT_LOCKS`, §7.2.3.2 and Example 7.2.7): a `MkLock` per
-lock, its struct built from the declared initial values of the variables that lock guards.
+/--
+  Which non-`@parameter` variables need a Go local, in declaration order.
 
-A variable declared without an initializer is left at Go's zero value, which the runtime types are
-built to accept (`tlaplus.Int`'s zero value reads as `0` rather than dereferencing a nil pointer).
-A `variables x ∈ S` initializer is rejected: it denotes a nondeterministic choice, and picking for
-the user is a decision the compiler has no basis to make. -/
-def initLocks (env : ProcEnv) (inits : List (String × Option (Bool × ComputablePlusCal.Expression))) :
+  Not all of them, and the answer is not "the ones in some lock" either. Lock inference narrows
+  every footprint to the process's declared variables (`Network2Go/Locks.lean`), so a variable no
+  branch touches lands in no lock, and a lock *is* a variable's storage — such a variable is
+  emitted nowhere at all, and emitting a local for it anyway would be an unused local, which Go
+  rejects.
+
+  But a variable in no lock can still be *read*: by a later initializer (`variables x = 1, y = x
+  + 1`, where only `y` is ever touched) or by a later `@parameter`'s bound (`variables limit = 10,
+  @parameter start ∈ 1..limit`, where the assertion is `limit`'s only reader). Hence the backward
+  pass — a variable is needed when it belongs to a lock, or when something later that *is* emitted
+  names it. A `@parameter`'s bound always counts, since its assertion is always emitted; a
+  dropped initializer's free variables do not.
+
+  Scope makes one pass enough: an initializer may name only variables declared before it
+  (`Elaborator/PlusCal.lean`'s `checkVariables` extends Γ per entry), so every read reaches
+  backward and a right-to-left walk sees it before the declaration it refers to.
+-/
+private def localsNeeded (env : ProcEnv)
+    (inits : List (String × Bool × Option (Bool × ComputablePlusCal.Expression))) : List String :=
+  let locked := env.locks.locks.flatMap (·.vars)
+  let step (acc : List String × List String)
+      (entry : String × Bool × Option (Bool × ComputablePlusCal.Expression)) :
+      List String × List String :=
+    let (needed, reads) := acc
+    let (x, isParam, init) := entry
+    let initVars := init.elim [] λ (_, e) ↦ exprFreeVars [] e
+    if isParam then (needed, reads ++ initVars)
+    else if locked.contains x || reads.contains x then (x :: needed, reads ++ initVars)
+    else (needed, reads)
+  (inits.reverse.foldl step ([], [])).1
+
+/--
+  A process's initialization prologue: the declaration walk, then the initial lock values
+  (`INIT_LOCKS`, §7.2.3.2 and Example 7.2.7).
+
+  **The walk is in declaration order, and interleaves two different things.** A `@parameter`
+  emits no local — its value comes from the caller, as a parameter of the process function, so
+  `binderName x` already names it — but its declared bound becomes an assertion. Every other
+  variable emits a Go local: `Pick(S)` for an `∈` initializer, the compiled expression for `=`,
+  and nothing for an uninitialized one, which leaves it at Go's zero value (the runtime types are
+  built to accept theirs — `tlaplus.Int`'s reads as `0` rather than dereferencing a nil pointer).
+
+  Interleaving rather than asserting everything up front is what lets a bound name an earlier
+  local. Nothing forces the other order: a parameter is live from function entry, a local is
+  computed from parameters and earlier locals, and an assertion computes nothing, so declaration
+  order is both what PlusCal's sequential initializers already mean and the order that fires each
+  assertion as early as it can — before an initializer that could panic on the very value the
+  assertion is there to reject.
+
+  **Locals come before locks because a lock is where the variable lives.** A process-local exists
+  only inside its lock's struct, so an initializer naming an earlier sibling would otherwise
+  compile to a Go identifier that does not exist; with the locals emitted first, each lock's
+  struct is built by naming them.
+-/
+def initLocks (env : ProcEnv)
+    (inits : List (String × Bool × Option (Bool × ComputablePlusCal.Expression))) :
     m (List ComputableGo.Statement) := do
+  let needed := localsNeeded env inits
   let mut stmts : List ComputableGo.Statement := []
+  for (x, isParam, init) in inits do
+    let some τ := env.varTyps.lookup x
+      | throw (.internalInvariantViolated SourceSpan.placeholder
+          s!"'{x}' has an initializer in process '{env.proc}' but is not one of its declared \
+             variables")
+    if isParam then
+      match init with
+      | some (false, s) =>
+        stmts := stmts ++
+          [.if (.unary .not
+                 (tlaplusCall "SetIn" [← ordDict τ, ← compileExpr s, .var (binderName x)]))
+             [.panic (.str s!"process {env.proc}: {x} is outside the set it was declared in")] []]
+      | _ =>
+        throw (.internalInvariantViolated SourceSpan.placeholder
+          s!"'@parameter' variable '{x}' of process '{env.proc}' has no '∈' initializer, which \
+             desugaring should have made impossible")
+    else if needed.contains x then
+      stmts := stmts ++ [.var (binderName x) (← compileTyp τ)]
+      match init with
+      | some (true, e) => stmts := stmts ++ [.assign [.var (binderName x)] [← compileExpr e]]
+      | some (false, s) =>
+        stmts := stmts ++ [.assign [.var (binderName x)] [tlaplusCall "Pick" [← compileExpr s]]]
+      | none => pure ()
   for l in env.locks.locks do
     let τ ← match ← lockTyp env l with
       | .named _ [τ] => pure τ
       | τ => throw (.internalInvariantViolated SourceSpan.placeholder
                s!"lock type {repr τ} is not Lock[_]")
-    let mut fields : List (String × ComputableGo.Expression) := []
-    for x in l.vars do
-      match inits.lookup x with
-      | some (some (true, e)) => fields := fields ++ [(binderName x, ← compileExpr e)]
-      | some (some (false, e)) =>
-        throw (.unsupported (posOf e) s!"the initializer of '{x}'"
-          "'∈' initializes a variable nondeterministically, and no rule says which element a \
-           compiled process should start from")
-      | _ => pure ()
+    let fields := l.vars.map λ x ↦
+      (binderName x, (.var (binderName x) : ComputableGo.Expression))
     stmts := stmts ++
       [.var l.name (← lockTyp env l),
        .assign [.var l.name] [locksCall "MkLock" [.structLit τ fields]]]
@@ -443,7 +519,7 @@ def compileProcess (chanTyps : List (String × Typ)) (p : ComputableNetworkPlusC
       net := goIdent (← freshName "net")
       self := binderName "self"
       done := goIdent (← freshName "done") }
-  let inits := p.localState.variables.map λ (x, _, _, init) ↦ (x, init)
+  let inits := p.localState.variables.map λ (x, _, isParam, init) ↦ (x, isParam, init)
 
   let mut decls : List ComputableGo.Declaration := []
   let mut starts : List ComputableGo.Statement := []
@@ -471,10 +547,17 @@ def compileProcess (chanTyps : List (String × Typ)) (p : ComputableNetworkPlusC
   let aggregator : ComputableGo.Statement :=
     .go ((List.replicate codeThreads (.receive (.var donePrime) .wildcard none : ComputableGo.Statement))
       ++ [.send (.var doneVar) unitVal])
+  -- `@parameter` variables are parameters of the process function, in declaration order and after
+  -- everything the compiler supplies itself. This is API surface: whoever writes `main` passes
+  -- them, so the compiler-supplied prefix stays in a fixed position rather than shifting with the
+  -- number of parameters a process happens to declare.
+  let paramVars ← (p.localState.variables.filter (·.2.2.1)).mapM λ (x, τ, _, _) ↦
+    return (binderName x, ← compileTyp τ)
   let params : List (String × Go.Typ) :=
     [(env.net, .named networkTypName [])]
       ++ mailboxτ.elim [] (λ τ ↦ [(mailbox, commTyp "Receiver" [τ])])
       ++ [(env.self, commTyp "Address")]
+      ++ paramVars
   let proc : ComputableGo.Function :=
     { name := processName p.name
       typeParams := [], params

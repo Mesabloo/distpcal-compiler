@@ -446,3 +446,44 @@ func TestCardinality(t *testing.T) {
 		t.Errorf("Cardinality({}) = %v, want 0", got)
 	}
 }
+
+// TestPickIsAMember is the only guarantee Pick makes about which element comes
+// back, membership being all the specification of an `x \in S` initializer
+// promises.
+func TestPickIsAMember(t *testing.T) {
+	s := intSet(2, 3, 5, 7, 11)
+	for range 100 {
+		if got := Pick(s); !SetIn(IntOrd, s, got) {
+			t.Fatalf("Pick(%v) = %v, not an element", s, got)
+		}
+	}
+}
+
+// TestPickIsNotChoose checks that Pick actually varies, which is what
+// distinguishes it from Choose. A deterministic implementation would return
+// the same element every time and fail here.
+//
+// It is not a uniformity test — that would need a distribution — only a check
+// that more than one element is reachable. Over 200 draws from a two-element
+// set a correct Pick misses one with probability 2^-199.
+func TestPickIsNotChoose(t *testing.T) {
+	s := intSet(1, 2)
+	first := Pick(s)
+	for range 200 {
+		if !IntOrd.Eq(Pick(s), first) {
+			return
+		}
+	}
+	t.Errorf("Pick(%v) returned %v on 201 consecutive draws", s, first)
+}
+
+// TestPickEmptyPanics covers the case a specification can reach: nothing
+// upstream rejects an initializer whose set is empty.
+func TestPickEmptyPanics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Errorf("Pick of the empty set did not panic")
+		}
+	}()
+	Pick(intSet())
+}

@@ -2,7 +2,10 @@
 
 package tlaplus
 
-import "math/big"
+import (
+	"crypto/rand"
+	"math/big"
+)
 
 // Int is the TLA+ Int type, represented with arbitrary precision.
 //
@@ -116,4 +119,37 @@ func Pow(x, y Int) Int {
 		panic("Negative exponent in ^: the result is not an integer")
 	}
 	return Int{new(big.Int).Exp(x.val(), y.val(), nil)}
+}
+
+// Rand returns a uniformly distributed integer in [lo, hi).
+//
+// An atomic block compiles to a loop that picks one of its branches at random
+// and retries until one fires (thesis §7.2.3.1), and the two-argument shape is
+// that use: generated code writes Rand(0, n) for an n-branch block. The picker
+// is deliberately unfair — a branch can be passed over arbitrarily many times,
+// matching the compiler's stance that PlusCal's fairness annotations are
+// carried through unused. Nothing here is a scheduler in the operating-system
+// sense: Go's runtime schedules the goroutines, and this only decides which
+// branch a given iteration attempts. Pick in sets.go is the other caller.
+//
+// The source is crypto/rand rather than math/rand/v2, which this
+// representation cannot use: v2 has no *big.Int path, and big.Int's own Rand
+// wants a v1 *rand.Rand. Uniformity is what matters here, not
+// unpredictability, so the choice costs speed and buys nothing beyond a
+// working arbitrary-precision draw.
+//
+// It panics when hi <= lo, an empty range having no element to return. The
+// compiler never emits one: an atomic block has at least one branch. It also
+// panics if the entropy source fails, which nothing short of a broken system
+// can cause.
+func Rand(lo, hi Int) Int {
+	n := new(big.Int).Sub(hi.val(), lo.val())
+	if n.Sign() <= 0 {
+		panic("Rand over an empty range")
+	}
+	k, err := rand.Int(rand.Reader, n)
+	if err != nil {
+		panic("Rand could not read from the system entropy source: " + err.Error())
+	}
+	return Int{k.Add(k, lo.val())}
 }

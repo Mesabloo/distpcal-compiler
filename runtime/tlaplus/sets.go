@@ -233,3 +233,22 @@ func Choose[T any](s Set[T], p func(y T) bool) T {
 	}
 	panic("CHOOSE in an empty set")
 }
+
+// Pick returns an element of s chosen uniformly at random.
+//
+// This is what an `x \in S` variable initializer compiles to. It is not
+// CHOOSE: the specification says only that the variable starts at some element
+// of S, so nothing may depend on which one, and a deterministic pick would
+// hide that by always starting from the same place. Choose above is the
+// deterministic operator, and the two must not be confused — repeated calls
+// here need not agree.
+//
+// It panics on the empty set, which has no element to return. A specification
+// whose initializer set can be empty is not rejected anywhere upstream, so
+// this is reachable from a well-formed program.
+func Pick[T any](s Set[T]) T {
+	if len(s) == 0 {
+		panic("Picking from an empty set")
+	}
+	return s[ToInt(Rand(MkInt(0), MkInt(len(s))))]
+}

@@ -2,7 +2,10 @@
 
 package tlaplus
 
-import "strconv"
+import (
+	"math/rand/v2"
+	"strconv"
+)
 
 // Int is the TLA+ Int type, refined to a machine integer.
 //
@@ -107,4 +110,28 @@ func Pow(x, y Int) Int {
 		y >>= 1
 	}
 	return acc
+}
+
+// Rand returns a uniformly distributed integer in [lo, hi).
+//
+// An atomic block compiles to a loop that picks one of its branches at random
+// and retries until one fires (thesis §7.2.3.1), and the two-argument shape is
+// that use: generated code writes Rand(0, n) for an n-branch block. The picker
+// is deliberately unfair — a branch can be passed over arbitrarily many times,
+// matching the compiler's stance that PlusCal's fairness annotations are
+// carried through unused. Nothing here is a scheduler in the operating-system
+// sense: Go's runtime schedules the goroutines, and this only decides which
+// branch a given iteration attempts. Pick in sets.go is the other caller.
+//
+// This representation wraps math/rand/v2 rather than generating its own
+// numbers — the standard library's generator is already uniform, seeded per
+// process, and safe for concurrent use, all three of which this needs.
+//
+// It panics when hi <= lo, an empty range having no element to return. The
+// compiler never emits one: an atomic block has at least one branch.
+func Rand(lo, hi Int) Int {
+	if hi <= lo {
+		panic("Rand over an empty range")
+	}
+	return lo + Int(rand.IntN(int(hi-lo)))
 }

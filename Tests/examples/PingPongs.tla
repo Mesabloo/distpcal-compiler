@@ -13,7 +13,7 @@ CONSTANTS
     process (Ping = Ping) 
       variable 
         (* @type: {from: Address, mes: Str}; *) 
-        tmp1 = [ from |-> self, mes |-> ""];
+        tmp1 = [from |-> self, mes |-> ""];
     {
     rcvPi: receive(ping, tmp1);
            await tmp1.mes = "Ping";
