@@ -375,9 +375,9 @@ private def compileCmd : Cmd := `[Cli|
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Repeat by comma-separating: `-I dir1,dir2`."
     -- These descriptions name no individual option on purpose: `leanprover/Cli` takes a string
-    -- literal here, not a term, so an enumeration could not be derived and would be a third copy
-    -- of a list that has already drifted twice (§9.20). Passing a wrong name prints the real one,
-    -- derived, from `NamedOption.toMap`/`WarningToggle.toMap`.
+    -- literal here, not a term, so an enumeration could not be derived from the allowlists above
+    -- and would be a second copy of each — the copies are what drifted before. Passing a wrong
+    -- name prints the real list, derived, from `NamedOption.toMap`/`WarningToggle.toMap`.
     d, debug : Array NamedOption; "Debugging options, comma-separated `name[:value]` pairs: `dump-<stage>` writes that stage's artifact, `dump-dir:<path>` sets where they go (default `.fugue/debug`). Naming an unknown one lists them all."
     f, feature : Array NamedOption; "Feature/config toggles, comma-separated `name[:value]` pairs. Naming an unknown one lists them all."
     "W", warn : Array WarningToggle; "Per-warning control: `name` enables, `no-name` disables. Comma-separated. Naming an unknown one lists them all."

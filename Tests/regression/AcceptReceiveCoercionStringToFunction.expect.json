@@ -1,4 +1,0 @@
-{
-  "status": "xfail",
-  "reason": "the Str <: Seq(Int) coercion emits `Sequences!Str2Seq`, which nothing defines — OPEN_QUESTIONS §9.25"
-}

@@ -35,7 +35,7 @@ partial def Coercion.applyComputable (c : Coercion) (e : CExpr) : CExpr :=
   match c with
   | .id => e
   | .strToSeq =>
-    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences") @@ pos) [e] @@ pos
+    .opCall (.var "StrToSeq" (.operator [.str] (.seq .int)) .intrinsic @@ pos) [e] @@ pos
   | .seqToFun τ₀ i =>
     let range : CExpr :=
       .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals") @@ pos)

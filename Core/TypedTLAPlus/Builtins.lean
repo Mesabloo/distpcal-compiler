@@ -7,9 +7,10 @@ public import Core.TypedTLAPlus.Syntax
 
 /-!
   The single shared table of builtin operators — every name `builtinContext`
-  (`Elaborator/Declarations.lean`) and `builtinModules` (`Driver/Builtins.lean`) bind, keyed by
-  `(Origin, name)`. Pure data with no `Driver`/`Elaborator` dependency, so any pass downstream of
-  type checking can recognize a builtin call without re-deriving its own string list.
+  (`Elaborator/Declarations.lean`) and `builtinModules` (`Driver/Builtins.lean`) bind, plus the
+  coercion-only `StrToSeq` neither binds, keyed by `(Origin, name)`. Pure data with no
+  `Driver`/`Elaborator` dependency, so any pass downstream of type checking can recognize a builtin
+  call without re-deriving its own string list.
 
   `WellFormedness/Restrictions.lean`'s reserved-temporal-action check and `Typed2Computable`'s
   "is this builtin computable?" question used to keep independent copies of this list — this file
@@ -32,6 +33,10 @@ inductive BuiltinOp : Type
   | inSet | notInSet | subseteq | cup | cap | setMinus | cartesianProduct
   | domain
   | enabled | unchanged | always | eventually | prime
+  -- Compiler-inserted, bound by neither table: `Core/TypedTLAPlus/Coercion.lean`'s `.strToSeq`
+  -- builds it and no surface syntax names it. Listed here anyway so that a consumer matching on
+  -- `builtinOpOf?` sees every builtin an elaborated term can contain, not just the writable ones.
+  | strToSeq
   -- `Naturals` (`Driver/Builtins.lean`).
   | plus | minus | unaryMinus | times | lt | gt | leq | geq | range | natSet
   -- `Sequences`.
@@ -59,6 +64,7 @@ def builtinOpOf? : Origin → String → Option BuiltinOp
     | "DOMAIN" => some .domain
     | "ENABLED" => some .enabled | "UNCHANGED" => some .unchanged
     | "[]" => some .always | "<>" => some .eventually | "'" => some .prime
+    | "StrToSeq" => some .strToSeq
     | _ => none
   | .module "Naturals", name => match name with
     | "+" => some .plus | "-" => some .minus | "-." => some .unaryMinus | "*" => some .times

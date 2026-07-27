@@ -42,8 +42,10 @@ abbrev Expr := Expression Typ
 inductive Coercion : Type
   /-- No wrapping needed — the source expression is already of the target type as-is. -/
   | id
-  /-- `Str <: Seq(Int)` — `"Str2Seq"` is a placeholder builtin name pending a real bundled-stub
-  operator table, so it has no real owning module either. -/
+  /-- `Str <: Seq(Int)` — `StrToSeq(e)`, the sequence of the string's Unicode code points. An
+  intrinsic (`Origin.intrinsic`) rather than a member of `Sequences`: real TLA⁺ has no such
+  operator, and only a coercion ever builds this node, so binding a name for it in
+  `builtinContext` would invent surface syntax nothing needs. -/
   | strToSeq
   /-- `Seq(τ) <: Int → τ` — `[i ∈ 1..Len(e) ↦ e[i]]`. `i` a fresh name chosen at construction. -/
   | seqToFun (τ : Typ) (i : String)
@@ -86,7 +88,7 @@ partial def Coercion.apply (c : Coercion) (e : Expr) : Expr :=
   match c with
   | .id => e
   | .strToSeq =>
-    .opCall (.var "Str2Seq" (.operator [.str] (.seq .int)) (.module "Sequences") @@ pos) [e] @@ pos
+    .opCall (.var "StrToSeq" (.operator [.str] (.seq .int)) .intrinsic @@ pos) [e] @@ pos
   | .seqToFun τ₀ i =>
     let range : Expr :=
       .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals") @@ pos)

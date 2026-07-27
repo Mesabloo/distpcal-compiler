@@ -394,6 +394,10 @@ partial def compileIntrinsic (pos : SourceSpan) (name : String) (τ : Typ)
       | throw (.internalInvariantViolated pos s!"'{name}' has a non-operator type")
     return tlaplusCall "SetDifference" [← setElemDict pos name α, s, t]
   | "DOMAIN", [f] => return tlaplusCall "Domain" [f]
+  -- The `Str <: Seq(Int)` coercion, and the only intrinsic here no source text can write: it
+  -- reaches code generation solely because `Coercion.applyComputable` inserted it. The runtime
+  -- fixes the semantics — the sequence of the string's Unicode code points.
+  | "StrToSeq", [s] => return tlaplusCall "StrToSeq" [s]
   -- Typed (`builtinContext`) but not compiled. A product's elements are pairs, and a tuple
   -- compiles to an *anonymous* struct built at the site that needs it — so a runtime product
   -- cannot construct its own elements the way `SetUnion` can, and would have to take the pair

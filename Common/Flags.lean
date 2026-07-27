@@ -17,8 +17,8 @@ inductive Target
 This enumeration is the *only* place a toggle's spelling is written: the CLI validates `-f`
 against `Feature.list`, and every consumer reads one through the accessor named after it
 (`FlagsEnv.colored`, `FlagsEnv.progress`), never through a string literal. Adding a toggle and
-registering it are therefore the same edit — which is what the hand-maintained `knownFeatures`
-array could not guarantee (§9.20). -/
+registering it are therefore the same edit, which a hand-maintained `knownFeatures` array could
+not guarantee. -/
 inductive Feature : Type
   /-- `-fno-color`: no ANSI styling in diagnostics or progress output. -/
   | noColor
@@ -118,9 +118,9 @@ end FlagsEnv
 -/
 
 /-! Where `-d dump-*` debugging artifacts go, and how they get written. Shared because both the
-driver (`Driver/Modules.lean`, which dumps the per-module stages it runs — tokens, CST,
-desugared, typed) and the CLI (`Fugue.lean`, which dumps the pipeline stages that run past the
-driver — computable, guarded, network) write them, and the two must agree on the directory. -/
+driver (`Driver/Modules.lean`, which dumps the per-module stages it runs — lex, parse, desugar,
+typecheck) and the pipeline (`Driver/Pipeline.lean`, which dumps the stages that run past the
+driver — computable, guarded, network, go) write them, and the two must agree on the directory. -/
 
 /-- Default value of `-ddump-dir:<path>`. -/
 def defaultDumpDir : System.FilePath := ".fugue/debug"
@@ -143,7 +143,7 @@ otherwise.
 The one dump point. Every `-d dump-*` artifact goes through it — the per-module stages the driver
 runs (`Driver/Modules.lean`) and the stages the pipeline runs past it (`Driver/Pipeline.lean`) —
 so a stage's flag name, the file it writes and its `Stage.dumpable` entry cannot disagree, and
-`Fugue.lean` can derive the whole `-d` allowlist from `Stage.list` (§9.20). -/
+`Fugue.lean` derives the whole `-d` allowlist from `Stage.list`. -/
 def dumpStage {m : Type → Type} [Monad m] [MonadReaderOf FlagsEnv m] [MonadLiftT IO m]
     {α : Type} [Repr α] (stage : Stage) (name : String) (value : α) : m Unit := do
   if ← FlagsEnv.getDebugFlag stage.dumpOption then

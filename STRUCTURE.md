@@ -272,7 +272,11 @@ One file per TLA⁺ concept/stdlib module.
 - `sequences.go` — `Seq[T]` (`[]T`, 1-indexed, slot 0 unused), `MkSeq`/`Len`/`SeqIndex`/
   `SeqUpdate`/`Head`/`Tail`/`Append`/`SeqEq`/`SeqCmp`/`SeqOrd`. `SeqUpdate` backs `EXCEPT`/`:=`.
   Covers exactly `Driver/Builtins.lean`'s `sequencesDeclarations`. Literals built with `MkSeq`.
-- `{bool,str}.go` — `Bool`/`Str` newtypes and their `BoolOrd`/`StrOrd` dictionaries.
+- `{bool,str}.go` — `Bool`/`Str` newtypes and their `BoolOrd`/`StrOrd` dictionaries. `str.go` also
+  has `StrToSeq`, what the `Str <: Seq(Int)` coercion compiles to (code points, one `Int` each);
+  it lives here rather than in `sequences.go` because that file mirrors `Driver/Builtins.lean`'s
+  `sequencesDeclarations` exactly and `StrToSeq` is an intrinsic, not a `Sequences` member.
+  `str_test.go` pins the code-point choice and that the result is an ordinary 1-indexed sequence.
 - `print.go` — `Print`, what PlusCal's `print` compiles to. Go's builtin `println` takes only
   basic types, and every TLA⁺ value here is a defined type or a struct.
 - `int_big.go`, `int_machine.go` — the two `Int` representations, by build tag. **`int_big.go`
