@@ -1,5 +1,5 @@
 ------------------------ MODULE LamportMutex -------------------------
-EXTENDS Naturals, Sequences
+EXTENDS Naturals, Sequences, Fugue
 
 CONSTANT
     \* @type: Set(Address);
@@ -11,7 +11,7 @@ Max(c, d) == IF c > d THEN c ELSE d
 beats(req, a, b) ==
   \/ req[b] = 0
   \/ req[a] < req[b]
-  \/ req[a] = req[b] /\ a < b
+  \/ req[a] = req[b] /\ a \prec b
 \* @type: (Address, Int) => {type: Str, clock: Int, agent: Address};
 Request(agt, c) == [ type |-> "request", clock |-> c, agent |-> agt ]
 \* @type: (Address, Int) => {type: Str, clock: Int, agent: Address};
@@ -51,17 +51,15 @@ exit:       clock := clock + 1;
     } 
     {
 rcv:    while (TRUE) { 
-            with (nd \in Nodes) {
-                receive(network[self], msg); sndr := nd;
-                clock := Max(clock, msg.clock) + 1
-            };
+            receive(network[self], msg);
+            clock := Max(clock, msg.clock) + 1;
 handle:     if (msg.type = "request") {
-                req[sndr] := msg.clock;
-                send(network[sndr], Acknowledge(self, clock))
+                req[msg.agent] := msg.clock;
+                send(network[msg.agent], Acknowledge(self, clock))
             } else if (msg.type = "ack") { 
-                ack := ack \cup {sndr}; 
+                ack := ack \cup {msg.agent}; 
             } else if (msg.type = "release") { 
-                req[sndr] := 0; 
+                req[msg.agent] := 0; 
             }
         }
     }

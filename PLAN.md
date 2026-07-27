@@ -829,7 +829,7 @@ deviation (polymorphism instantiation, below):
   (`Elaborator/Declarations.lean`) carries only the ~14 genuinely `EXTENDS`-independent
   intrinsics (`=`, `/=`, `/\`, `\/`, `=>`, `<=>`, `\neg`, `\in`, `\notin`, `\subseteq`,
   `\cup`, `\cap`, `\`, `DOMAIN`, plus the temporal ones, §9.11). Everything else —
-  `+`/`-`/`-.`/`*`/`..`/comparisons/`Nat` (`Naturals`), `Len`/`Head`/`Tail`/`Append`
+  `+`/`-`/`-.`/`*`/`\div`/`%`/`^`/`..`/comparisons/`Nat` (`Naturals`), `Len`/`Head`/`Tail`/`Append`
   (`Sequences`), and populated entries for `Bags`/`FiniteSets`/`Integers` — lives as real
   declarations in `Driver/Modules.lean`'s `builtinModules["Naturals"]` etc.
   (`naturalsDeclarations`/`sequencesDeclarations`/`bagsDeclarations`/
@@ -839,11 +839,37 @@ deviation (polymorphism instantiation, below):
   `compileModule` uses for ordinary dependencies. Builtin-`EXTENDS`ing-builtin works too
   (`Sequences` itself `EXTENDS Naturals`, matching real TLA⁺, `«extends» := ["Naturals"]`
   on its table entry) — `resolveModule`'s `.builtin` case resolves `mod.extends`
-  recursively the same way its `.file` case does, merging dependency declarations in.
+  recursively the same way its `.file` case does, and **re-exports what they declare as
+  *bindings*, never as merged declarations**: `resolveModule` returns a `ResolvedDep` whose
+  `bindings` field is already `Origin`-tagged per declaring module, and `compileModule`
+  concatenates those lists rather than re-deriving bindings from a dependency's declaration
+  list. A `List Decl` cannot say who declared what, so re-deriving would tag `Naturals`'s `<`
+  with whichever of `Sequences`/`Integers`/`FiniteSets`/`Bags` it arrived through, and
+  `Origin` is the dispatch key for `TypedTLAPlus.builtinOpOf?` and
+  `Network2Go.compileBuiltinCall` — a re-exporting module's name matches no arm there, so a
+  misattributed builtin type-checks and then fails code generation. Order within a merge is
+  dependencies first, own declarations last, so an own declaration still shadows an inherited
+  one of the same name; between sibling `EXTENDS` entries the later one wins, and because
+  every path to a re-exported operator now yields the same `Origin`, `EXTENDS Naturals,
+  Sequences` and `EXTENDS Sequences, Naturals` agree. A builtin's returned `TypedModule` keeps
+  exactly the declaration list the table gives it, so it agrees with what
+  `MonadForeignLookup.lookupForeign` answers for the same name. `.file` dependencies export
+  their own declarations only.
   Each `«extends»` list mirrors its real module's full top-of-file dependency list,
   `LOCAL INSTANCE` included, not just plain `EXTENDS`. A `LOCAL`-declared helper (e.g.
   `Bags`'s `Sum`) stays excluded from the exported declaration list. `RealTime`/`Reals`
-  deliberately excluded (out of scope); `TLC` deliberately stays an empty stub. Each
+  deliberately excluded (out of scope); `TLC` deliberately stays an empty stub. One entry,
+  **`Fugue`, has no real counterpart** — this compiler's own module, `«extends» := []`, holding
+  `\prec : Address × Address → Bool`. It exists because the two ends of the pipeline disagree
+  about `Address`: the type checker treats it as an atomic type with equality only, while the
+  generated Go requires an order on it (`runtime/comm/address.go`'s `Address` interface carries
+  `Lt`, and sorted address sets, address-keyed functions, and `CHOOSE` over addresses all depend
+  on it). A specification that needs to talk about that order `EXTENDS Fugue`; `Network2Go`
+  compiles `\prec` to `comm.AddressOrd.Lt`, the same dictionary `Ord.lean` hands every other
+  address comparison. Its TLA⁺-side definition is `x \prec y == TRUE`, and that is the
+  definition rather than a placeholder: the order is deliberately unspecified, so nothing
+  stronger would be sound for every implementation, and a specification may assume nothing about
+  `\prec` beyond its type. Each
   declaration only needs a name/type binding (`Decl.bindings`) — bodies never re-examined,
   since standard-library operators get replaced by backend-native implementations at
   code-generation time. A top-level `operator`/`function` definition — any arity,

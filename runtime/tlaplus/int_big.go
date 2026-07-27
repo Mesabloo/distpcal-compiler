@@ -87,3 +87,33 @@ func Neg(x Int) Int { return Int{new(big.Int).Neg(x.val())} }
 
 // Mul compiles x * y.
 func Mul(x, y Int) Int { return Int{new(big.Int).Mul(x.val(), y.val())} }
+
+// Div compiles x \div y, TLA+'s integer division: the unique q with
+// x = y*q + r and 0 <= r < y. That is Euclidean division, which is what
+// big.Int's Div implements — not Quo, which truncates toward zero and so
+// disagrees for a negative x.
+//
+// TLA+ leaves x \div 0 undefined; big.Int panics on it, which surfaces the
+// undefinedness rather than inventing a value for it.
+func Div(x, y Int) Int { return Int{new(big.Int).Div(x.val(), y.val())} }
+
+// Mod compiles x % y, the remainder paired with Div: the r of x = y*q + r with
+// 0 <= r < |y|. big.Int's Mod is the Euclidean modulus, so the identity holds
+// with Div above for a negative x too, where Rem's sign-following remainder
+// would break it.
+//
+// Undefined at y = 0 in TLA+, and a panic here, as for Div.
+func Mod(x, y Int) Int { return Int{new(big.Int).Mod(x.val(), y.val())} }
+
+// Pow compiles x ^ y.
+//
+// A negative exponent panics. TLA+'s ^ ranges over Reals, where 2^-1 is 1/2 —
+// the compiler types it Int x Int -> Int (Reals being out of scope), so the
+// case has no representable answer and is rejected at the point it arises
+// rather than silently given one. big.Int's Exp would answer 1.
+func Pow(x, y Int) Int {
+	if y.val().Sign() < 0 {
+		panic("Negative exponent in ^: the result is not an integer")
+	}
+	return Int{new(big.Int).Exp(x.val(), y.val(), nil)}
+}

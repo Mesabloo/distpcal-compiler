@@ -908,6 +908,18 @@ namespace SurfaceTLAPlus.Parser
         let _ ← token .rbracket
         return .record fields.toList
 
+      private def parseRecordSet : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> do
+        -- NOTE: do not use `brackets` here, as it may gobble type annotations
+        let _ ← token .lbracket
+        let fields ← sepBy1 comma do
+          let anns ← tryParseAnnotations
+          let var ← ws *> parseIdentifier
+          let _ ← ws *> token .colon
+          let expr ← expr ws
+          return ⟨anns, var, expr⟩
+        let _ ← token .rbracket
+        return .record fields.toList
+
       private def parseQuantifierBound : TLAPlusParser (QuantifierBound (List CommentAnnotation) (Expression (List CommentAnnotation))) := first [
         .varTuple <$> angles (Array.toList <$> sepBy1 (ws *> comma) ((·, ·)
           <$> (ws *> tryParseAnnotations)
@@ -995,6 +1007,16 @@ namespace SurfaceTLAPlus.Parser
           let _ ← ws *> token .«->»
           expr ws
         return .case branches.toList other
+
+      private def parseChoose : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> do
+        let _ ← token .choose
+        let xs ← parseIdentifierOrTuple ws <* ws
+        let bound ← eoption do
+          let _ ← token (.infix .«\in»)
+          expr ws
+        let _ ← ws *> token .colon <* ws
+        let p ← expr ws
+        return .choose xs bound p
     end
 
     mutual
@@ -1017,8 +1039,10 @@ namespace SurfaceTLAPlus.Parser
         -- `{x ∈ S : x ∈ T}` should be parsed as a collect, not a map
         parseSetCollect ws (parseExpression · inUpdate),
         parseSetMap ws (parseExpression · inUpdate),
+        parseRecordSet ws (parseExpression · inUpdate),
         parseFunctionSet ws (parseExpression · inUpdate),
         parseCase ws (parseExpression · inUpdate),
+        parseChoose ws (parseExpression · inUpdate),
         located (.parens <$> parens (parseExpression ws inUpdate)),
         located do
           let _ ← lexeme <| token .lbracket

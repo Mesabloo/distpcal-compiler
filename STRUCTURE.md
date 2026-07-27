@@ -163,13 +163,16 @@ Recursive `EXTENDS` resolution (§2/§5.3) — orchestration around the checking
 parse/desugar a module, recurse on its `EXTENDS` list, module cache `Ξ`, stdlib operator table.
 `Fugue.lean` calls in for the main module; this calls back into itself per dependency.
 - `Modules.lean` — the orchestration, plus `DriverState` (one compile's fresh-name counter,
-  source registry, and module cache `Ξ`) and the monad `M` it all runs at.
+  source registry, and module cache `Ξ`) and the monad `M` it all runs at. `ResolvedDep` is what
+  one resolved dependency hands back: the checked module, whether it was recomputed, and the
+  `Origin`-tagged bindings it brings into scope (re-exports included).
 - `Pipeline.lean` — a whole compile as one function: `Stage`, `PipelineError`/`PipelineResult`,
   `runPipeline`, and the pure diagnostic renderers. `Fugue.lean` and `tests/`'s runner are its
   two consumers; neither reimplements the pass order.
 - `Errors.lean` — wraps each lower-level pass's error type (incl. `ComputableError` as
   `.computability`) plus resolution conditions (`moduleNotFound`, etc.).
-- `Builtins.lean` — standard-library operator table.
+- `Builtins.lean` — standard-library operator table, plus `Fugue`, this compiler's own module
+  (`\prec`, the order on `Address`).
 
 ## `Computable2Guarded/`
 Distributed → Guarded PlusCal (§5.4, thesis ch. 3.2) — **done** (phase 9).

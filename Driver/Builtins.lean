@@ -56,12 +56,19 @@ private def emptySetOfFnVarAToInt : TypedTLAPlus.Expression TypedTLAPlus.Typ :=
 
 /-- `Naturals`'s operators: arithmetic, comparisons, the `..` range constructor, and `Nat` itself
 (a value — `Set(Int)` — bound as a 0-ary operator). `-.` is unary minus, distinct from binary
-`-`. -/
+`-`. `\div`/`%` are integer division and its remainder, `\div` spelled with the backslash it is
+written with (the parser's `InfixOperator.canonicalName`, `Desugarer/TLAPlus.lean`) — there is no
+bare `/` on `Int`, real TLA⁺'s `/` belonging to `Reals`, which is out of scope. `^` is
+exponentiation, typed `Int × Int → Int` and so only total for a non-negative exponent: `2^-1` is
+a `Reals` value, and the runtime rejects it rather than the type system. -/
 private def naturalsDeclarations : List Decl :=
   [ .operator (.operator [.int, .int] .int) "+" [("x", 0), ("y", 0)] intZero,
     .operator (.operator [.int, .int] .int) "-" [("x", 0), ("y", 0)] intZero,
     .operator (.operator [.int] .int) "-." [("x", 0)] intZero,
     .operator (.operator [.int, .int] .int) "*" [("x", 0), ("y", 0)] intZero,
+    .operator (.operator [.int, .int] .int) "\\div" [("x", 0), ("y", 0)] intZero,
+    .operator (.operator [.int, .int] .int) "%" [("x", 0), ("y", 0)] intZero,
+    .operator (.operator [.int, .int] .int) "^" [("x", 0), ("y", 0)] intZero,
     .operator (.operator [.int, .int] .bool) "<" [("x", 0), ("y", 0)] trueBody,
     .operator (.operator [.int, .int] .bool) ">" [("x", 0), ("y", 0)] trueBody,
     .operator (.operator [.int, .int] .bool) "=<" [("x", 0), ("y", 0)] trueBody,
@@ -125,16 +132,34 @@ private def bagsDeclarations : List Decl :=
     .operator (.operator [.function (.var "a") .int] .int) "BagCardinality" [("B", 0)] intZero,
     .operator (.operator [.var "a", .function (.var "a") .int] .int) "CopiesIn" [("e", 0), ("B", 0)] intZero ]
 
+/-- `Fugue`'s operators — this compiler's own module, not a real TLA⁺ standard one, so there is no
+upstream source to mirror.
+
+`\prec` is the order on `Address`. The generated Go requires one (`runtime/comm/address.go`'s
+`Address` interface carries `Lt`, and every set of addresses, address-keyed function, and `CHOOSE`
+over addresses depends on it), while the type checker treats `Address` as an opaque atomic type
+with equality only. `\prec` is the seam: a specification that wants to talk about that order
+`EXTENDS Fugue` and writes `a \prec b`, and code generation compiles it to `comm.AddressOrd.Lt`.
+
+Its TLA⁺-side meaning is `TRUE` — the same `trueBody` every other predicate builtin gets, and here
+it is the definition rather than a placeholder: the order is deliberately unspecified
+(`runtime/comm/address.go`), so no stronger TLA⁺ definition would be sound for every
+implementation. A specification may therefore not assume anything about `\prec` beyond its type. -/
+private def fugueDeclarations : List Decl :=
+  [ .operator (.operator [.address, .address] .bool) "\\prec" [("x", 0), ("y", 0)] trueBody ]
+
 /-- The table itself (doc above). `«extends»` mirrors each real module's own top-of-file
 dependency list (`EXTENDS`/`LOCAL INSTANCE` alike — `LOCAL` only means "not re-exported" in real
 TLA⁺, not "not a dependency", and `resolveModule`/`compileModule` don't distinguish the two
 anyway), so a module that only `EXTENDS Sequences`/`Integers`/`FiniteSets`/`Bags` still
 transitively sees everything that real module itself imports. `RealTime`/`Reals` are out of
-scope entirely (never ported). -/
+scope entirely (never ported). `Fugue` is the one entry with no real counterpart — this compiler's
+own module, depending on nothing. -/
 def builtinModules : Std.HashMap String TypedModule := Std.HashMap.ofList <|
   #[("Sequences", sequencesDeclarations, ["Naturals"]), ("Naturals", naturalsDeclarations, []),
       ("Integers", integersDeclarations, ["Naturals"]), ("FiniteSets", finiteSetsDeclarations, ["Naturals", "Sequences"]),
-      ("Bags", bagsDeclarations, ["TLC", "Naturals"]), ("TLC", [], [])].toList.map λ (name, decls, exts) ↦
+      ("Bags", bagsDeclarations, ["TLC", "Naturals"]), ("TLC", [], []),
+      ("Fugue", fugueDeclarations, [])].toList.map λ (name, decls, exts) ↦
     (name, ({
       name := name
       «extends» := exts

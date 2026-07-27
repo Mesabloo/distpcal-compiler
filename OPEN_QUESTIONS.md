@@ -421,3 +421,37 @@ Machinery is cheap — a `builtinModules` entry, a `BuiltinOp` constructor, a `c
 arm, a runtime function, no checker changes — so cost is not the deciding factor. Open: whether
 unsafe casts belong in a language whose output is a program rather than a model, which casts the
 set would contain, and whether the safe half should be a cast at all rather than a checker fix.
+
+### 9.27 `EXTENDS` is not transitive through a *user* module
+
+A builtin re-exports what it `EXTENDS`: `EXTENDS Sequences` alone gives `Naturals`'s `<`. A user
+module does not. `Bar EXTENDS Foo` with `Foo EXTENDS Naturals` reports
+
+    error[E0025]: Unbound variable `<`.
+
+Real TLA⁺ makes `EXTENDS` transitive both ways, so `Bar` should see everything `Foo` sees.
+
+Mechanically the two paths differ: `resolveModule`'s `.builtin` case concatenates its
+dependencies' bindings into what it exports, while its `.file` case exports
+`mod.ownBindings` — and `compileModule` returns a `TypedModule` holding only that module's own
+declarations, dependency bindings having gone into `Γ₀` and nowhere else. Distinct from the
+`Origin`-attribution bug (`PLAN.md` §5.3), which was about *mis*tagging a binding that did arrive;
+here the binding never arrives.
+
+Open questions, not just the missing plumbing:
+
+- **What `lookupForeign` should answer.** `WellFormedness/Reachability.lean` resolves a
+  `.var`'s `Origin.module m` by fetching `m`'s declaration list. Origins stay pointed at the
+  declaring module, so a transitive re-export needs no change there — but `Ξ`'s `CacheEntry`
+  stores a `TypedModule`, not bindings, so a cache hit would have to re-resolve the dependency's
+  `EXTENDS` list to rebuild them (the cache-hit path already resolves it for change detection, so
+  the cost is a `flatMap`, not another compile).
+- **Shadowing.** A user module may define a name a dependency exports. `Γ₀` is a fold, so
+  own-last already wins for the module's own declarations; what is undecided is whether a
+  re-export is *supposed* to keep flowing outward past a redefinition, and what a re-exported
+  name colliding with a sibling `EXTENDS`'s name should do — real TLA⁺ makes a genuine conflict an
+  error rather than letting order decide.
+- **Whether it should be transitive at all here.** `INSTANCE` is out of scope (§8), and
+  `INSTANCE`/`LOCAL INSTANCE` is what real TLA⁺ offers a module that wants a dependency *without*
+  re-exporting it. Without it, transitive `EXTENDS` is the only import there is, and every
+  intermediate module becomes a re-export whether its author wanted that or not.

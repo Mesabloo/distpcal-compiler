@@ -35,7 +35,7 @@ namespace SurfaceTLAPlus
   /-- The canonical name a builtin infix operator becomes (collapsing every alternative spelling
   — e.g. `<=`/`=<`/`\leq` — to one). -/
   def InfixOperator.canonicalName : InfixOperator → String
-    | .«!!» => "!!" | .«##» => "##" | .«$$» => "$$" | .«$» => "$" | .«%%» => "%" | .«%» => "%"
+    | .«!!» => "!!" | .«##» => "##" | .«$$» => "$$" | .«$» => "$" | .«%%» => "%%" | .«%» => "%"
     | .«&&» => "&&" | .«&» => "&"
     | .«(+) » _ => "(+)" | .«(-) » _ => "(-)" | .«(.) » _ => "(.)" | .«(/) » _ => "(/)"
     | .«(\X) » _ => "(\\X)" | .«\X » _ => "\\X"

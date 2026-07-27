@@ -50,3 +50,61 @@ func Neg(x Int) Int { return -x }
 
 // Mul compiles x * y. It wraps on overflow.
 func Mul(x, y Int) Int { return x * y }
+
+// Div compiles x \div y, TLA+'s integer division: the unique q with
+// x = y*q + r and 0 <= r < |y|. That is Euclidean division. Go's / truncates
+// toward zero, giving a negative remainder for a negative x, so the quotient
+// is stepped one toward the sign of y to absorb it — matching int_big.go's use
+// of big.Int's Div, which is Euclidean too (unlike Quo).
+//
+// TLA+ leaves x \div 0 undefined; Go panics on it, which surfaces the
+// undefinedness rather than inventing a value for it.
+func Div(x, y Int) Int {
+	q := x / y
+	if x%y < 0 {
+		if y > 0 {
+			q--
+		} else {
+			q++
+		}
+	}
+	return q
+}
+
+// Mod compiles x % y, the remainder paired with Div: the r of x = y*q + r with
+// 0 <= r < |y|. Go's % follows the sign of x, so a negative remainder is
+// lifted by |y| to match big.Int's Euclidean Mod in int_big.go.
+//
+// Undefined at y = 0 in TLA+, and a panic here, as for Div.
+func Mod(x, y Int) Int {
+	r := x % y
+	if r < 0 {
+		if y > 0 {
+			r += y
+		} else {
+			r -= y
+		}
+	}
+	return r
+}
+
+// Pow compiles x ^ y, by squaring. It wraps on overflow, as Mul does.
+//
+// A negative exponent panics. TLA+'s ^ ranges over Reals, where 2^-1 is 1/2 —
+// the compiler types it Int x Int -> Int (Reals being out of scope), so the
+// case has no representable answer and is rejected at the point it arises
+// rather than silently given one.
+func Pow(x, y Int) Int {
+	if y < 0 {
+		panic("Negative exponent in ^: the result is not an integer")
+	}
+	acc := Int(1)
+	for y > 0 {
+		if y&1 == 1 {
+			acc *= x
+		}
+		x *= x
+		y >>= 1
+	}
+	return acc
+}

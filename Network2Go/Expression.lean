@@ -69,7 +69,7 @@ generated definition. Matching on the module *name* is sound because `Driver/Mod
 to silently shadow a builtin with a user module of the same name (it reports the ambiguity), so a
 name in this set never denotes user code. -/
 private def builtinModuleNames : Std.HashSet String :=
-  { "Naturals", "Integers", "Sequences", "FiniteSets", "Bags", "TLC" }
+  { "Naturals", "Integers", "Sequences", "FiniteSets", "Bags", "TLC", "Fugue" }
 
 /-- `bool(e)` — Go's conversion out of the runtime's `Bool`, needed wherever a real `bool` is
 required: an `if` condition, and every predicate the runtime library takes.
@@ -441,6 +441,9 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   | "Naturals", "-", [x, y] => return tlaplusCall "Sub" [x, y]
   | "Naturals", "-.", [x] => return tlaplusCall "Neg" [x]
   | "Naturals", "*", [x, y] => return tlaplusCall "Mul" [x, y]
+  | "Naturals", "\\div", [x, y] => return tlaplusCall "Div" [x, y]
+  | "Naturals", "%", [x, y] => return tlaplusCall "Mod" [x, y]
+  | "Naturals", "^", [x, y] => return tlaplusCall "Pow" [x, y]
   | "Naturals", "<", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Lt") [x, y])
   | "Naturals", ">", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Gt") [x, y])
   | "Naturals", "=<", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Le") [x, y])
@@ -456,6 +459,10 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   | "FiniteSets", "Cardinality", [s] => return tlaplusCall "Cardinality" [s]
   | "Bags", _, _ =>
     throw (.unsupported pos s!"Bags!{name}" "the Bags module has no runtime representation")
+  -- The whole point of `Fugue`'s `\prec` (`Driver/Builtins.lean`): the order on `Address` that the
+  -- type checker does not have, taken from the same dictionary `Ord.lean` hands every other
+  -- address-comparing operation.
+  | "Fugue", "\\prec", [x, y] => return tlaBool (.call (.field (commVar "AddressOrd") "Lt") [x, y])
   | _, _, [] => compileBuiltinVar pos mod name τ
   | _, _, _ => wrongArity pos s!"{mod}!{name}" args.length
 

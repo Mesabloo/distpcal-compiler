@@ -38,7 +38,7 @@ inductive BuiltinOp : Type
   -- `builtinOpOf?` sees every builtin an elaborated term can contain, not just the writable ones.
   | strToSeq
   -- `Naturals` (`Driver/Builtins.lean`).
-  | plus | minus | unaryMinus | times | lt | gt | leq | geq | range | natSet
+  | plus | minus | unaryMinus | times | intDiv | mod | pow | lt | gt | leq | geq | range | natSet
   -- `Sequences`.
   | len | head | tail | append
   -- `Integers`.
@@ -48,6 +48,8 @@ inductive BuiltinOp : Type
   -- `Bags`.
   | isABag | bagToSet | setToBag | bagIn | emptyBag | bagAdd | bagSub | bagUnion | bagLeq
   | subBag | bagOfAll | bagCardinality | copiesIn
+  -- `Fugue` — this compiler's own module, no real TLA⁺ counterpart.
+  | addressPrec
   deriving Repr, Inhabited, BEq, DecidableEq
 
 /-- The name↔operator table itself, one arm per `BuiltinOp` constructor (exhaustiveness-checked
@@ -68,6 +70,7 @@ def builtinOpOf? : Origin → String → Option BuiltinOp
     | _ => none
   | .module "Naturals", name => match name with
     | "+" => some .plus | "-" => some .minus | "-." => some .unaryMinus | "*" => some .times
+    | "\\div" => some .intDiv | "%" => some .mod | "^" => some .pow
     | "<" => some .lt | ">" => some .gt | "=<" => some .leq | ">=" => some .geq
     | ".." => some .range | "Nat" => some .natSet
     | _ => none
@@ -86,6 +89,9 @@ def builtinOpOf? : Origin → String → Option BuiltinOp
     | "(+)" => some .bagAdd | "(-)" => some .bagSub | "BagUnion" => some .bagUnion
     | "\\sqsubseteq" => some .bagLeq | "SubBag" => some .subBag | "BagOfAll" => some .bagOfAll
     | "BagCardinality" => some .bagCardinality | "CopiesIn" => some .copiesIn
+    | _ => none
+  | .module "Fugue", name => match name with
+    | "\\prec" => some .addressPrec
     | _ => none
   | .binder, _ | .module _, _ => none
 
