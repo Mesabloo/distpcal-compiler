@@ -100,6 +100,10 @@ structure Expectation : Type where
   behaviour that has no expression to trigger it. Empty by default, keeping every other fixture
   on a bare search path. -/
   searchPath : List System.FilePath := []
+  /-- Whether the emitted Go is handed to a real `go build` (`Tests/GoBuild.lean`). Off by
+  default: it costs a process spawn, and a fixture declaring a `CONSTANT` emits code that only
+  builds once a `<Fixture>.stub.go` supplies the definition Go expects the user to write. -/
+  goBuild : Bool := false
   /-- Normal / known-broken / not run. -/
   status : FixtureStatus := .ok
   /-- Why this fixture is `xfail` or `skip`. Shown in the runner's output. -/
@@ -170,6 +174,8 @@ private structure Sidecar : Type where
   suppressible : Option (List String) := none
   /-- `-I` directories, written relative to the fixture's own directory. -/
   searchPath : Option (List String) := none
+  /-- Hand the emitted Go to `go build`. -/
+  goBuild : Option Bool := none
   /-- `"ok"`, `"xfail"` or `"skip"`. -/
   status : Option String := none
   /-- Why, for a non-`ok` status. -/
@@ -220,6 +226,7 @@ private def Sidecar.applyTo (s : Sidecar) (dir : Option System.FilePath) (base :
       | none => (⟨entry⟩ : System.FilePath)
       | some dir => dir / entry
   return { outcome, status, failsAt, reaches, errorCode, warnings, searchPath
+           goBuild := s.goBuild.getD base.goBuild
            allowExtraWarnings := s.allowExtraWarnings.getD base.allowExtraWarnings
            suppressible := s.suppressible.getD base.suppressible
            reason := s.reason.getD base.reason }

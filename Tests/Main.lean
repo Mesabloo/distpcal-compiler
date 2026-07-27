@@ -1,5 +1,6 @@
 module
 
+public import Tests.GoBuild
 public import Tests.Report
 public import Cli.Basic
 import Std.Sync.Mutex
@@ -89,9 +90,14 @@ interesting should say so, not inherit it from the harness, which is exactly wha
 `searchPath` is. Colour follows the runner's own setting, since the only place these diagnostics go
 is its failure output. -/
 private def compileFlags (colored : Bool) (searchPath : List System.FilePath := [])
-    (suppressed : List String := []) : FlagsEnv :=
+    (suppressed : List String := []) (goPackage : Bool := false) : FlagsEnv :=
   { features := if colored then {} else Std.HashMap.ofList [(Feature.noColor.name, none)]
     warnings := Std.HashMap.ofList (suppressed.map (·, false))
+    -- The one exception to "bare": a fixture that asks for a `go build` is emitted under a
+    -- library package rather than `main`, which nothing else asserts on. See `Tests/GoBuild.lean`
+    -- for why `main` would not do.
+    targetOptions :=
+      if goPackage then Std.HashMap.ofList [("go-pkg", some GoBuild.packageName)] else {}
     searchPath }
 
 /-- Run `act`, giving up after `timeoutMs`. `none` means it did not finish in time.
@@ -115,7 +121,8 @@ private def withTimeout {α : Type} (timeoutMs : Nat) (act : IO α) : IO (Option
 that a flag suppresses something is to pass it and look. Those re-runs contribute their own checks
 and nothing else — their diagnostics are not reported, since the first compile's are the ones that
 describe the fixture. -/
-def runFixture (style : ReportStyle) (timeoutMs : Nat) (fx : Fixture) : IO FixtureReport := do
+def runFixture (style : ReportStyle) (timeoutMs : Nat) (repoRoot : System.FilePath)
+    (fx : Fixture) : IO FixtureReport := do
   if let some e := fx.sidecarError then
     let broken : CheckResult := { name := "sidecar", status := .fail, detail := e }
     return { name := fx.name, verdict := .fail, checks := [broken] }
@@ -125,6 +132,7 @@ def runFixture (style : ReportStyle) (timeoutMs : Nat) (fx : Fixture) : IO Fixtu
 
   let source ← IO.FS.readFile fx.path
   let flags := compileFlags style.colored fx.expectation.searchPath
+                 (goPackage := fx.expectation.goBuild)
 
   let start ← IO.monoMsNow
   let finished ← withTimeout timeoutMs
@@ -149,7 +157,8 @@ def runFixture (style : ReportStyle) (timeoutMs : Nat) (fx : Fixture) : IO Fixtu
         return { name := s!"suppression of -W{warningName}", status := .fail,
                  detail := s!"the compiler threw under -Wno-{warningName}: {e}" }
       | .ok suppressed => return checkSuppression fx.expectation suppressedFlags warningName suppressed
-    let checks := runChecks fx.expectation result ++ suppressionChecks
+    let goCheck ← GoBuild.checkGoBuild fx.expectation repoRoot fx.path result
+    let checks := runChecks fx.expectation result ++ suppressionChecks ++ [goCheck]
     let lines := source.split (· == '\n') |>.toList
     return { name := fx.name, verdict := .ofChecks fx.expectation.status checks, checks,
              elapsedMs, reason := fx.expectation.reason,
@@ -164,10 +173,10 @@ private def roundRobin {α : Type} (jobs : Nat) (xs : List α) : List (List α) 
 /-- Run `fxs` sequentially, printing each report as it lands. `printer` serialises the printing:
 several workers finish at once, and a fixture's report is several lines, so without the lock two
 failing fixtures' diagnostics would interleave. -/
-private def runWorker (style : ReportStyle) (timeoutMs : Nat) (printer : Std.Mutex Unit)
-    (fxs : List Fixture) : IO (List FixtureReport) :=
+private def runWorker (style : ReportStyle) (timeoutMs : Nat) (repoRoot : System.FilePath)
+    (printer : Std.Mutex Unit) (fxs : List Fixture) : IO (List FixtureReport) :=
   fxs.mapM λ fx ↦ do
-    let report ← runFixture style timeoutMs fx
+    let report ← runFixture style timeoutMs repoRoot fx
     -- One `IO.print` of the whole block, not a `println` per line: the lock already orders
     -- workers against each other, and a single write keeps a report atomic even for anything
     -- reading this runner's stdout through a pipe.
@@ -190,11 +199,11 @@ spans.
 
 Hence the default of 1. The parallelism is real and stays here — it is a flag away once positions
 are per-compile state rather than a global keyed on addresses. -/
-private def runAll (style : ReportStyle) (jobs timeoutMs : Nat) (fxs : List Fixture) :
-    IO (List FixtureReport) := do
+private def runAll (style : ReportStyle) (jobs timeoutMs : Nat) (repoRoot : System.FilePath)
+    (fxs : List Fixture) : IO (List FixtureReport) := do
   let printer ← Std.Mutex.new ()
   let tasks ← (roundRobin (max jobs 1) fxs).mapM λ chunk ↦
-    IO.asTask (runWorker style timeoutMs printer chunk) .dedicated
+    IO.asTask (runWorker style timeoutMs repoRoot printer chunk) .dedicated
   let results ← tasks.mapM λ t ↦ do IO.ofExcept (← IO.wait t)
   return results.flatten
 
@@ -256,7 +265,10 @@ of this executable, or $FUGUE_FIXTURES set."
     IO.eprintln s!"error: no fixture in '{dir}' matched {filters.toList}."
     return 2
 
-  let reports ← runAll style jobs timeoutMs fixtures
+  -- `dir` is `<root>/tests/regression`, so the checkout root is two levels up: what
+  -- `Tests/GoBuild.lean`'s generated `go.mod` resolves the runtime library against.
+  let repoRoot := (dir.parent.bind (·.parent)).getD "."
+  let reports ← runAll style jobs timeoutMs repoRoot fixtures
   IO.println ""
   IO.println (summaryLine style reports)
   return if reports.any (·.verdict.isFailure) then 1 else 0

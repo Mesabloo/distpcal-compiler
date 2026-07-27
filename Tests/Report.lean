@@ -79,14 +79,21 @@ structure ReportStyle : Type where
   verbose : Bool := false
   deriving Inhabited
 
-/-- One check, indented under its fixture. -/
-private def CheckResult.line (style : ReportStyle) (c : CheckResult) : String :=
+/-- One check, indented under its fixture.
+
+A detail may be several lines — `go build`'s output is, and truncating it to the first line would
+throw away exactly the errors the check exists to surface — so continuations are indented under
+the first rather than left to start at column zero. -/
+private def CheckResult.lines (style : ReportStyle) (c : CheckResult) : List String :=
   let (mark, color) : String × Color := match c.status with
     | .pass => ("✔", .Green)
     | .fail => ("✖", .Red)
     | .skip => ("–", .Yellow)
-  let detail := if c.detail.isEmpty then "" else s!": {c.detail}"
-  s!"      {colorizeIf style.colored color mark} {c.name}{detail}"
+  match c.detail.splitOn "\n" with
+  | [] | [""] => [s!"      {colorizeIf style.colored color mark} {c.name}"]
+  | first :: rest =>
+    s!"      {colorizeIf style.colored color mark} {c.name}: {first}"
+      :: rest.map (s!"        {·}")
 
 /-- A fixture's block of output: its result line, then whichever of its checks are worth showing
 (the failing ones, or all of them under `-v`), then the compiler's own diagnostics when it
@@ -104,7 +111,7 @@ def FixtureReport.lines (style : ReportStyle) (r : FixtureReport) : List String 
   let shown := if style.verbose then r.checks
     else if interesting then r.checks.filter (·.failed)
     else []
-  head :: shown.map (CheckResult.line style)
+  head :: shown.flatMap (CheckResult.lines style)
     ++ (if interesting then r.diagnostics.flatMap (·.splitOn "\n" |>.map (s!"      {·}")) else [])
 
 /-- How many reports carry each verdict, in `FixtureVerdict` order. -/

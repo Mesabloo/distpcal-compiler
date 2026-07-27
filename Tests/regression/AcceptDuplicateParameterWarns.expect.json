@@ -1,4 +1,6 @@
 {
   "warnings": [{ "code": "W0003" }],
-  "suppressible": ["duplicate-parameter"]
+  "suppressible": ["duplicate-parameter"],
+  "reaches": "go",
+  "goBuild": true
 }

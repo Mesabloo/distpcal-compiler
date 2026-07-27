@@ -328,15 +328,25 @@ here on purpose — see this directory directly for contents.
 - `regression/` — hand-written fixtures (`Accept*.tla`/`Reject*.tla`), each named after the TLA⁺
   module it contains, as TLA⁺ requires (`EXTENDS Foo` finds only `Foo.tla`), and each with
   an optional `<fixture>.expect.json` sidecar saying which stage must reject it, which code it
-  must carry, which warnings must fire, and (`searchPath`) which `-I` directories it needs. Run by `lake test`, not by a script.
-- `examples/` — larger worked examples (Ping-Pong, Two-Phase Commit, Lamport mutex).
+  must carry, which warnings must fire, whether its emitted Go is handed to a real `go build`
+  (`goBuild`), and (`searchPath`) which `-I` directories it needs. Run by `lake test`, not by a
+  script.
+- `regression/_stubs/` — one optional `<Fixture>.go` per `goBuild` fixture, supplying the Go
+  definitions a `CONSTANT` compiles to a reference to. Leading underscore because the `go` tool
+  ignores such a directory: without it these would form one package in the corpus and collide.
+- `examples/` — larger worked examples (Ping-Pong, Two-Phase Commit, Lamport mutex). Not run by
+  `lake test`, which only scans `regression/`.
 
 The runner itself lives at the top of this directory (`lake test -- [FILTER…]`), a `lean_exe`
 tagged `@[test_driver]`. It compiles each fixture in-process through `Driver/Pipeline.lean`, so
 what it checks is structured rather than an exit code.
 - `Expectation.lean` — what a fixture claims: its filename's defaults, with its
   `<fixture>.expect.json` sidecar applied over them and validated against the diagnostic registry.
-- `Check.lean` — one function per assertion; a fixture reports all its mismatches at once.
+- `Check.lean` — one function per assertion; a fixture reports all its mismatches at once. Each
+  is a pure function of an `Expectation` and a `PipelineResult`.
+- `GoBuild.lean` — the one check that is not pure: writes the emitted Go to a temp directory with
+  a generated `go.mod` `replace`-ing the runtime to this checkout, and runs `go build`. Opt-in per
+  fixture; SKIPs when no `go` is on `PATH`.
 - `Report.lean` — verdicts (`PASS`/`FAIL`/`XFAIL`/`XPASS`/`SKIP`/`TIMEOUT`) and how they print.
 - `Main.lean` — fixture discovery, the CLI, and the run loop.
 
