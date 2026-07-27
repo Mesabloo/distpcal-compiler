@@ -270,8 +270,9 @@ of this executable, or $FUGUE_FIXTURES set."
   let repoRoot := (dir.parent.bind (·.parent)).getD "."
   let reports ← runAll style jobs timeoutMs repoRoot fixtures
   IO.println ""
-  IO.println (summaryLine style reports)
-  return if reports.any (·.verdict.isFailure) then 1 else 0
+  let ⟨summary, hasFailed⟩ := summaryLine style reports
+  IO.println summary
+  return if hasFailed then 1 else 0
 
 private def cli : Cmd := `[Cli|
   test VIA runTests; ["0.1.0"]

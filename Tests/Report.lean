@@ -120,14 +120,15 @@ private def tally (reports : List FixtureReport) (v : FixtureVerdict) : Nat :=
 
 /-- The closing tally. Mirrors the shape `run.sh` printed (`N passed, N failed, N skipped`), plus
 the two verdicts it had no notion of. -/
-def summaryLine (style : ReportStyle) (reports : List FixtureReport) : String :=
+def summaryLine (style : ReportStyle) (reports : List FixtureReport) : String × Bool :=
   let timedOut := tally reports .timeout
   let failed := tally reports .fail + tally reports .xpass + timedOut
   let parts :=
     [s!"{tally reports .pass} passed", s!"{failed} failed", s!"{tally reports .xfail} xfailed",
      s!"{tally reports .skip} skipped"]
     ++ (if timedOut == 0 then [] else [s!"{timedOut} timed out"])
-  let color : Color := if failed == 0 then .Green else .Red
-  styleIf style.colored .Bold (colorizeIf style.colored color (String.intercalate ", " parts))
+  let hasFailed := failed == 0
+  let color : Color := if hasFailed then .Green else .Red
+  ⟨styleIf style.colored .Bold (colorizeIf style.colored color (String.intercalate ", " parts)), hasFailed⟩
 
 end

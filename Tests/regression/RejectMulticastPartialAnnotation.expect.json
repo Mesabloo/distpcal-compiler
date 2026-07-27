@@ -1,0 +1,6 @@
+{
+  "failsAt": "go",
+  "error": { "code": "E0061" },
+  "warnings": [{ "code": "W0005" }],
+  "suppressible": ["partial-multicast-annotation"]
+}

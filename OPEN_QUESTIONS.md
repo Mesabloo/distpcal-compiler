@@ -26,8 +26,8 @@ Not blockers, none hit by §8's subset:
 - `parseChannels`/`parseFifos` accept only a single bracket-index group (`chan[S]`), unlike
   `Ref.args : List (String ⊕ List β)` which supports `x[i][j]` — blocks multi-dimensional
   channel/fifo declarations.
-- `CHOOSE` and `LET`/`IN` are lexed (`.choose`/`.let`/`.in` tokens exist) but have **no parser
-  rule at all**.
+- `LET`/`IN` are lexed (`.let`/`.in` tokens exist) but have **no parser rule at all**. `CHOOSE`
+  used to be in the same state; it now has one (`parseChoose`, bounded and unbounded both).
 - `@type` supports only the Apalache-style syntax (`Channel({type: Str, agent: Address})`); the
   pre-Apalache dialect (`Channel[{type: string, agent: T}]`) is not.
 
@@ -155,23 +155,29 @@ All run, all still fail as described, and an unexpected pass is reported as XPAS
 know.
 - `AcceptFunctionDefinitionMultiArgTupleDomain.tla` — parser rejects `f[x \in S, y \in T] ==
   ...` (`unexpected identifier f`). Looks like a `Parser_/TLAPlus.lean` gap, not traced.
-- `AcceptUnboundedChooseWithExpectedType.tla` — parser rejects bare `CHOOSE m : m = m` as a
-  `with`/variable initializer (`unexpected keyword 'CHOOSE'`) — §9.2's `CHOOSE` gap.
 - `AcceptFunctionLiteralCartesianProductBinder.tla` — types now (`\X` is in `builtinContext` at
   `(Set(a), Set(b)) => Set(<<a,b>>)`), but has **no Go compilation**: a product's elements are
   pairs, and a tuple compiles to an *anonymous* struct that only the site building it can name,
   so a runtime `SetProduct` cannot construct its own elements the way `SetUnion` does. It would
   have to take the pair constructor as a callback, the way `SetMap` takes its function — not
   written, nothing needing it yet.
-- `AcceptMulticastMultiComponent.tla`, `AcceptMulticastPartialAnnotation.tla` — a multi-component
-  multicast filter (§5.2) makes the recipients a tuple, so the channel's domain is one, and the
-  `Network` struct holds `map[comm.Address]`. Same limit `compileSend` has for a channel indexed
-  by more than one bracket group. The second of the two is also the only route to W0005
-  (`partial-multicast-annotation`), which therefore has no *passing* fixture, though the warning
-  itself does fire and is asserted.
-
 Fix at the root, drop the `xfail` from the sidecar, re-run the suite. Don't patch the fixture
 unless it encodes an unsupported construct (check §8 first).
+
+**Three left this list by that last rule**, all rewritten as `Reject*` fixtures asserting the
+rejection they actually produce, since each encodes a construct outside §8:
+- `RejectUnboundedChooseWithExpectedType` (was `Accept*`) — `CHOOSE` parses now (§9.2's gap is
+  closed), and the fixture type-checks through `Elaborator/Expressions.lean`'s checking-mode
+  `[Unbounded choice]` rule, so what it really exercises is check 3's `unboundedQuantifier`
+  (`E0054`, `wellformedness`). §8 has no unbounded quantifier.
+- `RejectMulticastMultiComponent`, `RejectMulticastPartialAnnotation` (both were `Accept*`) — a
+  multi-component multicast filter (§5.2) makes the recipients a tuple, so the channel's domain is
+  one, and the `Network` struct holds `map[comm.Address]`; the Go backend rejects it with `E0061`
+  at `go`, the same limit `compileSend` has for a channel indexed by more than one bracket group.
+  §8's multicast is single-binder (`multicast(x, [y ∈ e1 ↦ e2])`), so the multi-component form is
+  outside the v1 subset and the rejection is the expectation. The second of the two remains the
+  only route to W0005 (`partial-multicast-annotation`); the warning fires and is asserted there,
+  now alongside the error.
 
 **`\X` is binary here**, with a precedence and left associativity, though
 `Core/SurfaceTLAPlus/Syntax.lean` notes it is not really binary in TLA⁺'s grammar. So `A \X B \X
@@ -181,30 +187,30 @@ means. Nothing accepts the wrong shape — `collapseToSingleBinder` projects com
 (needed before three-component products of any kind work, including multicast filters) is
 unwritten.
 
-### 9.13 Three well-formedness checks are currently unreachable
+### 9.13 Two well-formedness checks are currently unreachable
 The rule is right in each case; the parser/type-checker just can't produce the triggering input:
 - **Check 2(b)'s `nonEmptyLocalChannels`**: `Parser_/PlusCal.lean`'s `parseProcess` hardcodes
   `channels := []`/`fifos := []` — never parses process-level `channels`/`fifos` at all. No
   fixture can exercise the reject side; defense-in-depth only.
-- **Check 3's `unboundedQuantifier`**: unbounded `\A x : P`/`\E x : P` parses, but its binder's
-  type can never reach an annotation (`parseQuantifier`'s unbounded branch is bare
-  `parseIdentifier`, no `tryParseAnnotations`) — always fails at
-  `TCError.expectedTypeAnnotation` first. Exception: unbounded `CHOOSE x : P` in checking
-  position does succeed (`Elaborator/Expressions.lean:146`'s `[Unbounded choice]` uses the
-  expected type) — but `CHOOSE` has no parser rule (§9.2/§9.12). No reachable trigger on either
-  form.
 - **Check 1's `channelInExpression` via `receive`'s destination `r`** (not the check as a whole
   — `assert ch = ch;` exercises it directly). The only route to a Channel-shaped `r` past type
   checking was a channel-of-channels source (`Channel(Channel(τ))`, needed for `Channel`'s
   reflexivity-only subtyping to accept the `receive`), which `sendable` (§5.3) now rejects at
   declaration time.
 
-All three confirmed correct via direct calls, just not end-to-end through a `.tla` fixture.
+Both confirmed correct via direct calls, just not end-to-end through a `.tla` fixture.
 Revisit once: (a) the parser gains process-level `channels`/`fifos` (probably never worth it,
-given 2(b) is explicitly defense-in-depth), (b) §9.12's `CHOOSE` gap is fixed, or unbounded
-`\A`/`\E` gains annotation support, or (c) another route to a channel-shaped `receive`
+given 2(b) is explicitly defense-in-depth), or (b) another route to a channel-shaped `receive`
 destination appears (none known; `Channel`'s reflexivity-only subtyping and the lack of another
 channel-shaped type constructor make it look structurally unlikely, not proven impossible).
+
+**Check 3's `unboundedQuantifier` is no longer on this list.** Unbounded `\A x : P`/`\E x : P`
+still cannot trigger it — the binder's type can never reach an annotation (`parseQuantifier`'s
+unbounded branch is bare `parseIdentifier`, no `tryParseAnnotations`), so it fails at
+`TCError.expectedTypeAnnotation` first. Unbounded `CHOOSE x : P` in checking position does,
+though: `Elaborator/Expressions.lean`'s `[Unbounded choice]` rule takes the type from the expected
+type rather than an annotation, and `CHOOSE` now parses (§9.2). End-to-end fixture:
+`RejectUnboundedChooseWithExpectedType`.
 
 ### 9.14 Should intrinsic operators get dedicated AST constructors instead of `opCall`?
 Every builtin, intrinsic or stdlib, is `.opCall (.var name _ origin) args`. Keeps the checker's
@@ -324,7 +330,7 @@ the question is whether `Declarations` is *expected* to diverge at the Guarded s
 through Network, and no planned pass adds a field to it. If nothing is expected, the copy is
 buying only the option to diverge cheaply later.
 
-### 9.23 Three fixtures assert something they do not exercise, and are parked as `Skip*`
+### 9.23 Six fixtures asserted something they did not exercise; two remain parked as `Skip*`
 Found by phase 4's sidecars: every rejection now records the stage and code it must produce, and
 six fixtures produced something else. All six passed `run.sh`, which only ever asked for a nonzero
 exit.
@@ -338,17 +344,20 @@ resolve, and both now produce exactly what their headers always claimed: `E0052`
 `RejectAssignThenReceiveSameVariable`, which did not parse at all, was repaired by hand and now
 produces `E0018` (`conflictingAssignment`) at `desugar`, as its header always said.
 
-**Three are parked**, renamed from `Reject*` to `Skip*` with a sidecar `reason` the runner prints
+**Three were parked**, renamed from `Reject*` to `Skip*` with a sidecar `reason` the runner prints
 on every run. `Skip` rather than `xfail` because the fault is in the fixture, not the compiler:
 each claims to test a pass it never reaches, and fixing the compiler would not make it start
-testing that pass. They need rewriting.
+testing that pass. **Two are still parked; one is back.**
 
-*Two die at parse (`E0002`) before reaching the pass they target.*
+*One dies at parse (`E0002`) before reaching the pass it targets.*
 - `SkipFunctionDefinitionDomainNotTuple` — hits the multi-argument function-definition parser gap,
   duplicating `AcceptFunctionDefinitionMultiArgTupleDomain` (§9.2, `xfail`) while claiming to test
   `TCError.notATupleType`.
-- `SkipUnboundedChooseSynthesisPosition` — hits the `CHOOSE` parser gap (§9.2), duplicating
-  `AcceptUnboundedChooseWithExpectedType`, while claiming to test `TCError.cannotInferType`.
+
+*One is un-parked.* `SkipUnboundedChooseSynthesisPosition` was parked for the `CHOOSE` parser gap;
+that gap is closed (§9.2), so `print CHOOSE x : x = x` now reaches the type checker and produces
+the `E0028` (`cannotInferType`) its header always claimed. Back as
+`RejectUnboundedChooseSynthesisPosition`, `status: ok`.
 
 *One dies at annotation parsing (`E0005`).* `SkipOperatorParamArityMismatch`'s `@type` annotation
 does not parse, so `TCError.paramArityMismatch` is never reached. Either the annotation is
