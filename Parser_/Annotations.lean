@@ -134,7 +134,7 @@ section
 
       expr : TypeParser Typ := do
         let argss ← takeMany <| withBacktracking do
-          let args ← parens <| sepBy (ws *> char ',' *> ws) fn
+          let args ← parens <| sepBy (ws *> char ',' *> ws) expr
           let _ ← ws *> chars "=>" <* ws
           return args.toList
         let ret ← fn
