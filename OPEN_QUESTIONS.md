@@ -330,7 +330,7 @@ the question is whether `Declarations` is *expected* to diverge at the Guarded s
 through Network, and no planned pass adds a field to it. If nothing is expected, the copy is
 buying only the option to diverge cheaply later.
 
-### 9.23 Six fixtures asserted something they did not exercise; two remain parked as `Skip*`
+### 9.23 Six fixtures asserted something they did not exercise; one remains parked as `Skip*`
 Found by phase 4's sidecars: every rejection now records the stage and code it must produce, and
 six fixtures produced something else. All six passed `run.sh`, which only ever asked for a nonzero
 exit.
@@ -347,26 +347,29 @@ produces `E0018` (`conflictingAssignment`) at `desugar`, as its header always sa
 **Three were parked**, renamed from `Reject*` to `Skip*` with a sidecar `reason` the runner prints
 on every run. `Skip` rather than `xfail` because the fault is in the fixture, not the compiler:
 each claims to test a pass it never reaches, and fixing the compiler would not make it start
-testing that pass. **Two are still parked; one is back.**
+testing that pass. **One is still parked; two are back.**
 
 *One dies at parse (`E0002`) before reaching the pass it targets.*
 - `SkipFunctionDefinitionDomainNotTuple` — hits the multi-argument function-definition parser gap,
   duplicating `AcceptFunctionDefinitionMultiArgTupleDomain` (§9.2, `xfail`) while claiming to test
   `TCError.notATupleType`.
 
-*One is un-parked.* `SkipUnboundedChooseSynthesisPosition` was parked for the `CHOOSE` parser gap;
+*Two are un-parked.* `SkipUnboundedChooseSynthesisPosition` was parked for the `CHOOSE` parser gap;
 that gap is closed (§9.2), so `print CHOOSE x : x = x` now reaches the type checker and produces
 the `E0028` (`cannotInferType`) its header always claimed. Back as
 `RejectUnboundedChooseSynthesisPosition`, `status: ok`.
+`SkipOperatorParamArityMismatch` was parked because its `@type` annotation died at annotation
+parsing (`E0005`): `Parser_/Annotations.lean`'s `parseType'` could not nest an operator-shaped
+(`=>`) type inside another operator type's argument list. That gap is closed too, so
+`((Int) => Int, Int) => Int` now parses and `Op(F(_,_), x) == x` reaches `checkParamArity`, which
+produces the `E0039` (`paramArityMismatch`) its header always claimed. Back as
+`RejectOperatorParamArityMismatch`, `status: ok`, `failsAt: typecheck`.
 
-*One dies at annotation parsing (`E0005`).* `SkipOperatorParamArityMismatch`'s `@type` annotation
-does not parse, so `TCError.paramArityMismatch` is never reached. Either the annotation is
-malformed, or it uses the pre-Apalache dialect the parser rejects (§9.2).
-
-**Open:** how each should be rewritten. The first two duplicate `xfail` fixtures that already track
-their parser gaps, so they are only worth keeping if rewritten as genuine type-checker fixtures
-once those gaps close. Note the cost of parking them: a skipped fixture does not run, so nothing
-will announce it when the gap closes — the `xfail` pair is what to watch instead.
+**Open:** how the last one should be rewritten. It duplicates an `xfail` fixture that already
+tracks its parser gap, so it is only worth keeping if rewritten as a genuine type-checker fixture
+once that gap closes. Note the cost of parking it: a skipped fixture does not run, so nothing will
+announce it when the gap closes — the `xfail` pair is what to watch instead. Both un-parkings above
+were noticed by hand, not by the suite, which is the point.
 
 ### 9.24 The span map is still one global `IO.Ref`, so `lake test` stays `-j 1`
 Every pass now registers every position-carrying node it builds (`PLAN.md` §2, "Source
