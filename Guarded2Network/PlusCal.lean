@@ -22,11 +22,14 @@ public section
     TLAPlus.lean`'s `runDesugarer`). `Empty` for the warning channel, since this pass has no
     warnings to report yet (`Common/Errors.lean`'s `CompilerDiagnostic Empty String` instance
     exists exactly for this case).
-  - **Every fresh name — the process-local `inbox` variable and each `.rx` thread's own throwaway
-    loop-local `var` — comes from `freshName` (`Common/Fresh.lean`)**, giving the same
+  - **Every fresh name — the process-local `inbox` variable and each `.rx` thread's own block
+    label — comes from `freshName` (`Common/Fresh.lean`)**, giving the same
     `$`-based hygiene as every other pass's fresh binder: a name a real user could have written
     can never collide with one of these. `inbox` is fresh once per process, shared by every
-    thread of that process; each new `.rx` thread gets its own fresh `var`.
+    thread of that process; each new `.rx` thread gets its own fresh label. That label is what the
+    semantics schedules the receiving loop by, and what its own terminal `goto` targets
+    (`reference/jlamp.pdf` §4.1); it must therefore stay distinct from every `AtomicBlock.label` in
+    the process, which `freshName` guarantees.
   - **A `receive`'s stored `Coercion` (`Core/TypedTLAPlus/Coercion.lean`) is discharged via
     `Coercion.applyComputable` directly against the built `Head(inbox)` expression**, not left
     unapplied.
@@ -205,8 +208,8 @@ private def stepBranch (chans : Guarded2NetworkChans) (inboxName : String)
       if st.rxThreads.any (λ | .rx c' .. => c'.name == chan.name | .code _ => false) then
         pure st.rxThreads
       else do
-        let rxVar ← (freshName "rx" : m String)
-        pure (st.rxThreads.concat (.rx chan rxVar τ inboxName))
+        let rxLabel ← (freshName "rx" : m String)
+        pure (st.rxThreads.concat (.rx chan rxLabel τ inboxName))
     set ({ newLocals := newLocals, rxThreads := rxThreads } : ThreadState)
 
   return { precondition := precond, action := { action with begin := newInstrStmts ++ action.begin } }

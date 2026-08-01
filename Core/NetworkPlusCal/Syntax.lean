@@ -24,7 +24,7 @@ public section
     `Core/GuardedPlusCal/Syntax.lean`'s instances (`Ref.bimap`/`Ref.bitraverse` reused directly,
     since `Ref` itself has no generic instance).
   - `Thread` is a genuine sum (`.code (blocks : List AtomicBlock)` | `.rx (chan : Ref Typ Expr)
-    (var : String) (τ : Typ) (inbox : String)`) — a receiving thread is a real second kind of
+    (label : String) (τ : Typ) (inbox : String)`) — a receiving thread is a real second kind of
     thread, not folded into `.code`.
   - `deriving Repr` throughout — no `Pretty.lean` needed yet: `-d dump-network` renders via
     `reprStr`, the same way `-d dump-guarded` does today (`Fugue.lean`'s existing debug-dump
@@ -117,24 +117,31 @@ instance : Bitraversable AtomicBlock where
   bitraverse f g B := AtomicBlock.mk B.label <$> traverse (bitraverse f g) B.branches
 
 /-- One parallel `{...}` thread — either ordinary code (a sequence of labelled atomic blocks, in
-program order, same shape as `GuardedPlusCal.Thread`) or a dedicated receiving loop: reads `chan`
-into `var : τ` by repeatedly waiting on and draining a process-local `inbox` sequence variable
-(named `inbox`, fresh per `Guarded2Network.freshName`). A real second kind of thread, not folded
-into `.code`, since its body isn't a `List AtomicBlock` — see the module doc. -/
+program order, same shape as `GuardedPlusCal.Thread`) or a dedicated receiving loop: drains `chan`
+of type `τ` into a process-local `inbox` sequence variable (fresh per process, via
+`Guarded2Network.freshName`). A real second kind of thread, not folded into `.code`, since its body
+isn't a `List AtomicBlock` — see the module doc.
+
+`label` is the receiving loop's own block label. `reference/jlamp.pdf` §4.1 gives `.rx`'s meaning as
+the single atomic block `label : receive(chan, tmp) ; inbox := Append(inbox, tmp) ; goto label`,
+"although without the temporary variable `tmp` assigned to" — so the loop needs a label of its own
+to be scheduled by, and to be the target of its own terminal `goto`, whereas `tmp` is never written
+and needs no name at all. Both are freshly generated, so this one field carries the one that
+matters. -/
 inductive Thread (Typ Expr : Type) : Type
   | code (blocks : List (AtomicBlock Typ Expr))
-  | rx (chan : Ref Typ Expr) (var : String) (τ : Typ) (inbox : String)
+  | rx (chan : Ref Typ Expr) (label : String) (τ : Typ) (inbox : String)
   deriving Repr
 
 instance : Bifunctor Thread where
   bimap f g
     | .code blocks => .code (bimap f g <$> blocks)
-    | .rx chan var τ inbox => .rx (Ref.bimap f g chan) var (f τ) inbox
+    | .rx chan label τ inbox => .rx (Ref.bimap f g chan) label (f τ) inbox
 
 instance : Bitraversable Thread where
   bitraverse f g
     | .code blocks => .code <$> traverse (bitraverse f g) blocks
-    | .rx chan var τ inbox => (.rx · var · inbox) <$> Ref.bitraverse f g chan <*> f τ
+    | .rx chan label τ inbox => (.rx · label · inbox) <$> Ref.bitraverse f g chan <*> f τ
 
 structure Process (Typ Expr : Type) : Type where
   mailbox : Option (String × List Expr)

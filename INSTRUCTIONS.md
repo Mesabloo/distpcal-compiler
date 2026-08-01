@@ -36,6 +36,31 @@ ambiguity: add there, don't decide unilaterally.
 - Prior art already solve something well: say so, reuse idea. "Fresh rewrite" is about
   architectural ownership, not novelty.
 
+## Context discipline
+
+Context re-billed every turn. Token read at turn 20 of 200 paid 180 more times. What *stays*
+cost far more than what a call return once.
+
+- **No whole-file read of big file.** `.lean` over 300 lines: `lean_file_outline` for
+  skeleton, then `lean_declaration_file` for one declaration. Raw source needed: `Read` with
+  `offset`/`limit`. `Driver/Modules.lean` alone burned 26k tokens over 6 whole-file reads.
+  Enforced — `.claude/hooks/lean-reminder.sh` denies unbounded `.lean` reads past threshold.
+  Sliced reads pass, and satisfy `Edit`'s read-first requirement (verified).
+- **`STRUCTURE.md`, `PLAN.md`, `FINDINGS.md`: slice, never `cat`.** `STRUCTURE.md` carry index
+  at top — 360 tokens vs 6.5k whole. Slice pattern live there.
+- **`Edit` `old_string` = minimal unique anchor.** Not 40-line surrounding block. `Edit` inputs
+  were 51k tokens over 15 sessions — biggest slice of own tool arguments.
+- **Plan docs: append, no rewrite.** One plan file cost 9.7k tokens in `Write`+`Edit` churn.
+  Same for `.claude/tasklist*.md`.
+- **`.mcp.json` empty on purpose.** `gopls` removed — 11 calls in 91 sessions, instruction
+  block cost ~450 tokens *every turn*. Re-add for real Go runtime work:
+  `{"mcpServers":{"gopls":{"command":"gopls","args":["mcp"]}}}`.
+- **Hooks echo own command text into context.** Hook command = file path, never inline shell
+  one-liner. Emit `additionalContext` alone; adding `systemMessage` state same rule twice.
+- **Deferred MCP tools lose to `Read`.** lean-lsp navigation got 94 calls vs 1389 `.lean`
+  `Read`s + 1583 greps across 91 sessions — 3%. Cause: deferred schemas cost a `ToolSearch`
+  turn, `Read` cost none. Reminders don't fix that; removing the substitute does.
+
 ## Lean conventions
 
 Carried from prior art's `lakefile.lean`; raise open question before dropping any:

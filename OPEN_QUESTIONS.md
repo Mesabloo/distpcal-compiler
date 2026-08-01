@@ -242,6 +242,11 @@ three enumerate `S` at runtime, so an infinite `S` doesn't terminate.
 infinite. Functions compile to lazy maps (§5.7), so `[x \in Nat |-> x * x]` is fine and stays
 unrestricted; `Typed2Computable`'s current no-restriction behavior is correct.
 
+**Not affected by the denotational semantics.** `Core/ComputableTLAPlus/Semantics/Interface.lean`
+keeps evaluation abstract (`class ExprSemantics`), so `Core/*/Semantics/Denotational.lean` says
+nothing about quantifier or set-builder domains either way. This stays a `Network2Go`/§5.7
+question, and whichever `ExprSemantics` instance eventually models TLA⁺ inherits it unchanged.
+
 **Open:** whether/how to reject an infinite domain at `forall`/`exists`/`choose`/`collect`/`map'`
 (and PlusCal's `with x \in dom`), and where the check lives (`Typed2Computable`, matching
 `fnSet`/`recordSet`'s precedent, vs. deferred to `Network2Go`/§5.7 where the lazy-map/eager-slice

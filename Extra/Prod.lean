@@ -8,6 +8,9 @@ namespace Prod
 
   abbrev thd {α β γ : Type} (x : α × β × γ) : γ := x.snd.snd
 
+  /-- Exposed: `Core/GuardedPlusCal/Semantics/Lemmas.lean` reasons about `map₃` applied to a literal
+  triple, which needs the body to reduce. -/
+  @[expose]
   def map₃ {α β γ δ ε ζ : Type _} (f : α → δ) (g : β → ε) (h : γ → ζ) : α × β × γ → δ × ε × ζ
     | ⟨x, y, z⟩ => ⟨f x, g y, h z⟩
 

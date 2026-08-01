@@ -54,6 +54,40 @@ def Block.traverse {α β : Bool → Type} {m : Type → Type} [Applicative m]
     (f : ⦃b : Bool⦄ → α b → m (β b)) {b : Bool} (B : Block α b) : m (Block β b) :=
   Block.mk <$> B.begin.traverse (f (b := _)) <*> f B.last
 
+/-! `Block`'s list-like interface. `end`/`cons` are the constructors the semantics recurses on;
+`toList`/`ofList` are the two halves of the isomorphism with non-empty lists; `concat`/`prepend`
+extend a block on the right and on the left. All `abbrev`s or `@[reducible]` so that `rw` sees
+through them in `Semantics/Lemmas.lean`. -/
+
+/-- The one-statement block: nothing before the (possibly terminal) `S`. -/
+abbrev Block.end {α : Bool → Type} {b : Bool} (S : α b) : Block α b where
+  begin := []
+  last := S
+
+/-- `S` prefixed onto `B`. `S` is necessarily non-terminal. -/
+abbrev Block.cons {α : Bool → Type} {b : Bool} (S : α false) (B : Block α b) : Block α b where
+  begin := S :: B.begin
+  last := B.last
+
+/-- Every statement of a non-terminal block, in program order. -/
+abbrev Block.toList {α : Bool → Type} (B : Block α false) : List (α false) := B.begin.concat B.last
+
+/-- Inverse of `Block.toList`: a non-empty list read as a block. -/
+def Block.ofList {α : Bool → Type} (xs : List (α false)) (xs_nonempty : xs ≠ []) : Block α false where
+  begin := xs.dropLast
+  last := xs.getLast xs_nonempty
+
+/-- `B` extended on the right by a (possibly terminal) `S`, which becomes the new `last`. -/
+@[reducible]
+def Block.concat {α : Bool → Type} {b : Bool} (B : Block α false) (S : α b) : Block α b where
+  begin := B.toList
+  last := S
+
+/-- `B` extended on the left by `xs`. -/
+def Block.prepend {α : Bool → Type} {b : Bool} (xs : List (α false)) (B : Block α b) : Block α b where
+  begin := xs ++ B.begin
+  last := B.last
+
 abbrev Ref (Typ Expr : Type) := ElaboratedPlusCal.Ref Typ Expr
 abbrev Multicast (Typ Expr : Type) := CorePlusCal.Multicast Typ Expr
 

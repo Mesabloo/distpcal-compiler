@@ -16,9 +16,13 @@ theorem todo_rename {α β γ : Type*} (f : SetRel α β) (g : SetRel β γ) (A 
       _ ⊆ SetRel.image g (SetRel.image f A) := SetRel.image_subset_image h₁
       _ = SetRel.image (SetRel.comp f g) A := SetRel.image_comp _ _ _ |>.symm
 
+-- Exposed: proofs about these relations destructure membership directly with `rintro`, which needs
+-- the set-builder body to reduce.
+@[expose]
 def Relation.lcomp₁ {α β γ : Type _} [Monoid β] (R₁ : Set (α × β × γ)) (W : Set (γ × β)) : Set (α × β) :=
   {(x, c) | ∃ y a b, (x, a, y) ∈ R₁ ∧ (y, b) ∈ W ∧ c = a * b}
 
+@[expose]
 def Relation.lcomp₂ {α β γ δ : Type _} [Monoid β] (R₁ : Set (α × β × γ)) (R₂ : Set (γ × β × δ)) : Set (α × β × δ) :=
   {(x, c, z) | ∃ y a b, (x, a, y) ∈ R₁ ∧ (y, b, z) ∈ R₂ ∧ c = a * b}
 

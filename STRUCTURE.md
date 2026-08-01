@@ -3,6 +3,29 @@
 Directory map. Sample of files per directory, enough to orient — see `PLAN.md` for what each
 pass does. Keep in sync when files move.
 
+## Index
+
+**Don't read this file whole — 370 lines.** Pick the section below, slice it:
+
+```bash
+sed -n '/^## `Driver\//,/^## /p' STRUCTURE.md
+```
+
+Sections, in file order. Every one is a literal `## ` heading, so the pattern above works
+verbatim for any of them.
+
+| Group | Sections |
+|---|---|
+| Support | `Common/` · `Extra/` · `ProgressBar/` |
+| Front end | `Parser_/` · `Desugarer/` · `WellFormedness/` · `Elaborator/` |
+| Core ASTs | `Core/` · `Core/Surface*/` · `Core/Core*/` · `Core/Typed*/` · `Core/Computable*/` · `Core/Guarded*/`+`Core/Network*/` · `Core/Go/` |
+| Passes | `Typed2Computable/` · `Computable2Guarded/` · `Guarded2Network/` · `Network2Go/` · `Network2JoinCalculus/` |
+| Go output | `runtime/` (+ `comm/` `locks/` `sched/` `tlaplus/` as `### `) · `persistent/` |
+| Proofs | `VerifiedCompiler/` |
+| Other | `Root modules` · `Driver/` · `Tests/` · `reference/` · `docs/` · `.claude/` · `Root` |
+
+Adding a section: add it to a group row here too.
+
 ## Root modules
 One per `lean_lib` in `lakefile.lean`, each re-exporting its directory's modules
 (`Desugarer.lean`, `Elaborator.lean`, `Core.lean`, …). Nothing in the compiler imports them —
@@ -70,15 +93,52 @@ Desugared AST — annotations stripped into concrete fields (types, mailbox, par
   `mvar`/`fnSet`/`recordSet`; `forall`/`exists`/`choose`'s domain is a plain `Expression`, not
   `Option`. `Typ`/`Origin` reused directly from `TypedTLAPlus`.
 - `Syntax.lean` (`ComputablePlusCal/`) — pins `ElaboratedPlusCal` at `ComputableTLAPlus`'s types.
+- `Semantics/Interface.lean` (`ComputableTLAPlus/`) — abstract expression layer the PlusCal
+  denotational semantics sits on. `Memory`, `PathStep`, `class ExprSemantics` (relational `Eval`,
+  `tru`/`isBool`/`isSet`/`mem`/`updatePath`/`coerce`/`seqAppend`), `Aborts` derived from `Eval`,
+  `Memory.update`.
+  Refined to real TLA⁺ semantics later by one instance; nothing downstream changes.
 
 ## `Core/GuardedPlusCal/`, `Core/NetworkPlusCal/`
 Outputs of `Computable2Guarded` and `Guarded2Network` (§5.4/§5.5).
 - `Syntax.lean` (`GuardedPlusCal/`) — `Statement` flat (10 constructors, no nested `Block`/
   `Branches`; every `if`/`while`/`either` already in `AtomicBranch`'s precondition/action split),
-  reuses `ElaboratedPlusCal.Ref`/`.Multicast`. Pins itself as `ComputableGuardedPlusCal`.
+  reuses `ElaboratedPlusCal.Ref`/`.Multicast`. Pins itself as `ComputableGuardedPlusCal`. `Block`
+  also carries its list-like interface: `end`/`cons`/`toList`/`ofList`/`concat`/`prepend`.
+- `Syntax/Lemmas.lean` (`GuardedPlusCal/`) — structural facts about that interface plus the two
+  induction principles (`Block.cons_end_induct`/`.cons_end_induct'` left-to-right,
+  `Block.concat_end_induct` right-to-left). No semantics.
 - `Syntax.lean` (`NetworkPlusCal/`) — `Statement` identical minus `receive` (compiled into a
   `Thread.rx` constructor, a real second kind of thread); reuses `GuardedPlusCal.Block`/`Ref`/
   `Multicast`/`Declarations`. Pins itself as `ComputableNetworkPlusCal`.
+- `Semantics/{Denotational,Lemmas}.lean` (`NetworkPlusCal/`) — the Guarded files' cases minus
+  `receive`, plus this language's primed `Statement.reducing'`/`.aborting'`/`.diverging'`,
+  `Block.*'_eq_map` and `LocalState.*_glue`. The state space itself (`Behavior`/`ChanKey`/`FIFOs`/
+  `LocalState`/`LocalState'`/`EvalStep`/`Ref.pathAborts`) and every generic `Block` lemma are taken
+  from `GuardedPlusCal`, not re-declared — this pass touches neither memories nor channels, and
+  sharing them lets item 7 relate the two languages without transporting across isomorphic copies.
+  Threads have no denotation (`reference/jlamp.pdf` §3.3): `Thread.labels` gives the labels a thread
+  owns, and `Thread.rxBranch`/`.rxBranchAborting` give the single atomic block a `.rx` thread
+  denotes.
+- `Semantics/Process.lean` (`GuardedPlusCal/`) — the process and algorithm layers, mentioning
+  neither language's AST: `Trace`, `ProcState`, `CodeTable`, `Algebra`, `procReducing`/`procAborting`,
+  `step`/`abortStep`, and `reducing`/`aborting`/`diverging` as `μ`/`μ`/`ν`. `InitProc` is a relation,
+  since initializers are evaluated relationally. Ends with Guarded's own `Process.ownedLabels`/
+  `.entryLabels`/`.codeTable`.
+- `Semantics/Process.lean` (`NetworkPlusCal/`) — the same three, differing only in that a `.rx`
+  thread contributes its own label denoting `Thread.rxBranch`, so a receiving loop is scheduled by
+  the same mechanism as any other block.
+- `Semantics/Denotational.lean` (`GuardedPlusCal/`) — `Behavior`/`ChanKey`/`FIFOs`/`LocalState`,
+  `EvalStep`/`Ref.pathAborts`, `Statement.reducing`/`.aborting`/`.diverging`, generic
+  `Block.reducing`/`.aborting`/`.diverging` (reused by `NetworkPlusCal`), `AtomicBranch.*`. Plain
+  `def`s, not `Reduce`/`Abort`/`Diverge` instances — the abstract value type occurs only in those
+  classes' `outParam`, so no synthesization order exists. `multicast` is `∅` pending phase 10 item 7.
+- `Semantics/Lemmas.lean` (`GuardedPlusCal/`) — semantic equations for `Block.*` along
+  `end`/`cons`/`concat`/`prepend`/`foldr`, the `*_map` relabelling lemmas, and the flat state
+  encoding item 7 needs: `LocalState'`, `toLocalState'`(`_inj`), primed
+  `Statement.reducing'`/`.aborting'`/`.diverging'`, `Block.*'_eq_map`, and the membership-level
+  `LocalState.sem_glue₁`/`₂`/`abort_glue`/`div_glue`. Generic in the statement/state/behavior
+  families, so `NetworkPlusCal` reuses the `Block` half verbatim.
 
 ## `Core/Go/`
 `Network2Go`'s target AST (§5.7) — the Go fragment of thesis §6.6 plus what §7.2's listings

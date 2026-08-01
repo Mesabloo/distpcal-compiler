@@ -52,7 +52,7 @@ verification not expected within this plan — north star, not milestone.
 | Question | Decision |
 |---|---|
 | Go and Join Calculus backend relation? | **Independent siblings.** Both compile directly from `NetworkPlusCal`, two separate pass chains (`Network2Go`, `Network2JoinCalculus`). No sequencing between backends. Matches thesis: Join Calculus chapter targets Network PlusCal directly, not Go. |
-| How much of existing prototypes carries over? | **Fresh domain code, reused generic infra, three ported exceptions.** `Extra/` (data structure lemmas), `VerifiedCompiler/` (trace + refinement framework), `ProgressBar/` (CLI spinners), `Common/` (positions, diagnostics, pretty-printing — generic, not tied to one AST) vendored as scaffold, adapted not copied blind. Most AST definitions, semantics, compiler passes (desugarer, checker, every `*2*` pass but Guarded→Network) written fresh, prototypes used only as design reference. Three ported exceptions: **lexer/parser** (§5.1), **Guarded→Network** (§5.5), **well-scopedness checking** (`Core/GuardedPlusCal/Syntax/WellScopedness.lean`, `Core/TypedSetTheory/Syntax/WellScopedness.lean`, repurposed as proof-side invariants, not primary check mechanism — §5.2a) — all working, non-trivial, worth porting/cleaning rather than rewrite. |
+| How much of existing prototypes carries over? | **Fresh domain code, reused generic infra, three ported exceptions.** `Extra/` (data structure lemmas), `VerifiedCompiler/` (trace + refinement framework), `ProgressBar/` (CLI spinners), `Common/` (positions, diagnostics, pretty-printing — generic, not tied to one AST) vendored as scaffold, adapted not copied blind. Most AST definitions, semantics, compiler passes (desugarer, checker, every `*2*` pass but Guarded→Network) written fresh, prototypes used only as design reference. Three ported exceptions: **lexer/parser** (§5.1), **Guarded→Network** (§5.5), **well-scopedness checking** (`Core/GuardedPlusCal/Syntax/WellScopedness.lean`, repurposed as a proof-side invariant, not primary check mechanism — §5.2a) — all working, non-trivial, worth porting/cleaning rather than rewrite. |
 | Verification ambition | **Match prototype's already-verified surface only.** Reproduce refinement proof for Guarded→Network (only pass with complete proof in prior art); every other pass, including both new backends, unverified for initial roadmap. Lock inference the one exception needing real design now — without it Go backend semantics undefined, not just unverified. |
 | Join Calculus executability | Compiler's job: **emit a Join Calculus source file**. Whether/how it later executes (custom interpreter, further lowering) left open, §9.1. No interpreter built as part of this plan unless asked. |
 | Lock inference / Go concurrency safety | **In scope.** Rest of `Network2Go` already works (real goroutine-based concurrency); lock inference is the missing piece, not a reason to redesign backend. One lock family per process-local variable, derived from conflict analysis over shared process-local variables across atomic blocks — full algorithm §5.7. |
@@ -589,13 +589,12 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
   binder fresh, no duplicate names in one scope — is **not** implied by type checking and
   stays this pass's genuine, load-bearing work: ordinary bidirectional type checking has
   no reason to reject shadowing. Exactly what the prototype's
-  `Core/GuardedPlusCal/Syntax/WellScopedness.lean` and
-  `Core/TypedSetTheory/Syntax/WellScopedness.lean` encode as Lean `Prop`s (Finset-based
+  `Core/GuardedPlusCal/Syntax/WellScopedness.lean` encodes as Lean `Prop`s (Finset-based
   scopes, one predicate per scope class, threaded through `await`/`with`/`receive`/
-  `send`/assignment). **Port both files** (with cleanup) as the third ported-not-fresh
+  `send`/assignment). **Port it** (with cleanup) as the third ported-not-fresh
   exception alongside the lexer/parser and Guarded→Network (§2) — repurposed: rather than
   the primary mechanism rejecting malformed programs (this new pass does that, well
-  before `GuardedPlusCal`/`TypedSetTheory` exist), they become the formal restatement of
+  before `GuardedPlusCal` exists), it becomes the formal restatement of
   the same invariant at those later stages. `GuardedPlusCal.Algorithm.WellScoped` is the
   standing hypothesis Guarded→Network's refinement proof (§5.5) assumes, established via
   the general preservation lemma (§2, §5.5). This freshness/hygiene discipline is also,
@@ -1640,10 +1639,88 @@ domain-specific AST code being rewritten.
 
 ### 6.2 What gets a proof in this plan
 Per §2: only **Guarded PlusCal → Network PlusCal**, matching prior art's existing proof.
-Concretely: `Core/GuardedPlusCal/Semantics/Denotational.lean`,
-`Core/NetworkPlusCal/Semantics/Denotational.lean`, and a `Guarded2Network/Lemmas.lean`
-establishing a `StrongRefinement.Terminating`/`.Diverging` instance between them, ported
-and re-derived against the fresh ASTs.
+Concretely: `Core/{Guarded,Network}PlusCal/Semantics/{Denotational,Lemmas}.lean`, and a
+`Guarded2Network/Lemmas.lean` establishing a `StrongRefinement.Terminating`/`.Diverging`
+instance between them, ported and re-derived against the fresh ASTs.
+
+The expression layer those semantics sit on is **abstract**, not concrete:
+`Core/ComputableTLAPlus/Semantics/Interface.lean`'s `class ExprSemantics (V : Type)` supplies a
+relational `Eval` plus the value operations the statement and thread rules actually need
+(`tru`/`isBool`/`isSet`/`mem`/`updatePath`/`coerce`/`seqAppend`). Evaluation is a relation rather than an
+`Option`-valued function because a user-defined operator call re-descends into that operator's
+body, jumping to an unrelated syntax tree with no measure the termination checker can see; an
+inductive `Prop` needs only strict positivity, and an expression with no derivation is exactly an
+expression with no value — so `Aborts` is derived from `Eval`, not assumed alongside it. The real
+TLA⁺ evaluator arrives later as one instance, changing nothing downstream.
+
+`isBool` and `isSet` exist to keep *aborting* distinct from *blocking*: a non-boolean guard aborts
+where a false one blocks, and a non-set `with x ∈ e` aborts where an empty set blocks. Membership
+alone cannot separate those.
+
+The semantics are plain definitions, not `Reduce`/`Abort`/`Diverge` instances. Those classes take
+their second argument as an `outParam`, and the value type occurs only there — nothing in a
+`Statement` or an `AtomicBranch` mentions it — so no synthesization order exists while the
+expression layer is abstract. `StrongRefinement` takes the relations as plain `Set`s, so nothing
+needs the classes; they can be registered later against a concrete value type.
+
+Both languages share one state space (`Behavior`, `ChanKey`, `FIFOs`, `LocalState`), declared once
+in `GuardedPlusCal`. `Guarded2Network` touches neither memories nor channels — it moves a `receive`
+out of guard position into a `Thread.rx` — so sharing lets the refinement be stated over a single
+state type instead of transporting across two isomorphic copies. `Semantics/Lemmas.lean` also
+carries the flat encoding `LocalState'`, where `LocalState`'s terminality index becomes an `Option
+String` field: `StrongRefinement`'s relation is over one fixed type and cannot be indexed.
+
+**`reference/jlamp.pdf` is authoritative for these semantics**, and the definitions follow its §3.3.
+`LocalState` is the paper's `LState = (Var → Value) × (Var → Value*)`: memory and channels, nothing
+else. In particular there is no component for `with`-bound temporaries — prior art carried one so
+that `x ∉ tmp` could block an assignment to a block-local binder, but that is a syntactic property
+and `WellFormedness/` establishes it on the way in. Keeping it would force every lemma transcribed
+from the paper through a state-shape translation for no proof-side gain.
+
+**Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
+thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
+it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns
+(`NetworkPlusCal.Thread.labels`) and the block behind each.
+
+`Core/GuardedPlusCal/Semantics/Process.lean` carries that layer, parameterized by a `CodeTable`
+(label → what its block does) and, per process, the labels it owns — so it mentions neither
+language's AST and both instantiate it. Processes are indexed by an arbitrary `ι`: the paper pairs
+each state with the process `P` itself, but only ever uses `P` as a name.
+
+The three algorithm-level semantics are fixed points of monotone endofunctions on the relation:
+
+- `⟦A⟧*` is `μX. Id ∪ (X ∘ᵣ₂ step)` — every **finite** sequence of steps. The reflexive disjunct is
+  load-bearing, not cosmetic: without it the endofunction has `∅` as a fixed point, since every
+  element of a composition needs a witness drawn from `X`, so the *least* fixed point would be `∅`
+  and every algorithm's semantics empty.
+- `⟦A⟧⊥` is `μX. abortStep X`, where `abortStep X` is "some process goes wrong now" ∪ `step ∘ᵣ₁ X`.
+  Needs no reflexive disjunct — the left half does not mention `X`, so it already seeds the
+  iteration.
+- `⟦A⟧∞` is `νX. step ∘ᵣ₁ X`. A *greatest* fixed point, so the degeneracy above does not arise.
+
+Initial states are a **relation**, not a function: local variables are given by initializer
+expressions and evaluation is relational, so an algorithm with a meaningless initializer has no
+initial state rather than a junk one.
+
+`Thread.rx` is not special here: the paper defines its meaning to *be* that of the atomic block
+`rxₚ : receive(mailboxₚ, tmpₚ) ; inboxₚ := Append(inboxₚ, tmpₚ) ; goto rxₚ`, "although without the
+temporary variable `tmpₚ` assigned to". Draining the channel into `inboxₚ` is therefore one
+transition by construction — it is a single atomic block — and the self-`goto` is what makes it
+loop.
+
+Of that block's two names, `Thread.rx` carries the label `rxₚ` and not the temporary `tmpₚ`. The
+loop has to be schedulable by label like any other block, and has to name itself as its own `goto`
+target, so the label is load-bearing; `tmpₚ` is never assigned — the received value goes straight
+into `inboxₚ` — so it needs no name at all. Both are minted by `freshName` in `Guarded2Network`, so
+the label inherits the same `$`-hygiene that keeps it distinct from every user-written
+`AtomicBlock.label`.
+
+**These definitions are deliberately stronger than the paper's**, which leaves several failure modes
+to well-formedness conditions it assumes rather than states: `⟦receive(c,r)⟧⊥ = ∅` outright, and
+`await` on a non-boolean, `with x ∈ e` on a non-set, an assignment to an unbound target, and a
+channel that resolves to nothing all merely block. Each of those aborts here. The cost is that item
+7 must discharge cases the paper's proofs never raise; the gain is that the semantics says something
+about malformed programs rather than presupposing they do not arise.
 
 ### 6.3 What's explicitly deferred
 Everything else — parser correctness, desugarer semantics-preservation, type-checker

@@ -1,6 +1,26 @@
 # CLAUDE.md
 
-Pointer index only. Read `INSTRUCTIONS.md` for how to work on this project.
+Register rule, then pointer index. Read `INSTRUCTIONS.md` for how to work on this project.
+
+## Register — applies every response, no exceptions
+
+**Chat replies: caveman register.** Drop articles, filler, pleasantries, hedging. Fragments
+fine. Short synonyms. Technical terms, code, API names, CLI commands, error strings: exact,
+never compressed. Pattern: `[thing] [action] [reason]. [next step].`
+
+Not: "Sure! I'd be happy to help. The issue is likely caused by…"
+Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
+
+Persist across whole session. No drift back to prose after many turns. Rule lives here, not
+only in the plugin hook — hook output rank as data, get ignored; this file is instruction.
+
+Drop caveman only for: security warnings, irreversible-action confirmations, multi-step
+sequences where dropped conjunctions make order ambiguous. Resume right after.
+
+**Caveman in these files too:** `CLAUDE.md`, `INSTRUCTIONS.md`, `PLAN.md`,
+`OPEN_QUESTIONS.md`, `.claude/FINDINGS.md`, `.claude/tasklist*.md`, `.claude/plans/*`.
+
+**Normal prose:** source code and its doc comments, commit messages, PR bodies.
 
 ## Files to check before work
 
@@ -19,6 +39,11 @@ Pointer index only. Read `INSTRUCTIONS.md` for how to work on this project.
 
 - `reference/thesis.pdf` — "Generating Distributed Programs from Formal Specifications", primary
   spec source. `PLAN.md` §3.3 tracks which chapters are authoritative vs. stub.
+- `reference/jlamp.pdf` — "Towards a Verified Compiler for Distributed PlusCal" (Bergeron, Cirstea,
+  Merz). **Authoritative for Guarded/Network PlusCal semantics and the Guarded→Network correctness
+  proof.** §3.1 syntax, §3.2 TLA⁺ expression rules, §3.3 statement/block/thread/process/algorithm
+  semantics, §4 the pass and its proof. Paper assumes syntactic well-formedness the old Lean
+  development checked explicitly — expect divergence, see `PLAN.md` §6.2.
 - `~/Documents/distpcal-compiler` (private, local checkout) and `github.com/mesabloo/fugue`
   (public mirror) — prior art. `PLAN.md` §2/§3 says what's safe to port vs. reference-only vs.
   rewrite.
