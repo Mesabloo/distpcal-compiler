@@ -18,6 +18,31 @@ namespace StrongRefinement
     - `semₛ'` is the aborting semantics for the source language.
     - `semₜ` is the reducing semantics for the target language.
 
+    Given the top and right edges, the definition supplies the bottom and left edges below, or the
+    aborting alternative underneath that. Diagram notation used throughout this file:
+    `\mathit{sem}_s`/`\mathit{sem}_t` are `semₛ`/`semₜ`, `\varepsilon'`/`\varepsilon` are the
+    source/target traces, and `\lightning` marks "aborts instead". `amscd` (the `CD` environment
+    doc-gen4's MathJax renders) has no dashed-line primitive, so every edge below is drawn solid
+    regardless of whether it's a hypothesis or a conclusion — here top and right are given, bottom
+    and left are supplied.
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s}V{\varepsilon'}V @V{\mathit{sem}_t}V{\varepsilon}V \\
+    \sigma_s' @>S>> \sigma_t'
+    \end{CD}
+    $$
+    or
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t}V{\varepsilon}V \\
+    \lightning @. \sigma_t'
+    \end{CD}
+    $$
+    (`\preceq` above stands for `≼[Rτ]`; the first square's two vertical labels are related by `Rτ`
+    directly instead, not pictured.)
+
     The source's trace is existentially quantified and related to the target's by `Rτ`, rather than
     shared outright: a pass need not preserve a trace exactly, only up to `Rτ` (`0b`,
     `VerifiedCompiler/Trace.lean`). The aborting disjunct's `≼[Rτ]` is the same relaxation applied to
@@ -120,6 +145,24 @@ namespace StrongRefinement
     - `semₛ` is the diverging semantics for the source language.
     - `semₛ'` is the aborting semantics for the source language.
     - `semₜ` is the diverging semantics for the target language.
+
+    Same diagram notation as `Terminating`; both columns run to `∞` when they diverge, or to
+    `\lightning` on the source side when it aborts instead:
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s}V{\varepsilon'}V @V{\mathit{sem}_t}V{\varepsilon}V \\
+    \infty @. \infty
+    \end{CD}
+    $$
+    or
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t}V{\varepsilon}V \\
+    \lightning @. \infty
+    \end{CD}
+    $$
   -/
   @[expose]
   protected def Diverging (semₛ semₛ' : Set (α × εₛ)) (semₜ : Set (β × εₜ)) : Prop :=
@@ -257,6 +300,16 @@ namespace StrongRefinement
 
     - `semₛ'` is the aborting semantics for the source language.
     - `semₜ'` is the aborting semantics for the target language.
+
+    Same diagram notation as `Terminating`; there is no bottom edge here — an aborting state has no
+    "after", just the abort itself on each side:
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t'}V{\varepsilon}V \\
+    \lightning @. \lightning
+    \end{CD}
+    $$
   -/
   @[expose]
   protected def Aborting (semₛ' : Set (α × εₛ)) (semₜ' : Set (β × εₜ)) : Prop :=
