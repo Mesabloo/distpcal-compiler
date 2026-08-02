@@ -7,53 +7,53 @@ import Mathlib.Data.Set.Basic
 
 public section
 
-inductive Relation.TraceReflGen {α ε} [Trace ε] (R : α → ε → α → Prop) : α → ε → α → Prop
+inductive Relation.TraceReflGen {α ε} [Monoid ε] (R : α → ε → α → Prop) : α → ε → α → Prop
   | refl : ∀ {x}, Relation.TraceReflGen R x Trace.τ x
   | single : ∀ {x y} {a}, R x a y → Relation.TraceReflGen R x a y
 
-inductive Relation.TraceTransGen {α ε} [Trace ε] (R : α → ε → α → Prop) : α → ε → α → Prop
+inductive Relation.TraceTransGen {α ε} [Monoid ε] (R : α → ε → α → Prop) : α → ε → α → Prop
   | single : ∀ {x y} {a}, R x a y → Relation.TraceTransGen R x a y
   | head : ∀ {x y z} {a a'}, R x a y → Relation.TraceTransGen R y a' z → Relation.TraceTransGen R x (a * a') z
 
-theorem Relation.TraceTransGen.no_rel {α ε} [Trace ε] {R : α → ε → α → Prop} {x y a} (h : ∀ y a, ¬ R x a y) : ¬ Relation.TraceTransGen R x a y := by
+theorem Relation.TraceTransGen.no_rel {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y a} (h : ∀ y a, ¬ R x a y) : ¬ Relation.TraceTransGen R x a y := by
   intro h₂
   induction h₂ with
   | single xRy => exact h _ _ xRy
   | @head _ y _ a => specialize h y a; contradiction
 
-theorem Relation.TraceTransGen.trans {α ε} [Trace ε] {R : α → ε → α → Prop} {x y z} {a a'} :
+theorem Relation.TraceTransGen.trans {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y z} {a a'} :
   Relation.TraceTransGen R x a y → Relation.TraceTransGen R y a' z → Relation.TraceTransGen R x (a * a') z := by
     intros xRpy yRpz
     induction xRpy with
     | @single x y a xRy => exact head xRy yRpz
     | @head x y z a a'' xRy _ IH => exact (mul_assoc a a'' a').symm ▸ head xRy (IH yRpz)
 
-inductive Relation.TraceReflTransGen {α ε} [Trace ε] (R : α → ε → α → Prop) : α → ε → α → Prop
+inductive Relation.TraceReflTransGen {α ε} [Monoid ε] (R : α → ε → α → Prop) : α → ε → α → Prop
   | refl : ∀ {x}, Relation.TraceReflTransGen R x Trace.τ x
   | head : ∀ {x} y {z} {a a'}, R x a y → Relation.TraceReflTransGen R y a' z → Relation.TraceReflTransGen R x (a * a') z
 
-protected theorem Relation.TraceReflTransGen.single {α ε} [Trace ε] (R : α → ε → α → Prop) : ∀ {x a} y, R x a y → Relation.TraceReflTransGen R x a y := by
+protected theorem Relation.TraceReflTransGen.single {α ε} [Monoid ε] (R : α → ε → α → Prop) : ∀ {x a} y, R x a y → Relation.TraceReflTransGen R x a y := by
   intros x a y xRy
   rw [← append_τ_eq a]
   apply Relation.TraceReflTransGen.head
   · exact xRy
   · apply Relation.TraceReflTransGen.refl
 
-theorem Relation.TraceReflTransGen.no_rel_to_eq {α ε} [Trace ε] {R : α → ε → α → Prop} {x y a} (h₁ : ∀ y a, ¬ R x a y) (h₂ : Relation.TraceReflTransGen R x a y) : x = y := by
+theorem Relation.TraceReflTransGen.no_rel_to_eq {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y a} (h₁ : ∀ y a, ¬ R x a y) (h₂ : Relation.TraceReflTransGen R x a y) : x = y := by
   induction h₂ with
   | refl => rfl
   | @head x y _ a _ xRy =>
     specialize h₁ y a
     contradiction
 
-theorem Relation.TraceReflTransGen.to_trans_gen {α ε} [Trace ε] {R : α → ε → α → Prop} {x y z} {a a'} :
+theorem Relation.TraceReflTransGen.to_trans_gen {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y z} {a a'} :
   R x a y → Relation.TraceReflTransGen R y a' z → Relation.TraceTransGen R x (a * a') z := by
     rintro xRy yRsz
     induction yRsz generalizing x a with
     | refl => exact .single ((append_τ_eq a).symm ▸ xRy)
     | @head x _ z a a' xRy' _ IH => exact .head xRy (IH xRy')
 
-theorem Relation.TraceReflTransGen.trans {α ε} [Trace ε] {R : α → ε → α → Prop} {x y z} {a a'} :
+theorem Relation.TraceReflTransGen.trans {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y z} {a a'} :
   Relation.TraceReflTransGen R x a y → Relation.TraceReflTransGen R y a' z → Relation.TraceReflTransGen R x (a * a') z := by
     intros xRsy yRsz
     induction xRsy with
@@ -62,14 +62,14 @@ theorem Relation.TraceReflTransGen.trans {α ε} [Trace ε] {R : α → ε → �
       let xRsz := head _ xRy (IH yRsz)
       rwa [← mul_assoc] at xRsz
 
-theorem Relation.TraceTransGen.to_refl_trans_gen {α ε} [Trace ε] {R : α → ε → α → Prop} {x y} {a} :
+theorem Relation.TraceTransGen.to_refl_trans_gen {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y} {a} :
   Relation.TraceTransGen R x a y → Relation.TraceReflTransGen R x a y := by
     intro xRy
     induction xRy with
     | @single x y a xRy => exact append_τ_eq a ▸ .head _ xRy .refl
     | @head x y z a a' xRy _ IH => exact .head _ xRy IH
 
-theorem Relation.TraceReflTransGen.tail {α ε} [Trace ε] {R : α → ε → α → Prop} {x y z} {a a'} :
+theorem Relation.TraceReflTransGen.tail {α ε} [Monoid ε] {R : α → ε → α → Prop} {x y z} {a a'} :
   Relation.TraceReflTransGen R x a y → R y a' z → Relation.TraceReflTransGen R x (a * a') z := by
     intros xRsy yRz
     induction xRsy with
@@ -80,7 +80,7 @@ theorem Relation.TraceReflTransGen.tail {α ε} [Trace ε] {R : α → ε → α
       rw [mul_assoc]
       exact head _ xRy (IH yRz)
 
-theorem Relation.TraceReflTransGen.tail_induction_on {α ε} [Trace ε] {R : α → ε → α → Prop} {x : α} {motive : ∀ (z : α) (e : ε), Relation.TraceReflTransGen R x e z → Prop} {z : α} {e : ε}
+theorem Relation.TraceReflTransGen.tail_induction_on {α ε} [Monoid ε] {R : α → ε → α → Prop} {x : α} {motive : ∀ (z : α) (e : ε), Relation.TraceReflTransGen R x e z → Prop} {z : α} {e : ε}
   (h : Relation.TraceReflTransGen R x e z) (refl : motive x Trace.τ Relation.TraceReflTransGen.refl) (tail : ∀ {y z : α} {e₁ e₂ : ε} (h : Relation.TraceReflTransGen R x e₁ y) (h' : R y e₂ z), motive y e₁ h → motive z (e₁ * e₂) (Relation.TraceReflTransGen.tail h h')) :
   motive z e h := by
     induction h with

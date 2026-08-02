@@ -2,6 +2,7 @@ module
 
 meta import CustomPrelude
 public import Mathlib.Data.Rel
+public import Mathlib.Logic.Relation
 public import Mathlib.Algebra.Group.Defs
 public import Mathlib.Order.FixedPoints
 public import Mathlib.Order.OmegaCompletePartialOrder
@@ -310,5 +311,51 @@ theorem OrderHom.lfp_induction₃ {α β γ : Type _} [CompleteLattice α] [Comp
       apply le_sSup
       apply Set.mem_image_snd_of_mem
       exact Set.mem_image_snd_of_mem _ this
+
+/-!
+## Composing relations
+
+Two ways of combining relations, both used to say how a refinement's trace relation is built from
+its factors' (`VerifiedCompiler/Trace.lean`). They are different monoid structures on relations and
+should not be confused: `∘ᵣ`'s unit is the diagonal, `⊗ᵣ`'s is the relation holding only of the two
+units.
+
+Relations are heterogeneous throughout — a source and a target need not draw their traces from the
+same type.
+-/
+
+/-- Relational composition is mathlib's `Relation.Comp`; only the notation is ours, since mathlib
+declares its `∘r` `local`. Named to match this file's `∘ᵣ₁`/`∘ᵣ₂`. -/
+@[inherit_doc Relation.Comp] infixr:140 " ∘ᵣ " => Relation.Comp
+
+/-- Pointwise product through the two monoids: the left-hand sides multiply and so do the
+right-hand sides, each factor related by its own relation. Composing two refinements in sequence
+combines their trace relations this way, since the traces concatenate. -/
+@[expose]
+def Relation.rmul {α β : Type _} [Monoid α] [Monoid β] (P Q : Rel α β) : Rel α β :=
+  λ a b ↦ ∃ a₁ a₂ b₁ b₂, a = a₁ * a₂ ∧ b = b₁ * b₂ ∧ P a₁ b₁ ∧ Q a₂ b₂
+
+@[inherit_doc] infixl:70 " ⊗ᵣ " => Relation.rmul
+
+/-- Every right-hand element is related to by some left-hand one. For a trace relation this says
+the target can emit nothing the source could not have emitted. -/
+@[expose]
+def Relation.LeftTotal {α β : Type _} (R : Rel α β) : Prop := ∀ b, ∃ a, R a b
+
+/-- Closed under multiplication: as a subset of `α × β`, a submonoid. For a trace relation this is
+the statement that the relation is preserved by concatenation, which is what a fixed-point
+refinement needs of it. -/
+@[expose]
+def Relation.MulClosed {α β : Type _} [Monoid α] [Monoid β] (R : Rel α β) : Prop :=
+  ∀ a b c d, R a b → R c d → R (a * c) (b * d)
+
+/-- Any extension of the right-hand side can be matched by some extension of the left. Not an extra
+assumption: it is what `LeftTotal` and `MulClosed` give together, and it is the form horizontal
+composition actually consumes. -/
+theorem Relation.right_extend {α β : Type _} [Monoid α] [Monoid β] {R : Rel α β}
+    (tot : Relation.LeftTotal R) (cl : Relation.MulClosed R) {a : α} {b : β} (h : R a b) (z : β) :
+    ∃ z', R (a * z') (b * z) := by
+  obtain ⟨z', hz'⟩ := tot z
+  exact ⟨z', cl _ _ _ _ h hz'⟩
 
 end

@@ -56,10 +56,25 @@ Prior art carried the whole channel reference; only the name and the evaluated i
 observable, and this is also the shape a `Behavior.send` reports. -/
 abbrev ChanKey (V : Type) : Type := String × List (PathStep V)
 
-/-- One of the possible observable behaviors exhibited by PlusCal statements. -/
+/-- The name a process instance's own identity is bound to, matching `Elaborator/PlusCal.lean`'s
+`extend "self" .address`. -/
+def selfName : String := "self"
+
+/-- One of the possible observable behaviors exhibited by PlusCal statements. Every event carries the
+process instance that emitted it — the value bound to `selfName` in its memory — so that program
+order within one process is recoverable from a trace that interleaves several. Without it, two
+`print`s from different processes would be indistinguishable from two `print`s of the same process,
+and their relative order would stop being observable.
+
+`send`/`recv` additionally carry the channel: two events on the same channel are not automatically
+ordered by that alone — a `recv` can commute past a *later*, unrelated `send` on the same channel,
+since a FIFO's queue keeps unrelated messages independent. Which `recv` matches which `send` is not
+recorded here; it is read off a trace positionally (the `n`-th `send` on a channel is the `n`-th
+`recv` on it, FIFO order), not tagged on the event itself. -/
 inductive Behavior (V : Type) : Type
-  | print (v : V)
-  | send (c : ChanKey V) (v : V)
+  | print (p v : V)
+  | send (p : V) (c : ChanKey V) (v : V)
+  | recv (p : V) (c : ChanKey V) (v : V)
 
 /-- The global map containing FIFOs. Pushes go on the right, pops come off the left. -/
 abbrev FIFOs (V : Type) : Type := AList λ _ : ChanKey V ↦ List V
@@ -107,26 +122,30 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
     }
   | true, false, .await e => test e ExprSemantics.tru
   | true, false, .receive c r coe =>
-    {⟨σ, ε, σ'⟩ | ∃ M F M' cpath rpath v v' vs,
+    {⟨σ, ε, σ'⟩ | ∃ M F M' cpath rpath v v' vs p,
       List.Forall₂ (EvalStep M) c.args cpath ∧
       List.Forall₂ (EvalStep M) r.args rpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧ ε = []
+      M.lookup selfName = .some p ∧
+      σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
+      ε = [.recv p ⟨c.name, cpath⟩ v]
     }
   | false, false, .skip => idle
   | false, true, .goto label =>
     {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []}
   | false, false, .print e =>
-    {⟨σ, ε, σ'⟩ | ∃ M F v, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ ε = [.print v]}
+    {⟨σ, ε, σ'⟩ | ∃ M F v p,
+      σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+      ε = [.print p v]}
   | false, false, .assert e => test e ExprSemantics.tru
   | false, false, .send c e =>
-    {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs,
+    {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
-      F.lookup ⟨c.name, cpath⟩ = .some vs ∧
+      F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
-      ε = [.send ⟨c.name, cpath⟩ v]
+      ε = [.send p ⟨c.name, cpath⟩ v]
     }
   -- TODO(item 7): `multicast` has no semantics yet, so it currently neither steps nor aborts —
   -- deliberately deferred, not an oversight. Prior art left both its `reducing` and `aborting` cases

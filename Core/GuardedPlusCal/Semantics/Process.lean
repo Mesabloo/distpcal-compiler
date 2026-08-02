@@ -34,10 +34,6 @@ variable {V : Type} {ι : Type}
 it the paper's `⟨T, *, ε, ≤⟩`. -/
 abbrev Trace (V : Type) : Type := List (Behavior V)
 
-/-- The name a process instance's own identity is bound to, matching `Elaborator/PlusCal.lean`'s
-`extend "self" .address`. -/
-def selfName : String := "self"
-
 /-- A process state: the process's local memory together with the set of labels currently scheduled
 for execution — at most one per thread, though nothing here enforces that. The paper's
 `PState = (Var → Value) × 𝒫(Labels)`. -/

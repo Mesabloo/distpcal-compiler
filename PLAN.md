@@ -1637,6 +1637,59 @@ for semantics defined as fixpoints (needed for loops/recursion). Worth vendoring
 essentially as-is — generic over source/target languages and traces, no dependency on the
 domain-specific AST code being rewritten.
 
+Two generalizations of that vendored framework are in scope, both driven by Guarded→Network
+(§6.2) needing them to be provable at all rather than merely convenient.
+
+Both are the same move: a relation the old definitions held *fixed* across a diagram becomes one
+that varies, and every composition lemma says how it combines.
+
+**`Terminating` carries a pre- and a post-relation on states.** One relation used before and after
+a step is the right shape only for *preservation* — with the post-relation strictly smaller the
+statement is specialization, strictly larger generalization, and unrelated it need not say
+anything useful. Splitting them makes vertical composition read `Terminating R S → Terminating S T
+→ Terminating R T`, of which the old form is the `R = S = T` case, and makes a change of relation
+an ordinary factor in a chain — `Terminating R S Id ∅ Id` is exactly `R ⊆ S` — rather than a
+bespoke transport theorem. `Aborting` and `Diverging` keep a single relation; neither has a final
+state to relate. `Terminating.Id`, `.lfp` and `Diverging.gfp` require `R = S`, which is what
+preservation states.
+
+**`Terminating` also carries a relation between traces, in place of trace equality.** `Behavior`
+carries a reception event: a proof under a semantics where reception is unobservable would say
+nothing about *when* a message is received, which is the one thing Guarded→Network changes. With
+reception observable the two traces are no longer equal — the target receives at its `T_rx` step,
+the source at the consumption site — so the source trace is existentially quantified and related
+to the target's, up to a reordering that preserves, per channel, that a send precedes its matching
+reception. Channel events are indexed by FIFO position, which is what pairs a reception with its
+send and so makes that order expressible.
+
+**Correction (landed, item 7 step 3):** the trace relation is not axiom-free. Positive position
+rules out *vacuity* — no degenerate instantiation to exclude — but not *obligations*. Concretely,
+as built in `VerifiedCompiler/Trace.lean`/`Denotational/StrongRefinement.lean`: `Trace (εₛ εₜ)` is a
+class bundling `Rτ : Rel εₛ εₜ` with `Rτ_total : LeftTotal Rτ` and `Rτ_closed : MulClosed Rτ`.
+Vertical composition (`.Comp`) needs the second factor's `Rτ` left-total (the target ran to
+completion on both factors even when the source aborts in the first, so the tail has to be
+matchable); horizontal composition (`.Trans`, through an intermediate language) needs the first
+leg's `Rτ` both left-total *and* closed, via `Trace.scPrefix_rcomp`. `Id` carries equality, needing
+neither. Values are threaded as instance-implicit `[T : Trace εₛ εₜ]` wherever laws are consumed,
+never as a plain explicit class argument, and never a global `instance` (a pass's own `Rτ` would
+silently compete with the generic `Rτ := Eq` case for the same list type — opt in locally with
+`attribute [local instance] Trace.instList` instead).
+
+**`Diverging.inf`/`.gfp` need a third property beyond those two`,` found while proving them, not
+anticipated here:** combining a family of `Diverging` facts via `⋂₀` needs one witness that works
+for the whole family at once, and left-totality only supplies *a* witness per family member, not a
+shared one. Right-uniqueness of `Rτ` would fix it but is false for the actual relation —
+"sequentially consistent permutation" is inherently many-to-many, that's the whole point of
+permitting reordering. The working fix is an explicit `sat` hypothesis threaded through
+`Diverging.inf`/`.gfp`: every set standing in the `Diverging` relation is closed under swapping
+between `Rτ`-equivalent witnesses for the same target trace. This is the same confluence fact §9
+(D8) already needs — independent steps of `Algebra.step` commute — surfaced one layer earlier, as
+an explicit obligation on the caller rather than proved inline; discharging it is D8's job.
+
+The relation and its laws live in `VerifiedCompiler/Trace.lean`, alongside the ordered-monoid
+abstraction they extend. Design reference for the shape: `arxiv.org/pdf/2404.17297` §7 — a source
+of ideas, not of statements; it is wrong in places.
+
 ### 6.2 What gets a proof in this plan
 Per §2: only **Guarded PlusCal → Network PlusCal**, matching prior art's existing proof.
 Concretely: `Core/{Guarded,Network}PlusCal/Semantics/{Denotational,Lemmas}.lean`, and a
@@ -1701,6 +1754,21 @@ The three algorithm-level semantics are fixed points of monotone endofunctions o
 Initial states are a **relation**, not a function: local variables are given by initializer
 expressions and evaluation is relational, so an algorithm with a meaningless initializer has no
 initial state rather than a junk one.
+
+The pass's correctness theorem is stated **on `Algebra`**, over those three fixed points restricted
+to initial states (`reducingFrom`/`abortingFrom`/`divergingFrom`), not over the individual atomic
+blocks a process happens to contain. Per-block refinement is an intermediate lemma, not the
+deliverable: it cannot say anything about the `.rx` thread, which is a target-side label with no
+source counterpart and is only meaningful once labels are being scheduled. Lifting the block-level
+result up is what `StrongRefinement`'s `Terminating.lfp`/`Aborting.lfp`/`Diverging.gfp` are for.
+
+Proofs pin the pass's monad to `ExceptT G2NError (StateT Nat Id)` rather than reasoning at the
+pass's own `[MonadDiagnostic Empty G2NError m] [MonadFresh m]` polymorphism. The reason is
+tooling: `mvcgen`/`mspec` need `Std.Do.WP` instances, which Std supplies for `ExceptT`/`StateT`/
+`Id` and not for `Common/Errors.lean`'s `DiagT`. Nothing is lost by the choice — the pass's
+warning type is `Empty`, so `List Empty` has one inhabitant and the `MonadWriter` half of
+`MonadDiagnostic` is trivially satisfiable. A `WP` instance for `DiagT` itself is the
+generalization to reach for if a pass that actually warns ever gets proved.
 
 `Thread.rx` is not special here: the paper defines its meaning to *be* that of the atomic block
 `rxₚ : receive(mailboxₚ, tmpₚ) ; inboxₚ := Append(inboxₚ, tmpₚ) ; goto rxₚ`, "although without the

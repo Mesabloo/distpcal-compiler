@@ -21,7 +21,7 @@ public import Core.GuardedPlusCal.Semantics.Denotational
 namespace NetworkPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
-open GuardedPlusCal (Block Behavior ChanKey FIFOs LocalState EvalStep)
+open GuardedPlusCal (Block Behavior ChanKey FIFOs LocalState EvalStep selfName)
 
 variable {V : Type} [ExprSemantics V]
 
@@ -42,14 +42,16 @@ def Statement.reducing : {b b' : Bool} → ComputableNetworkPlusCal.Statement b 
   | false, true, .goto label =>
     {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []}
   | false, false, .print e =>
-    {⟨σ, ε, σ'⟩ | ∃ M F v, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ ε = [.print v]}
+    {⟨σ, ε, σ'⟩ | ∃ M F v p,
+      σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+      ε = [.print p v]}
   | false, false, .assert e => test e ExprSemantics.tru
   | false, false, .send c e =>
-    {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs,
+    {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
-      F.lookup ⟨c.name, cpath⟩ = .some vs ∧
+      F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
-      ε = [.send ⟨c.name, cpath⟩ v]
+      ε = [.send p ⟨c.name, cpath⟩ v]
     }
   -- TODO(item 7): `multicast` has no semantics yet, exactly as on the Guarded side — see
   -- `Core/GuardedPlusCal/Semantics/Denotational.lean`'s `Statement.reducing`. The two must be
@@ -183,14 +185,15 @@ Written directly as an `AtomicBranch` rather than built from `Statement`s, becau
 paper's `tmpₚ` is never assigned, so there is no statement sequence to express. -/
 def Thread.rxBranch (chan : ComputableNetworkPlusCal.Ref) (label inbox : String) :
     Set (LocalState V false × List (Behavior V) × LocalState V true) :=
-  {⟨σ, ε, σ'⟩ | ∃ M F cpath v vs old new,
+  {⟨σ, ε, σ'⟩ | ∃ M F cpath v vs old new p,
     List.Forall₂ (EvalStep M) chan.args cpath ∧
     F.lookup ⟨chan.name, cpath⟩ = .some (v :: vs) ∧
     M.lookup inbox = .some old ∧
     ExprSemantics.seqAppend old v = .some new ∧
+    M.lookup selfName = .some p ∧
     σ = .running M F ∧
     σ' = .done (M.insert inbox new) (F.replace ⟨chan.name, cpath⟩ vs) label ∧
-    ε = []
+    ε = [.recv p ⟨chan.name, cpath⟩ v]
   }
 
 /-- Where `Thread.rxBranch` goes wrong. An *empty* channel is not an abort — it blocks, which is
