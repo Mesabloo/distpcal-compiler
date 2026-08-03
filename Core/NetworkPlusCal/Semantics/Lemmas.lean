@@ -131,6 +131,15 @@ theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : List (Be
 
 end Intro
 
+-- Leaf discharge for `sem_side` (T1, see below).
+attribute [aesop safe apply (rule_sets := [sem])]
+  Statement.reducing.with.intro Statement.reducing.await.intro
+  Statement.reducing.skip.intro Statement.reducing.goto.intro Statement.reducing.print.intro
+  Statement.reducing.assert.intro Statement.reducing.send.intro Statement.reducing.assign.intro
+  Statement.aborting.with.intro Statement.aborting.await.intro
+  Statement.aborting.print.intro Statement.aborting.assert.intro Statement.aborting.send.intro
+  Statement.aborting.assign.intro
+
 /-- `Statement.reducing` in the flat encoding — see `GuardedPlusCal.Statement.reducing'`. -/
 def Statement.reducing' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b b') :
     Set (LocalState' V × List (Behavior V) × LocalState' V) :=
@@ -332,25 +341,21 @@ theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l :
   unfold AtomicBranch.reducing AtomicBranch.reducing'
   cases hpre : Br.precondition with
   | none =>
-    simp only [hpre, Option.elim]
-    rw [Relation.lcomp₂.left_id_eq, Relation.lcomp₂.left_id_eq, LocalState.sem_glue₁]
+    simp only [Option.elim]
+    rw [Relation.lcomp₂.left_id_eq, Relation.lcomp₂.left_id_eq]
+    exact LocalState.sem_glue₁
   | some B' =>
-    simp only [hpre, Option.elim]
+    simp only [Option.elim]
     constructor
-    · rintro ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
-      have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := (M₁, F₁, none))
-        (by rwa [← LocalState.sem_glue₂] at red_pre)).2
-      subst hl'
+    · rintro ⟨⟨M', F'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
       exact ⟨(M', F', none), ε₁, ε₂,
-        (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.sem_glue₁ (B := B.action)).mp red_act, rfl⟩
+        (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.sem_glue₁ (B := Br.action)).mp red_act, rfl⟩
     · rintro ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
-      have hl' : l' = none := by
-        have := LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-          (σ' := (M', F', l'))
-        exact (this red_pre).2
+      have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+        (σ' := (M', F', l')) red_pre).2
       subst hl'
       exact ⟨LocalState.running M' F', ε₁, ε₂,
-        (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.sem_glue₁ (B := B.action)).mpr red_act, rfl⟩
+        (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.sem_glue₁ (B := Br.action)).mpr red_act, rfl⟩
 
 theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
     {Br : ComputableNetworkPlusCal.AtomicBranch} :
@@ -358,26 +363,20 @@ theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (
       ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.aborting' (V := V) Br := by
   unfold AtomicBranch.aborting AtomicBranch.aborting'
   cases hpre : Br.precondition with
-  | none => simp only [hpre]; rw [LocalState.abort_glue]
+  | none => exact LocalState.abort_glue
   | some B' =>
-    simp only [hpre]
     constructor
-    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
+    · rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
       · exact Or.inl ((LocalState.abort_glue (B := B')).mp h)
-      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := (M₁, F₁, none))
-          (by rwa [← LocalState.sem_glue₂] at red_pre)).2
-        subst hl'
-        exact Or.inr ⟨(M', F', none), ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.abort_glue (B := B.action)).mp abort_act, rfl⟩
+      · exact Or.inr ⟨(M', F', none), ε₁, ε₂,
+          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.abort_glue (B := Br.action)).mp abort_act, rfl⟩
     · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
       · exact Or.inl ((LocalState.abort_glue (B := B')).mpr h)
-      · have hl' : l' = none := by
-          have := LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-            (σ' := (M', F', l'))
-          exact (this red_pre).2
+      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+          (σ' := (M', F', l')) red_pre).2
         subst hl'
         exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.abort_glue (B := B.action)).mpr abort_act, rfl⟩
+          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.abort_glue (B := Br.action)).mpr abort_act, rfl⟩
 
 theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
     {Br : ComputableNetworkPlusCal.AtomicBranch} :
@@ -385,26 +384,20 @@ theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Be
       ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.diverging' (V := V) Br := by
   unfold AtomicBranch.diverging AtomicBranch.diverging'
   cases hpre : Br.precondition with
-  | none => simp only [hpre]; rw [LocalState.div_glue]
+  | none => exact LocalState.div_glue
   | some B' =>
-    simp only [hpre]
     constructor
-    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
+    · rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
       · exact Or.inl ((LocalState.div_glue (B := B')).mp h)
-      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := (M₁, F₁, none))
-          (by rwa [← LocalState.sem_glue₂] at red_pre)).2
-        subst hl'
-        exact Or.inr ⟨(M', F', none), ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.div_glue (B := B.action)).mp div_act, rfl⟩
+      · exact Or.inr ⟨(M', F', none), ε₁, ε₂,
+          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.div_glue (B := Br.action)).mp div_act, rfl⟩
     · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
       · exact Or.inl ((LocalState.div_glue (B := B')).mpr h)
-      · have hl' : l' = none := by
-          have := LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-            (σ' := (M', F', l'))
-          exact (this red_pre).2
+      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+          (σ' := (M', F', l')) red_pre).2
         subst hl'
         exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.div_glue (B := B.action)).mpr div_act, rfl⟩
+          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.div_glue (B := Br.action)).mpr div_act, rfl⟩
 
 theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
     {B : ComputableNetworkPlusCal.AtomicBlock} :
@@ -417,6 +410,53 @@ theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Be
   · rintro ⟨Br, Br_in, h⟩
     exact ⟨Br, Br_in, LocalState.div_glue₃.mpr h⟩
 
+-- Leaf discharge for `sem_side` (T1).
+attribute [aesop norm simp (rule_sets := [sem])]
+  LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue
+
 end NetworkPlusCal
+
+/-! # T1 — `sem_red`/`sem_side`
+
+  `sem_redg`/`sem_redn`'s role, prior art's per-language dispatch macros: say *from which state to
+  which state* a `Statement.reducing` step goes, leaving every side condition as one existential
+  body goal. One macro now, not two — `LocalState` is shared, so nothing about the dispatch itself
+  is per-language, only which intro lemma matches.
+
+  Aesop only ever runs terminally here (`Rule: aesop closes the goal or it is not used`,
+  plan §3 T1) — the goals it would otherwise leave are whatever the search happened to stop at,
+  the same instability as non-terminal `simp`, worse because later proof steps are written
+  against a fixed goal order.
+-/
+
+/-- Dispatch is a lookup, not a search: the statement's head constructor determines the intro
+lemma uniquely, so `apply` (not `aesop`) picks it, and the side-goal count/order comes from the
+lemma itself rather than a hand-counted `?_` list — a `Statement` field change breaks the intro
+lemma's own type, not this macro. Tries both languages' lemma names in `first`; `apply` fails
+cleanly on a head-constructor mismatch, so trying the wrong language costs nothing. -/
+macro "sem_red" : tactic => `(tactic| first
+  | apply GuardedPlusCal.Statement.reducing.with.intro
+  | apply GuardedPlusCal.Statement.reducing.await.intro
+  | apply GuardedPlusCal.Statement.reducing.receive.intro
+  | apply GuardedPlusCal.Statement.reducing.skip.intro
+  | apply GuardedPlusCal.Statement.reducing.goto.intro
+  | apply GuardedPlusCal.Statement.reducing.print.intro
+  | apply GuardedPlusCal.Statement.reducing.assert.intro
+  | apply GuardedPlusCal.Statement.reducing.send.intro
+  | apply GuardedPlusCal.Statement.reducing.assign.intro
+  | apply NetworkPlusCal.Statement.reducing.with.intro
+  | apply NetworkPlusCal.Statement.reducing.await.intro
+  | apply NetworkPlusCal.Statement.reducing.skip.intro
+  | apply NetworkPlusCal.Statement.reducing.goto.intro
+  | apply NetworkPlusCal.Statement.reducing.print.intro
+  | apply NetworkPlusCal.Statement.reducing.assert.intro
+  | apply NetworkPlusCal.Statement.reducing.send.intro
+  | apply NetworkPlusCal.Statement.reducing.assign.intro)
+
+/-- `sem_red`'s leaf discharge: the side conditions it leaves — evaluation transfers, memberships,
+freshness — are a real search problem, handed to the `sem` rule set. Terminal, per T1's rule;
+`aesop?` prints the found proof when it fails, unlike prior art's bare `fail "Statement
+unsupported (yet)"`. -/
+macro "sem_side" : tactic => `(tactic| aesop (rule_sets := [sem]))
 
 end

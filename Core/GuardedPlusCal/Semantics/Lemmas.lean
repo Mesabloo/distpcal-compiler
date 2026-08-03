@@ -176,6 +176,15 @@ theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : List (Be
 
 end Intro
 
+-- Leaf discharge for `sem_side` (T1, `Core/NetworkPlusCal/Semantics/Lemmas.lean`'s `sem_red`).
+attribute [aesop safe apply (rule_sets := [sem])]
+  Statement.reducing.with.intro Statement.reducing.await.intro Statement.reducing.receive.intro
+  Statement.reducing.skip.intro Statement.reducing.goto.intro Statement.reducing.print.intro
+  Statement.reducing.assert.intro Statement.reducing.send.intro Statement.reducing.assign.intro
+  Statement.aborting.with.intro Statement.aborting.await.intro Statement.aborting.receive.intro
+  Statement.aborting.print.intro Statement.aborting.assert.intro Statement.aborting.send.intro
+  Statement.aborting.assign.intro
+
 /-! # Reduction -/
 
 section Reducing
@@ -262,6 +271,10 @@ theorem Block.reducing_eq_foldr {B : Block α false} :
     rw [IH, Block.toList, List.concat_eq_append]
 
 end Reducing
+
+-- Leaf discharge for `sem_side` (T1).
+attribute [aesop safe apply (rule_sets := [sem])]
+  Block.reducing_end Block.reducing_cons Block.reducing_concat
 
 /-! # Abortion and divergence
 
@@ -670,6 +683,12 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
   constructor
   · intro sem; exists _, sem
   · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
+
+-- Leaf discharge for `sem_side` (T1). `simp` builder, not `apply`: these are `↔`, and aesop's own
+-- apply-builder linter is right that an iff wants `simp`, not `apply` (which only ever tries one
+-- direction and is what the plan's own draft literally said — deviated from it here).
+attribute [aesop norm simp (rule_sets := [sem])]
+  LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue
 
 end Flat
 
