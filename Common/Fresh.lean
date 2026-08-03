@@ -53,6 +53,19 @@ between essentially any pass and whatever owns its counter. -/
 instance {α β m} [Monad m] [MonadFresh m] : MonadFresh (DiagT α β m) where
   fresh := liftM (MonadFresh.fresh : m Nat)
 
+/-- Lift through `ExceptT` — needed the moment a pass's own runner is a bare `ExceptT` rather than
+going through `DiagT`/`MonadDiagnostic` (`Guarded2Network`'s `G2NM`, `VerifiedCompiler/`, is the
+first). -/
+instance {ε m} [Monad m] [MonadFresh m] : MonadFresh (ExceptT ε m) where
+  fresh := liftM (MonadFresh.fresh : m Nat)
+
+/-- The base instance for a pass whose own runner owns a bare `Nat` counter directly, rather than
+threading it through `Driver/Modules.lean`'s `DriverState` (that file's own instance, keyed on
+`MonadStateOf DriverState m`). `Guarded2Network`'s `G2NM := ExceptT G2NError (StateT Nat Id)` is
+the first stack that wants this — every earlier pass runs under the driver's counter instead. -/
+instance {m} [Monad m] [MonadStateOf Nat m] : MonadFresh m where
+  fresh := modifyGet λ n ↦ (n, n + 1)
+
 /-!
   The counter itself lives in `Driver/Modules.lean`'s `DriverState`, one per compile, and every
   pass — the checker, the desugarer, `Computable2Guarded`, `Guarded2Network` — draws from that

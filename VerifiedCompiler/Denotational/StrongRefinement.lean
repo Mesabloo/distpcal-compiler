@@ -420,7 +420,7 @@ namespace StrongRefinement
     exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_A
 
   omit [Monoid εₜ] in
-  private theorem Aborting.lfp {Rτ : Rel εₛ εₜ} {f : Set (α × εₛ) →o _} {g : Set (β × εₜ) →o _}
+  theorem Aborting.lfp {Rτ : Rel εₛ εₜ} {f : Set (α × εₛ) →o _} {g : Set (β × εₜ) →o _}
     (IH : ∀ x y, StrongRefinement.Aborting R Rτ x y → StrongRefinement.Aborting R Rτ (f x) (g y)) :
       StrongRefinement.Aborting R Rτ (OrderHom.lfp f) (OrderHom.lfp g) := by
     apply OrderHom.lfp_induction₂ (p := λ x y ↦ StrongRefinement.Aborting R Rτ x y)

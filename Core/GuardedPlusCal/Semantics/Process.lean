@@ -210,6 +210,51 @@ def Process.codeTable [ExprSemantics V] (p : ComputableGuardedPlusCal.Process) :
   aborting l :=
     {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧ ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Br}
 
+/-! # Instantiating the algorithm layer
+
+  Processes are indexed by `String × V` — the declaring `Process`'s own name together with a
+  specific instance's identity. `table`/`owned` don't depend on *which* instance, only on the
+  `Process` the name resolves to, so both look the name up and answer from that `Process`'s own
+  `codeTable`/`ownedLabels`; a name with no matching `Process` (unreachable for any `ι` an actual
+  `Algorithm.init`-satisfying state ever contains) answers with the empty table, same "absent
+  label is just unschedulable" convention `codeTable` itself already uses. -/
+
+/-- Assembles a whole `Algorithm`'s `Algebra`, per the module doc above. -/
+def Algorithm.algebra [ExprSemantics V] (algo : ComputableGuardedPlusCal.Algorithm) :
+    Algebra (String × V) V where
+  table := λ ⟨name, _⟩ ↦
+    (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
+      Process.codeTable
+  owned := λ ⟨name, _⟩ ↦ (algo.processes.find? (·.name == name)).elim ∅ Process.ownedLabels
+  self := Prod.snd
+
+/-- A valid initial state: every declared `Process` contributes exactly the instances its own
+`«=|∈»`/`id` calls for — one, at `id`'s value, for `=`; one per member of `id`'s (set) value, for
+`∈` — each starting per `InitProc` at its own entry labels, and no others. `id` (and each
+channel/fifo's index domain, below) evaluates under the empty memory: `WellFormedness/
+Restrictions.lean` already bans a process from referencing any module-level `VARIABLE`, so these
+expressions can only mention `CONSTANT`s/literals, never runtime state — there is nothing else to
+evaluate them against.
+
+Every declared channel/fifo starts with an empty queue at every index its own domain admits — not
+simply "`F` has no entries": `Statement.reducing`/`.aborting`'s `F.lookup = none` case is an
+*abort* (`Denotational.lean`), reserved for an index outside the declared domain entirely, not for
+"nothing sent yet". -/
+def Algorithm.init [ExprSemantics V] (algo : ComputableGuardedPlusCal.Algorithm) :
+    AlgState (String × V) V → Prop
+  | ⟨Ps, F⟩ =>
+    (∀ p ∈ algo.processes, ∀ self : V,
+      (∃ σ, ((p.name, self), σ) ∈ Ps ∧
+        InitProc self
+          (p.localState.variables.filterMap λ (n, _, _, e?) ↦ e?.map λ (_, e) ↦ (n, e))
+          (Process.entryLabels p) σ) ↔
+      match p.«=|∈» with
+        | true => ExprSemantics.Eval ∅ p.id self
+        | false => ∃ S, ExprSemantics.Eval ∅ p.id S ∧ ExprSemantics.mem self S)
+    ∧ ∀ nτd ∈ algo.globalState.channels ++ algo.globalState.fifos, ∀ idx : List V,
+        (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
+          F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
+
 end GuardedPlusCal
 
 end

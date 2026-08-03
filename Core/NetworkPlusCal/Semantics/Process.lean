@@ -21,7 +21,7 @@ public import Core.GuardedPlusCal.Semantics.Process
 namespace NetworkPlusCal
 
 open ComputableTLAPlus (ExprSemantics)
-open GuardedPlusCal (CodeTable)
+open GuardedPlusCal (CodeTable Algebra AlgState InitProc)
 
 variable {V : Type}
 
@@ -47,6 +47,36 @@ def Process.codeTable [ExprSemantics V] (p : ComputableNetworkPlusCal.Process) :
       ∃ B ∈ blocks, B.label = l ∧ ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Br}
     ∪ {x | ∃ T ∈ p.threads, ∃ chan τ inbox, T = .rx chan l τ inbox ∧
       x ∈ Thread.rxBranchAborting chan inbox}
+
+/-! # Instantiating the algorithm layer — see `GuardedPlusCal.Semantics.Process`'s own section for
+why `ι = String × V`; identical reasoning here, just against this language's `codeTable`/
+`ownedLabels`/`entryLabels`. -/
+
+/-- Assembles a whole `Algorithm`'s `Algebra`. -/
+def Algorithm.algebra [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
+    Algebra (String × V) V where
+  table := λ ⟨name, _⟩ ↦
+    (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
+      Process.codeTable
+  owned := λ ⟨name, _⟩ ↦ (algo.processes.find? (·.name == name)).elim ∅ Process.ownedLabels
+  self := Prod.snd
+
+/-- A valid initial state — see `GuardedPlusCal.Algorithm.init`'s doc comment, identical reasoning
+here. -/
+def Algorithm.init [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
+    AlgState (String × V) V → Prop
+  | ⟨Ps, F⟩ =>
+    (∀ p ∈ algo.processes, ∀ self : V,
+      (∃ σ, ((p.name, self), σ) ∈ Ps ∧
+        InitProc self
+          (p.localState.variables.filterMap λ (n, _, _, e?) ↦ e?.map λ (_, e) ↦ (n, e))
+          (Process.entryLabels p) σ) ↔
+      match p.«=|∈» with
+        | true => ExprSemantics.Eval ∅ p.id self
+        | false => ∃ S, ExprSemantics.Eval ∅ p.id S ∧ ExprSemantics.mem self S)
+    ∧ ∀ nτd ∈ algo.globalState.channels ++ algo.globalState.fifos, ∀ idx : List V,
+        (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
+          F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
 
 end NetworkPlusCal
 
