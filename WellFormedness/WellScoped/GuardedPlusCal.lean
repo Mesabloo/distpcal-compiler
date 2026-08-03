@@ -1,6 +1,7 @@
 module
 
 public import Core.GuardedPlusCal.Syntax
+public import Core.ComputableTLAPlus.FreeVars
 
 public section
 
@@ -42,6 +43,69 @@ def GuardedPlusCal.PreconditionWellScopedIn {Typ Expr} (inScope : List String) :
   | [] => True
   | .with name _ _ _ :: rest => name ∉ inScope ∧ GuardedPlusCal.PreconditionWellScopedIn (name :: inScope) rest
   | .await _ :: rest | .receive _ _ _ :: rest => GuardedPlusCal.PreconditionWellScopedIn inScope rest
+
+/-- A larger forbidden set only makes freshness harder to satisfy, never easier — well-scoped
+against `inScope` is well-scoped against any subset of it. Lets a caller holding the
+whole-algorithm `Algorithm.WellScoped` fact (`inScope = globalNames ++ p.localState.names`)
+specialize down to whatever smaller `inScope` a specific lemma invocation actually needs. -/
+theorem GuardedPlusCal.wellscoped_mono_of_subset {Typ Expr} {stmts : List (GuardedPlusCal.Statement Typ Expr true false)} :
+    ∀ {inScope inScope' : List String}, inScope' ⊆ inScope →
+    GuardedPlusCal.PreconditionWellScopedIn inScope stmts →
+    GuardedPlusCal.PreconditionWellScopedIn inScope' stmts := by
+  induction stmts with
+  | nil => intro _ _ _ _; trivial
+  | cons s rest ih =>
+    cases s with
+    | «with» name _ _ _ =>
+      intro inScope inScope' h
+      rintro ⟨fresh, ws⟩
+      refine ⟨fun mem => fresh (h mem), ih (inScope := name :: inScope) (inScope' := name :: inScope') ?_ ws⟩
+      intro x hx
+      cases hx with
+      | head => exact List.mem_cons_self
+      | tail _ hx => exact List.mem_cons_of_mem _ (h hx)
+    | await _ => intro _ _ h ws; exact ih h ws
+    | receive _ _ _ => intro _ _ h ws; exact ih h ws
+
+/-- The bound name of a precondition statement, `none` for `await`/`receive` (which bind
+nothing). -/
+def GuardedPlusCal.Statement.boundName? {Typ Expr b'} :
+    GuardedPlusCal.Statement Typ Expr true b' → Option String
+  | .with name _ _ _ => some name
+  | .await _ => none
+  | .receive _ _ _ => none
+
+/-- The other direction from `Expression.not_mem_of_fresh`, packaged over a whole flat guard
+list: every name a `with` in `stmts` binds avoids `e`'s free variables — the capture-avoidance
+side condition `Guarded2Network/PlusCal.lean`'s `substGuard` needs when it substitutes `e` (an
+earlier `receive`'s consumption expression) into a later guard. -/
+theorem GuardedPlusCal.fresh_of_wellscoped_of_not_mem {inScope : List String}
+    {e : ComputableTLAPlus.Expression ComputableTLAPlus.Typ} (sub : ∀ z ∈ e.freeVars, z ∈ inScope)
+    {stmts : List (ComputableGuardedPlusCal.Statement true false)} :
+    GuardedPlusCal.PreconditionWellScopedIn inScope stmts →
+    ∀ s ∈ stmts, ∀ name, s.boundName? = some name → name ∉ e.freeVars := by
+  induction stmts generalizing inScope with
+  | nil => intro _ s hs; cases hs
+  | cons s rest ih =>
+    cases s with
+    | «with» name _ _ _ =>
+      rintro ⟨fresh, ws⟩ s' hmem name' heq
+      cases hmem with
+      | head =>
+        simp only [GuardedPlusCal.Statement.boundName?, Option.some.injEq] at heq
+        exact heq ▸ ComputableTLAPlus.Expression.not_mem_of_fresh fresh sub
+      | tail _ hmem' =>
+        exact ih (fun z hz => List.mem_cons_of_mem name (sub z hz)) ws s' hmem' name' heq
+    | await _ =>
+      intro ws s' hmem name' heq
+      cases hmem with
+      | head => simp [GuardedPlusCal.Statement.boundName?] at heq
+      | tail _ hmem' => exact ih sub ws s' hmem' name' heq
+    | receive _ _ _ =>
+      intro ws s' hmem name' heq
+      cases hmem with
+      | head => simp [GuardedPlusCal.Statement.boundName?] at heq
+      | tail _ hmem' => exact ih sub ws s' hmem' name' heq
 
 /-- `Br`'s own precondition (if any) is well-scoped against `inScope` — the action block binds
 nothing, so there's nothing further to check there (same reasoning as `CorePlusCal.WellScoped`

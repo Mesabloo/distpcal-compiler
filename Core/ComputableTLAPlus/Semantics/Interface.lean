@@ -1,6 +1,8 @@
 module
 
 public import Core.ComputableTLAPlus.Syntax
+public import Core.ComputableTLAPlus.FreeVars
+public import Core.ComputableTLAPlus.Subst
 public import Core.TypedTLAPlus.Coercion
 public import Mathlib.Data.List.AList
 
@@ -38,6 +40,19 @@ abbrev Memory (V : Type) : Type := AList λ _ : String ↦ V
 `.inr v` is the index `v`. -/
 abbrev PathStep (V : Type) : Type := String ⊕ V
 
+/-- `ResolvesPath Eval M path resolved` — every `.inr` index expression in the syntactic path
+`path` evaluates (under `Eval`/`M`) to the matching entry of the semantic path `resolved`; every
+`.inl` field segment carries over unchanged. What `evalExcept` needs to relate `Expression.except`'s
+syntactic update path to `updatePath`'s semantic one. Takes `Eval` as a plain parameter rather than
+an `ExprSemantics` instance so it can be stated *before* the class whose field it appears in. -/
+inductive ResolvesPath {V : Type} (Eval : Memory V → Expression Typ → V → Prop) (M : Memory V) :
+    List (String ⊕ Expression Typ) → List (PathStep V) → Prop
+  | nil : ResolvesPath Eval M [] []
+  | inl {f path resolved} : ResolvesPath Eval M path resolved →
+      ResolvesPath Eval M (.inl f :: path) (.inl f :: resolved)
+  | inr {e v path resolved} : Eval M e v → ResolvesPath Eval M path resolved →
+      ResolvesPath Eval M (.inr e :: path) (.inr v :: resolved)
+
 /-- Everything the PlusCal semantics needs to know about expressions and the values they denote.
 Held abstract here; a concrete TLA⁺ evaluator later supplies one instance. -/
 class ExprSemantics (V : Type) where
@@ -66,6 +81,22 @@ class ExprSemantics (V : Type) where
   /-- `coerce c v v'` — applying the coercion `c` to `v` yields `v'`. The value-level counterpart of
   `Coercion.apply`/`Coercion.applyComputable`, which act on expressions. -/
   coerce : TypedTLAPlus.Coercion → V → V → Prop
+  /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
+  agreeing results. Replaces prior art's `eval_ext`/`eval_mem_ext`. -/
+  evalLocal {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
+    (∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) → (Eval M₁ e v ↔ Eval M₂ e v)
+  /-- Substitution is evaluation-under-extended-memory, read backwards: binding `x` to `e'`'s
+  value and evaluating `e` agrees with evaluating `e`'s `x`-substituted form under the original
+  memory. -/
+  evalSubst {M : Memory V} {x : String} {e' e : Expression Typ} {v' v : V} :
+    Eval M e' v' → (Eval (M.insert x v') e v ↔ Eval M (Expression.subst x e' e) v)
+  /-- `[f EXCEPT ![path] = rhs]` denotes `updatePath` applied to `f`'s value, `rhs`'s value, and
+  the syntactic path resolved (`ResolvesPath`) against the same memory. Scoped to the one-update
+  form — the only shape `Expression.substRef` ever produces. -/
+  evalExcept {M : Memory V} {f rhs : Expression Typ} {τ : Typ} {path : List (String ⊕ Expression Typ)}
+      {vf vr v : V} {resolved : List (PathStep V)} :
+    Eval M f vf → ResolvesPath Eval M path resolved → Eval M rhs vr →
+    (Eval M (.except f τ [(path, rhs)]) v ↔ updatePath vf resolved vr = some v)
 
 attribute [reducible, instance] ExprSemantics.decEq
 

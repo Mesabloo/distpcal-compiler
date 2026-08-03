@@ -149,6 +149,29 @@ def AtomicBranch.diverging (B : ComputableNetworkPlusCal.AtomicBranch) :
   | .some B' =>
     Statement.blockDiverging B' ∪ Statement.blockReducing B' ∘ᵣ₁ Statement.blockDiverging B.action
 
+/-! # Reduction of atomic blocks
+
+  A block picks one of its branches nondeterministically — reducing/aborting/diverging as *some*
+  branch, chosen from `B.branches`. Only needed on the `NetworkPlusCal` side: the refinement
+  relation's target type is what needs the flat `LocalState'` encoding uniformly
+  (`Semantics/Lemmas.lean`'s `sem_glue₃`/`abort_glue₂`/`div_glue₂`/`div_glue₃`), the source stays
+  indexed throughout since it is only ever existentially quantified, never required to match the
+  target's type — so `GuardedPlusCal` never needed this layer built (confirmed against prior art,
+  `Guarded2Network/Lemmas.lean`: no `GuardedPlusCal.AtomicBlock.reducing`/`.aborting`/`.diverging`
+  anywhere). -/
+
+def AtomicBlock.reducing (B : ComputableNetworkPlusCal.AtomicBlock) :
+    Set (LocalState V false × List (Behavior V) × LocalState V true) :=
+  {⟨σ, ε, σ'⟩ | ∃ Br ∈ B.branches, ⟨σ, ε, σ'⟩ ∈ AtomicBranch.reducing Br}
+
+def AtomicBlock.aborting (B : ComputableNetworkPlusCal.AtomicBlock) :
+    Set (LocalState V false × List (Behavior V)) :=
+  {⟨σ, ε⟩ | ∃ Br ∈ B.branches, ⟨σ, ε⟩ ∈ AtomicBranch.aborting Br}
+
+def AtomicBlock.diverging (B : ComputableNetworkPlusCal.AtomicBlock) :
+    Set (LocalState V false × List (Behavior V)) :=
+  {⟨σ, ε⟩ | ∃ Br ∈ B.branches, ⟨σ, ε⟩ ∈ AtomicBranch.diverging Br}
+
 /-! # Threads
 
   A thread has no denotation of its own. Following the paper (§3.3, *Semantics of threads and

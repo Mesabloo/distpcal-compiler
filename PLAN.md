@@ -998,7 +998,8 @@ pass and the proof (§2's one committed verified pass). Expect to adapt rather t
 verbatim, since the source AST (`TypedPlusCal`/`GuardedPlusCal`) is being rewritten fresh
 in this project, so denotational semantics and lemmas need re-deriving against the new
 `Core/GuardedPlusCal/Syntax.lean`, though the mathematical content of the proof should
-transfer.
+transfer. `multicast`'s own denotational semantics is still open — no enumeration primitive
+to fold a `send` over a set value's members, no prior-art shape to port either — see §9.27.
 
 ### 5.6 Network PlusCal → the Join Calculus (`Network2JoinCalculus`) — NEW
 **Input:** `NetworkPlusCal`. **Output:** `Core/JoinCalculus`, pretty-printed to a `.join`

@@ -22,9 +22,114 @@ public import Core.GuardedPlusCal.Semantics.Lemmas
 namespace NetworkPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
-open GuardedPlusCal (Block Behavior FIFOs LocalState LocalState')
+open GuardedPlusCal (Block Behavior FIFOs LocalState LocalState' Ref selfName EvalStep)
 
 variable {V : Type} [ExprSemantics V]
+
+/-! # Constructor-intro lemmas — see `GuardedPlusCal.Semantics.Lemmas`'s `Intro` section for why
+these exist and why they're duplicated per language rather than shared. No `receive` here — that
+is this language's whole point. -/
+
+section Intro
+
+theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+    {name ann bound e}
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = [] ∧
+      match bound with
+        | true => σ' = .running (M.insert name v) F
+        | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) :=
+  h
+
+theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.await e) :=
+  h
+
+theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing NetworkPlusCal.Statement.skip :=
+  h
+
+theorem Statement.reducing.goto.intro {σ : LocalState V false} {σ' : LocalState V true}
+    {ε : List (Behavior V)} {label}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.goto label) :=
+  h
+
+theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F v p, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+      ε = [.print p v]) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.print e) :=
+  h
+
+theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assert e) :=
+  h
+
+theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {c e}
+    (h : ∃ M F v cpath vs p,
+      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
+      F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
+      σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      ε = [.send p ⟨c.name, cpath⟩ v]) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.send c e) :=
+  h
+
+theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {r e}
+    (h : ∃ M F M' v rpath,
+      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+      Memory.update M r.name rpath v = .some M' ∧
+      σ = .running M F ∧ σ' = .running M' F ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assign r e) :=
+  h
+
+theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : List (Behavior V)}
+    {name ann bound e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = [] ∧ match bound with
+          | true => False
+          | false => ¬ ExprSemantics.isSet v}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) :=
+  h
+
+theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e) :=
+  h
+
+theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.print e) :=
+  h
+
+theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assert e) :=
+  h
+
+theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : List (Behavior V)} {c e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
+          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.send c e) :=
+  h
+
+theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : List (Behavior V)} {r e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
+          M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e) :=
+  h
+
+end Intro
 
 /-- `Statement.reducing` in the flat encoding — see `GuardedPlusCal.Statement.reducing'`. -/
 def Statement.reducing' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b b') :
@@ -164,6 +269,153 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
   constructor
   · intro sem; exists _, sem
   · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
+
+/-! # `AtomicBranch`/`AtomicBlock`, flat
+
+  `AtomicBlock` only exists on this side (`Semantics/Denotational.lean`'s module doc for why).
+  Mirrors `Statement.blockReducing`/`AtomicBranch.reducing` (`Semantics/Denotational.lean`) at the
+  flat encoding, built from the primed leaf functions above rather than proved equal to an
+  image of the indexed version after the fact — the indexed `AtomicBranch.reducing`/etc. are
+  themselves already exactly "precondition, then action" by definition, so there is no separate
+  `sem_eq`/`abort_eq`/`div_eq` step to port here the way prior art needed (its `AtomicBranch`
+  semantics went through a `Reduce`/`Abort`/`Diverge` instance first). -/
+
+/-- `AtomicBranch.reducing` in the flat encoding. -/
+def AtomicBranch.reducing' (B : ComputableNetworkPlusCal.AtomicBranch) :
+    Set (LocalState' V × List (Behavior V) × LocalState' V) :=
+  B.precondition.elim {⟨x, e, y⟩ | x = y ∧ e = 1}
+    (Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₂
+    Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+@[inherit_doc AtomicBranch.reducing']
+def AtomicBranch.aborting' (B : ComputableNetworkPlusCal.AtomicBranch) :
+    Set (LocalState' V × List (Behavior V)) :=
+  match B.precondition with
+  | .none => Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+      (λ ⦃_⦄ ↦ Statement.reducing') B.action
+  | .some B' =>
+    Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+        (λ ⦃_⦄ ↦ Statement.reducing') B' ∪
+      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
+        Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+          (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+@[inherit_doc AtomicBranch.reducing']
+def AtomicBranch.diverging' (B : ComputableNetworkPlusCal.AtomicBranch) :
+    Set (LocalState' V × List (Behavior V)) :=
+  match B.precondition with
+  | .none => Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+      (λ ⦃_⦄ ↦ Statement.reducing') B.action
+  | .some B' =>
+    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+        (λ ⦃_⦄ ↦ Statement.reducing') B' ∪
+      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
+        Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+          (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+/-- Every name in a flat `Block.reducing` membership's endpoints is `none` — the label field only
+ever changes at the `AtomicBranch`-composition boundary (`sem_glue₁`/`₂`'s job), never inside a
+single `Statement.reducing'`-built `Block`. Needed to split a flat intermediate state into the
+`.running`/`.done` case `sem_glue₃`/`div_glue₃`'s proofs match on. -/
+theorem LocalState'.sem_label_eq {B : Block (ComputableNetworkPlusCal.Statement true) false}
+    {σ σ' : LocalState' V} {ε : List (Behavior V)}
+    (h : ⟨σ, ε, σ'⟩ ∈ Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B) :
+    σ.2.2 = none ∧ σ'.2.2 = none := by
+  rw [Block.reducing'_eq_map, Set.mem_image] at h
+  obtain ⟨⟨⟨_, _⟩, _, ⟨_, _⟩⟩, _, rfl, rfl⟩ := h
+  exact ⟨rfl, rfl⟩
+
+theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
+    {ε : List (Behavior V)} {Br : ComputableNetworkPlusCal.AtomicBranch} :
+    ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈ AtomicBranch.reducing Br ↔
+      ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈ AtomicBranch.reducing' (V := V) Br := by
+  unfold AtomicBranch.reducing AtomicBranch.reducing'
+  cases hpre : Br.precondition with
+  | none =>
+    simp only [hpre, Option.elim]
+    rw [Relation.lcomp₂.left_id_eq, Relation.lcomp₂.left_id_eq, LocalState.sem_glue₁]
+  | some B' =>
+    simp only [hpre, Option.elim]
+    constructor
+    · rintro ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
+      have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := (M₁, F₁, none))
+        (by rwa [← LocalState.sem_glue₂] at red_pre)).2
+      subst hl'
+      exact ⟨(M', F', none), ε₁, ε₂,
+        (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.sem_glue₁ (B := B.action)).mp red_act, rfl⟩
+    · rintro ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
+      have hl' : l' = none := by
+        have := LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+          (σ' := (M', F', l'))
+        exact (this red_pre).2
+      subst hl'
+      exact ⟨LocalState.running M' F', ε₁, ε₂,
+        (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.sem_glue₁ (B := B.action)).mpr red_act, rfl⟩
+
+theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
+    {Br : ComputableNetworkPlusCal.AtomicBranch} :
+    ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.aborting Br ↔
+      ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.aborting' (V := V) Br := by
+  unfold AtomicBranch.aborting AtomicBranch.aborting'
+  cases hpre : Br.precondition with
+  | none => simp only [hpre]; rw [LocalState.abort_glue]
+  | some B' =>
+    simp only [hpre]
+    constructor
+    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
+      · exact Or.inl ((LocalState.abort_glue (B := B')).mp h)
+      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := (M₁, F₁, none))
+          (by rwa [← LocalState.sem_glue₂] at red_pre)).2
+        subst hl'
+        exact Or.inr ⟨(M', F', none), ε₁, ε₂,
+          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.abort_glue (B := B.action)).mp abort_act, rfl⟩
+    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
+      · exact Or.inl ((LocalState.abort_glue (B := B')).mpr h)
+      · have hl' : l' = none := by
+          have := LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+            (σ' := (M', F', l'))
+          exact (this red_pre).2
+        subst hl'
+        exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
+          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.abort_glue (B := B.action)).mpr abort_act, rfl⟩
+
+theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
+    {Br : ComputableNetworkPlusCal.AtomicBranch} :
+    ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.diverging Br ↔
+      ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.diverging' (V := V) Br := by
+  unfold AtomicBranch.diverging AtomicBranch.diverging'
+  cases hpre : Br.precondition with
+  | none => simp only [hpre]; rw [LocalState.div_glue]
+  | some B' =>
+    simp only [hpre]
+    constructor
+    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
+      · exact Or.inl ((LocalState.div_glue (B := B')).mp h)
+      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := (M₁, F₁, none))
+          (by rwa [← LocalState.sem_glue₂] at red_pre)).2
+        subst hl'
+        exact Or.inr ⟨(M', F', none), ε₁, ε₂,
+          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.div_glue (B := B.action)).mp div_act, rfl⟩
+    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
+      · exact Or.inl ((LocalState.div_glue (B := B')).mpr h)
+      · have hl' : l' = none := by
+          have := LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+            (σ' := (M', F', l'))
+          exact (this red_pre).2
+        subst hl'
+        exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
+          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.div_glue (B := B.action)).mpr div_act, rfl⟩
+
+theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
+    {B : ComputableNetworkPlusCal.AtomicBlock} :
+    ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBlock.diverging B ↔
+      ∃ Br ∈ B.branches, ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.diverging' (V := V) Br := by
+  unfold AtomicBlock.diverging
+  constructor
+  · rintro ⟨Br, Br_in, h⟩
+    exact ⟨Br, Br_in, LocalState.div_glue₃.mp h⟩
+  · rintro ⟨Br, Br_in, h⟩
+    exact ⟨Br, Br_in, LocalState.div_glue₃.mpr h⟩
 
 end NetworkPlusCal
 

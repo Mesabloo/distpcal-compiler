@@ -438,3 +438,28 @@ Machinery is cheap — a `builtinModules` entry, a `BuiltinOp` constructor, a `c
 arm, a runtime function, no checker changes — so cost is not the deciding factor. Open: whether
 unsafe casts belong in a language whose output is a program rather than a model, which casts the
 set would contain, and whether the safe half should be a cast at all rather than a checker fix.
+
+### 9.27 `multicast`'s denotational semantics — no enumeration primitive, no prior-art shape
+Item 7 §9.5 (thesis phase 10, P3): `Core/{Guarded,Network}PlusCal/Semantics/Denotational.lean`'s
+`Statement.reducing`/`.aborting` still have `multicast = ∅` (four sites, `TODO(item 7)`). Prior
+art left the same case `sorry` in both — no existing shape to port.
+
+`ComputableTLAPlus.ExprSemantics.mem : V → V → Prop` is a bare membership *relation*; there is no
+`enumerate : V → List V` (or similar) to pull a concrete recipient list out of a set value. A
+`multicast`'s `reducing` is meant to be "a set-indexed family of `send`s, folded over the evaluated
+address set" (plan §1 P3), which needs such a list to fold over.
+
+Proposed, not yet implemented: characterize the recipient list *relationally* instead of
+computing it — `∃ recipients : List V, (∀ r, r ∈ recipients ↔ ExprSemantics.mem r S) ∧
+recipients.Nodup ∧ …` — matching `Eval`'s own relational style ("no derivation tree" already
+*is* "no value", `Semantics/Interface.lean`'s module doc). `Nodup` rules out the degenerate
+reading where the same recipient is sent to twice. Fold sends over `recipients` via a new
+inductive relation (`MulticastFold` for `reducing`, `MulticastAborts` for "the fold gets stuck
+partway"), each recipient keyed as `(c, [.inr r])` — the recipient value as the channel's one
+index segment, matching an ordinary `chan[addr]` reference's own indexing convention.
+
+Open: whether this relational-enumeration approach is right, or whether `ExprSemantics` should
+instead grow an actual enumeration field (bigger surface, but avoids `Nodup`-as-a-proxy-for-
+"this is really a set" and the resulting order-nondeterminism in `reducing`'s outcome set).
+Blocks P3, and P6/D4 (whose generic action-statement lemma quantifies over every action
+constructor, `multicast` included) until resolved.

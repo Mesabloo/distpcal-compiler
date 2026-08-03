@@ -27,6 +27,155 @@ namespace GuardedPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
 
+/-! # Constructor-intro lemmas
+
+  Restate each constructor's `Statement.reducing`/`.aborting` case as a named lemma whose
+  hypothesis is exactly that case's own body — proved by `trivial` (the two sides are defeq).
+  Exist solely so a caller (`sem_red`'s dispatch macro, §3 T1) can `apply` a fixed name per
+  constructor instead of unfolding the raw `Set`-membership definition inline. `multicast` has no
+  semantics yet (`TODO(item 7)`, `OPEN_QUESTIONS.md` §9.27) and no aborting counterpart for
+  `skip`/`goto` exists, since both are always `∅` there.
+
+  Duplicated between `GuardedPlusCal`/`NetworkPlusCal` rather than stated once generically:
+  `Statement.reducing`/`.aborting` are two separate `def`s (one per language, on two separate
+  inductives), and the proof is `trivial` either way — not worth a shared-`idle`/`test` refactor
+  of `Semantics/Denotational.lean` for.
+-/
+
+section Intro
+
+variable {V : Type} [ExprSemantics V]
+
+theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+    {name ann bound e}
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = [] ∧
+      match bound with
+        | true => σ' = .running (M.insert name v) F
+        | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.with name ann bound e) :=
+  h
+
+theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.await e) :=
+  h
+
+theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+    {c r coe}
+    (h : ∃ M F M' cpath rpath v v' vs p,
+      List.Forall₂ (EvalStep M) c.args cpath ∧
+      List.Forall₂ (EvalStep M) r.args rpath ∧
+      F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
+      ExprSemantics.coerce coe v v' ∧
+      Memory.update M r.name rpath v' = .some M' ∧
+      M.lookup selfName = .some p ∧
+      σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
+      ε = [.recv p ⟨c.name, cpath⟩ v]) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.receive c r coe) :=
+  h
+
+theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing GuardedPlusCal.Statement.skip :=
+  h
+
+theorem Statement.reducing.goto.intro {σ : LocalState V false} {σ' : LocalState V true}
+    {ε : List (Behavior V)} {label}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.goto label) :=
+  h
+
+theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F v p, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+      ε = [.print p v]) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.print e) :=
+  h
+
+theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assert e) :=
+  h
+
+theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {c e}
+    (h : ∃ M F v cpath vs p,
+      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
+      F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
+      σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      ε = [.send p ⟨c.name, cpath⟩ v]) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.send c e) :=
+  h
+
+theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {r e}
+    (h : ∃ M F M' v rpath,
+      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+      Memory.update M r.name rpath v = .some M' ∧
+      σ = .running M F ∧ σ' = .running M' F ∧ ε = []) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assign r e) :=
+  h
+
+theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : List (Behavior V)}
+    {name ann bound e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = [] ∧ match bound with
+          | true => False
+          | false => ¬ ExprSemantics.isSet v}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.with name ann bound e) :=
+  h
+
+theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.await e) :=
+  h
+
+theorem Statement.aborting.receive.intro {σ : LocalState V false} {ε : List (Behavior V)} {c r coe}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ ({⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = [] ∧ Ref.pathAborts M c}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = [] ∧ Ref.pathAborts M r}
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath, σ = .running M F ∧ ε = [] ∧
+            List.Forall₂ (EvalStep M) c.args cpath ∧ F.lookup ⟨c.name, cpath⟩ = .none}
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs, σ = .running M F ∧ ε = [] ∧
+            List.Forall₂ (EvalStep M) c.args cpath ∧
+            F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ¬ ∃ v', ExprSemantics.coerce coe v v'}
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath rpath v v' vs, σ = .running M F ∧ ε = [] ∧
+            List.Forall₂ (EvalStep M) c.args cpath ∧
+            List.Forall₂ (EvalStep M) r.args rpath ∧
+            F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ExprSemantics.coerce coe v v' ∧
+            Memory.update M r.name rpath v' = .none})) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.receive c r coe) :=
+  h
+
+theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.print e) :=
+  h
+
+theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assert e) :=
+  h
+
+theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : List (Behavior V)} {c e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
+          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.send c e) :=
+  h
+
+theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : List (Behavior V)} {r e}
+    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = []}
+      ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
+          M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = []}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assign r e) :=
+  h
+
+end Intro
+
 /-! # Reduction -/
 
 section Reducing
