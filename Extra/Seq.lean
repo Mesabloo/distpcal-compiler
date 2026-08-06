@@ -283,6 +283,155 @@ namespace Stream'.Seq
     · refine ⟨1, ?_⟩
       rw [mul_one]
       apply ωProduct_eq_of_not_terminates h
+
+  /-! ## Reading past a finite left factor
+
+  `get?_mul_of_get?` says a concatenation agrees with its left operand wherever that operand is
+  defined. The complementary law — what the concatenation holds *after* the left operand runs out —
+  is what the unfolding law below needs, and Mathlib has neither it nor the `append`/`take`/`drop`
+  lemmas one would derive it from. It is proved here directly, by recursion on the index at which
+  the left operand terminates.
+
+  The minimality hypothesis is not decoration: without it the left operand may terminate strictly
+  earlier than the stated index, and the two sides are then offset by the difference.
+  -/
+
+  /-- Past its last index, a concatenation is its right operand. -/
+  theorem get?_mul_of_terminatedAt : ∀ {n : ℕ} {s : Seq α}, (∀ k, k < n → ¬s.TerminatedAt k) →
+      s.TerminatedAt n → ∀ (t : Seq α) (j : ℕ), (s * t).get? (n + j) = t.get? j := by
+    intro n
+    induction n with
+    | zero =>
+      intro s _ hterm t j
+      rw [terminatedAt_zero_iff.mp hterm, mul_eq_append, nil_append, Nat.zero_add]
+    | succ n ih =>
+      intro s hmin hterm t j
+      cases s with
+      | nil =>
+        absurd (show (nil : Seq α).TerminatedAt 0 from rfl)
+        exact hmin 0 (by omega)
+      | cons b s' =>
+        rw [mul_eq_append, cons_append, show n + 1 + j = n + j + 1 by omega, get?_cons_succ]
+        apply ih ?_ (cons_terminatedAt_succ_iff.mp hterm)
+        intro k hk h
+        apply hmin (k + 1) (by omega)
+        exact cons_terminatedAt_succ_iff.mpr h
+
+  /-- A nonempty trace has a first element. -/
+  theorem exists_get?_zero_of_ne_one {s : Seq α} (h : s ≠ 1) : ∃ a, s.get? 0 = some a := by
+    cases s with
+    | nil =>
+      absurd (one_eq_nil (α := α)).symm
+      exact h
+    | cons b s' => exact ⟨b, get?_cons_zero b s'⟩
+
+  /-- The first factor comes out in front of an infinite product.
+
+  Both cases are decided by whether the first factor is finite. If it is not, absorption settles
+  everything: the product stops there and so does the right-hand side. If it is, the two sides are
+  compared index by index on either side of its last index — before it both are that factor, after
+  it both are the product of the remaining factors. -/
+  theorem ωProduct_succ (e : ℕ → Seq α) :
+      ωProduct e = e 0 * ωProduct (λ i ↦ e (i + 1)) := by classical
+    have hp1 : Monoid.partialProd e 1 = e 0 := by
+      rw [Monoid.partialProd_succ, Monoid.partialProd_zero, one_mul]
+    by_cases hterm : (e 0).Terminates
+    · obtain ⟨L, hL, hLmin⟩ : ∃ L, (e 0).TerminatedAt L ∧ ∀ k, k < L → ¬(e 0).TerminatedAt k :=
+        ⟨Nat.find hterm, Nat.find_spec hterm, λ k hk ↦ Nat.find_min hterm hk⟩
+      apply Seq.ext
+      intro k
+      rcases Nat.lt_or_ge k L with hk | hk
+      · obtain ⟨b, hb⟩ := Option.ne_none_iff_exists'.mp (hLmin k hk)
+        rw [get?_ωProduct.mpr ⟨1, by rwa [hp1]⟩, get?_mul_of_get? _ hb]
+      · obtain ⟨j, rfl⟩ := Nat.exists_eq_add_of_le hk
+        rw [get?_mul_of_terminatedAt hLmin hL]
+        apply Option.ext
+        intro a
+        rw [get?_ωProduct, get?_ωProduct]
+        constructor
+        · rintro ⟨n, hn⟩
+          cases n with
+          | zero =>
+            rw [Monoid.partialProd_zero, one_eq_nil, get?_nil] at hn
+            contradiction
+          | succ m =>
+            refine ⟨m, ?_⟩
+            rwa [Monoid.partialProd_succ', get?_mul_of_terminatedAt hLmin hL] at hn
+        · rintro ⟨m, hm⟩
+          refine ⟨m + 1, ?_⟩
+          rwa [Monoid.partialProd_succ', get?_mul_of_terminatedAt hLmin hL]
+    · rw [mul_eq_left_of_not_terminates hterm, ← hp1]
+      apply ωProduct_eq_of_not_terminates
+      rwa [hp1]
+
+  /-- `Seq` products unfold. -/
+  theorem hasUnfold : OmegaProd.HasUnfold (Seq α) := by
+    intro e
+    rw [ωProd_eq_ωProduct, ωProd_eq_ωProduct]
+    exact ωProduct_succ e
+
+  /-! ## Products of a sequence that keeps emitting
+
+  The converse half of the paper's closed form needs the infinite product to be *determined* by its
+  partial products, which it is only when those keep growing. Each nonempty factor extends the
+  partial product by at least one index, so infinitely many of them reach every index — and an
+  element sharing every partial product as a left factor then agrees with the product everywhere.
+  -/
+
+  /-- Infinitely many nonempty factors define every index of some partial product. -/
+  theorem exists_get?_partialProd {e : ℕ → Seq α} (hne : ∀ n, ∃ m, n ≤ m ∧ e m ≠ 1) (k : ℕ) :
+      ∃ n a, (Monoid.partialProd e n).get? k = some a := by classical
+    induction k with
+    | zero =>
+      obtain ⟨m, _, hm⟩ := hne 0
+      by_cases h : ∃ a, (Monoid.partialProd e m).get? 0 = some a
+      · obtain ⟨a, ha⟩ := h
+        exact ⟨m, a, ha⟩
+      · obtain ⟨a, ha⟩ := exists_get?_zero_of_ne_one hm
+        refine ⟨m + 1, a, ?_⟩
+        rw [Monoid.partialProd_succ,
+          show (0 : ℕ) = 0 + 0 from rfl, get?_mul_of_terminatedAt (by omega) ?_]
+        · exact ha
+        · exact Option.eq_none_iff_forall_ne_some.mpr (λ a ha ↦ h ⟨a, ha⟩)
+    | succ k ih =>
+      obtain ⟨n, a, ha⟩ := ih
+      obtain ⟨m, hnm, hm⟩ := hne n
+      have hsa : (Monoid.partialProd e m).get? k = some a := get?_partialProd_of_le hnm ha
+      by_cases h : ∃ b, (Monoid.partialProd e m).get? (k + 1) = some b
+      · obtain ⟨b, hb⟩ := h
+        exact ⟨m, b, hb⟩
+      · obtain ⟨b, hb⟩ := exists_get?_zero_of_ne_one hm
+        refine ⟨m + 1, b, ?_⟩
+        rw [Monoid.partialProd_succ, show k + 1 = k + 1 + 0 from rfl,
+          get?_mul_of_terminatedAt ?_ ?_]
+        · exact hb
+        · intro i hi hterm
+          rw [le_stable _ (show i ≤ k by omega) hterm] at hsa
+          contradiction
+        · exact Option.eq_none_iff_forall_ne_some.mpr (λ b hb ↦ h ⟨b, hb⟩)
+
+  /-- A `Seq` sharing every partial product as a left factor is the product, once the factors keep
+  coming. -/
+  theorem hasProductLimit : OmegaProd.HasProductLimit (Seq α) := by
+    intro e r x hx hne
+    rw [ωProd_eq_ωProduct]
+    apply Seq.ext
+    intro k
+    apply Option.ext
+    intro a
+    constructor
+    · intro hk
+      obtain ⟨n, b, hb⟩ := exists_get?_partialProd hne k
+      have hxb : x.get? k = some b := by
+        rw [hx n]
+        exact get?_mul_of_get? _ hb
+      rw [hxb] at hk
+      apply get?_ωProduct.mpr
+      exact ⟨n, hk ▸ hb⟩
+    · intro hk
+      obtain ⟨n, hn⟩ := get?_ωProduct.mp hk
+      rw [hx n]
+      exact get?_mul_of_get? _ hn
 end Stream'.Seq
 
 end

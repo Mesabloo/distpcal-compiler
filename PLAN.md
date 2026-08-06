@@ -1651,8 +1651,8 @@ anything useful. Splitting them makes vertical composition read `Terminating R S
 → Terminating R T`, of which the old form is the `R = S = T` case, and makes a change of relation
 an ordinary factor in a chain — `Terminating R S Id ∅ Id` is exactly `R ⊆ S` — rather than a
 bespoke transport theorem. `Aborting` and `Diverging` keep a single relation; neither has a final
-state to relate. `Terminating.Id`, `.lfp` and `Diverging.gfp` require `R = S`, which is what
-preservation states.
+state to relate. `Terminating.Id`, `.lfp` and the `Diverging` fixed-point lemmas require `R = S`,
+which is what preservation states.
 
 **`Terminating` also carries a relation between traces, in place of trace equality.** `Behavior`
 carries a reception event: a proof under a semantics where reception is unobservable would say
@@ -1676,16 +1676,18 @@ never as a plain explicit class argument, and never a global `instance` (a pass'
 silently compete with the generic `Rτ := Eq` case for the same list type — opt in locally with
 `attribute [local instance] Trace.instList` instead).
 
-**`Diverging.inf`/`.gfp` need a third property beyond those two`,` found while proving them, not
-anticipated here:** combining a family of `Diverging` facts via `⋂₀` needs one witness that works
-for the whole family at once, and left-totality only supplies *a* witness per family member, not a
-shared one. Right-uniqueness of `Rτ` would fix it but is false for the actual relation —
-"sequentially consistent permutation" is inherently many-to-many, that's the whole point of
-permitting reordering. The working fix is an explicit `sat` hypothesis threaded through
-`Diverging.inf`/`.gfp`: every set standing in the `Diverging` relation is closed under swapping
-between `Rτ`-equivalent witnesses for the same target trace. This is the same confluence fact §9
-(D8) already needs — independent steps of `Algebra.step` commute — surfaced one layer earlier, as
-an explicit obligation on the caller rather than proved inline; discharging it is D8's job.
+**Divergence needs a third law of the relation, and two obligations that are not about the relation
+at all.** The class carries `Rτ_one : Rτ 1 1`: `Rτ_total` supplies *some* source trace over `1` and
+nothing forces it to be `1`, while "the first `n` steps' traces are related" needs `1` itself as its
+base case. The other two stay explicit hypotheses of `Diverging.omega` rather than joining the
+class. `Rτ_omega` — a pointwise-related family of traces has related infinite products — mentions
+`OmegaProd.ωProd`, so bundling it would put `[OmegaProd εₛ] [OmegaProd εₜ]` binders on every lemma
+taking a `Trace`, composition lemmas included. `OmegaProd.HasPartialProdDvd εₜ` — every finite
+prefix of an infinite product divides it — is a property of the target monoid's product, not of the
+relation. A fourth hypothesis, `abs : semₛ ∘ᵣ₁ semₛ' ≤ semₛ'`, is what places an abort reached after
+`n` steps in `semₛ'` itself instead of in `semₛⁿ ∘ᵣ₁ semₛ'`; any aborting semantics defined as a
+least fixed point of `X ↦ immediate ∪ sem ∘ᵣ₁ X` satisfies it via `map_le_lfp`, and
+`Algebra.aborting` has exactly that shape.
 
 The relation and its laws live in `VerifiedCompiler/Trace.lean`, alongside the ordered-monoid
 abstraction they extend. Design reference for the shape: `arxiv.org/pdf/2404.17297` §7 — a source
@@ -1750,7 +1752,16 @@ The three algorithm-level semantics are fixed points of monotone endofunctions o
 - `⟦A⟧⊥` is `μX. abortStep X`, where `abortStep X` is "some process goes wrong now" ∪ `step ∘ᵣ₁ X`.
   Needs no reflexive disjunct — the left half does not mention `X`, so it already seeds the
   iteration.
-- `⟦A⟧∞` is `νX. step ∘ᵣ₁ X`. A *greatest* fixed point, so the degeneracy above does not arise.
+- `⟦A⟧∞` is `step^∞` (`Relation.omega`): the runs taking infinitely many steps, each paired with the
+  infinite product of the traces those steps emit. **Not** a greatest fixed point. `νX. step ∘ᵣ₁ X`
+  overshoots: a step emitting the empty trace makes that endofunction non-contractive, so at
+  `step = {(σ, 1, σ)}` it is the identity and its greatest fixed point is `⊤` — `σ` paired with every
+  trace whatsoever, rather than with the `1` that execution actually emits. Silent divergence is not
+  a corner case: `Behavior` observes only `print`/`send`/`recv`, so `while TRUE { x := x + 1 }` is an
+  infinite chain of trace-`1` steps. The paper's closed form,
+  `νX. Y ∪ R ∘ᵣ₁ X = (R* ∘ᵣ₁ Y) ∪ R^∞`, is `Relation.gfp_eq_closedForm` in `Extra/Rel.lean`, and is
+  a characterization rather than a definition: `⊇` holds unconditionally, `⊆` needs
+  `Relation.Productive R` (no infinite silent chain), which `Algebra.step` does not satisfy.
 
 Initial states are a **relation**, not a function: local variables are given by initializer
 expressions and evaluation is relational, so an algorithm with a meaningless initializer has no
@@ -1761,7 +1772,8 @@ to initial states (`reducingFrom`/`abortingFrom`/`divergingFrom`), not over the 
 blocks a process happens to contain. Per-block refinement is an intermediate lemma, not the
 deliverable: it cannot say anything about the `.rx` thread, which is a target-side label with no
 source counterpart and is only meaningful once labels are being scheduled. Lifting the block-level
-result up is what `StrongRefinement`'s `Terminating.lfp`/`Aborting.lfp`/`Diverging.gfp` are for.
+result up is what `StrongRefinement`'s `Terminating.lfp`/`Aborting.lfp`/`Diverging.closedForm` are
+for.
 
 Proofs pin the pass's monad to `ExceptT G2NError (StateT Nat Id)` rather than reasoning at the
 pass's own `[MonadDiagnostic Empty G2NError m] [MonadFresh m]` polymorphism. The reason is
