@@ -451,4 +451,47 @@ theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [OmegaProd ε] {R S : S
   rintro ⟨σ, ε⟩ ⟨σs, es, h₀, hstep, hε⟩
   exact ⟨σs, es, h₀, λ i ↦ h (hstep i), hε⟩
 
+/-! # Finite iteration
+
+  `R*`. Stated in the same ℕ-indexed shape as `Relation.omega` rather than reusing
+  `Relation.TraceReflTransGen` (`VerifiedCompiler/Relation.lean`), which is `Prop`-valued and
+  defined downstream of this file. Sharing the shape is what lets the two refinement lemmas —
+  one for `R*`, one for `R^∞` — be proved by the same kind of induction over the index.
+-/
+
+/-- `R*` — finitely many `R`-steps, with the concatenated trace. -/
+@[expose]
+def Relation.star {α ε : Type _} [Monoid ε] (R : Set (α × ε × α)) : Set (α × ε × α) :=
+  {x | ∃ (n : ℕ) (σs : ℕ → α) (es : ℕ → ε),
+    σs 0 = x.1 ∧ σs n = x.2.2 ∧ (∀ i, i < n → (σs i, es i, σs (i + 1)) ∈ R) ∧
+      x.2.1 = Monoid.partialProd es n}
+
+/-- Zero steps. -/
+theorem Relation.star.refl {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} (a : α) :
+    (a, (1 : ε), a) ∈ Relation.star R :=
+  ⟨0, λ _ ↦ a, λ _ ↦ 1, rfl, rfl, by omega, rfl⟩
+
+/-- One step in front of a run. -/
+theorem Relation.star.head {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} {a b c : α} {e e' : ε}
+    (h : (a, e, b) ∈ R) (h' : (b, e', c) ∈ Relation.star R) :
+    (a, e * e', c) ∈ Relation.star R := by
+  obtain ⟨n, σs, es, h₀, hn, hsteps, he⟩ := h'
+  dsimp only at h₀ hn he
+  refine ⟨n + 1, λ i ↦ Nat.rec a (λ j _ ↦ σs j) i, λ i ↦ Nat.rec e (λ j _ ↦ es j) i, rfl, hn, ?_, ?_⟩
+  · intro i hi
+    cases i with
+    | zero =>
+      show (a, e, σs 0) ∈ R
+      rw [h₀]
+      exact h
+    | succ i => exact hsteps i (by omega)
+  · show e * e' = _
+    rw [Monoid.partialProd_succ' _ n, he]
+    rfl
+
+theorem Relation.star.mono {α ε : Type _} [Monoid ε] {R S : Set (α × ε × α)}
+    (h : R ≤ S) : Relation.star R ≤ Relation.star S := by
+  rintro ⟨a, e, b⟩ ⟨n, σs, es, h₀, hn, hsteps, he⟩
+  exact ⟨n, σs, es, h₀, hn, λ i hi ↦ h (hsteps i hi), he⟩
+
 end

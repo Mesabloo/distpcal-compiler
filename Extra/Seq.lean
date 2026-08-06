@@ -67,7 +67,7 @@ namespace Stream'.Seq
     rintro a b ⟨hb, rfl⟩
     cases b with
     | nil =>
-      absurd terminates_nil
+      absurd (terminates_nil (α := α))
       exact hb
     | cons x b' =>
       exact Or.inr ⟨x, append b' t, b', cons_append .., rfl,
@@ -202,6 +202,87 @@ namespace Stream'.Seq
     ωProd := ωProduct
 
   @[simp] theorem ωProd_eq_ωProduct {e : ℕ → Seq α} : OmegaProd.ωProd e = ωProduct e := rfl
+
+  /-! ## Factoring out a prefix
+
+  What the aborting branch of a divergence refinement needs: the trace emitted before the abort is
+  a factor of the whole product, so that a `≼` obligation against the product can be discharged
+  against that factor.
+
+  The terminating case is an induction on the index at which the prefix terminates — deliberately
+  not on its *length*, since relating `Seq.take`/`Seq.drop` to `append` would need lemmas Mathlib
+  does not have. The non-terminating case is absorption: nothing after an infinite prefix is
+  observable, so the product is the prefix.
+  -/
+
+  /-- A terminating prefix can be factored out. `s` terminating and defining nothing that `u`
+  disagrees with means `u` continues `s`. -/
+  theorem exists_mul_of_get? {n : ℕ} : ∀ {s u : Seq α}, s.TerminatedAt n →
+      (∀ k a, s.get? k = some a → u.get? k = some a) → ∃ r, u = s * r := by
+    induction n with
+    | zero =>
+      intro s u hs _
+      refine ⟨u, ?_⟩
+      rw [terminatedAt_zero_iff.mp hs, mul_eq_append, nil_append]
+    | succ n ih =>
+      intro s u hs h
+      cases s with
+      | nil =>
+        refine ⟨u, ?_⟩
+        rw [mul_eq_append, nil_append]
+      | cons b s' =>
+        have hu : u = cons b u.tail := by
+          apply head_eq_some
+          apply h 0 b
+          rw [get?_cons_zero]
+        obtain ⟨r, hr⟩ := ih (cons_terminatedAt_succ_iff.mp hs) (λ k a hk ↦ by
+          rw [get?_tail]
+          apply h (k + 1)
+          rwa [get?_cons_succ])
+        refine ⟨r, ?_⟩
+        rw [hu, hr]
+        simp only [mul_eq_append, cons_append]
+
+  /-- Once a partial product is infinite, every later one equals it and the whole product stops
+  there. -/
+  theorem ωProduct_eq_of_not_terminates {e : ℕ → Seq α} {n : ℕ}
+      (h : ¬(Monoid.partialProd e n).Terminates) : ωProduct e = Monoid.partialProd e n := by
+    have hstab : ∀ m, n ≤ m → Monoid.partialProd e m = Monoid.partialProd e n := by
+      intro m
+      induction m with
+      | zero => intro hm; rw [show n = 0 by omega]
+      | succ m ih =>
+        intro hm
+        rcases Nat.lt_or_ge n (m + 1) with h' | h'
+        · rw [Monoid.partialProd_succ, ih (by omega)]
+          apply mul_eq_left_of_not_terminates h
+        · rw [show n = m + 1 by omega]
+    apply Seq.ext
+    intro k
+    apply Option.ext
+    intro a
+    constructor
+    · intro hk
+      obtain ⟨m, hm⟩ := get?_ωProduct.mp hk
+      rcases Nat.le_total m n with h' | h'
+      · apply get?_partialProd_of_le h' hm
+      · rwa [hstab m h'] at hm
+    · intro hk
+      apply get?_ωProduct.mpr
+      exact ⟨n, hk⟩
+
+  /-- Every finite prefix of a `Seq` product divides it. -/
+  theorem hasPartialProdDvd : OmegaProd.HasPartialProdDvd (Seq α) := by
+    intro e n
+    by_cases h : (Monoid.partialProd e n).Terminates
+    · obtain ⟨m, hm⟩ := h
+      apply exists_mul_of_get? hm
+      intro k a hk
+      apply get?_ωProduct.mpr
+      exact ⟨n, hk⟩
+    · refine ⟨1, ?_⟩
+      rw [mul_one]
+      apply ωProduct_eq_of_not_terminates h
 end Stream'.Seq
 
 end

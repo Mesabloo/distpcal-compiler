@@ -3,6 +3,7 @@ module
 public import Mathlib.Algebra.Group.Basic
 public import Extra.Rel
 public import Extra.List
+public import Extra.Seq
 
 public section
 
@@ -29,6 +30,12 @@ class Trace (εₛ εₜ : Type _) [Monoid εₛ] [Monoid εₜ] where
   Rτ : Rel εₛ εₜ
   Rτ_total : Relation.LeftTotal Rτ
   Rτ_closed : Relation.MulClosed Rτ
+  /-- The empty trace corresponds to the empty trace.
+
+  Not implied by the two laws above: `Rτ_total` supplies *some* source trace over `1`, and nothing
+  forces it to be `1`. Needed as the base case of "the first `n` steps' traces are related", which
+  is what a divergence refinement uses to place an abort reached after `n` steps. -/
+  Rτ_one : Rτ 1 1
 
 /-!
 # Relating traces across languages
@@ -178,5 +185,16 @@ is actually wanted. -/
   Rτ := Eq
   Rτ_total b := ⟨b, rfl⟩
   Rτ_closed := by rintro _ _ _ _ rfl rfl; rfl
+  Rτ_one := rfl
+
+/-- The same at `Stream'.Seq`, the trace type the PlusCal semantics actually use
+(`Core/GuardedPlusCal/Semantics/Denotational.lean`'s `Trace`). A `def` rather than an `instance` for
+the same reason as `Trace.instList`: `Guarded2Network` needs its own `Rτ` at this very type, and an
+ambient `Eq` instance would compete with it. -/
+@[reducible] def Trace.instSeq {α : Type _} : Trace (Stream'.Seq α) (Stream'.Seq α) where
+  Rτ := Eq
+  Rτ_total b := ⟨b, rfl⟩
+  Rτ_closed := by rintro _ _ _ _ rfl rfl; rfl
+  Rτ_one := rfl
 
 end
