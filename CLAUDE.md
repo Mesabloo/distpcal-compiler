@@ -22,6 +22,12 @@ sequences where dropped conjunctions make order ambiguous. Resume right after.
 
 **Normal prose:** source code and its doc comments, commit messages, PR bodies.
 
+## Lean proof rule — applies every time, no exceptions
+
+Before output **any** Lean proof, check it against `INSTRUCTIONS.md` §"Lean conventions" →
+"Proof style". Every proof, including one-liners and `have` bodies. Re-read that list; don't work
+from memory of it. Proof not done till it compile *and* match.
+
 ## Files to check before work
 
 - `INSTRUCTIONS.md` — working rules, conventions, check-in-first list. Read first.

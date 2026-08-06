@@ -2,6 +2,7 @@ module
 
 public import Mathlib.Data.Seq.Basic
 public import Mathlib.Algebra.Group.Defs
+public import Extra.Rel
 
 public section
 
@@ -65,7 +66,9 @@ namespace Stream'.Seq
     apply eq_of_bisim' (motive := λ a b ↦ ¬b.Terminates ∧ a = append b t) ⟨h, rfl⟩
     rintro a b ⟨hb, rfl⟩
     cases b with
-    | nil => exact absurd terminates_nil hb
+    | nil =>
+      absurd terminates_nil
+      exact hb
     | cons x b' =>
       exact Or.inr ⟨x, append b' t, b', cons_append .., rfl,
         λ h' ↦ hb (terminates_cons_iff.mpr h'), rfl⟩
@@ -94,16 +97,6 @@ namespace Stream'.Seq
   and the trace it must produce there is `1`.
   -/
 
-  /-- The product of the first `n` pieces: `e 0 * ⋯ * e (n-1)`, and `1` when `n = 0`. -/
-  @[expose] def partialProd (e : ℕ → Seq α) : ℕ → Seq α
-    | 0 => 1
-    | n + 1 => partialProd e n * e n
-
-  @[simp] theorem partialProd_zero {e : ℕ → Seq α} : partialProd e 0 = 1 := rfl
-
-  @[simp] theorem partialProd_succ {e : ℕ → Seq α} {n : ℕ} :
-      partialProd e (n + 1) = partialProd e n * e n := rfl
-
   /-- Appending on the right never disturbs an index the left operand already defines. -/
   theorem get?_mul_of_get? {s : Seq α} {k : ℕ} {a : α} (u : Seq α) (h : s.get? k = some a) :
       (s * u).get? k = some a := by
@@ -125,12 +118,12 @@ namespace Stream'.Seq
   /-- Partial products only ever grow: an index defined by one is defined, identically, by every
   later one. -/
   theorem get?_partialProd_of_le {e : ℕ → Seq α} {m n k : ℕ} {a : α} (hmn : m ≤ n)
-      (h : (partialProd e m).get? k = some a) : (partialProd e n).get? k = some a := by
+      (h : (Monoid.partialProd e m).get? k = some a) : (Monoid.partialProd e n).get? k = some a := by
     induction n with
     | zero => rwa [show m = 0 by omega] at h
     | succ n ih =>
       rcases Nat.lt_or_ge m (n + 1) with h' | h'
-      · rw [partialProd_succ]
+      · rw [Monoid.partialProd_succ]
         exact get?_mul_of_get? _ (ih (by omega))
       · rwa [show m = n + 1 by omega] at h
 
@@ -139,18 +132,18 @@ namespace Stream'.Seq
   Split out of `ωProduct` so that the `IsSeq` obligation and the characterization below are stated
   against a name rather than against a lambda buried in an anonymous constructor. -/
   @[expose] noncomputable def ωFun (e : ℕ → Seq α) (k : ℕ) : Option α :=
-    if h : ∃ n, ((partialProd e n).get? k).isSome then (partialProd e (Nat.find h)).get? k else none
+    if h : ∃ n, ((Monoid.partialProd e n).get? k).isSome then (Monoid.partialProd e (Nat.find h)).get? k else none
 
   theorem ωFun_eq_some {e : ℕ → Seq α} {k : ℕ} {a : α} :
-      ωFun e k = some a ↔ ∃ n, (partialProd e n).get? k = some a := by classical
+      ωFun e k = some a ↔ ∃ n, (Monoid.partialProd e n).get? k = some a := by classical
     unfold ωFun
     constructor
     · intro h
       split at h
       · exact ⟨_, h⟩
-      · exact absurd h (by simp)
+      · nomatch h
     · rintro ⟨n, hn⟩
-      have hex : ∃ n, ((partialProd e n).get? k).isSome := ⟨n, by rw [hn]; rfl⟩
+      have hex : ∃ n, ((Monoid.partialProd e n).get? k).isSome := ⟨n, by rw [hn]; rfl⟩
       rw [dif_pos hex]
       obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (Nat.find_spec hex)
       rcases Nat.le_total (Nat.find hex) n with h' | h'
@@ -159,7 +152,7 @@ namespace Stream'.Seq
       · exact get?_partialProd_of_le h' hn
 
   theorem ωFun_eq_none {e : ℕ → Seq α} {k : ℕ} :
-      ωFun e k = none ↔ ∀ n, (partialProd e n).get? k = none := by
+      ωFun e k = none ↔ ∀ n, (Monoid.partialProd e n).get? k = none := by
     constructor
     · intro h n
       by_contra hn
@@ -187,16 +180,16 @@ namespace Stream'.Seq
 
   /-- What the product holds at each index: exactly what some partial product holds there. -/
   theorem get?_ωProduct {e : ℕ → Seq α} {k : ℕ} {a : α} :
-      (ωProduct e).get? k = some a ↔ ∃ n, (partialProd e n).get? k = some a :=
+      (ωProduct e).get? k = some a ↔ ∃ n, (Monoid.partialProd e n).get? k = some a :=
     ωFun_eq_some
 
   /-- A step sequence that never emits has the empty trace, with no productivity assumption
   anywhere. The case a corecursive definition could not have produced. -/
   @[simp] theorem ωProduct_const_one : ωProduct (λ _ : ℕ ↦ (1 : Seq α)) = 1 := by
-    have hp : ∀ n, partialProd (λ _ : ℕ ↦ (1 : Seq α)) n = 1 := by
+    have hp : ∀ n, Monoid.partialProd (λ _ : ℕ ↦ (1 : Seq α)) n = 1 := by
       intro n; induction n with
       | zero => rfl
-      | succ n ih => rw [partialProd_succ, ih, mul_one]
+      | succ n ih => rw [Monoid.partialProd_succ, ih, mul_one]
     apply Seq.ext
     intro k
     have hk : (ωProduct (λ _ : ℕ ↦ (1 : Seq α))).get? k = none := by
@@ -204,6 +197,11 @@ namespace Stream'.Seq
       intro n
       rw [hp n, one_eq_nil, get?_nil]
     rw [hk, one_eq_nil, get?_nil]
+  /-- `Seq` products make it an `OmegaProd`. -/
+  noncomputable instance : OmegaProd (Seq α) where
+    ωProd := ωProduct
+
+  @[simp] theorem ωProd_eq_ωProduct {e : ℕ → Seq α} : OmegaProd.ωProd e = ωProduct e := rfl
 end Stream'.Seq
 
 end

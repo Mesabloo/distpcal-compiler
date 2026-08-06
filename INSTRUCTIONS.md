@@ -76,6 +76,23 @@ Carried from prior art's `lakefile.lean`; raise open question before dropping an
 - **Compilation functions monad-polymorphic** — abstract `{m : Type _ → Type _}` plus the
   typeclass constraints the pass actually needs, not a fixed `ReaderT`/`ExceptT` stack.
 
+### Proof style
+
+**Check every Lean proof against this list before output it.** Not after review, not when
+convenient — every time, including one-line proofs and proofs inside `have`. Same as build: proof
+not done till it compile *and* match this list. List grow over time; re-read it, don't work from
+memory of it.
+
+- **No deep `exact` nests.** `exact f (g (h x))` hide the proof shape and give useless errors when
+  one layer break. Write `apply` chain, one lemma per line, innermost last. Anonymous constructor
+  (`exact ⟨a, b, c⟩`) fine — that a literal, not a chain.
+- **`by classical` on one line.** Not `by` then `classical` on next line.
+- **`contradiction`, not `Option.noConfusion`**, to kill absurd hypothesis. `noConfusion` also need
+  its implicits line up, fail with `Application type mismatch` when they don't.
+- **`by_cases! h : p`**, not `by_cases h : p` then `push_neg at h`. `!` do the `push_neg` itself.
+- **No `exact absurd x y`.** Use `absurd` tactic (`absurd x` then supply negation), or `nomatch h`
+  when `h` itself impossible equation.
+
 ## Build & iterate
 
 - `lake build` standard. Prior art's dev-mode CLI wrapper (`fugue.sh`) reasonable model.

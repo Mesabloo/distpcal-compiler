@@ -200,6 +200,8 @@ theorem Relation.lcomp₁.left_lcomp₂_eq {α β γ δ : Type _} [Monoid β] {R
 
 theorem Set.ωSup_is_iUnion {α : Type _} {chain : OmegaCompletePartialOrder.Chain (Set α)} : OmegaCompletePartialOrder.ωSup chain = ⋃ i, chain i := rfl
 
+theorem Set.ωSup_is_iInter {α : Type _} {chain : OmegaCompletePartialOrder.Chain (Set α)ᵒᵈ} : OmegaCompletePartialOrder.ωSup chain = ⋂ i, chain i := rfl
+
 theorem Relation.lcomp₁.ωcontinuous {α β γ : Type _} [Monoid β] (R : Set (α × β × γ)) :
     OmegaCompletePartialOrder.ωScottContinuous (R ∘ᵣ₁ ·) := by
   apply OmegaCompletePartialOrder.ωScottContinuous.of_monotone_map_ωSup
@@ -258,75 +260,85 @@ theorem Relation.lcomp₂.ωcontinuous {α β γ δ : Type _} [Monoid β] (R : S
       exists i
     · rfl
 
+/- theorem Relation.lcomp₁.ωcocontinuous {α β γ : Type _} [Monoid β] (R₁ : Set (α × β × γ)) :
+ -     OmegaCompletePartialOrder.ωScottContinuous (OrderHom.dual { toFun := λ X ↦ R₁ ∘ᵣ₁ X,
+ -                                                                 monotone' := by intro X Y X_sub; exact Relation.lcomp₁.subset_of_subset_right X_sub
+ -                                                               }) := by
+ -   apply OmegaCompletePartialOrder.ωScottContinuous.of_monotone_map_ωSup
+ -
+ -   have : Monotone (α := (Set (γ × β))ᵒᵈ) (β := (Set (α × β))ᵒᵈ) (R₁ ∘ᵣ₁ ·) := by
+ -     intros _ _ _
+ -     apply Relation.lcomp₁.subset_of_subset_right
+ -     assumption
+ -   exists this
+ -   intro chain
+ -
+ -   ext ⟨a, e⟩
+ -   iff_rintro ⟨b, e₁, e₂, aRb, b_in_ωsup, rfl⟩ h
+ -   · erw [Set.ωSup_is_iInter, Set.mem_iInter] at b_in_ωsup ⊢
+ -     intro i
+ -     specialize b_in_ωsup i
+ -     rw [OmegaCompletePartialOrder.Chain.coe_map, OrderHom.coe_mk, Function.comp_def]
+ -     exists b, e₁, e₂
+ -   · erw [Set.ωSup_is_iInter] at h ⊢
+ -     rw [OrderHom.dual_apply_coe, Function.comp_def, Function.comp_def, OrderDual.ofDual_toDual, OrderHom.coe_mk]
+ -     erw [OmegaCompletePartialOrder.Chain.coe_map, OrderHom.coe_mk (f := ⇑(OrderHom.dual _)), Function.comp_def, Set.mem_iInter] at h
+ -     conv at h =>
+ -       enter [i, 1]; erw [OrderHom.dual_apply_coe, Function.comp_def, Function.comp_def, OrderHom.coe_mk (f := λ X ↦ R₁ ∘ᵣ₁ X)]
+ -     beta_reduce at h ⊢
+ -     admit -/
+
 theorem OrderHom.lfp_induction₂ {α β : Type _} [CompleteLattice α] [CompleteLattice β] (f : α →o α) (g : β →o β) {p : α → β → Prop}
   (step : ∀ (a : α) (b : β), p a b → a ≤ OrderHom.lfp f → b ≤ OrderHom.lfp g → p (f a) (g b))
-  (hSup : ∀ (s : Set (α × β)), (∀ x ∈ s, p x.1 x.2) → p (Prod.fst <| sSup s) (Prod.snd <| sSup s)) :
+  (hSup : ∀ (A : Set α) (B : Set β),
+    (∀ x ∈ A, ∃ y ∈ B, p x y) →
+    (∀ y ∈ B, ∃ x ∈ A, p x y) →
+    p (sSup A) (sSup B)) :
     p (OrderHom.lfp f) (OrderHom.lfp g) := by
-  set s := { ⟨x, y⟩ : _ × _ | x ≤ lfp f ∧ y ≤ lfp g ∧ p x y}
+  let s := { ⟨x, y⟩ : α × β | x ≤ lfp f ∧ y ≤ lfp g ∧ p x y}
 
-  specialize hSup s λ x x_in ↦ x_in.2.2
+  have key := hSup ((·.1) '' s) ((·.2) '' s)
+    (by rintro x ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, ht.2.2⟩)
+    (by rintro y ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, ht.2.2⟩)
 
-  suffices sSup s = (lfp f, lfp g) by
-    rwa [this] at hSup
+  have h₁ : sSup ((·.1) '' s) ≤ lfp f := sSup_le (by rintro x ⟨t, ht, rfl⟩; exact ht.1)
+  have h₂ : sSup ((·.2) '' s) ≤ lfp g := sSup_le (by rintro y ⟨t, ht, rfl⟩; exact ht.2.1)
 
-  obtain ⟨h₁, h₂⟩ : sSup s ≤ (lfp f, lfp g) := by
-    apply sSup_le
-    rintro ⟨x, y⟩ ⟨x_le_lfp_f, y_le_lfp_g, -⟩
-    grw [x_le_lfp_f, y_le_lfp_g]
+  have mem : (f (sSup ((·.1) '' s)), g (sSup ((·.2) '' s))) ∈ s :=
+    ⟨f.map_le_lfp h₁, g.map_le_lfp h₂, step _ _ key h₁ h₂⟩
 
-  have : (f (sSup s).1, g (sSup s).2) ∈ s := by
-    refine ⟨?_, ?_, ?_⟩
-    · grw [map_le_lfp f]; assumption
-    · grw [map_le_lfp g]; assumption
-    · apply step _ _ hSup <;> assumption
+  have e₁ : sSup ((·.1) '' s) = lfp f := h₁.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
+  have e₂ : sSup ((·.2) '' s) = lfp g := h₂.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
 
-  apply LE.le.antisymm
-  · exact ⟨h₁, h₂⟩
-  · constructor
-    · apply lfp_le
-      apply le_sSup
-      exact Set.mem_image_fst_of_mem _ this
-    · apply lfp_le
-      apply le_sSup
-      exact Set.mem_image_snd_of_mem _ this
+  rwa [e₁, e₂] at key
 
 theorem OrderHom.lfp_induction₃ {α β γ : Type _} [CompleteLattice α] [CompleteLattice β] [CompleteLattice γ] (f : α →o α) (g : β →o β) (h : γ →o γ) {p : α → β → γ → Prop}
   (step : ∀ (a : α) (b : β) (c : γ), p a b c → a ≤ OrderHom.lfp f → b ≤ OrderHom.lfp g → c ≤ OrderHom.lfp h → p (f a) (g b) (h c))
-  (hSup : ∀ (s : Set (α × β × γ)), (∀ x ∈ s, p x.1 x.2.1 x.2.2) → p (Prod.fst <| sSup s) (Prod.fst <| Prod.snd <| sSup s) (Prod.snd <| Prod.snd <| sSup s)) :
+  (hSup : ∀ (A : Set α) (B : Set β) (C : Set γ),
+    (∀ x ∈ A, ∃ y ∈ B, ∃ z ∈ C, p x y z) →
+    (∀ y ∈ B, ∃ x ∈ A, ∃ z ∈ C, p x y z) →
+    (∀ z ∈ C, ∃ x ∈ A, ∃ y ∈ B, p x y z) →
+    p (sSup A) (sSup B) (sSup C)) :
     p (OrderHom.lfp f) (OrderHom.lfp g) (OrderHom.lfp h) := by
-  set s := { ⟨x, y, z⟩ : _ × _ × _ | x ≤ lfp f ∧ y ≤ lfp g ∧ z ≤ lfp h ∧ p x y z}
+  let s := { ⟨x, y, z⟩ : α × β × γ | x ≤ lfp f ∧ y ≤ lfp g ∧ z ≤ lfp h ∧ p x y z}
 
-  specialize hSup s λ x x_in ↦ x_in.2.2.2
+  have key := hSup ((·.1) '' s) ((·.2.1) '' s) ((·.2.2) '' s)
+    (by rintro x ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, _, ⟨t, ht, rfl⟩, ht.2.2.2⟩)
+    (by rintro y ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, _, ⟨t, ht, rfl⟩, ht.2.2.2⟩)
+    (by rintro z ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, _, ⟨t, ht, rfl⟩, ht.2.2.2⟩)
 
-  suffices sSup s = (lfp f, lfp g, lfp h) by
-    rwa [this] at hSup
+  have h₁ : sSup ((·.1) '' s) ≤ lfp f := sSup_le (by rintro x ⟨t, ht, rfl⟩; exact ht.1)
+  have h₂ : sSup ((·.2.1) '' s) ≤ lfp g := sSup_le (by rintro y ⟨t, ht, rfl⟩; exact ht.2.1)
+  have h₃ : sSup ((·.2.2) '' s) ≤ lfp h := sSup_le (by rintro z ⟨t, ht, rfl⟩; exact ht.2.2.1)
 
-  obtain ⟨h₁, h₂, h₃⟩ : sSup s ≤ (lfp f, lfp g, lfp h) := by
-    apply sSup_le
-    rintro ⟨x, y, z⟩ ⟨x_le_lfp_f, y_le_lfp_g, z_le_lfp_h, -⟩
-    grw [x_le_lfp_f, y_le_lfp_g, z_le_lfp_h]
+  have mem : (f (sSup ((·.1) '' s)), g (sSup ((·.2.1) '' s)), h (sSup ((·.2.2) '' s))) ∈ s :=
+    ⟨f.map_le_lfp h₁, g.map_le_lfp h₂, h.map_le_lfp h₃, step _ _ _ key h₁ h₂ h₃⟩
 
-  have : (f (sSup s).1, g (sSup s).2.1, h (sSup s).2.2) ∈ s := by
-    refine ⟨?_, ?_, ?_, ?_⟩
-    · grw [map_le_lfp f]; assumption
-    · grw [map_le_lfp g]; assumption
-    · grw [map_le_lfp h]; assumption
-    · apply step _ _ _ hSup <;> assumption
+  have e₁ : sSup ((·.1) '' s) = lfp f := h₁.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
+  have e₂ : sSup ((·.2.1) '' s) = lfp g := h₂.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
+  have e₃ : sSup ((·.2.2) '' s) = lfp h := h₃.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
 
-  apply LE.le.antisymm
-  · exact ⟨h₁, h₂, h₃⟩
-  · refine ⟨?_, ?_, ?_⟩
-    · apply lfp_le
-      apply le_sSup
-      exact Set.mem_image_fst_of_mem _ this
-    · apply lfp_le
-      apply le_sSup
-      apply Set.mem_image_fst_of_mem
-      exact Set.mem_image_snd_of_mem _ this
-    · apply lfp_le
-      apply le_sSup
-      apply Set.mem_image_snd_of_mem
-      exact Set.mem_image_snd_of_mem _ this
+  rwa [e₁, e₂, e₃] at key
 
 /-!
 ## Composing relations
@@ -373,5 +385,70 @@ theorem Relation.right_extend {α β : Type _} [Monoid α] [Monoid β] {R : Rel 
     ∃ z', R (a * z') (b * z) := by
   obtain ⟨z', hz'⟩ := tot z
   exact ⟨z', cl _ _ _ _ h hz'⟩
+
+/-! # Infinite iteration
+
+  `R^∞`: the executions that take infinitely many `R`-steps. Defined **directly**, from a sequence
+  of states and a sequence of emitted traces, rather than as the greatest fixed point of
+  `X ↦ R ∘ᵣ₁ X`.
+
+  The gfp is the wrong denotation, in a way that has nothing to do with how hard it is to reason
+  about. A step emitting the empty trace makes that functional non-contractive — `R ∘ᵣ₁ x ⊇ x` — so
+  at `R = {(σ, 1, σ)}` it is the identity, whose greatest fixed point is `⊤`: every trace
+  whatsoever, paired with a state that merely diverges silently. `R^∞` gives that execution the
+  trace `1`, which is what it actually emits. The two agree only when `R` has no infinite chain of
+  empty-trace steps, which `Algebra.step` certainly does (`while TRUE { x := x + 1 }`).
+-/
+
+/-- `e 0 * ⋯ * e (n-1)`, and `1` when `n = 0`. -/
+@[expose] def Monoid.partialProd {ε : Type _} [Monoid ε] (e : ℕ → ε) : ℕ → ε
+  | 0 => 1
+  | n + 1 => Monoid.partialProd e n * e n
+
+@[simp] theorem Monoid.partialProd_zero {ε : Type _} [Monoid ε] {e : ℕ → ε} :
+    Monoid.partialProd e 0 = 1 := rfl
+
+@[simp] theorem Monoid.partialProd_succ {ε : Type _} [Monoid ε] {e : ℕ → ε} {n : ℕ} :
+    Monoid.partialProd e (n + 1) = Monoid.partialProd e n * e n := rfl
+
+/-- The same product peeled from the left instead of the right. `partialProd` folds right-to-left,
+but a run built forwards from a starting state produces its factors left-to-right, so relating the
+two is what lets a prefix of a run be recognised as a `partialProd`. -/
+theorem Monoid.partialProd_succ' {ε : Type _} [Monoid ε] (e : ℕ → ε) (n : ℕ) :
+    Monoid.partialProd e (n + 1) = e 0 * Monoid.partialProd (λ i ↦ e (i + 1)) n := by
+  induction n with
+  | zero => simp
+  | succ n ih => rw [Monoid.partialProd_succ, ih, Monoid.partialProd_succ, mul_assoc]
+
+/-- A monoid in which an infinite sequence of factors has a product.
+
+A mixin over `Monoid` rather than an extension of it, so that the existing `[Monoid ε]` binders
+throughout the refinement framework are untouched and no instance diamond arises.
+
+Deliberately carries no laws yet. The one law the refinement proofs turn out to need —
+`partialProd_dvd`, that every finite prefix of the product divides it — is passed explicitly to the
+lemmas that consume it, until it is clear that every intended instance satisfies it. -/
+class OmegaProd (ε : Type _) [Monoid ε] where
+  /-- The product of infinitely many factors. -/
+  ωProd : (ℕ → ε) → ε
+
+/-- Every finite prefix of an infinite product divides it. Stated as a predicate rather than an
+`OmegaProd` field: it is what the aborting branch of a divergence refinement consumes, and stating
+it separately keeps instances cheap to register. -/
+@[expose]
+def OmegaProd.HasPartialProdDvd (ε : Type _) [Monoid ε] [OmegaProd ε] : Prop :=
+  ∀ (e : ℕ → ε) (n : ℕ), ∃ r, OmegaProd.ωProd e = Monoid.partialProd e n * r
+
+/-- `R^∞` — the states from which `R` can step forever, paired with the trace the whole infinite
+run emits. -/
+@[expose]
+def Relation.omega {α ε : Type _} [Monoid ε] [OmegaProd ε] (R : Set (α × ε × α)) : Set (α × ε) :=
+  {x | ∃ (σs : ℕ → α) (es : ℕ → ε),
+    σs 0 = x.1 ∧ (∀ i, (σs i, es i, σs (i + 1)) ∈ R) ∧ x.2 = OmegaProd.ωProd es}
+
+theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [OmegaProd ε] {R S : Set (α × ε × α)}
+    (h : R ≤ S) : Relation.omega R ≤ Relation.omega S := by
+  rintro ⟨σ, ε⟩ ⟨σs, es, h₀, hstep, hε⟩
+  exact ⟨σs, es, h₀, λ i ↦ h (hstep i), hε⟩
 
 end

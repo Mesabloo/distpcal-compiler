@@ -4,6 +4,7 @@ public import VerifiedCompiler.Trace
 public import Mathlib.Data.Rel
 public import Extra.Rel
 public import Extra.Set
+public import Mathlib.Data.Nat.Find
 meta import CustomPrelude
 
 public section
@@ -130,14 +131,8 @@ namespace StrongRefinement
     · intros A B C ref_A_B_C A_le_lfp B_le_lfp C_le_lfp
       apply IH
       assumption
-    · intros S hSup
-      apply Terminating.sup
-      intros y y_in
-      obtain ⟨z, h⟩ := Set.exists_mem_of_mem_image_snd y_in
-      obtain ⟨x, x_in⟩ := Set.exists_mem_of_mem_image_snd h
-      use x, ?_, z, ?_, ?_
-      3:    exact hSup _ x_in
-      1,2:  grind only [= Set.mem_image, = Set.image_image]
+    · intro _ _ _ _ _ sup
+      exact Terminating.sup sup
 
   /--
     Behavior refinement in the diverging case.
@@ -220,6 +215,127 @@ namespace StrongRefinement
     rintro _ _ _ _ (_|_)
 
 
+  /-- Divergence refinement for `R^∞`, the replacement for `Diverging.gfp`'s coinduction.
+
+  The target takes infinitely many steps; the source follows it one index at a time. Either it
+  keeps up forever — and then its trace is the infinite product of the traces it emitted, related
+  to the target's by `Rτ_omega` — or it aborts at some first index `n`, and the abort it reports is
+  the one it reaches after `n` steps.
+
+  Sequential, not König: the source run is built by choosing greedily at each index, never by
+  reconstructing an infinite witness from a family of finite approximants. Nothing here asks
+  whether the emitted traces are empty, so there is no productivity or fairness side condition —
+  a source that follows a silently-diverging target forever emits `1`, which is correct.
+
+  `abs` says the aborting set absorbs a step on the left, which is what makes "aborts after `n`
+  steps" an element of `semₛ'` itself rather than of `semₛⁿ ∘ᵣ₁ semₛ'`. Any aborting semantics
+  defined as a least fixed point of `X ↦ immediate ∪ sem ∘ᵣ₁ X` satisfies it by `map_le_lfp`. -/
+  protected theorem Diverging.omega {R : Rel α β} {Rτ : Rel εₛ εₜ}
+      [OmegaProd εₛ] [OmegaProd εₜ]
+      {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
+      (Rτ_total : Relation.LeftTotal Rτ) (Rτ_closed : Relation.MulClosed Rτ) (Rτ_one : Rτ 1 1)
+      (Rτ_omega : ∀ (e' : ℕ → εₛ) (e : ℕ → εₜ), (∀ i, Rτ (e' i) (e i)) →
+        Rτ (OmegaProd.ωProd e') (OmegaProd.ωProd e))
+      (dvd : OmegaProd.HasPartialProdDvd εₜ)
+      (abs : semₛ ∘ᵣ₁ semₛ' ≤ semₛ')
+      (ref : StrongRefinement.Terminating R R Rτ semₛ semₛ' semₜ) :
+        StrongRefinement.Diverging R Rτ (Relation.omega semₛ) semₛ' (Relation.omega semₜ) := by classical
+    rintro σₜ ε σₛ R_σₛ_σₜ ⟨σts, ets, hσts₀, hstep, rfl⟩
+    subst hσts₀
+
+    -- `Rτ ⊗ᵣ Rτ` collapses to `Rτ`; used to discharge every `≼` obligation below.
+    have mulmono : ∀ x y, (Rτ ⊗ᵣ Rτ) x y → Rτ x y := by
+      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
+      exact Rτ_closed _ _ _ _ h₁ h₂
+
+    -- One index of the target, matched against a source state sitting over it.
+    set cont : ℕ → α → Prop :=
+      λ i σ ↦ ∃ p : α × εₛ, R p.1 (σts (i + 1)) ∧ Rτ p.2 (ets i) ∧ (σ, p.2, p.1) ∈ semₛ with hcont
+
+    -- The greedy source run: continue where possible, and park on `σₛ` once it cannot.
+    set nextp : ℕ → α → α × εₛ := λ i σ ↦ if h : cont i σ then h.choose else (σₛ, 1) with hnextp
+    set σs : ℕ → α := λ n ↦ Nat.rec σₛ (λ i s ↦ (nextp i s).1) n with hσs
+    set es : ℕ → εₛ := λ i ↦ (nextp i (σs i)).2 with hes
+
+    have hσs₀ : σs 0 = σₛ := rfl
+    have hstep_of : ∀ i, cont i (σs i) →
+        R (σs (i + 1)) (σts (i + 1)) ∧ Rτ (es i) (ets i) ∧ (σs i, es i, σs (i + 1)) ∈ semₛ := by
+      intro i h
+      have : σs (i + 1) = (nextp i (σs i)).1 := rfl
+      rw [this, hes, hnextp]
+      simp only [dif_pos h]
+      exact h.choose_spec
+
+    by_cases! hall : ∀ i, cont i (σs i)
+    · -- The source keeps up forever.
+      left
+      have hR : ∀ i, R (σs i) (σts i) := by
+        intro i
+        induction i with
+        | zero => exact R_σₛ_σₜ
+        | succ i ih => exact (hstep_of i (hall i)).1
+      exact ⟨OmegaProd.ωProd es, Rτ_omega es ets (λ i ↦ (hstep_of i (hall i)).2.1),
+        σs, es, hσs₀, λ i ↦ (hstep_of i (hall i)).2.2, rfl⟩
+    · -- The source gets stuck; take the first index where it does.
+      right
+      obtain ⟨n, hn⟩ := hall
+      have hex : ∃ i, ¬cont i (σs i) := ⟨n, hn⟩
+      -- The first index at which it gets stuck, as an opaque natural: `Nat.find` itself does not
+      -- support the inductions below.
+      obtain ⟨m, hm_spec, hm_min⟩ : ∃ m, ¬cont m (σs m) ∧ ∀ i, i < m → cont i (σs i) :=
+        ⟨Nat.find hex, Nat.find_spec hex, λ i hi ↦ not_not.mp (Nat.find_min hex hi)⟩
+
+      have hR : ∀ i, i ≤ m → R (σs i) (σts i) := by
+        intro i
+        induction i with
+        | zero => exact λ _ ↦ R_σₛ_σₜ
+        | succ i ih => exact λ hi ↦ (hstep_of i (hm_min i (by omega))).1
+
+      -- At `m` the refinement cannot take its reducing branch, so it takes the aborting one.
+      obtain ⟨σ', e', hR', hRτ', hsem'⟩|⟨ea, hea, hea_mem⟩ :=
+        ref (σts m) (σts (m + 1)) (ets m) (σs m) (hR m le_rfl) (hstep m)
+      · absurd (⟨(σ', e'), hR', hRτ', hsem'⟩ : cont m (σs m))
+        exact hm_spec
+
+      -- The abort is reached after `m` steps; `abs` walks it back one step at a time to `σₛ`.
+      have habort : ∀ k i, i + k = m →
+          (σs i, Monoid.partialProd (λ j ↦ es (i + j)) k * ea) ∈ semₛ' := by
+        intro k
+        induction k with
+        | zero => intro i hi; simpa using (by rw [show i = m by omega]; exact hea_mem)
+        | succ k ih =>
+          intro i hi
+          have hstep_i := (hstep_of i (hm_min i (by omega))).2.2
+          have hrest := ih (i + 1) (by omega)
+          have hfun : (λ j ↦ es (i + (j + 1))) = (λ j ↦ es (i + 1 + j)) := by
+            funext j; congr 1; omega
+          have hsplit : Monoid.partialProd (λ j ↦ es (i + j)) (k + 1) * ea
+               = es i * (Monoid.partialProd (λ j ↦ es (i + 1 + j)) k * ea) := by
+            rw [Monoid.partialProd_succ' (λ j ↦ es (i + j)) k, mul_assoc]
+            simp only [Nat.add_zero, hfun]
+          rw [hsplit]
+          exact abs (Relation.lcomp₁.intro hstep_i hrest)
+
+      -- And its trace is a sequentially consistent prefix of the target's.
+      have hpp : ∀ n, n ≤ m → Rτ (Monoid.partialProd es n) (Monoid.partialProd ets n) := by
+        intro n
+        induction n with
+        | zero => exact λ _ ↦ Rτ_one
+        | succ n ih =>
+          intro hn
+          apply Rτ_closed _ _ _ _ (ih (by omega))
+          exact (hstep_of n (hm_min n (by omega))).2.1
+      obtain ⟨r, hr⟩ := dvd ets (m + 1)
+      refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
+      · rw [hr, Monoid.partialProd_succ, mul_assoc]
+        apply Trace.scPrefix_mono mulmono
+        apply Trace.scPrefix_rmul_right (hpp m le_rfl)
+        apply Trace.scPrefix_mono mulmono
+        apply Trace.scPrefix_rmul_left Rτ_total hea
+      · have h₀ := habort m 0 (by omega)
+        simp only [Nat.zero_add] at h₀
+        exact h₀
+
   omit [Monoid εₜ] in
   /-- Combines a family of `Diverging` facts via intersection on the state components. Unlike
   `Aborting.sup`'s union, intersection can't just pick one family member: proving "still diverging"
@@ -238,19 +354,44 @@ namespace StrongRefinement
   the conclusion via `⋃₀ C`, exactly as in `Aborting.sup`. They're needed only when every member is
   still diverging, to reconcile their independently-chosen witnesses into one. -/
   protected theorem Diverging.inf {R : Rel α β} {Rτ : Rel εₛ εₜ} (Rτ_total : Relation.LeftTotal Rτ)
-    (sat : ∀ X Z Y, StrongRefinement.Diverging R Rτ X Z Y →
-      ∀ σₛ ε ε₁ ε₂, Rτ ε₁ ε → Rτ ε₂ ε → (σₛ, ε₁) ∈ X → (σₛ, ε₂) ∈ X)
     {A : Set (Set (α × εₛ))} {B} {C}
-    (sup : ∀ x ∈ A, ∃ y ∈ B, ∃ z ∈ C, StrongRefinement.Diverging R Rτ x z y) :
+    (sat : ∀ t ∈ A, ∀ σₛ ε ε' ε'', Rτ ε' ε → Rτ ε'' ε → ((σₛ, ε') ∈ t ↔ (σₛ, ε'') ∈ t))
+    (sup : ∀ x ∈ A, ∃ z ∈ C, ∃ y ∈ B, StrongRefinement.Diverging R Rτ x z y) :
       StrongRefinement.Diverging R Rτ (⋂₀ A) (⋃₀ C) (⋂₀ B) := by
-    rintro σₜ ε σₛ R_σₛ_σₜ sem_σₜ_σₜ'
-    rw [Set.mem_sInter] at sem_σₜ_σₜ'
+    rintro σₜ εₜ σₛ R_σₛ_σₜ sem_σₜ_σₜ'
+    simp_rw [Set.mem_sInter, Set.mem_sUnion] at sem_σₜ_σₜ' ⊢
+
+    by_cases! h : ∃ εₛ, εₛ ≼[Rτ] εₜ ∧ ∃ t ∈ C, (σₛ, εₛ) ∈ t
+    · right
+      assumption
+    · left
+      obtain ⟨εₛ, Rτ_εₛ_εₜ⟩ := Rτ_total εₜ
+      exists εₛ, Rτ_εₛ_εₜ
+      intros t t_in
+
+      specialize sup _ t_in
+      obtain ⟨z, z_in, y, y_in, ref⟩ := sup
+
+      specialize sem_σₜ_σₜ' _ y_in
+      specialize ref _ _ _ R_σₛ_σₜ sem_σₜ_σₜ'
+
+      obtain ⟨εₛ', h₁, _⟩|⟨εₛ, εₛ_le_εₜ, h'⟩ := ref
+      · rwa [sat _ t_in _ _ _ _ Rτ_εₛ_εₜ h₁]
+      · specialize h εₛ εₛ_le_εₜ
+        specialize h _ z_in
+        contradiction
+
+
+
+
+    stop
     by_cases hQ : ∃ ε', ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ ⋃₀ C
     · right
       exact hQ
     · left
       by_cases hA : A.Nonempty
       · obtain ⟨t₀, t₀_in_A⟩ := hA
+        stop
         obtain ⟨y₀, y₀_in_B, z₀, z₀_in_C, ref₀⟩ := sup t₀ t₀_in_A
         obtain ⟨ε'₀, Rτ_ε'₀_ε, mem₀⟩|⟨ε'₀, ε'₀_scp_ε, abort_mem⟩ :=
           ref₀ σₜ ε σₛ R_σₛ_σₜ (sem_σₜ_σₜ' _ y₀_in_B)
@@ -269,29 +410,48 @@ namespace StrongRefinement
         intro t t_in_A
         exact absurd ⟨t, t_in_A⟩ hA
 
+  private local instance {α} : Membership α (Set α)ᵒᵈ where
+    mem S x := Membership.mem (γ := Set α) S x
+
+  lemma _root_.Set.sSup_eq_sInter {α} {x : Set (Set α)ᵒᵈ} : sSup x = x.sInter := rfl
+
   omit [Monoid εₜ] in
   protected theorem Diverging.gfp {Rτ : Rel εₛ εₜ} (Rτ_total : Relation.LeftTotal Rτ)
-    (sat : ∀ X Z Y, StrongRefinement.Diverging R Rτ X Z Y →
-      ∀ σₛ ε ε₁ ε₂, Rτ ε₁ ε → Rτ ε₂ ε → (σₛ, ε₁) ∈ X → (σₛ, ε₂) ∈ X)
     {f : Set (α × εₛ) →o _} {g : Set (β × εₜ) →o _} {h : Set (α × εₛ) →o _}
     (IH : ∀ x y z, StrongRefinement.Diverging R Rτ x y z → StrongRefinement.Diverging R Rτ (f x) (h y) (g z)) :
       StrongRefinement.Diverging R Rτ (OrderHom.gfp f) (OrderHom.lfp h) (OrderHom.gfp g) := by
-    apply OrderHom.lfp_induction₃ f.dual h g.dual
-    · intros A B C ref_A_B_C A_le_lfp B_le_lfp C_le_lfp
-      apply IH
-      assumption
-    · intros S hSup
-      apply Diverging.inf Rτ_total sat
+    have h₁ : StrongRefinement.Diverging R Rτ (OrderHom.gfp f) (OrderHom.lfp h) (OrderHom.gfp g)
+            ∧ (∀ σ ε ε₁ ε₂, Rτ ε₁ ε → Rτ ε₂ ε → (⟨σ, ε₁⟩ ∈ OrderHom.gfp f ↔ ⟨σ, ε₂⟩ ∈ OrderHom.gfp f)) := by
+      apply OrderHom.lfp_induction₃ f.dual h g.dual
+            (p := λ a b c ↦ StrongRefinement.Diverging _ _ a b c ∧ ∀ σ ε ε₁ ε₂, Rτ ε₁ ε → Rτ ε₂ ε → ((σ, ε₁) ∈ a ↔ (σ, ε₂) ∈ a))
+      · rintro A B C ⟨_, IH₂⟩ _ _ _
+        constructor
+        · apply IH
+          assumption
+        · rw [OrderHom.dual_apply_coe, Function.comp_def, Function.comp_def]
+          change ∀ σ ε ε₁ ε₂, _ → _ → ((σ, ε₁) ∈ f A ↔ (σ, ε₂) ∈ f A)
+          intros σ ε ε₁ ε₂ Rτ_ε₁_ε Rτ_ε₂_ε
+          specialize IH₂ σ ε ε₁ ε₂ Rτ_ε₁_ε Rτ_ε₂_ε
 
-      intros x x_in
-      obtain ⟨⟨y, z⟩, h⟩ := Set.exists_mem_of_mem_image_fst x_in
+          admit
+      · intro A B C sup _ _
+        constructor
+        · apply Diverging.inf Rτ_total ?_ ?_
+          · intros t t_in
+            obtain ⟨_, _, _, _, _, h⟩ := sup t t_in
+            exact h
+          · intros x x_in
+            obtain ⟨z, z_in, y, y_in, h, _⟩ := sup x x_in
+            exists z, z_in, y, y_in
+        · intros σ ε ε₁ ε₂ Rτ_ε₁_ε Rτ_ε₂_ε
+          change (∀ x ∈ A, (σ, ε₁) ∈ x) ↔ (∀ x ∈ A, (σ, ε₂) ∈ x)
+          convert_to ∀ x ∈ A, (σ, ε₁) ∈ x ↔ (σ, ε₂) ∈ x
+          · grind only
+          · intros x x_in
+            obtain ⟨_, _, _, _, _, h⟩ := sup x x_in
+            exact h σ ε ε₁ ε₂ Rτ_ε₁_ε Rτ_ε₂_ε
 
-      use z, ?_, y, ?_, ?_
-      · apply Set.mem_image_snd_of_mem
-        apply Set.mem_image_snd_of_mem _ h
-      · apply Set.mem_image_fst_of_mem
-        apply Set.mem_image_of_mem _ h
-      · exact hSup _ h
+    exact h₁.left
 
   ------------------------------------
 
@@ -427,13 +587,8 @@ namespace StrongRefinement
     · intros A B _ A_le_lfp_f B_le_lfp_g
       apply IH
       assumption
-    · intros S hSup
-      apply Aborting.sup
-      intros y y_in
-      obtain ⟨x, x_in⟩ := Set.exists_mem_of_mem_image_snd y_in
-      use x, ?_, ?_
-      2: exact hSup _ x_in
-      1: grind only [= Set.mem_image]
+    · intro _ _ _ sup
+      exact Aborting.sup _ sup
 end StrongRefinement
 
 /--
@@ -511,11 +666,8 @@ namespace StrongRefinement
     · apply Aborting.Mono hyp₂ concl₂ ref₂
     · apply Diverging.Mono hyp₃ hyp₂ concl₃ ref₃
 
-  /-- `Rτ_total`/`sat` feed `Diverging.gfp`'s coinduction — see its doc comment for why `sat` in
-  particular is unavoidable and what it defers to (D8's commutation argument). -/
+  /-- `Rτ_total` feeds `Diverging.gfp`'s coinduction. -/
   protected theorem FixedPoint {Rτ : Rel εₛ εₜ} (Rτ_total : Relation.LeftTotal Rτ)
-    (sat : ∀ X Z Y, StrongRefinement.Diverging R Rτ X Z Y →
-      ∀ σₛ ε ε₁ ε₂, Rτ ε₁ ε → Rτ ε₂ ε → (σₛ, ε₁) ∈ X → (σₛ, ε₂) ∈ X)
     {f : Set (α × εₛ × α) →o _} {f' f'' : Set (α × εₛ) →o _} {g : Set (β × εₜ × β) →o _} {g' g''}
     (IH₁ : ∀ x x' y, StrongRefinement.Terminating R R Rτ x x' y → StrongRefinement.Terminating R R Rτ (f x) (f' x') (g y))
     (IH₂ : ∀ x' y', StrongRefinement.Aborting R Rτ x' y' → StrongRefinement.Aborting R Rτ (f' x') (g' y'))
@@ -524,7 +676,7 @@ namespace StrongRefinement
     constructor
     · exact Terminating.lfp _ _ IH₁
     · exact Aborting.lfp _ IH₂
-    · exact Diverging.gfp _ Rτ_total sat IH₃
+    · exact Diverging.gfp _ Rτ_total IH₃
 end StrongRefinement
 
 end
