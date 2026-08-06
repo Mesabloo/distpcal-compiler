@@ -1,6 +1,7 @@
 module
 
 public import VerifiedCompiler.Trace
+public import VerifiedCompiler.ClosedForm
 public import Mathlib.Data.Rel
 public import Extra.Rel
 public import Extra.Set

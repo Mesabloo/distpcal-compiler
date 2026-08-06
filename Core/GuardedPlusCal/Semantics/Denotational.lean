@@ -83,9 +83,9 @@ inductive Behavior (V : Type) : Type
 Possibly-infinite and not `List`, even though no statement or block can emit an infinite trace —
 `Statement.diverging` is `∅` and a block is finite, so divergence enters only at `Algebra`
 (`Semantics/Process.lean`). A diverging algorithm that keeps sending emits forever, and a `List`
-cannot hold what it emits: with a finite trace type the greatest fixed point defining
-`Algebra.diverging` can only contain executions that fall silent after finitely many events, so
-every productive divergence is absent from the denotation outright.
+cannot hold what it emits: with a finite trace type `Algebra.diverging` could only contain
+executions that fall silent after finitely many events, so every productive divergence would be
+absent from the denotation outright.
 
 The type is uniform across the statement, block and algorithm layers rather than finite below and
 infinite above. A layer boundary would put a `Seq.ofList` coercion on exactly the seam that the

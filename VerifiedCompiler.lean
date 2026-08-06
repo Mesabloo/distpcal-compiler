@@ -1,6 +1,7 @@
 module
 
 public import VerifiedCompiler.Trace
+public import VerifiedCompiler.ClosedForm
 public import VerifiedCompiler.Relation
 public import VerifiedCompiler.Denotational.Notations
 public import VerifiedCompiler.Denotational.StrongRefinement

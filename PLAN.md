@@ -1759,7 +1759,8 @@ The three algorithm-level semantics are fixed points of monotone endofunctions o
   trace whatsoever, rather than with the `1` that execution actually emits. Silent divergence is not
   a corner case: `Behavior` observes only `print`/`send`/`recv`, so `while TRUE { x := x + 1 }` is an
   infinite chain of trace-`1` steps. The paper's closed form,
-  `νX. Y ∪ R ∘ᵣ₁ X = (R* ∘ᵣ₁ Y) ∪ R^∞`, is `Relation.gfp_eq_closedForm` in `Extra/Rel.lean`, and is
+  `νX. Y ∪ R ∘ᵣ₁ X = (R* ∘ᵣ₁ Y) ∪ R^∞`, is `Relation.gfp_eq_closedForm` in
+  `VerifiedCompiler/ClosedForm.lean`, and is
   a characterization rather than a definition: `⊇` holds unconditionally, `⊆` needs
   `Relation.Productive R` (no infinite silent chain), which `Algebra.step` does not satisfy.
 

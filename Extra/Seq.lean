@@ -271,9 +271,13 @@ namespace Stream'.Seq
       apply get?_ωProduct.mpr
       exact ⟨n, hk⟩
 
-  /-- Every finite prefix of a `Seq` product divides it. -/
-  theorem hasPartialProdDvd : OmegaProd.HasPartialProdDvd (Seq α) := by
-    intro e n
+  /-- Every finite prefix of a `Seq` product is a left factor of it.
+
+  Stated without naming `OmegaProd.HasPartialProdDvd`: the predicate belongs to the refinement
+  framework (`VerifiedCompiler/ClosedForm.lean`), which discharges it from this lemma. Keeping the
+  mathematics predicate-free is what stops `Extra/` from importing that library. -/
+  theorem exists_mul_ωProduct (e : ℕ → Seq α) (n : ℕ) :
+      ∃ r, ωProduct e = Monoid.partialProd e n * r := by
     by_cases h : (Monoid.partialProd e n).Terminates
     · obtain ⟨m, hm⟩ := h
       apply exists_mul_of_get? hm
@@ -364,12 +368,6 @@ namespace Stream'.Seq
       apply ωProduct_eq_of_not_terminates
       rwa [hp1]
 
-  /-- `Seq` products unfold. -/
-  theorem hasUnfold : OmegaProd.HasUnfold (Seq α) := by
-    intro e
-    rw [ωProd_eq_ωProduct, ωProd_eq_ωProduct]
-    exact ωProduct_succ e
-
   /-! ## Products of a sequence that keeps emitting
 
   The converse half of the paper's closed form needs the infinite product to be *determined* by its
@@ -410,11 +408,11 @@ namespace Stream'.Seq
           contradiction
         · exact Option.eq_none_iff_forall_ne_some.mpr (λ b hb ↦ h ⟨b, hb⟩)
 
-  /-- A `Seq` sharing every partial product as a left factor is the product, once the factors keep
-  coming. -/
-  theorem hasProductLimit : OmegaProd.HasProductLimit (Seq α) := by
-    intro e r x hx hne
-    rw [ωProd_eq_ωProduct]
+  /-- A `Seq` having every partial product as a left factor is the product, once the factors keep
+  coming. Predicate-free for the same reason as `exists_mul_ωProduct`. -/
+  theorem ωProduct_eq_of_forall_dvd {e : ℕ → Seq α} {x : Seq α}
+      (hx : ∀ n, ∃ r, x = Monoid.partialProd e n * r) (hne : ∀ n, ∃ m, n ≤ m ∧ e m ≠ 1) :
+      x = ωProduct e := by
     apply Seq.ext
     intro k
     apply Option.ext
@@ -422,15 +420,17 @@ namespace Stream'.Seq
     constructor
     · intro hk
       obtain ⟨n, b, hb⟩ := exists_get?_partialProd hne k
+      obtain ⟨r, hr⟩ := hx n
       have hxb : x.get? k = some b := by
-        rw [hx n]
+        rw [hr]
         exact get?_mul_of_get? _ hb
       rw [hxb] at hk
       apply get?_ωProduct.mpr
       exact ⟨n, hk ▸ hb⟩
     · intro hk
       obtain ⟨n, hn⟩ := get?_ωProduct.mp hk
-      rw [hx n]
+      obtain ⟨r, hr⟩ := hx n
+      rw [hr]
       exact get?_mul_of_get? _ hn
 end Stream'.Seq
 

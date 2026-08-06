@@ -54,8 +54,14 @@ Vendored generic data-structure lemmas and instances.
   `Set.lean`, `String.lean`, `Substring.lean`, `Sum.lean`, `Monad.lean`.
 - `Seq.lean` — `Stream'.Seq` as the trace monoid: `One`/`Mul`/`Monoid` instances (Mathlib proves
   the three laws but registers no algebraic instance), the `one_eq_nil`/`mul_eq_append` bridges
-  (deliberately not `@[simp]`), and absorption — appending to a non-terminating sequence changes
-  nothing, which is why `Seq` is a monoid and never cancellative.
+  (deliberately not `@[simp]`), absorption — appending to a non-terminating sequence changes
+  nothing, which is why `Seq` is a monoid and never cancellative — and `ωProduct`, the infinite
+  product, with the `get?` lemmas characterizing it.
+- `Rel.lean` carries only what the *semantics* need: `∘ᵣ₁`/`∘ᵣ₂`, `Monoid.partialProd`, the
+  `OmegaProd` class and `Relation.omega`, plus generic order theory (`OrderHom.lfp_induction₂/₃`).
+  Anything whose only consumer is a refinement proof lives in `VerifiedCompiler/` instead, so that
+  `Extra/` never imports that library. Same rule inside `Seq.lean`: its lemmas never mention a
+  refinement predicate, and `VerifiedCompiler/ClosedForm.lean` discharges the predicates from them.
 - `Mathlib/Tactic/DeriveTraversable.lean` — mechanical `Traversable` derivation.
 
 ## `Parser_/`
@@ -374,9 +380,15 @@ Go, not Lean — data structures the runtime needs (§5.7). Root `go.mod`, modul
 
 ## `VerifiedCompiler/`
 Vendored generic proof infrastructure.
-- `Trace.lean`, `Relation.lean` — trace/relation definitions.
+- `Trace.lean`, `Relation.lean` — trace/relation definitions. `Trace.lean` also carries the
+  relation algebra its class axiomatizes: `∘ᵣ` (`Relation.Comp`), `⊗ᵣ` (`Relation.rmul`),
+  `Relation.LeftTotal`/`MulClosed`/`right_extend`.
+- `ClosedForm.lean` — `Relation.star`, `Relation.Productive`, the three `OmegaProd.Has*` laws with
+  their `Seq` discharges, and `gfp (λ x, Y ∪ X ∘ᵣ₁ x) = (X* ∘ᵣ₁ Y) ∪ X^∞`. The identity is a
+  characterization only: `⊇` is unconditional, `⊆` needs `Productive`, which `Algebra.step` does
+  not satisfy. Nothing in the compiler depends on it.
 - `Denotational/StrongRefinement.lean`, `Denotational/Notations.lean`.
-- `VerifiedCompiler.lean` (project root) — the library's root module, importing the four above.
+- `VerifiedCompiler.lean` (project root) — the library's root module, importing the five above.
   Nothing imports it; it exists so `lake build VerifiedCompiler` resolves. The default target
   (`lean_exe fugue`) reaches none of these files, so a plain `lake build` says nothing about them.
 

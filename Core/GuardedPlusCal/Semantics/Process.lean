@@ -73,7 +73,7 @@ def CodeTable.procAborting (Ξ : CodeTable V) (owned : Set String) (self : V) :
 
 /-- A process never diverges *in one step*: its semantics is one execution of one atomic block, and
 an atomic block's non-terminating semantics is empty. Divergence is an algorithm-level notion, and
-appears below as a greatest fixed point over infinitely many process steps. -/
+appears below as the infinite iteration of the process step. -/
 def CodeTable.procDiverging (_Ξ : CodeTable V) (_owned : Set String) (_self : V) :
     Set (ProcConfig V × Trace V) := ∅
 
@@ -136,16 +136,20 @@ left half of `Algebra.abortStep` does not mention `X`, so it already seeds the i
 def Algebra.aborting (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
   OrderHom.lfp { toFun := A.abortStep, monotone' := A.abortStep_mono }
 
-/-- Every infinite sequence of steps, as a *greatest* fixed point. The degeneracy that forces
-`Algebra.reducing`'s reflexive disjunct does not arise here: `∅` being a fixed point is irrelevant
-when taking the largest one. -/
+/-- Every infinite sequence of steps, each execution paired with the infinite product of the traces
+its steps emit.
+
+**Not** the greatest fixed point of `X ↦ step ∘ᵣ₁ X`. That functional is not contractive when a
+step can emit the empty trace: at `step = {(σ, 1, σ)}` it is the identity, whose greatest fixed
+point is `⊤` — every trace whatsoever paired with `σ`, rather than the `1` that execution actually
+emits. Silent steps are not a corner case here, since `Behavior` observes only `print`/`send`/`recv`
+and so `while TRUE { x := x + 1 }` is an infinite chain of them. `Relation.omega` takes the product
+of what the steps emit and gets this right by construction.
+
+The two agree exactly when `Relation.Productive step` holds, which `Algebra.step` does not satisfy;
+`Relation.gfp_eq_closedForm` states that boundary. -/
 def Algebra.diverging (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
-  OrderHom.gfp {
-    toFun := λ X ↦ A.step ∘ᵣ₁ X
-    monotone' := by
-      intro X Y X_sub
-      exact Relation.lcomp₁.subset_of_subset_right X_sub
-  }
+  Relation.omega A.step
 
 /-! # Restricting to executions from the initial state
 
