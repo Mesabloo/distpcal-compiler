@@ -21,37 +21,37 @@ public import Core.GuardedPlusCal.Semantics.Denotational
 namespace NetworkPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
-open GuardedPlusCal (Block Behavior ChanKey FIFOs LocalState EvalStep selfName)
+open GuardedPlusCal (Block Behavior Trace ChanKey FIFOs LocalState EvalStep selfName)
 
 variable {V : Type} [ExprSemantics V]
 
 /-! # Reduction of statements -/
 
 def Statement.reducing : {b b' : Bool} → ComputableNetworkPlusCal.Statement b b' →
-    Set (LocalState V false × List (Behavior V) × LocalState V b')
+    Set (LocalState V false × Trace V × LocalState V b')
   | true, false, .with name _ bound e =>
     {⟨σ, ε, σ'⟩ | ∃ M F v,
       M ⊢ e ⇒ v ∧
       AList.lookup name M = none ∧
-      σ = .running M F ∧ ε = [] ∧ match bound with
+      σ = .running M F ∧ ε = 1 ∧ match bound with
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F
     }
   | true, false, .await e => test e ExprSemantics.tru
   | false, false, .skip => idle
   | false, true, .goto label =>
-    {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []}
+    {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = 1}
   | false, false, .print e =>
     {⟨σ, ε, σ'⟩ | ∃ M F v p,
       σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
-      ε = [.print p v]}
+      ε = Stream'.Seq.cons (.print p v) 1}
   | false, false, .assert e => test e ExprSemantics.tru
   | false, false, .send c e =>
     {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
-      ε = [.send p ⟨c.name, cpath⟩ v]
+      ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1
     }
   -- TODO(item 7): `multicast` has no semantics yet, exactly as on the Guarded side — see
   -- `Core/GuardedPlusCal/Semantics/Denotational.lean`'s `Statement.reducing`. The two must be
@@ -61,52 +61,52 @@ def Statement.reducing : {b b' : Bool} → ComputableNetworkPlusCal.Statement b 
     {⟨σ, ε, σ'⟩ | ∃ M F M' v rpath,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' F ∧ ε = []
+      σ = .running M F ∧ σ' = .running M' F ∧ ε = 1
     }
 where
   /-- `test e v` is the identity transition restricted to states that evaluate `e` to `v`. -/
   test (e : ComputablePlusCal.Expression) (v : V) :
-      Set (LocalState V false × List (Behavior V) × LocalState V false) :=
-    {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ ε = []}
+      Set (LocalState V false × Trace V × LocalState V false) :=
+    {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ ε = 1}
 
   /-- The identity transition, i.e. nothing is performed. -/
-  idle : Set (LocalState V false × List (Behavior V) × LocalState V false) :=
-    {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = []}
+  idle : Set (LocalState V false × Trace V × LocalState V false) :=
+    {⟨σ, ε, σ'⟩ | ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = 1}
 
 def Statement.aborting : {b b' : Bool} → ComputableNetworkPlusCal.Statement b b' →
-    Set (LocalState V false × List (Behavior V))
+    Set (LocalState V false × Trace V)
   | true, false, .with _ _ bound e =>
-    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-    ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = [] ∧ match bound with
+    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+    ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1 ∧ match bound with
         | true => False
         | false => ¬ ExprSemantics.isSet v}
   | true, false, .await e =>
-    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-    ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}
+    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+    ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}
   | false, false, .skip => ∅
   | false, true, .goto _ => ∅
-  | false, false, .print e => {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
+  | false, false, .print e => {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
   | false, false, .assert e =>
-    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-    ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}
+    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+    ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}
   | false, false, .send c e =>
-    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-    ∪ {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M c ∧ σ = .running M F ∧ ε = []}
+    {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+    ∪ {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M c ∧ σ = .running M F ∧ ε = 1}
     ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
-        F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = []}
+        F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}
   -- TODO(item 7): see `Statement.reducing`'s `multicast` case.
   | false, false, .multicast _ _ => ∅
   | false, false, .assign r e =>
-    {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
-    ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-    ∪ {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M r ∧ σ = .running M F ∧ ε = []}
+    {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
+    ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+    ∪ {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M r ∧ σ = .running M F ∧ ε = 1}
     ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
         M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
-        Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = []}
+        Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = 1}
 
 /-- No statement can diverge — same as on the Guarded side. -/
 def Statement.diverging : {b b' : Bool} → ComputableNetworkPlusCal.Statement b b' →
-    Set (LocalState V false × List (Behavior V))
+    Set (LocalState V false × Trace V)
   | _, _, _ => ∅
 
 /-! # Reduction of blocks and atomic branches
@@ -117,33 +117,33 @@ def Statement.diverging : {b b' : Bool} → ComputableNetworkPlusCal.Statement b
 
 /-- A block of Network PlusCal statements, all of guard class `g`. -/
 def Statement.blockReducing {g b : Bool} (B : Block (ComputableNetworkPlusCal.Statement g) b) :
-    Set (LocalState V false × List (Behavior V) × LocalState V b) :=
+    Set (LocalState V false × Trace V × LocalState V b) :=
   Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B
 
 @[inherit_doc Statement.blockReducing]
 def Statement.blockAborting {g b : Bool} (B : Block (ComputableNetworkPlusCal.Statement g) b) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   Block.aborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) B
 
 @[inherit_doc Statement.blockReducing]
 def Statement.blockDiverging {g b : Bool} (B : Block (ComputableNetworkPlusCal.Statement g) b) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) B
 
 def AtomicBranch.reducing (B : ComputableNetworkPlusCal.AtomicBranch) :
-    Set (LocalState V false × List (Behavior V) × LocalState V true) :=
+    Set (LocalState V false × Trace V × LocalState V true) :=
   B.precondition.elim {⟨x, e, y⟩ | x = y ∧ e = 1} Statement.blockReducing ∘ᵣ₂
     Statement.blockReducing B.action
 
 def AtomicBranch.aborting (B : ComputableNetworkPlusCal.AtomicBranch) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   match B.precondition with
   | .none => Statement.blockAborting B.action
   | .some B' =>
     Statement.blockAborting B' ∪ Statement.blockReducing B' ∘ᵣ₁ Statement.blockAborting B.action
 
 def AtomicBranch.diverging (B : ComputableNetworkPlusCal.AtomicBranch) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   match B.precondition with
   | .none => Statement.blockDiverging B.action
   | .some B' =>
@@ -161,15 +161,15 @@ def AtomicBranch.diverging (B : ComputableNetworkPlusCal.AtomicBranch) :
   anywhere). -/
 
 def AtomicBlock.reducing (B : ComputableNetworkPlusCal.AtomicBlock) :
-    Set (LocalState V false × List (Behavior V) × LocalState V true) :=
+    Set (LocalState V false × Trace V × LocalState V true) :=
   {⟨σ, ε, σ'⟩ | ∃ Br ∈ B.branches, ⟨σ, ε, σ'⟩ ∈ AtomicBranch.reducing Br}
 
 def AtomicBlock.aborting (B : ComputableNetworkPlusCal.AtomicBlock) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   {⟨σ, ε⟩ | ∃ Br ∈ B.branches, ⟨σ, ε⟩ ∈ AtomicBranch.aborting Br}
 
 def AtomicBlock.diverging (B : ComputableNetworkPlusCal.AtomicBlock) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   {⟨σ, ε⟩ | ∃ Br ∈ B.branches, ⟨σ, ε⟩ ∈ AtomicBranch.diverging Br}
 
 /-! # Threads
@@ -207,7 +207,7 @@ Written directly as an `AtomicBranch` rather than built from `Statement`s, becau
 `NetworkPlusCal.Statement` has no `receive` — that is the whole point of this pass — and because the
 paper's `tmpₚ` is never assigned, so there is no statement sequence to express. -/
 def Thread.rxBranch (chan : ComputableNetworkPlusCal.Ref) (label inbox : String) :
-    Set (LocalState V false × List (Behavior V) × LocalState V true) :=
+    Set (LocalState V false × Trace V × LocalState V true) :=
   {⟨σ, ε, σ'⟩ | ∃ M F cpath v vs old new p,
     List.Forall₂ (EvalStep M) chan.args cpath ∧
     F.lookup ⟨chan.name, cpath⟩ = .some (v :: vs) ∧
@@ -216,23 +216,23 @@ def Thread.rxBranch (chan : ComputableNetworkPlusCal.Ref) (label inbox : String)
     M.lookup selfName = .some p ∧
     σ = .running M F ∧
     σ' = .done (M.insert inbox new) (F.replace ⟨chan.name, cpath⟩ vs) label ∧
-    ε = [.recv p ⟨chan.name, cpath⟩ v]
+    ε = Stream'.Seq.cons (.recv p ⟨chan.name, cpath⟩ v) 1
   }
 
 /-- Where `Thread.rxBranch` goes wrong. An *empty* channel is not an abort — it blocks, which is
 precisely a receiving thread waiting for a message. -/
 def Thread.rxBranchAborting (chan : ComputableNetworkPlusCal.Ref) (inbox : String) :
-    Set (LocalState V false × List (Behavior V)) :=
+    Set (LocalState V false × Trace V) :=
   -- an index expression of the channel reference has no value
-  {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M chan ∧ σ = .running M F ∧ ε = []}
+  {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M chan ∧ σ = .running M F ∧ ε = 1}
   -- the channel resolves to no FIFO at all
   ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) chan.args cpath ∧
-      F.lookup ⟨chan.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = []}
+      F.lookup ⟨chan.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}
   -- `inbox` is unbound, or does not hold a sequence
-  ∪ {⟨σ, ε⟩ | ∃ M F, M.lookup inbox = .none ∧ σ = .running M F ∧ ε = []}
+  ∪ {⟨σ, ε⟩ | ∃ M F, M.lookup inbox = .none ∧ σ = .running M F ∧ ε = 1}
   ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs old, List.Forall₂ (EvalStep M) chan.args cpath ∧
       F.lookup ⟨chan.name, cpath⟩ = .some (v :: vs) ∧ M.lookup inbox = .some old ∧
-      ExprSemantics.seqAppend old v = .none ∧ σ = .running M F ∧ ε = []}
+      ExprSemantics.seqAppend old v = .none ∧ σ = .running M F ∧ ε = 1}
 
 end NetworkPlusCal
 

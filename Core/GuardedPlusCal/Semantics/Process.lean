@@ -30,10 +30,6 @@ open ComputableTLAPlus (Memory ExprSemantics)
 
 variable {V : Type} {ι : Type}
 
-/-- The trace alphabet: a sequence of observable events. `Extra/List.lean`'s `Monoid (List α)` makes
-it the paper's `⟨T, *, ε, ≤⟩`. -/
-abbrev Trace (V : Type) : Type := List (Behavior V)
-
 /-- A process state: the process's local memory together with the set of labels currently scheduled
 for execution — at most one per thread, though nothing here enforces that. The paper's
 `PState = (Var → Value) × 𝒫(Labels)`. -/

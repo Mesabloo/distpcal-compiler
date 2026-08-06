@@ -46,21 +46,21 @@ section Intro
 
 variable {V : Type} [ExprSemantics V]
 
-theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = [] ∧
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
       match bound with
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.with name ann bound e) :=
   h
 
-theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.await e) :=
   h
 
-theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : Trace V}
     {c r coe}
     (h : ∃ M F M' cpath rpath v v' vs p,
       List.Forall₂ (EvalStep M) c.args cpath ∧
@@ -70,74 +70,74 @@ theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : Lis
       Memory.update M r.name rpath v' = .some M' ∧
       M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
-      ε = [.recv p ⟨c.name, cpath⟩ v]) :
+      ε = Stream'.Seq.cons (.recv p ⟨c.name, cpath⟩ v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.receive c r coe) :=
   h
 
-theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = []) :
+theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : Trace V}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing GuardedPlusCal.Statement.skip :=
   h
 
 theorem Statement.reducing.goto.intro {σ : LocalState V false} {σ' : LocalState V true}
-    {ε : List (Behavior V)} {label}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []) :
+    {ε : Trace V} {label}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.goto label) :=
   h
 
-theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
     (h : ∃ M F v p, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
-      ε = [.print p v]) :
+      ε = Stream'.Seq.cons (.print p v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.print e) :=
   h
 
-theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assert e) :=
   h
 
-theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {c e}
+theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : Trace V} {c e}
     (h : ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
-      ε = [.send p ⟨c.name, cpath⟩ v]) :
+      ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.send c e) :=
   h
 
-theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {r e}
+theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : Trace V} {r e}
     (h : ∃ M F M' v rpath,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' F ∧ ε = []) :
+      σ = .running M F ∧ σ' = .running M' F ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assign r e) :=
   h
 
-theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : List (Behavior V)}
+theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : Trace V}
     {name ann bound e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = [] ∧ match bound with
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1 ∧ match bound with
           | true => False
           | false => ¬ ExprSemantics.isSet v}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.with name ann bound e) :=
   h
 
-theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : Trace V} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.await e) :=
   h
 
-theorem Statement.aborting.receive.intro {σ : LocalState V false} {ε : List (Behavior V)} {c r coe}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ ({⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
-        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = [] ∧ Ref.pathAborts M c}
-        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = [] ∧ Ref.pathAborts M r}
-        ∪ {⟨σ, ε⟩ | ∃ M F cpath, σ = .running M F ∧ ε = [] ∧
+theorem Statement.aborting.receive.intro {σ : LocalState V false} {ε : Trace V} {c r coe}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ ({⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = 1 ∧ Ref.pathAborts M c}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = 1 ∧ Ref.pathAborts M r}
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath, σ = .running M F ∧ ε = 1 ∧
             List.Forall₂ (EvalStep M) c.args cpath ∧ F.lookup ⟨c.name, cpath⟩ = .none}
-        ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs, σ = .running M F ∧ ε = [] ∧
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs, σ = .running M F ∧ ε = 1 ∧
             List.Forall₂ (EvalStep M) c.args cpath ∧
             F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ¬ ∃ v', ExprSemantics.coerce coe v v'}
-        ∪ {⟨σ, ε⟩ | ∃ M F cpath rpath v v' vs, σ = .running M F ∧ ε = [] ∧
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath rpath v v' vs, σ = .running M F ∧ ε = 1 ∧
             List.Forall₂ (EvalStep M) c.args cpath ∧
             List.Forall₂ (EvalStep M) r.args rpath ∧
             F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ExprSemantics.coerce coe v v' ∧
@@ -145,32 +145,32 @@ theorem Statement.aborting.receive.intro {σ : LocalState V false} {ε : List (B
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.receive c r coe) :=
   h
 
-theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []) :
+theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : Trace V} {e}
+    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.print e) :=
   h
 
-theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : Trace V} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assert e) :=
   h
 
-theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : List (Behavior V)} {c e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = []}
+theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : Trace V} {c e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
-          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = []}) :
+          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.send c e) :=
   h
 
-theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : List (Behavior V)} {r e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = []}
+theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : Trace V} {r e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
           M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
-          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = []}) :
+          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assign r e) :=
   h
 
@@ -545,7 +545,7 @@ variable [ExprSemantics V]
 /-- `Statement.reducing` in the flat encoding. A step is only taken from a *running* state, so the
 source's label field must be `none`; the target's records whether the statement was terminal. -/
 def Statement.reducing' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b b') :
-    Set (LocalState' V × List (Behavior V) × LocalState' V) :=
+    Set (LocalState' V × Trace V × LocalState' V) :=
   {⟨⟨M, F, l⟩, ε, ⟨M', F', l'⟩⟩ | ∃ σ' : LocalState V b',
     l = Option.none ∧ ⟨LocalState.running M F, ε, σ'⟩ ∈ Statement.reducing S ∧ match b', σ' with
       | true, σ' => ∃ l'', σ' = LocalState.done M' F' l'' ∧ l' = Option.some l''
@@ -553,12 +553,12 @@ def Statement.reducing' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b 
 
 @[inherit_doc Statement.reducing']
 def Statement.aborting' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b b') :
-    Set (LocalState' V × List (Behavior V)) :=
+    Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.aborting S}
 
 @[inherit_doc Statement.reducing']
 def Statement.diverging' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b b') :
-    Set (LocalState' V × List (Behavior V)) :=
+    Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.diverging S}
 
 private theorem Statement.reducing'_eq_map {b b' : Bool}
@@ -639,7 +639,7 @@ step is the same fact as the corresponding flat one — the direction that matte
 lets an indexed hypothesis be fed to a `StrongRefinement` goal stated over `LocalState'`. -/
 
 theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
-    {ε : List (Behavior V)} {B : Block (ComputableGuardedPlusCal.Statement g) true} :
+    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) true} :
     ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈
         Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈
@@ -650,7 +650,7 @@ theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
   · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
 
 theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V}
-    {ε : List (Behavior V)} {B : Block (ComputableGuardedPlusCal.Statement g) false} :
+    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) false} :
     ⟨LocalState.running M₁ F₁, ε, LocalState.running M₂ F₂⟩ ∈
         Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε, (M₂, F₂, none)⟩ ∈
@@ -661,7 +661,7 @@ theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
   · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
 
 theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
-    {ε : List (Behavior V)} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
+    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈
         Block.aborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε⟩ ∈
@@ -673,7 +673,7 @@ theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
   · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
 
 theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
-    {ε : List (Behavior V)} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
+    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈
         Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε⟩ ∈

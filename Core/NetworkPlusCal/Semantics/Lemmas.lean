@@ -22,7 +22,7 @@ public import Core.GuardedPlusCal.Semantics.Lemmas
 namespace NetworkPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
-open GuardedPlusCal (Block Behavior FIFOs LocalState LocalState' Ref selfName EvalStep)
+open GuardedPlusCal (Block Behavior Trace FIFOs LocalState LocalState' Ref selfName EvalStep)
 
 variable {V : Type} [ExprSemantics V]
 
@@ -32,100 +32,100 @@ is this language's whole point. -/
 
 section Intro
 
-theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
+theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = [] ∧
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
       match bound with
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) :=
   h
 
-theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.await e) :=
   h
 
-theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : List (Behavior V)}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = []) :
+theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : Trace V}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing NetworkPlusCal.Statement.skip :=
   h
 
 theorem Statement.reducing.goto.intro {σ : LocalState V false} {σ' : LocalState V true}
-    {ε : List (Behavior V)} {label}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = []) :
+    {ε : Trace V} {label}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.goto label) :=
   h
 
-theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
+theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
     (h : ∃ M F v p, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
-      ε = [.print p v]) :
+      ε = Stream'.Seq.cons (.print p v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.print e) :=
   h
 
-theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = []) :
+theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
+    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assert e) :=
   h
 
-theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {c e}
+theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : Trace V} {c e}
     (h : ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
-      ε = [.send p ⟨c.name, cpath⟩ v]) :
+      ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.send c e) :=
   h
 
-theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : List (Behavior V)} {r e}
+theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : Trace V} {r e}
     (h : ∃ M F M' v rpath,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' F ∧ ε = []) :
+      σ = .running M F ∧ σ' = .running M' F ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assign r e) :=
   h
 
-theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : List (Behavior V)}
+theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : Trace V}
     {name ann bound e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = [] ∧ match bound with
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1 ∧ match bound with
           | true => False
           | false => ¬ ExprSemantics.isSet v}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) :=
   h
 
-theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : Trace V} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e) :=
   h
 
-theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []) :
+theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : Trace V} {e}
+    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1) :
     ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.print e) :=
   h
 
-theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : List (Behavior V)} {e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = []}) :
+theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : Trace V} {e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assert e) :=
   h
 
-theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : List (Behavior V)} {c e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = []}
+theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : Trace V} {c e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
-          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = []}) :
+          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.send c e) :=
   h
 
-theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : List (Behavior V)} {r e}
-    (h : (⟨σ, ε⟩ : LocalState V false × List (Behavior V)) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = []}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = []}
+theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : Trace V} {r e}
+    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
           M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
-          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = []}) :
+          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e) :=
   h
 
@@ -142,7 +142,7 @@ attribute [aesop safe apply (rule_sets := [sem])]
 
 /-- `Statement.reducing` in the flat encoding — see `GuardedPlusCal.Statement.reducing'`. -/
 def Statement.reducing' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b b') :
-    Set (LocalState' V × List (Behavior V) × LocalState' V) :=
+    Set (LocalState' V × Trace V × LocalState' V) :=
   {⟨⟨M, F, l⟩, ε, ⟨M', F', l'⟩⟩ | ∃ σ' : LocalState V b',
     l = Option.none ∧ ⟨LocalState.running M F, ε, σ'⟩ ∈ Statement.reducing S ∧ match b', σ' with
       | true, σ' => ∃ l'', σ' = LocalState.done M' F' l'' ∧ l' = Option.some l''
@@ -150,12 +150,12 @@ def Statement.reducing' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b 
 
 @[inherit_doc Statement.reducing']
 def Statement.aborting' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b b') :
-    Set (LocalState' V × List (Behavior V)) :=
+    Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.aborting S}
 
 @[inherit_doc Statement.reducing']
 def Statement.diverging' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b b') :
-    Set (LocalState' V × List (Behavior V)) :=
+    Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.diverging S}
 
 private theorem Statement.reducing'_eq_map {b b' : Bool}
@@ -234,7 +234,7 @@ theorem Block.diverging'_eq_map {g b : Bool}
 /-! The membership-level corollaries, mirroring `GuardedPlusCal.LocalState.sem_glue₁` and friends. -/
 
 theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
-    {ε : List (Behavior V)} {B : Block (ComputableNetworkPlusCal.Statement g) true} :
+    {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) true} :
     ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈
         Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈
@@ -245,7 +245,7 @@ theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
   · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
 
 theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V}
-    {ε : List (Behavior V)} {B : Block (ComputableNetworkPlusCal.Statement g) false} :
+    {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) false} :
     ⟨LocalState.running M₁ F₁, ε, LocalState.running M₂ F₂⟩ ∈
         Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε, (M₂, F₂, none)⟩ ∈
@@ -256,7 +256,7 @@ theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
   · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
 
 theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
-    {ε : List (Behavior V)} {B : Block (ComputableNetworkPlusCal.Statement g) b} :
+    {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) b} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈
         Block.aborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε⟩ ∈
@@ -268,7 +268,7 @@ theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
   · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
 
 theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
-    {ε : List (Behavior V)} {B : Block (ComputableNetworkPlusCal.Statement g) b} :
+    {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) b} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈
         Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) B ↔
       ⟨(M₁, F₁, none), ε⟩ ∈
@@ -291,14 +291,14 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
 
 /-- `AtomicBranch.reducing` in the flat encoding. -/
 def AtomicBranch.reducing' (B : ComputableNetworkPlusCal.AtomicBranch) :
-    Set (LocalState' V × List (Behavior V) × LocalState' V) :=
+    Set (LocalState' V × Trace V × LocalState' V) :=
   B.precondition.elim {⟨x, e, y⟩ | x = y ∧ e = 1}
     (Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₂
     Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B.action
 
 @[inherit_doc AtomicBranch.reducing']
 def AtomicBranch.aborting' (B : ComputableNetworkPlusCal.AtomicBranch) :
-    Set (LocalState' V × List (Behavior V)) :=
+    Set (LocalState' V × Trace V) :=
   match B.precondition with
   | .none => Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
       (λ ⦃_⦄ ↦ Statement.reducing') B.action
@@ -311,7 +311,7 @@ def AtomicBranch.aborting' (B : ComputableNetworkPlusCal.AtomicBranch) :
 
 @[inherit_doc AtomicBranch.reducing']
 def AtomicBranch.diverging' (B : ComputableNetworkPlusCal.AtomicBranch) :
-    Set (LocalState' V × List (Behavior V)) :=
+    Set (LocalState' V × Trace V) :=
   match B.precondition with
   | .none => Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
       (λ ⦃_⦄ ↦ Statement.reducing') B.action
@@ -327,7 +327,7 @@ ever changes at the `AtomicBranch`-composition boundary (`sem_glue₁`/`₂`'s j
 single `Statement.reducing'`-built `Block`. Needed to split a flat intermediate state into the
 `.running`/`.done` case `sem_glue₃`/`div_glue₃`'s proofs match on. -/
 theorem LocalState'.sem_label_eq {B : Block (ComputableNetworkPlusCal.Statement true) false}
-    {σ σ' : LocalState' V} {ε : List (Behavior V)}
+    {σ σ' : LocalState' V} {ε : Trace V}
     (h : ⟨σ, ε, σ'⟩ ∈ Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B) :
     σ.2.2 = none ∧ σ'.2.2 = none := by
   rw [Block.reducing'_eq_map, Set.mem_image] at h
@@ -335,7 +335,7 @@ theorem LocalState'.sem_label_eq {B : Block (ComputableNetworkPlusCal.Statement 
   exact ⟨rfl, rfl⟩
 
 theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
-    {ε : List (Behavior V)} {Br : ComputableNetworkPlusCal.AtomicBranch} :
+    {ε : Trace V} {Br : ComputableNetworkPlusCal.AtomicBranch} :
     ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈ AtomicBranch.reducing Br ↔
       ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈ AtomicBranch.reducing' (V := V) Br := by
   unfold AtomicBranch.reducing AtomicBranch.reducing'
@@ -357,7 +357,7 @@ theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l :
       exact ⟨LocalState.running M' F', ε₁, ε₂,
         (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.sem_glue₁ (B := Br.action)).mpr red_act, rfl⟩
 
-theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
+theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
     {Br : ComputableNetworkPlusCal.AtomicBranch} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.aborting Br ↔
       ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.aborting' (V := V) Br := by
@@ -378,7 +378,7 @@ theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (
         exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
           (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.abort_glue (B := Br.action)).mpr abort_act, rfl⟩
 
-theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
+theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
     {Br : ComputableNetworkPlusCal.AtomicBranch} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.diverging Br ↔
       ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.diverging' (V := V) Br := by
@@ -399,7 +399,7 @@ theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Be
         exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
           (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.div_glue (B := Br.action)).mpr div_act, rfl⟩
 
-theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : List (Behavior V)}
+theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
     {B : ComputableNetworkPlusCal.AtomicBlock} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBlock.diverging B ↔
       ∃ Br ∈ B.branches, ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.diverging' (V := V) Br := by

@@ -70,7 +70,8 @@ off the goal's head constructor and leaves the existential body; `sem_side` supp
 from `hv`/`hp` already in context via the `sem` rule set. -/
 example {V} [ExprSemantics V] {M : ComputableTLAPlus.Memory V} {F v p} {e}
     (hv : M ⊢ e ⇒ v) (hp : M.lookup GuardedPlusCal.selfName = some p) :
-    ⟨GuardedPlusCal.LocalState.running M F, [.print p v], GuardedPlusCal.LocalState.running M F⟩ ∈
+    ⟨GuardedPlusCal.LocalState.running M F, Stream'.Seq.cons (.print p v) 1,
+      GuardedPlusCal.LocalState.running M F⟩ ∈
       GuardedPlusCal.Statement.reducing (GuardedPlusCal.Statement.print e) := by
   sem_red
   sem_side

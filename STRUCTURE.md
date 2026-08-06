@@ -125,14 +125,14 @@ Outputs of `Computable2Guarded` and `Guarded2Network` (§5.4/§5.5).
   owns, and `Thread.rxBranch`/`.rxBranchAborting` give the single atomic block a `.rx` thread
   denotes.
 - `Semantics/Process.lean` (`GuardedPlusCal/`) — the process and algorithm layers, mentioning
-  neither language's AST: `Trace`, `ProcState`, `CodeTable`, `Algebra`, `procReducing`/`procAborting`,
+  neither language's AST: `ProcState`, `CodeTable`, `Algebra`, `procReducing`/`procAborting`,
   `step`/`abortStep`, and `reducing`/`aborting`/`diverging` as `μ`/`μ`/`ν`. `InitProc` is a relation,
   since initializers are evaluated relationally. Ends with Guarded's own `Process.ownedLabels`/
   `.entryLabels`/`.codeTable`.
 - `Semantics/Process.lean` (`NetworkPlusCal/`) — the same three, differing only in that a `.rx`
   thread contributes its own label denoting `Thread.rxBranch`, so a receiving loop is scheduled by
   the same mechanism as any other block.
-- `Semantics/Denotational.lean` (`GuardedPlusCal/`) — `Behavior`/`ChanKey`/`FIFOs`/`LocalState`,
+- `Semantics/Denotational.lean` (`GuardedPlusCal/`) — `Behavior`/`Trace`/`ChanKey`/`FIFOs`/`LocalState`,
   `EvalStep`/`Ref.pathAborts`, `Statement.reducing`/`.aborting`/`.diverging`, generic
   `Block.reducing`/`.aborting`/`.diverging` (reused by `NetworkPlusCal`), `AtomicBranch.*`. Plain
   `def`s, not `Reduce`/`Abort`/`Diverge` instances — the abstract value type occurs only in those
@@ -376,6 +376,9 @@ Go, not Lean — data structures the runtime needs (§5.7). Root `go.mod`, modul
 Vendored generic proof infrastructure.
 - `Trace.lean`, `Relation.lean` — trace/relation definitions.
 - `Denotational/StrongRefinement.lean`, `Denotational/Notations.lean`.
+- `VerifiedCompiler.lean` (project root) — the library's root module, importing the four above.
+  Nothing imports it; it exists so `lake build VerifiedCompiler` resolves. The default target
+  (`lean_exe fugue`) reaches none of these files, so a plain `lake build` says nothing about them.
 
 ## `ProgressBar/`
 Vendored CLI spinners — `Spinner.lean`, `SpinnerData.lean`, `Spinners.lean`.
