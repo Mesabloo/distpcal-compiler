@@ -124,6 +124,25 @@ namespace StrongRefinement
       exists ε', ε'_scp_ε
       exact Set.mem_sUnion_of_mem abortₛ_σₛ abortₛ_in_C
 
+  omit [Monoid εₜ] in
+  /-- Binary union on both sides, the `Diverging.union` shape at `Terminating`. The aborting set is
+  shared and the summands are paired positionally, so there is nothing to choose: each disjunct is
+  discharged by its own refinement. `Terminating.sup` is the `⋃₀` generalization, where every target
+  summand picks its own source and aborting sets instead; this is its two-element special case, kept
+  separate because the positional pairing is what a union-shaped semantics actually wants. -/
+  protected theorem Terminating.union {R S : Rel α β} {Rτ : Rel εₛ εₜ}
+      {Aₛ Bₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ × β)}
+      (h₁ : StrongRefinement.Terminating R S Rτ Aₛ semₛ' Aₜ)
+      (h₂ : StrongRefinement.Terminating R S Rτ Bₛ semₛ' Bₜ) :
+        StrongRefinement.Terminating R S Rτ (Aₛ ∪ Bₛ) semₛ' (Aₜ ∪ Bₜ) := by
+    rintro σₜ σₜ' ε σₛ hR (hmem|hmem)
+    · obtain ⟨σₛ', ε', hS, hRτ, h⟩|⟨ε', hscp, h⟩ := h₁ σₜ σₜ' ε σₛ hR hmem
+      · exact Or.inl ⟨σₛ', ε', hS, hRτ, Or.inl h⟩
+      · exact Or.inr ⟨ε', hscp, h⟩
+    · obtain ⟨σₛ', ε', hS, hRτ, h⟩|⟨ε', hscp, h⟩ := h₂ σₜ σₜ' ε σₛ hR hmem
+      · exact Or.inl ⟨σₛ', ε', hS, hRτ, Or.inr h⟩
+      · exact Or.inr ⟨ε', hscp, h⟩
+
   /-- Terminating refinement for `R*`: the run the target takes is matched step by step, and the
   source's traces concatenate. The operator-preservation law that replaces induction over
   `Algebra.reducing`'s least fixed point.
@@ -618,6 +637,23 @@ namespace StrongRefinement
     obtain ⟨ε', ε'_scp_ε, abort_σₛ⟩ := ref σₜ ε σₛ R_σₛ_σₜ abort_σₜ
     exists ε', ε'_scp_ε
     exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_A
+
+  omit [Monoid εₜ] in
+  /-- Binary union on both sides, the `Diverging.union` shape at `Aborting`. Simplest of the three:
+  `Aborting` carries no second source set, so there is nothing to share and nothing to choose —
+  each disjunct is discharged by its own refinement, and the witness is injected back into the
+  summand it came from. `Aborting.sup` is the `⋃₀` generalization, where every target summand picks
+  its own source set instead; this is its two-element special case with positional pairing. -/
+  protected theorem Aborting.union {R} {Rτ : Rel εₛ εₜ}
+      {Aₛ Bₛ : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
+      (h₁ : StrongRefinement.Aborting R Rτ Aₛ Aₜ)
+      (h₂ : StrongRefinement.Aborting R Rτ Bₛ Bₜ) :
+        StrongRefinement.Aborting R Rτ (Aₛ ∪ Bₛ) (Aₜ ∪ Bₜ) := by
+    rintro σₜ ε σₛ hR (hmem|hmem)
+    · obtain ⟨ε', hscp, h⟩ := h₁ σₜ ε σₛ hR hmem
+      exact ⟨ε', hscp, Or.inl h⟩
+    · obtain ⟨ε', hscp, h⟩ := h₂ σₜ ε σₛ hR hmem
+      exact ⟨ε', hscp, Or.inr h⟩
 
   /-- Aborting refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then an abort. The aborting
   semantics of an algorithm has exactly this shape — `Algebra.aborting` is `step* ∘ᵣ₁ immediate` —
