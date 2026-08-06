@@ -288,57 +288,6 @@ theorem Relation.lcomp₂.ωcontinuous {α β γ δ : Type _} [Monoid β] (R : S
  -     beta_reduce at h ⊢
  -     admit -/
 
-theorem OrderHom.lfp_induction₂ {α β : Type _} [CompleteLattice α] [CompleteLattice β] (f : α →o α) (g : β →o β) {p : α → β → Prop}
-  (step : ∀ (a : α) (b : β), p a b → a ≤ OrderHom.lfp f → b ≤ OrderHom.lfp g → p (f a) (g b))
-  (hSup : ∀ (A : Set α) (B : Set β),
-    (∀ x ∈ A, ∃ y ∈ B, p x y) →
-    (∀ y ∈ B, ∃ x ∈ A, p x y) →
-    p (sSup A) (sSup B)) :
-    p (OrderHom.lfp f) (OrderHom.lfp g) := by
-  let s := { ⟨x, y⟩ : α × β | x ≤ lfp f ∧ y ≤ lfp g ∧ p x y}
-
-  have key := hSup ((·.1) '' s) ((·.2) '' s)
-    (by rintro x ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, ht.2.2⟩)
-    (by rintro y ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, ht.2.2⟩)
-
-  have h₁ : sSup ((·.1) '' s) ≤ lfp f := sSup_le (by rintro x ⟨t, ht, rfl⟩; exact ht.1)
-  have h₂ : sSup ((·.2) '' s) ≤ lfp g := sSup_le (by rintro y ⟨t, ht, rfl⟩; exact ht.2.1)
-
-  have mem : (f (sSup ((·.1) '' s)), g (sSup ((·.2) '' s))) ∈ s :=
-    ⟨f.map_le_lfp h₁, g.map_le_lfp h₂, step _ _ key h₁ h₂⟩
-
-  have e₁ : sSup ((·.1) '' s) = lfp f := h₁.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
-  have e₂ : sSup ((·.2) '' s) = lfp g := h₂.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
-
-  rwa [e₁, e₂] at key
-
-theorem OrderHom.lfp_induction₃ {α β γ : Type _} [CompleteLattice α] [CompleteLattice β] [CompleteLattice γ] (f : α →o α) (g : β →o β) (h : γ →o γ) {p : α → β → γ → Prop}
-  (step : ∀ (a : α) (b : β) (c : γ), p a b c → a ≤ OrderHom.lfp f → b ≤ OrderHom.lfp g → c ≤ OrderHom.lfp h → p (f a) (g b) (h c))
-  (hSup : ∀ (A : Set α) (B : Set β) (C : Set γ),
-    (∀ x ∈ A, ∃ y ∈ B, ∃ z ∈ C, p x y z) →
-    (∀ y ∈ B, ∃ x ∈ A, ∃ z ∈ C, p x y z) →
-    (∀ z ∈ C, ∃ x ∈ A, ∃ y ∈ B, p x y z) →
-    p (sSup A) (sSup B) (sSup C)) :
-    p (OrderHom.lfp f) (OrderHom.lfp g) (OrderHom.lfp h) := by
-  let s := { ⟨x, y, z⟩ : α × β × γ | x ≤ lfp f ∧ y ≤ lfp g ∧ z ≤ lfp h ∧ p x y z}
-
-  have key := hSup ((·.1) '' s) ((·.2.1) '' s) ((·.2.2) '' s)
-    (by rintro x ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, _, ⟨t, ht, rfl⟩, ht.2.2.2⟩)
-    (by rintro y ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, _, ⟨t, ht, rfl⟩, ht.2.2.2⟩)
-    (by rintro z ⟨t, ht, rfl⟩; exact ⟨_, ⟨t, ht, rfl⟩, _, ⟨t, ht, rfl⟩, ht.2.2.2⟩)
-
-  have h₁ : sSup ((·.1) '' s) ≤ lfp f := sSup_le (by rintro x ⟨t, ht, rfl⟩; exact ht.1)
-  have h₂ : sSup ((·.2.1) '' s) ≤ lfp g := sSup_le (by rintro y ⟨t, ht, rfl⟩; exact ht.2.1)
-  have h₃ : sSup ((·.2.2) '' s) ≤ lfp h := sSup_le (by rintro z ⟨t, ht, rfl⟩; exact ht.2.2.1)
-
-  have mem : (f (sSup ((·.1) '' s)), g (sSup ((·.2.1) '' s)), h (sSup ((·.2.2) '' s))) ∈ s :=
-    ⟨f.map_le_lfp h₁, g.map_le_lfp h₂, h.map_le_lfp h₃, step _ _ _ key h₁ h₂ h₃⟩
-
-  have e₁ : sSup ((·.1) '' s) = lfp f := h₁.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
-  have e₂ : sSup ((·.2.1) '' s) = lfp g := h₂.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
-  have e₃ : sSup ((·.2.2) '' s) = lfp h := h₃.antisymm <| lfp_le _ <| le_sSup ⟨_, mem, rfl⟩
-
-  rwa [e₁, e₂, e₃] at key
 
 /-! # Infinite iteration
 
@@ -398,5 +347,78 @@ theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [OmegaProd ε] {R S : S
     (h : R ≤ S) : Relation.omega R ≤ Relation.omega S := by
   rintro ⟨σ, ε⟩ ⟨σs, es, h₀, hstep, hε⟩
   exact ⟨σs, es, h₀, λ i ↦ h (hstep i), hε⟩
+
+
+/-! ## Finite iteration
+
+`R*`. Stated in the same ℕ-indexed shape as `Relation.omega` rather than reusing
+`Relation.TraceReflTransGen` (`VerifiedCompiler/Relation.lean`), which is `Prop`-valued. Sharing the
+shape is what lets the two refinement lemmas — one for `R*`, one for `R^∞` — be proved by the same
+kind of induction over the index.
+-/
+
+/-- `R*` — finitely many `R`-steps, with the concatenated trace. -/
+@[expose]
+def Relation.star {α ε : Type _} [Monoid ε] (R : Set (α × ε × α)) : Set (α × ε × α) :=
+  {x | ∃ (n : ℕ) (σs : ℕ → α) (es : ℕ → ε),
+    σs 0 = x.1 ∧ σs n = x.2.2 ∧ (∀ i, i < n → (σs i, es i, σs (i + 1)) ∈ R) ∧
+      x.2.1 = Monoid.partialProd es n}
+
+/-- Zero steps. -/
+theorem Relation.star.refl {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} (a : α) :
+    (a, (1 : ε), a) ∈ Relation.star R :=
+  ⟨0, λ _ ↦ a, λ _ ↦ 1, rfl, rfl, by omega, rfl⟩
+
+/-- One step in front of a run. -/
+theorem Relation.star.head {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} {a b c : α} {e e' : ε}
+    (h : (a, e, b) ∈ R) (h' : (b, e', c) ∈ Relation.star R) :
+    (a, e * e', c) ∈ Relation.star R := by
+  obtain ⟨n, σs, es, h₀, hn, hsteps, he⟩ := h'
+  dsimp only at h₀ hn he
+  refine ⟨n + 1, λ i ↦ Nat.rec a (λ j _ ↦ σs j) i, λ i ↦ Nat.rec e (λ j _ ↦ es j) i, rfl, hn, ?_, ?_⟩
+  · intro i hi
+    cases i with
+    | zero =>
+      show (a, e, σs 0) ∈ R
+      rw [h₀]
+      exact h
+    | succ i => exact hsteps i (by omega)
+  · show e * e' = _
+    rw [Monoid.partialProd_succ' _ n, he]
+    rfl
+
+theorem Relation.star.mono {α ε : Type _} [Monoid ε] {R S : Set (α × ε × α)}
+    (h : R ≤ S) : Relation.star R ≤ Relation.star S := by
+  rintro ⟨a, e, b⟩ ⟨n, σs, es, h₀, hn, hsteps, he⟩
+  exact ⟨n, σs, es, h₀, hn, λ i hi ↦ h (hsteps i hi), he⟩
+
+/-- A run is either empty or a step followed by a run. The eliminator the closed form below needs,
+since `Relation.star` is indexed by a length rather than defined inductively. -/
+theorem Relation.star.dest {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} {a c : α} {e : ε}
+    (h : (a, e, c) ∈ Relation.star R) :
+    (a = c ∧ e = 1) ∨
+      ∃ b e₁ e₂, (a, e₁, b) ∈ R ∧ (b, e₂, c) ∈ Relation.star R ∧ e = e₁ * e₂ := by
+  obtain ⟨n, σs, es, h₀, hn, hsteps, he⟩ := h
+  dsimp only at h₀ hn he
+  cases n with
+  | zero => exact Or.inl ⟨h₀.symm.trans hn, he⟩
+  | succ n =>
+    refine Or.inr ⟨σs 1, es 0, Monoid.partialProd (λ i ↦ es (i + 1)) n, ?_, ?_, ?_⟩
+    · rw [← h₀]
+      exact hsteps 0 (by omega)
+    · exact ⟨n, λ i ↦ σs (i + 1), λ i ↦ es (i + 1), rfl, hn, λ i hi ↦ hsteps (i + 1) (by omega), rfl⟩
+    · rw [he, Monoid.partialProd_succ']
+
+/-- A step in front of a run-then-`Y` is again a run-then-`Y`.
+
+This is the absorption side condition that the aborting and diverging refinements both need in order
+to place an abort reached after `n` steps in the aborting set itself rather than in
+`semⁿ ∘ᵣ₁ sem'`. Stated at the closed form it is a theorem; at an arbitrary aborting semantics it
+has to be assumed, which is what `Diverging.omega`'s and `Diverging.star`'s `abs` binder is. -/
+theorem Relation.star.lcomp₁_absorb {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)}
+    {Y : Set (α × ε)} : R ∘ᵣ₁ (Relation.star R ∘ᵣ₁ Y) ≤ Relation.star R ∘ᵣ₁ Y := by
+  rintro ⟨σ, e⟩ ⟨b, e₁, e₂, hR, ⟨c, e₃, e₄, hs, hy, rfl⟩, rfl⟩
+  rw [← mul_assoc]
+  apply Relation.lcomp₁.intro (Relation.star.head hR hs) hy
 
 end

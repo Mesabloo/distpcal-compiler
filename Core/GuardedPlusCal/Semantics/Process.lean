@@ -1,7 +1,6 @@
 module
 
 public import Core.GuardedPlusCal.Semantics.Denotational
-public import Mathlib.Order.FixedPoints
 public import Mathlib.Tactic.Monotonicity
 
 @[expose] public section
@@ -20,8 +19,11 @@ public import Mathlib.Tactic.Monotonicity
   algorithm state as a set of pairs `⟨P, σ⟩` and updates it with `Ps \ {⟨P,σ⟩} ∪ {⟨P,σ'⟩}`, which
   needs `P` only as a name to pair the state with.
 
-  The three algorithm-level semantics are fixed points of monotone endofunctions on the relation:
-  least for terminating and aborting behaviour, greatest for divergence.
+  The three algorithm-level semantics are closed forms over the algorithm step — `step*`,
+  `step* ∘ᵣ₁ immediateAbort`, `step^∞` — rather than fixed points of endofunctions. The refinement
+  framework proves one preservation law per operator (`VerifiedCompiler/Denotational/
+  StrongRefinement.lean`), so nothing downstream has to unfold a fixed point; the identities with
+  the corresponding least fixed points are in `VerifiedCompiler/ClosedForm.lean`, as checks.
 -/
 
 namespace GuardedPlusCal
@@ -100,41 +102,26 @@ def Algebra.step (A : Algebra ι V) : Set (AlgState ι V × Trace V × AlgState 
     ⟨⟨σ, F⟩, τ, ⟨σ', F'⟩⟩ ∈ (A.table p).procReducing (A.owned p) (A.self p) ∧
     Ps' = insert ⟨p, σ'⟩ (Ps \ {⟨p, σ⟩})}
 
-/-- The identity relation on algorithm states, emitting nothing. The base case of `Algebra.reducing`:
-the empty execution is a finite execution. -/
-def Algebra.idle : Set (AlgState ι V × Trace V × AlgState ι V) :=
-  {⟨x, τ, y⟩ | x = y ∧ τ = 1}
-
-/-- The paper's `P⊥_red`: either some process goes wrong now, or the algorithm takes a step and goes
-wrong later. -/
-def Algebra.abortStep (A : Algebra ι V) (X : Set (AlgState ι V × Trace V)) :
-    Set (AlgState ι V × Trace V) :=
+/-- Some process goes wrong *now*: the immediate half of the paper's `P⊥_red`, with no steps taken
+first. Named on its own because the aborting semantics is built from it by composition rather than
+by iterating a functional that mentions it. -/
+def Algebra.immediateAbort (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
   {⟨⟨Ps, F⟩, τ⟩ | ∃ p σ, ⟨p, σ⟩ ∈ Ps ∧
     ⟨⟨σ, F⟩, τ⟩ ∈ (A.table p).procAborting (A.owned p) (A.self p)}
-  ∪ A.step ∘ᵣ₁ X
 
-theorem Algebra.abortStep_mono (A : Algebra ι V) : Monotone A.abortStep := by
-  intro X Y X_sub
-  exact Set.union_subset_union_right _ (Relation.lcomp₁.subset_of_subset_right X_sub)
+/-- Every **finite** sequence of algorithm steps, with the concatenated trace: `step*`.
 
-/-- Every **finite** sequence of algorithm steps: the reflexive-transitive closure of
-`Algebra.step`, as a least fixed point.
-
-The reflexive disjunct is load-bearing. Without it the endofunction `X ↦ X ∘ᵣ₂ A.step` has `∅` as a
-fixed point — every element of a composition needs a witness drawn from `X` — so its *least* fixed
-point is `∅` and the semantics of every algorithm would be empty. -/
+Given directly rather than as `μX. Id ∪ X ∘ᵣ₂ step`, for the same reason as `Algebra.diverging` and
+`Algebra.aborting` — all three semantics are the closed forms the refinement framework's
+operator-preservation lemmas are stated at, so no proof has to unfold a fixed point before it can
+say anything. The empty execution is `Relation.star.refl`, not a disjunct to be supplied.
+`VerifiedCompiler/ClosedForm.lean` carries the identity with the least fixed point. -/
 def Algebra.reducing (A : Algebra ι V) : Set (AlgState ι V × Trace V × AlgState ι V) :=
-  OrderHom.lfp {
-    toFun := λ X ↦ Algebra.idle ∪ X ∘ᵣ₂ A.step
-    monotone' := by
-      intro X Y X_sub
-      exact Set.union_subset_union_right _ (Relation.lcomp₂.mono X_sub le_rfl)
-  }
+  Relation.star A.step
 
-/-- Every finite sequence of steps ending in a process going wrong. Needs no reflexive disjunct: the
-left half of `Algebra.abortStep` does not mention `X`, so it already seeds the iteration. -/
+/-- Every finite sequence of steps ending in a process going wrong: `step* ∘ᵣ₁ immediateAbort`. -/
 def Algebra.aborting (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
-  OrderHom.lfp { toFun := A.abortStep, monotone' := A.abortStep_mono }
+  Relation.star A.step ∘ᵣ₁ A.immediateAbort
 
 /-- Every infinite sequence of steps, each execution paired with the infinite product of the traces
 its steps emit.

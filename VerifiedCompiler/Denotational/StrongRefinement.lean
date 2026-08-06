@@ -124,16 +124,69 @@ namespace StrongRefinement
       exists ε', ε'_scp_ε
       exact Set.mem_sUnion_of_mem abortₛ_σₛ abortₛ_in_C
 
-  omit [Monoid εₜ] in
-  protected theorem Terminating.lfp {f : Set (α × εₛ × α) →o _} {g : Set (β × εₜ × β) →o _} {h : Set (α × εₛ) →o _}
-    (IH : ∀ x y z, StrongRefinement.Terminating R R Rτ x y z → StrongRefinement.Terminating R R Rτ (f x) (h y) (g z)) :
-      StrongRefinement.Terminating R R Rτ (OrderHom.lfp f) (OrderHom.lfp h) (OrderHom.lfp g) := by
-    apply OrderHom.lfp_induction₃ (p := λ x y z ↦ StrongRefinement.Terminating R R Rτ x y z)
-    · intros A B C ref_A_B_C A_le_lfp B_le_lfp C_le_lfp
-      apply IH
-      assumption
-    · intro _ _ _ _ _ sup
-      exact Terminating.sup sup
+  /-- Terminating refinement for `R*`: the run the target takes is matched step by step, and the
+  source's traces concatenate. The operator-preservation law that replaces induction over
+  `Algebra.reducing`'s least fixed point.
+
+  Three of the `Trace` class's laws are used here and nowhere in the finite composition lemmas:
+  `Rτ_one` for the empty run, `Rτ_closed` to concatenate two matched traces, and `Rτ_total` when the
+  source aborts at the very first step. `abs` places an abort reached partway into `semₛ'` itself;
+  at a closed-form aborting semantics it is `Relation.star.lcomp₁_absorb`.
+
+  **The source side is `Relation.star semₛ`, matched against a single target step in the
+  hypothesis.** A pass whose target takes steps with no source counterpart — Guarded→Network's `.rx`
+  thread — cannot instantiate `semₛ := stepₛ`, since no source step matches an `.rx` step. It
+  instantiates `semₛ := Relation.star stepₛ` instead, letting the source stutter, and then needs
+  `Relation.star (Relation.star X) ≤ Relation.star X` with `Terminating.Mono` to bring the
+  conclusion back to `Relation.star stepₛ`. That lemma is not proved here: it wants a run
+  concatenation lemma, and it is worth proving against the pass that consumes it rather than
+  speculatively. -/
+  protected theorem Terminating.star {R : Rel α β} [T : Trace εₛ εₜ]
+      {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
+      (abs : semₛ ∘ᵣ₁ semₛ' ≤ semₛ')
+      (ref : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ) :
+        StrongRefinement.Terminating R R T.Rτ (Relation.star semₛ) semₛ'
+          (Relation.star semₜ) := by
+    have mulmono : ∀ x y, (T.Rτ ⊗ᵣ T.Rτ) x y → T.Rτ x y := by
+      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
+      exact T.Rτ_closed _ _ _ _ h₁ h₂
+
+    have main : ∀ (n : ℕ) (σts : ℕ → β) (ets : ℕ → εₜ) (σₛ : α) (σₜ' : β),
+        R σₛ (σts 0) → (∀ i, i < n → (σts i, ets i, σts (i + 1)) ∈ semₜ) → σts n = σₜ' →
+        (∃ σₛ' ε', R σₛ' σₜ' ∧ T.Rτ ε' (Monoid.partialProd ets n) ∧
+          (σₛ, ε', σₛ') ∈ Relation.star semₛ) ∨
+        (∃ ε', ε' ≼[T.Rτ] Monoid.partialProd ets n ∧ (σₛ, ε') ∈ semₛ') := by
+      intro n
+      induction n with
+      | zero =>
+        intro σts ets σₛ σₜ' hR _ hlast
+        subst hlast
+        exact Or.inl ⟨σₛ, 1, hR, T.Rτ_one, Relation.star.refl σₛ⟩
+      | succ n ih =>
+        intro σts ets σₛ σₜ' hR hsteps hlast
+        obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
+          ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
+        · obtain ⟨σₛ'', ε'', hR'', hRτ'', hmem''⟩|⟨ε'', hscp'', hmem''⟩ :=
+            ih (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1)) σₛ' σₜ' hR'
+              (λ i hi ↦ hsteps (i + 1) (by omega)) hlast
+          · refine Or.inl ⟨σₛ'', e' * ε'', hR'', ?_, Relation.star.head hmem' hmem''⟩
+            rw [Monoid.partialProd_succ' ets n]
+            apply T.Rτ_closed _ _ _ _ hRτ' hRτ''
+          · refine Or.inr ⟨e' * ε'', ?_, ?_⟩
+            · rw [Monoid.partialProd_succ' ets n]
+              apply Trace.scPrefix_mono mulmono
+              apply Trace.scPrefix_rmul_right hRτ' hscp''
+            · apply abs
+              apply Relation.lcomp₁.intro hmem' hmem''
+        · refine Or.inr ⟨ea, ?_, hea_mem⟩
+          rw [Monoid.partialProd_succ' ets n]
+          apply Trace.scPrefix_mono mulmono
+          apply Trace.scPrefix_rmul_left T.Rτ_total hea
+
+    rintro σₜ σₜ' ε σₛ hR ⟨n, σts, ets, h₀, hn, hsteps, rfl⟩
+    dsimp only at h₀ hn
+    subst h₀
+    exact main n σts ets σₛ σₜ' hR hsteps hn
 
   /--
     Behavior refinement in the diverging case.
@@ -214,7 +267,6 @@ namespace StrongRefinement
   protected theorem Diverging.Empty {Rτ : Rel εₛ εₜ} {semₛ'' semₛ' : Set (α × εₛ)} :
       StrongRefinement.Diverging R Rτ semₛ'' semₛ' ∅ := by
     rintro _ _ _ _ (_|_)
-
 
   /-- Divergence refinement for `R^∞`, the replacement for `Diverging.gfp`'s coinduction.
 
@@ -567,16 +619,68 @@ namespace StrongRefinement
     exists ε', ε'_scp_ε
     exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_A
 
-  omit [Monoid εₜ] in
-  theorem Aborting.lfp {Rτ : Rel εₛ εₜ} {f : Set (α × εₛ) →o _} {g : Set (β × εₜ) →o _}
-    (IH : ∀ x y, StrongRefinement.Aborting R Rτ x y → StrongRefinement.Aborting R Rτ (f x) (g y)) :
-      StrongRefinement.Aborting R Rτ (OrderHom.lfp f) (OrderHom.lfp g) := by
-    apply OrderHom.lfp_induction₂ (p := λ x y ↦ StrongRefinement.Aborting R Rτ x y)
-    · intros A B _ A_le_lfp_f B_le_lfp_g
-      apply IH
-      assumption
-    · intro _ _ _ sup
-      exact Aborting.sup _ sup
+  /-- Aborting refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then an abort. The aborting
+  semantics of an algorithm has exactly this shape — `Algebra.aborting` is `step* ∘ᵣ₁ immediate` —
+  so this is the operator-preservation law that replaces induction over its least fixed point.
+
+  `Diverging.star`'s proof, with its two conclusions collapsed into one: `Aborting` has no
+  "matched exactly" disjunct, only the `≼` one, so the run's traces and the abort's are related the
+  same way whether the source kept up or stopped early.
+
+  Note what is *not* a hypothesis. `Diverging.star` takes the source aborting set as a parameter
+  with an `abs` law relating it to `semₛ`; here that set is the conclusion's own left-hand side, so
+  absorption is `Relation.star.lcomp₁_absorb` rather than an assumption. The step-level refinement
+  therefore mentions `Relation.star semₛ ∘ᵣ₁ Yₛ` — not circular, just the source's actual aborting
+  semantics named where the framework needs it. -/
+  protected theorem Aborting.star {R : Rel α β} [T : Trace εₛ εₜ]
+      {semₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)}
+      {semₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
+      (ref : StrongRefinement.Terminating R R T.Rτ semₛ (Relation.star semₛ ∘ᵣ₁ Yₛ) semₜ)
+      (refY : StrongRefinement.Aborting R T.Rτ Yₛ Yₜ) :
+        StrongRefinement.Aborting R T.Rτ (Relation.star semₛ ∘ᵣ₁ Yₛ)
+          (Relation.star semₜ ∘ᵣ₁ Yₜ) := by
+    have mulmono : ∀ x y, (T.Rτ ⊗ᵣ T.Rτ) x y → T.Rτ x y := by
+      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
+      exact T.Rτ_closed _ _ _ _ h₁ h₂
+
+    have main : ∀ (n : ℕ) (σts : ℕ → β) (ets : ℕ → εₜ) (σₛ : α) (σₜ' : β) (e₂ : εₜ),
+        R σₛ (σts 0) → (∀ i, i < n → (σts i, ets i, σts (i + 1)) ∈ semₜ) → σts n = σₜ' →
+        (σₜ', e₂) ∈ Yₜ →
+        ∃ ε', ε' ≼[T.Rτ] (Monoid.partialProd ets n * e₂) ∧
+          (σₛ, ε') ∈ Relation.star semₛ ∘ᵣ₁ Yₛ := by
+      intro n
+      induction n with
+      | zero =>
+        intro σts ets σₛ σₜ' e₂ hR _ hlast hY
+        subst hlast
+        obtain ⟨ε', hscp, hmem⟩ := refY (σts 0) e₂ σₛ hR hY
+        refine ⟨ε', ?_, ?_⟩
+        · rwa [Monoid.partialProd_zero, one_mul]
+        · rw [← one_mul ε']
+          apply Relation.lcomp₁.intro (Relation.star.refl σₛ) hmem
+      | succ n ih =>
+        intro σts ets σₛ σₜ' e₂ hR hsteps hlast hY
+        obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
+          ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
+        · obtain ⟨ε'', hscp'', hmem''⟩ :=
+            ih (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1)) σₛ' σₜ' e₂ hR'
+              (λ i hi ↦ hsteps (i + 1) (by omega)) hlast hY
+          refine ⟨e' * ε'', ?_, ?_⟩
+          · rw [Monoid.partialProd_succ' ets n, mul_assoc]
+            apply Trace.scPrefix_mono mulmono
+            apply Trace.scPrefix_rmul_right hRτ' hscp''
+          · apply Relation.star.lcomp₁_absorb
+            apply Relation.lcomp₁.intro hmem' hmem''
+        · refine ⟨ea, ?_, hea_mem⟩
+          rw [Monoid.partialProd_succ' ets n, mul_assoc]
+          apply Trace.scPrefix_mono mulmono
+          apply Trace.scPrefix_rmul_left T.Rτ_total hea
+
+    rintro σₜ ε σₛ hR ⟨σₜ', e₁, e₂, ⟨n, σts, ets, h₀, hn, hsteps, rfl⟩, hY, rfl⟩
+    dsimp only at h₀ hn
+    subst h₀
+    exact main n σts ets σₛ σₜ' e₂ hR hsteps hn hY
+
 end StrongRefinement
 
 /--
@@ -596,7 +700,6 @@ structure StrongRefinement {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] 
   terminating : StrongRefinement.Terminating R R Rτ semₛ₁ semₛ₂ semₜ₁
   aborting : StrongRefinement.Aborting R Rτ semₛ₂ semₜ₂
   diverging : StrongRefinement.Diverging R Rτ semₛ₃ semₛ₂ semₜ₃
-
 
 namespace StrongRefinement
   variable {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R S : Rel α β)
@@ -654,47 +757,61 @@ namespace StrongRefinement
     · apply Aborting.Mono hyp₂ concl₂ ref₂
     · apply Diverging.Mono hyp₃ hyp₂ concl₃ ref₃
 
-  /-- The three cases at once, for semantics defined by fixed points.
+  /-- All three cases at once, at the shapes a step-and-iterate semantics takes: `step*`,
+  `step* ∘ᵣ₁ immediate`, `(step* ∘ᵣ₁ Y) ∪ step^∞`.
 
-  The terminating and aborting components are least fixed points, as before. The diverging
-  component is **not** a greatest fixed point: it is `R^∞`, the infinite iteration, given directly.
+  Three hypotheses, all about one step: a `Terminating` for the step itself, an `Aborting` for the
+  sets a step can abort into, and a `Diverging` for the sets it can diverge into. Everything else is
+  derived rather than assumed — the absorption law each preservation lemma wants is
+  `Relation.star.lcomp₁_absorb` at these shapes, not a side condition on the caller.
 
-  That is a correction, not a presentational choice. The greatest fixed point of
-  `x ↦ Y ∪ (X ∘ᵣ₁ x)` is the wrong set whenever `X` has a step emitting the empty trace, since the
-  functional is then non-contractive and its gfp admits an arbitrary trace on top of any silently
-  diverging state — see `Relation.omega`'s doc. `Algebra.step` has such steps, so the two really do
-  differ on the semantics this framework is for.
+  This is where the paper's per-operator laws (arXiv 2404.17297 §7, Def. 7.22–7.26) are assembled
+  into one refinement, and it replaces induction over three fixed points. `Rτ_omega` and `dvd` stay
+  explicit for the reasons given on `Diverging.omega`.
 
-  The diverging component is the full closed form `(X* ∘ᵣ₁ Y) ∪ X^∞`, not just `X^∞`: a semantics
-  whose functional has a non-trivial `Y` is exactly as much an instance of this framework as one
-  where `Y = ∅`. For the latter, `Y := ∅` collapses the left summand and `Diverging.omega` is
-  available directly.
+  `Yₛ`/`Yₜ` are the immediate-divergence sets, kept general even though the algorithm layer has
+  none: whether a single step can diverge is a property of the semantics being refined, not of this
+  framework. `sequentialOmega` is the `Y = ∅` case, which is what `Algebra` instantiates. -/
+  protected theorem sequential [OmegaProd εₛ] [OmegaProd εₜ] [T : Trace εₛ εₜ] {R : Rel α β}
+      (Rτ_omega : ∀ (e' : ℕ → εₛ) (e : ℕ → εₜ), (∀ i, T.Rτ (e' i) (e i)) →
+        T.Rτ (OmegaProd.ωProd e') (OmegaProd.ωProd e))
+      (dvd : OmegaProd.HasPartialProdDvd εₜ)
+      {stepₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {immₜ Yₜ : Set (β × εₜ)}
+      (ref : StrongRefinement.Terminating R R T.Rτ stepₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) stepₜ)
+      (refImm : StrongRefinement.Aborting R T.Rτ immₛ immₜ)
+      (refY : StrongRefinement.Diverging R T.Rτ Yₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) Yₜ) :
+        StrongRefinement R T.Rτ
+          (Relation.star stepₛ) (Relation.star stepₛ ∘ᵣ₁ immₛ)
+          (Relation.star stepₛ ∘ᵣ₁ Yₛ ∪ Relation.omega stepₛ)
+          (Relation.star stepₜ) (Relation.star stepₜ ∘ᵣ₁ immₜ)
+          (Relation.star stepₜ ∘ᵣ₁ Yₜ ∪ Relation.omega stepₜ) where
+    terminating := Terminating.star Relation.star.lcomp₁_absorb ref
+    aborting := Aborting.star ref refImm
+    diverging := Diverging.closedForm Rτ_omega dvd Relation.star.lcomp₁_absorb ref refY
 
-  `T` supplies the three trace laws (`Rτ_total`, `Rτ_closed`, `Rτ_one`). `Rτ_omega` and `dvd` stay
-  explicit: the first mentions `OmegaProd.ωProd`, so folding it into `Trace` would put `OmegaProd`
-  binders on every lemma that takes a `Trace` — including the composition lemmas, which have nothing
-  to do with divergence; the second is a property of the target monoid's product rather than of the
-  relation. `abs` is `Diverging.omega`'s; see there. -/
-  protected theorem FixedPoint [OmegaProd εₛ] [OmegaProd εₜ] [T : Trace εₛ εₜ]
-    (Rτ_omega : ∀ (e' : ℕ → εₛ) (e : ℕ → εₜ), (∀ i, T.Rτ (e' i) (e i)) →
-      T.Rτ (OmegaProd.ωProd e') (OmegaProd.ωProd e))
-    (dvd : OmegaProd.HasPartialProdDvd εₜ)
-    {f : Set (α × εₛ × α) →o _} {f' : Set (α × εₛ) →o _} {g : Set (β × εₜ × β) →o _} {g'}
-    {stepₛ : Set (α × εₛ × α)} {stepₜ : Set (β × εₜ × β)}
-    {Yₛ : Set (α × εₛ)} {Yₜ : Set (β × εₜ)}
-    (abs : stepₛ ∘ᵣ₁ OrderHom.lfp f' ≤ OrderHom.lfp f')
-    (IH₁ : ∀ x x' y, StrongRefinement.Terminating R R T.Rτ x x' y → StrongRefinement.Terminating R R T.Rτ (f x) (f' x') (g y))
-    (IH₂ : ∀ x' y', StrongRefinement.Aborting R T.Rτ x' y' → StrongRefinement.Aborting R T.Rτ (f' x') (g' y'))
-    (IH₃ : StrongRefinement.Terminating R R T.Rτ stepₛ (OrderHom.lfp f') stepₜ)
-    (IH₄ : StrongRefinement.Diverging R T.Rτ Yₛ (OrderHom.lfp f') Yₜ) :
-      StrongRefinement R T.Rτ (OrderHom.lfp f) (OrderHom.lfp f')
-        (Relation.star stepₛ ∘ᵣ₁ Yₛ ∪ Relation.omega stepₛ)
-        (OrderHom.lfp g) (OrderHom.lfp g')
-        (Relation.star stepₜ ∘ᵣ₁ Yₜ ∪ Relation.omega stepₜ) := by
-    constructor
-    · exact Terminating.lfp _ _ IH₁
-    · exact Aborting.lfp _ IH₂
-    · exact Diverging.closedForm Rτ_omega dvd abs IH₃ IH₄
+  /-- `sequential` where no single step diverges, so the diverging component collapses to `step^∞`.
+
+  This is the algorithm layer's case — `CodeTable.procDiverging` is `∅`, an atomic block having no
+  non-terminating semantics — and the conclusion is then *definitionally* `Algebra.reducing`,
+  `.aborting`, `.diverging`, so a caller applies it without rewriting anything. The collapse is done
+  here, once, rather than at each use site. -/
+  protected theorem sequentialOmega [OmegaProd εₛ] [OmegaProd εₜ] [T : Trace εₛ εₜ] {R : Rel α β}
+      (Rτ_omega : ∀ (e' : ℕ → εₛ) (e : ℕ → εₜ), (∀ i, T.Rτ (e' i) (e i)) →
+        T.Rτ (OmegaProd.ωProd e') (OmegaProd.ωProd e))
+      (dvd : OmegaProd.HasPartialProdDvd εₜ)
+      {stepₛ : Set (α × εₛ × α)} {immₛ : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {immₜ : Set (β × εₜ)}
+      (ref : StrongRefinement.Terminating R R T.Rτ stepₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) stepₜ)
+      (refImm : StrongRefinement.Aborting R T.Rτ immₛ immₜ) :
+        StrongRefinement R T.Rτ
+          (Relation.star stepₛ) (Relation.star stepₛ ∘ᵣ₁ immₛ) (Relation.omega stepₛ)
+          (Relation.star stepₜ) (Relation.star stepₜ ∘ᵣ₁ immₜ) (Relation.omega stepₜ) := by
+    have h := StrongRefinement.sequential (Yₛ := ∅) (Yₜ := ∅) Rτ_omega dvd ref refImm
+      (Diverging.Empty R)
+    rwa [Relation.lcomp₁.right_empty_eq_empty, Set.empty_union,
+      Relation.lcomp₁.right_empty_eq_empty, Set.empty_union] at h
+
 end StrongRefinement
 
 end

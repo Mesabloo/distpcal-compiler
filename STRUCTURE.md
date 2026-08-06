@@ -58,7 +58,8 @@ Vendored generic data-structure lemmas and instances.
   nothing, which is why `Seq` is a monoid and never cancellative — and `ωProduct`, the infinite
   product, with the `get?` lemmas characterizing it.
 - `Rel.lean` carries only what the *semantics* need: `∘ᵣ₁`/`∘ᵣ₂`, `Monoid.partialProd`, the
-  `OmegaProd` class and `Relation.omega`, plus generic order theory (`OrderHom.lfp_induction₂/₃`).
+  `OmegaProd` class, and the two iteration operators the three algorithm semantics are built from,
+  `Relation.star` and `Relation.omega`.
   Anything whose only consumer is a refinement proof lives in `VerifiedCompiler/` instead, so that
   `Extra/` never imports that library. Same rule inside `Seq.lean`: its lemmas never mention a
   refinement predicate, and `VerifiedCompiler/ClosedForm.lean` discharges the predicates from them.
@@ -383,10 +384,12 @@ Vendored generic proof infrastructure.
 - `Trace.lean`, `Relation.lean` — trace/relation definitions. `Trace.lean` also carries the
   relation algebra its class axiomatizes: `∘ᵣ` (`Relation.Comp`), `⊗ᵣ` (`Relation.rmul`),
   `Relation.LeftTotal`/`MulClosed`/`right_extend`.
-- `ClosedForm.lean` — `Relation.star`, `Relation.Productive`, the three `OmegaProd.Has*` laws with
-  their `Seq` discharges, and `gfp (λ x, Y ∪ X ∘ᵣ₁ x) = (X* ∘ᵣ₁ Y) ∪ X^∞`. The identity is a
+- `ClosedForm.lean` — `Relation.Productive`, the three `OmegaProd.Has*` laws with their `Seq`
+  discharges, and the fixed-point identities. `gfp (λ x, Y ∪ X ∘ᵣ₁ x) = (X* ∘ᵣ₁ Y) ∪ X^∞` is a
   characterization only: `⊇` is unconditional, `⊆` needs `Productive`, which `Algebra.step` does
-  not satisfy. Nothing in the compiler depends on it.
+  not satisfy. The two *least* fixed-point identities (`lfp_starFun`, `lfp_divFun`) are checks that
+  the reducing and aborting semantics denote what their old lfp definitions did. Nothing in the
+  compiler depends on any of them.
 - `Denotational/StrongRefinement.lean`, `Denotational/Notations.lean`.
 - `VerifiedCompiler.lean` (project root) — the library's root module, importing the five above.
   Nothing imports it; it exists so `lake build VerifiedCompiler` resolves. The default target

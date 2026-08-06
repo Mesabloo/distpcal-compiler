@@ -1743,15 +1743,17 @@ it with the label the block's terminal `goto` reached. A thread contributes only
 language's AST and both instantiate it. Processes are indexed by an arbitrary `ι`: the paper pairs
 each state with the process `P` itself, but only ever uses `P` as a name.
 
-The three algorithm-level semantics are fixed points of monotone endofunctions on the relation:
+The three algorithm-level semantics are closed forms over the algorithm step, not fixed points of
+endofunctions. The refinement framework proves one preservation law per operator (§6.1), so no proof
+downstream has to unfold a fixed point; `VerifiedCompiler/ClosedForm.lean` carries the identities
+with the corresponding least fixed points as checks that the closed forms denote the same sets.
 
-- `⟦A⟧*` is `μX. Id ∪ (X ∘ᵣ₂ step)` — every **finite** sequence of steps. The reflexive disjunct is
-  load-bearing, not cosmetic: without it the endofunction has `∅` as a fixed point, since every
-  element of a composition needs a witness drawn from `X`, so the *least* fixed point would be `∅`
-  and every algorithm's semantics empty.
-- `⟦A⟧⊥` is `μX. abortStep X`, where `abortStep X` is "some process goes wrong now" ∪ `step ∘ᵣ₁ X`.
-  Needs no reflexive disjunct — the left half does not mention `X`, so it already seeds the
-  iteration.
+- `⟦A⟧*` is `step*` (`Relation.star`) — every **finite** sequence of steps, with the concatenated
+  trace. The empty execution is the zero-length run rather than a reflexive disjunct that has to be
+  supplied: `μX. Id ∪ (X ∘ᵣ₂ step)` needs that disjunct or its least fixed point is `∅`, since every
+  element of a composition needs a witness drawn from `X`.
+- `⟦A⟧⊥` is `step* ∘ᵣ₁ immediateAbort`, where `immediateAbort` is "some process goes wrong now" —
+  finitely many steps, then an abort.
 - `⟦A⟧∞` is `step^∞` (`Relation.omega`): the runs taking infinitely many steps, each paired with the
   infinite product of the traces those steps emit. **Not** a greatest fixed point. `νX. step ∘ᵣ₁ X`
   overshoots: a step emitting the empty trace makes that endofunction non-contractive, so at
@@ -1773,8 +1775,11 @@ to initial states (`reducingFrom`/`abortingFrom`/`divergingFrom`), not over the 
 blocks a process happens to contain. Per-block refinement is an intermediate lemma, not the
 deliverable: it cannot say anything about the `.rx` thread, which is a target-side label with no
 source counterpart and is only meaningful once labels are being scheduled. Lifting the block-level
-result up is what `StrongRefinement`'s `Terminating.lfp`/`Aborting.lfp`/`Diverging.closedForm` are
-for.
+result up is what `StrongRefinement.sequential` is for: from a refinement of one step, one of the
+immediate-abort sets and one of the immediate-divergence sets, it returns the three-component
+refinement at `step*`/`step* ∘ᵣ₁ immediate`/`(step* ∘ᵣ₁ Y) ∪ step^∞`. The algorithm layer has no
+immediate divergence — `CodeTable.procDiverging` is `∅` — so it applies `sequentialOmega`, the
+`Y = ∅` corollary, whose components are the semantics as written with no fixed point to unfold.
 
 Proofs pin the pass's monad to `ExceptT G2NError (StateT Nat Id)` rather than reasoning at the
 pass's own `[MonadDiagnostic Empty G2NError m] [MonadFresh m]` polymorphism. The reason is
