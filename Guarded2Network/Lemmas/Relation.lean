@@ -2,6 +2,7 @@ module
 
 public import Guarded2Network.Lemmas.Seq
 public import Core.NetworkPlusCal.Semantics.Lemmas
+public import Core.NetworkPlusCal.Semantics.Process
 
 @[expose] public section
 
@@ -35,7 +36,7 @@ public import Core.NetworkPlusCal.Semantics.Lemmas
 namespace Guarded2Network
 
 open ComputableTLAPlus (ExprSemantics Memory)
-open GuardedPlusCal (ChanKey EvalStep FIFOs LocalState')
+open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState' ProcState)
 
 variable {V : Type} [ExprSemantics V]
 
@@ -146,6 +147,134 @@ theorem relatesTo.fifo_split (h : σₛ ∼[.some (c, inbox)] σₜ)
   exact hsplit'
 
 end Chan
+
+/-! # The algorithm level
+
+  `relatesTo` relates one atomic block's local state. `≋` relates a whole `AlgState`: every process
+  instance's own state, plus the one FIFO map they all share.
+
+  **What the shared FIFO map costs.** Each instance has drained a prefix of *its own* channel into
+  *its own* `inbox`, so the source's FIFO map is the target's with each instance's inbox prepended
+  to that instance's key — one prepend per key, provided no two instances share a key. They do not:
+  a process set must index its channel by `self` (`WellFormednessError.mailboxNotIndexedBySelf`),
+  which is exactly what makes `keys_inj` below hold rather than being an extra hypothesis dragged
+  through the proof. Without it the source queue at a shared key would have to be some interleaving
+  of several inboxes with nothing fixing the order, and no relation of this shape could be written
+  at all.
+
+  **Why the witnesses are a function, not an existential per instance.** `InboxState` bundles the
+  key an instance receives on with what its inbox currently holds. Quantifying `ib : ι → Option
+  (InboxState V)` once, outside the per-instance clauses, is what lets the FIFO clauses talk about
+  *all* keys at once — an existential inside each instance's clause would give each instance its own
+  witness with nothing relating them, and the map-level statement could not be phrased.
+
+  **Labels.** The target has the source's threads plus one `.rx` thread per channel, so its label set
+  is the source's together with those threads' labels — `rx p`, supplied per instance by whatever
+  builds this relation from a compiled algorithm. The disjointness clause is what says the `.rx`
+  labels are genuinely new, which `freshName` guarantees at the syntax level.
+-/
+
+/-- What one instance's `inbox` accounts for: the FIFO key it receives on, and the values it has
+already taken off that FIFO but not yet consumed. -/
+structure InboxState (V : Type) : Type where
+  /-- The resolved key of the channel this instance receives on. -/
+  key : ChanKey V
+  /-- What the instance's `inbox` currently holds, in FIFO order. -/
+  contents : List V
+
+/-- One process instance's state, related. `ib` is `none` exactly when `mb` is: an instance with no
+`receive` got no `inbox`, and its memory is equal to the source's rather than equal-off-`inbox`. -/
+def procRelatesTo (mb : Mailbox) (rx : Set String) (ib : Option (InboxState V)) :
+    Rel (ProcState V) (ProcState V) :=
+  λ ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ ↦
+    L₂ = L₁ ∪ rx ∧ Disjoint L₁ rx ∧
+    match mb, ib with
+    | .none, .none => M₁ = M₂
+    | .some (c, inbox), .some ib =>
+      (∀ x ≠ inbox, M₁.lookup x = M₂.lookup x) ∧
+      (∃ sv, M₂.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv ib.contents) ∧
+      (∃ cpath, List.Forall₂ (EvalStep M₁) c.args cpath ∧ ib.key = ⟨c.name, cpath⟩)
+    | _, _ => False
+
+/-- The algorithm-level lift of `relatesTo`: same instances, each instance's state related, and one
+FIFO map split per key. -/
+def algRelatesTo {ι : Type} (mb : ι → Mailbox) (rx : ι → Set String) :
+    Rel (AlgState ι V) (AlgState ι V) :=
+  λ ⟨Ps, F₁⟩ ⟨Qs, F₂⟩ ↦
+    ∃ ib : ι → Option (InboxState V),
+      -- the same instances on both sides, pairwise related
+      (∀ p σ, ⟨p, σ⟩ ∈ Ps → ∃ σ', ⟨p, σ'⟩ ∈ Qs ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
+      (∀ p σ', ⟨p, σ'⟩ ∈ Qs → ∃ σ, ⟨p, σ⟩ ∈ Ps ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
+      -- an index that names no instance of this state accounts for nothing: without this the
+      -- witness could invent an inbox for an absent instance and the FIFO clauses below would
+      -- demand a split no state satisfies
+      (∀ p, (∀ σ, ⟨p, σ⟩ ∉ Ps) → ib p = .none) ∧
+      -- no two instances receive on the same key
+      (∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q) ∧
+      -- a key nobody receives on is untouched
+      (∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → F₁.lookup k = F₂.lookup k) ∧
+      -- and a key someone receives on has that instance's inbox in front of it
+      (∀ p x, ib p = .some x → F₁.lookup x.key = (x.contents ++ ·) <$> F₂.lookup x.key)
+
+@[inherit_doc algRelatesTo]
+scoped notation:60 Sₛ:60 " ≋[" mb:0 ", " rx:0 "] " Sₜ:60 => Guarded2Network.algRelatesTo mb rx Sₛ Sₜ
+
+namespace algRelatesTo
+
+variable {ι : Type} {mb : ι → Mailbox} {rx : ι → Set String} {Sₛ Sₜ : AlgState ι V}
+
+/-- Every source instance has a related target instance. -/
+theorem forward (h : Sₛ ≋[mb, rx] Sₜ) :
+    ∃ ib : ι → Option (InboxState V), ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 →
+      ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
+  obtain ⟨ib, hfwd, -, -, -, -, -⟩ := h
+  exact ⟨ib, hfwd⟩
+
+/-- Every target instance has a related source instance — the direction that rules out the target
+inventing an instance the source never had. -/
+theorem backward (h : Sₛ ≋[mb, rx] Sₜ) :
+    ∃ ib : ι → Option (InboxState V), ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 →
+      ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
+  obtain ⟨ib, -, hbwd, -, -, -, -⟩ := h
+  exact ⟨ib, hbwd⟩
+
+/-- The whole FIFO map, in one statement: every key is the target's queue with the inbox of the one
+instance receiving on it (if any) in front. The `ib` witness is shared with `forward`/`backward`,
+which is what makes this composable with them rather than a separate fact. -/
+theorem fifos (h : Sₛ ≋[mb, rx] Sₜ) :
+    ∃ ib : ι → Option (InboxState V),
+      (∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q) ∧
+      (∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → Sₛ.2.lookup k = Sₜ.2.lookup k) ∧
+      (∀ p x, ib p = .some x → Sₛ.2.lookup x.key = (x.contents ++ ·) <$> Sₜ.2.lookup x.key) := by
+  obtain ⟨ib, -, -, -, hinj, hoff, hsplit⟩ := h
+  exact ⟨ib, hinj, hoff, hsplit⟩
+
+/-- The introduction form: one hypothesis per clause, against a single choice of witnesses. -/
+theorem intro {ib : ι → Option (InboxState V)}
+    (hfwd : ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 → ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
+    (hbwd : ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 → ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
+    (habsent : ∀ p, (∀ σ, ⟨p, σ⟩ ∉ Sₛ.1) → ib p = .none)
+    (hinj : ∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q)
+    (hoff : ∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → Sₛ.2.lookup k = Sₜ.2.lookup k)
+    (hsplit : ∀ p x, ib p = .some x → Sₛ.2.lookup x.key = (x.contents ++ ·) <$> Sₜ.2.lookup x.key) :
+    Sₛ ≋[mb, rx] Sₜ :=
+  ⟨ib, hfwd, hbwd, habsent, hinj, hoff, hsplit⟩
+
+/-- An instance whose process contains no `receive` has no inbox to account for — so the mailbox
+being `none` (a syntactic fact about the compiled process) forces the witness to be `none` too, and
+none of the FIFO clauses mention that instance. Needs the instance to be present, which is what
+`forward` supplies. -/
+theorem inbox_none {ib : ι → Option (InboxState V)} {p : ι} {σ σ' : ProcState V}
+    (hmb : mb p = .none) (h : procRelatesTo (mb p) (rx p) (ib p) σ σ') : ib p = .none := by
+  obtain ⟨M₁, L₁⟩ := σ
+  obtain ⟨M₂, L₂⟩ := σ'
+  obtain ⟨-, -, hmatch⟩ := h
+  rw [hmb] at hmatch
+  match hib : ib p with
+  | .none => rfl
+  | .some _ => rw [hib] at hmatch; contradiction
+
+end algRelatesTo
 
 end Guarded2Network
 

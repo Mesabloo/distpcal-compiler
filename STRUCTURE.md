@@ -270,7 +270,8 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   expressions this pass builds over `inbox`. Pass-side on purpose: `ExprSemantics` carries the
   value-level sequence vocabulary (`isSeq`/`seqAppend`), Core never names a TLA⁺ builtin.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
-  named introduction/projection lemmas instead of positional `conv … enter` navigation.
+  named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
+  algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.
 - Missing: `Semantics/Denotational.lean`/`Semantics/Lemmas.lean` for `GuardedPlusCal`/
   `NetworkPlusCal`, and `Guarded2Network/Lemmas.lean` itself (§6.2). The well-scopedness
   precondition is ported (`WellFormedness/WellScoped/GuardedPlusCal.lean`).
