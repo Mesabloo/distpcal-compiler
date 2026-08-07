@@ -176,8 +176,11 @@ private def processPrecondition (chans : Guarded2NetworkChans) (inboxName : Stri
 verbatim (all but `receive`, already compiled away above, and `with`, guard-class only) — `Ref`/
 `Multicast` are the same types under both pinnings (`Core/NetworkPlusCal/Syntax.lean` reuses
 `GuardedPlusCal.Ref`/`.Multicast` directly), so this is a plain re-tagging, not a
-translation. -/
-private def convertActionStmt {b} (s : ComputableGuardedPlusCal.Statement false b) :
+translation. Public and namespaced, not file-private: the refinement proof states its semantic
+equations (`Guarded2Network/Lemmas/Statement.lean`), and a lemma about a private definition cannot
+be written — and `@[expose]`, so that the equations it satisfies are provable by `rfl` in another
+module rather than only inside this one. -/
+@[expose] def Guarded2Network.convertActionStmt {b} (s : ComputableGuardedPlusCal.Statement false b) :
     ComputableNetworkPlusCal.Statement false b :=
   match_source s with
   | .skip, pos => .skip @@ pos
@@ -190,7 +193,7 @@ private def convertActionStmt {b} (s : ComputableGuardedPlusCal.Statement false 
 
 private def convertActionBlock (B : GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement false) true) :
     GuardedPlusCal.Block (ComputableNetworkPlusCal.Statement false) true :=
-  B.map (λ ⦃_⦄ ↦ convertActionStmt)
+  B.map (λ ⦃_⦄ ↦ Guarded2Network.convertActionStmt)
 
 variable [MonadFresh m]
 

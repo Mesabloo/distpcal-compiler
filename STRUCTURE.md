@@ -271,6 +271,9 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Seq.lean` — `SeqBuiltins`, the meaning of the `Head`/`Tail`/`Len(e) > n`/`<<>>`
   expressions this pass builds over `inbox`. Pass-side on purpose: `ExprSemantics` carries the
   value-level sequence vocabulary (`isSeq`/`seqAppend`), Core never names a TLA⁺ builtin.
+- `Lemmas/Statement.lean` — evaluation transfer across `relatesTo` (`eval_iff`), reference-argument
+  resolution (`Ref.EvalArgs` and its congruence), `Memory.update_transfer`, and the
+  `convertActionStmt` semantic equations.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.
