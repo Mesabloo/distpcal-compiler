@@ -224,10 +224,11 @@ pass-specific relaxation. `Trace.SCPrefix Eq a b ↔ a <+: b` is `Iff.rfl` (`Lis
 than merely isomorphic to it.
 
 Deliberately a `def`, not an `instance`: a pass whose alphabet needs a different `Rτ` for the same
-list type — `Guarded2Network` does — registers its own, and an ambient `Trace (List α) (List α)`
-instance defaulting to `Eq` would silently compete with it. Name this explicitly where the default
-is actually wanted. -/
-@[reducible] def Trace.instList {α : Type _} : Trace (List α) (List α) where
+list type registers its own, and an ambient `Trace (List α) (List α)` instance defaulting to `Eq`
+would silently compete with it. Name this explicitly where the default is actually wanted — as
+`Guarded2Network` does, via a `scoped instance` (`Guarded2Network/Lemmas/Trace.lean`). `@[expose]`
+so that a downstream `Rτ`-unfolding lemma can see the body. -/
+@[expose, reducible] def Trace.instList {α : Type _} : Trace (List α) (List α) where
   Rτ := Eq
   Rτ_total b := ⟨b, rfl⟩
   Rτ_closed := by rintro _ _ _ _ rfl rfl; rfl
@@ -235,9 +236,9 @@ is actually wanted. -/
 
 /-- The same at `Stream'.Seq`, the trace type the PlusCal semantics actually use
 (`Core/GuardedPlusCal/Semantics/Denotational.lean`'s `Trace`). A `def` rather than an `instance` for
-the same reason as `Trace.instList`: `Guarded2Network` needs its own `Rτ` at this very type, and an
-ambient `Eq` instance would compete with it. -/
-@[reducible] def Trace.instSeq {α : Type _} : Trace (Stream'.Seq α) (Stream'.Seq α) where
+the same reason as `Trace.instList` — and this is the one `Guarded2Network` registers scoped, its
+traces being preserved exactly. -/
+@[expose, reducible] def Trace.instSeq {α : Type _} : Trace (Stream'.Seq α) (Stream'.Seq α) where
   Rτ := Eq
   Rτ_total b := ⟨b, rfl⟩
   Rτ_closed := by rintro _ _ _ _ rfl rfl; rfl

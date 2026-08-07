@@ -266,6 +266,8 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   (`Driver/Pipeline.lean`) import this root module, never a submodule.
 - `Lemmas.lean` — proof support and the aggregator for the files below: the pinned monad `G2NM`,
   its `MonadWriter`/`mvcgen` wiring, and the T1/T3 tactic validation examples.
+- `Lemmas/Trace.lean` — this pass's `Rτ := Eq`, as a `scoped instance` (traces are preserved
+  exactly, reception being unobservable).
 - `Lemmas/Seq.lean` — `SeqBuiltins`, the meaning of the `Head`/`Tail`/`Len(e) > n`/`<<>>`
   expressions this pass builds over `inbox`. Pass-side on purpose: `ExprSemantics` carries the
   value-level sequence vocabulary (`isSeq`/`seqAppend`), Core never names a TLA⁺ builtin.
@@ -406,6 +408,9 @@ Vendored generic proof infrastructure.
   the reducing and aborting semantics denote what their old lfp definitions did. Nothing in the
   compiler depends on any of them.
 - `Denotational/StrongRefinement.lean`, `Denotational/Notations.lean`.
+- `Denotational/Tactics.lean` — `refines_match`/`refines_abort`/`refines_diverge` (choose a
+  refinement obligation's disjunct and supply its witnesses) and `trace_rel`/`trace_pfx` (the `Rτ`
+  and `≼[Rτ]` obligations). Framework-level; leaves goals, never searches.
 - `VerifiedCompiler.lean` (project root) — the library's root module, importing the five above.
   Nothing imports it; it exists so `lake build VerifiedCompiler` resolves. The default target
   (`lean_exe fugue`) reaches none of these files, so a plain `lake build` says nothing about them.

@@ -2,6 +2,7 @@ module
 
 public import Guarded2Network.PlusCal
 public import Guarded2Network.Lemmas.Seq
+public import Guarded2Network.Lemmas.Trace
 public import Guarded2Network.Lemmas.Relation
 public import Core.NetworkPlusCal.Semantics.Lemmas
 public import VerifiedCompiler
