@@ -58,6 +58,34 @@ def OmegaProd.HasProductLimit (ε : Type _) [Monoid ε] [OmegaProd ε] : Prop :=
   ∀ (e r : ℕ → ε) (x : ε), (∀ n, x = Monoid.partialProd e n * r n) →
     (∀ n, ∃ m, n ≤ m ∧ e m ≠ 1) → x = OmegaProd.ωProd e
 
+/-! ## Unfolding the infinite iteration
+
+`R^∞ = R ∘ᵣ₁ R^∞` is the one recursion equation `Relation.omega` might be expected to satisfy for
+free, and it does not: neither inclusion holds without `OmegaProd.HasUnfold`. The states and steps
+line up on both sides regardless — the whole content is the trace, and `OmegaProd` says nothing
+about how the infinite product relates to its own tail. Taking `ωProd _ := 1` on `Multiplicative ℕ`
+and `R = {((), ofAdd 1, ())}` makes the two sides `{((), 1)}` and `{((), ofAdd 1)}`, disjoint.
+-/
+
+/-- The infinite iteration unfolds by one step. Both inclusions need the unfold law; see the section
+comment for the counterexample without it. -/
+theorem Relation.omega_unfold {α ε : Type _} [Monoid ε] [OmegaProd ε]
+    (hunfold : OmegaProd.HasUnfold ε) (R : Set (α × ε × α)) :
+    Relation.omega R = R ∘ᵣ₁ Relation.omega R := by
+  ext ⟨a, e⟩
+  constructor
+  · rintro ⟨σs, es, rfl, hstep, rfl⟩
+    rw [hunfold es]
+    apply Relation.lcomp₁.intro (hstep 0)
+    exact ⟨λ i ↦ σs (i + 1), λ i ↦ es (i + 1), rfl, λ i ↦ hstep (i + 1), rfl⟩
+  · rintro ⟨b, e₁, e₂, hR, ⟨σs, es, rfl, hstep, rfl⟩, rfl⟩
+    refine ⟨λ i ↦ Nat.rec a (λ j _ ↦ σs j) i, λ i ↦ Nat.rec e₁ (λ j _ ↦ es j) i, rfl, ?_, ?_⟩
+    · intro i
+      cases i with
+      | zero => exact hR
+      | succ i => exact hstep i
+    · exact (hunfold (λ i ↦ Nat.rec e₁ (λ j _ ↦ es j) i)).symm
+
 /-! ## The identity, and the hypothesis it needs
 
 Only one inclusion is unconditional. The functional is not contractive when `X` can step emitting

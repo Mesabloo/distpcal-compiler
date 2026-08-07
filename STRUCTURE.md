@@ -385,7 +385,8 @@ Vendored generic proof infrastructure.
   relation algebra its class axiomatizes: `∘ᵣ` (`Relation.Comp`), `⊗ᵣ` (`Relation.rmul`),
   `Relation.LeftTotal`/`MulClosed`/`right_extend`.
 - `ClosedForm.lean` — `Relation.Productive`, the three `OmegaProd.Has*` laws with their `Seq`
-  discharges, and the fixed-point identities. `gfp (λ x, Y ∪ X ∘ᵣ₁ x) = (X* ∘ᵣ₁ Y) ∪ X^∞` is a
+  discharges, `Relation.omega_unfold` (`R^∞ = R ∘ᵣ₁ R^∞`, both inclusions need `HasUnfold`), and
+  the fixed-point identities. `gfp (λ x, Y ∪ X ∘ᵣ₁ x) = (X* ∘ᵣ₁ Y) ∪ X^∞` is a
   characterization only: `⊇` is unconditional, `⊆` needs `Productive`, which `Algebra.step` does
   not satisfy. The two *least* fixed-point identities (`lfp_starFun`, `lfp_divFun`) are checks that
   the reducing and aborting semantics denote what their old lfp definitions did. Nothing in the
