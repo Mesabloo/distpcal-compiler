@@ -1654,14 +1654,23 @@ bespoke transport theorem. `Aborting` and `Diverging` keep a single relation; ne
 state to relate. `Terminating.Id`, `.lfp` and the `Diverging` fixed-point lemmas require `R = S`,
 which is what preservation states.
 
-**`Terminating` also carries a relation between traces, in place of trace equality.** `Behavior`
-carries a reception event: a proof under a semantics where reception is unobservable would say
-nothing about *when* a message is received, which is the one thing Guarded→Network changes. With
-reception observable the two traces are no longer equal — the target receives at its `T_rx` step,
-the source at the consumption site — so the source trace is existentially quantified and related
-to the target's, up to a reordering that preserves, per channel, that a send precedes its matching
-reception. Channel events are indexed by FIFO position, which is what pairs a reception with its
-send and so makes that order expressible.
+**`Terminating` also carries a relation between traces, in place of trace equality.** The source
+trace is existentially quantified and related to the target's by a `Rτ` the pass chooses, rather
+than required equal to it. Vertical and horizontal composition then say how the two passes' `Rτ`s
+combine, instead of every pass in a chain being forced onto one alphabet-level notion of equality.
+
+**Reception is *not* an observable event (reversed, item 7).** An earlier revision of this section
+gave `Behavior` a `recv` constructor — the argument being that a proof under a semantics where
+reception is invisible says nothing about *when* a message is received, which is the one thing
+Guarded→Network changes — and relaxed `Rτ` to happens-before consistency to absorb the resulting
+displacement. That is unsound, not merely expensive: `Guarded2Network` defers consumption to the
+`.rx` thread, so a source block whose guard never holds (`l: receive(ch, x) ; await FALSE ; goto l'`)
+emits nothing at all while the compiled target still pops `ch`. The target event has no source
+counterpart, so no reordering relation can relate the two traces — the mismatch is in the *multiset*
+of events, not their order. `Behavior` is back to `print | send`, `.rx` is silent, and what ties a
+channel's contents to the target's `inbox` is the refinement invariant `relatesTo` on that channel.
+The generalized `Rτ` stays: it is what lets a pass pick its own trace relation, and this pass now
+picks equality (`Trace.instSeq`).
 
 **Correction (landed, item 7 step 3):** the trace relation is not axiom-free. Positive position
 rules out *vacuity* — no degenerate instantiation to exclude — but not *obligations*. Concretely,
@@ -1759,7 +1768,7 @@ with the corresponding least fixed points as checks that the closed forms denote
   overshoots: a step emitting the empty trace makes that endofunction non-contractive, so at
   `step = {(σ, 1, σ)}` it is the identity and its greatest fixed point is `⊤` — `σ` paired with every
   trace whatsoever, rather than with the `1` that execution actually emits. Silent divergence is not
-  a corner case: `Behavior` observes only `print`/`send`/`recv`, so `while TRUE { x := x + 1 }` is an
+  a corner case: `Behavior` observes only `print`/`send`, so `while TRUE { x := x + 1 }` is an
   infinite chain of trace-`1` steps. The paper's closed form,
   `νX. Y ∪ R ∘ᵣ₁ X = (R* ∘ᵣ₁ Y) ∪ R^∞`, is `Relation.gfp_eq_closedForm` in
   `VerifiedCompiler/ClosedForm.lean`, and is

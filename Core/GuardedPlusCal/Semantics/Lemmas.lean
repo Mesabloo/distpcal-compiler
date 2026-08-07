@@ -62,15 +62,14 @@ theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : Trace
 
 theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : Trace V}
     {c r coe}
-    (h : ∃ M F M' cpath rpath v v' vs p,
+    (h : ∃ M F M' cpath rpath v v' vs,
       List.Forall₂ (EvalStep M) c.args cpath ∧
       List.Forall₂ (EvalStep M) r.args rpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
-      M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
-      ε = Stream'.Seq.cons (.recv p ⟨c.name, cpath⟩ v) 1) :
+      ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.receive c r coe) :=
   h
 

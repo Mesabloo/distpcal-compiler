@@ -205,18 +205,22 @@ def Thread.labels : ComputableNetworkPlusCal.Thread → List String
 append it to `inbox`, and jump back to `label` — its own label, which is what makes it a loop.
 Written directly as an `AtomicBranch` rather than built from `Statement`s, because
 `NetworkPlusCal.Statement` has no `receive` — that is the whole point of this pass — and because the
-paper's `tmpₚ` is never assigned, so there is no statement sequence to express. -/
+paper's `tmpₚ` is never assigned, so there is no statement sequence to express.
+
+The branch is **silent**: reception is not in `Behavior`'s alphabet (`GuardedPlusCal`'s
+`Semantics/Denotational.lean`), precisely because this thread pops a channel at a moment the source
+program need never reach. Moving a message from `chan` into `inbox` changes no observable; that the
+two together hold what the source's channel holds is the refinement invariant's job. -/
 def Thread.rxBranch (chan : ComputableNetworkPlusCal.Ref) (label inbox : String) :
     Set (LocalState V false × Trace V × LocalState V true) :=
-  {⟨σ, ε, σ'⟩ | ∃ M F cpath v vs old new p,
+  {⟨σ, ε, σ'⟩ | ∃ M F cpath v vs old new,
     List.Forall₂ (EvalStep M) chan.args cpath ∧
     F.lookup ⟨chan.name, cpath⟩ = .some (v :: vs) ∧
     M.lookup inbox = .some old ∧
     ExprSemantics.seqAppend old v = .some new ∧
-    M.lookup selfName = .some p ∧
     σ = .running M F ∧
     σ' = .done (M.insert inbox new) (F.replace ⟨chan.name, cpath⟩ vs) label ∧
-    ε = Stream'.Seq.cons (.recv p ⟨chan.name, cpath⟩ v) 1
+    ε = 1
   }
 
 /-- Where `Thread.rxBranch` goes wrong. An *empty* channel is not an abort — it blocks, which is

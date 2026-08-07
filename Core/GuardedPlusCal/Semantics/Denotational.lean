@@ -67,15 +67,20 @@ order within one process is recoverable from a trace that interleaves several. W
 `print`s from different processes would be indistinguishable from two `print`s of the same process,
 and their relative order would stop being observable.
 
-`send`/`recv` additionally carry the channel: two events on the same channel are not automatically
-ordered by that alone — a `recv` can commute past a *later*, unrelated `send` on the same channel,
-since a FIFO's queue keeps unrelated messages independent. Which `recv` matches which `send` is not
-recorded here; it is read off a trace positionally (the `n`-th `send` on a channel is the `n`-th
-`recv` on it, FIFO order), not tagged on the event itself. -/
+`send` additionally carries the channel it pushes onto.
+
+**Reception is deliberately not an event.** An earlier design gave `Behavior` a `recv` constructor,
+so that a proof about `Guarded2Network` would say *when* a message leaves its channel. It is
+unsound as an observation of the source program: `Guarded2Network` defers consumption to a `.rx`
+thread that pops the channel ahead of the block that uses the value, and a block whose guard never
+holds — `l: receive(ch, x) ; await FALSE ; goto l'` — then pops a message in the target while the
+source block never reduces at all and so never emits anything. No relation up to reordering
+repairs that: the target event has no source counterpart to be reordered against. What ties the
+channel's contents to the target's `inbox` is the refinement invariant `relatesTo`, per channel,
+which is where trace preservation for reception belongs. -/
 inductive Behavior (V : Type) : Type
   | print (p v : V)
   | send (p : V) (c : ChanKey V) (v : V)
-  | recv (p : V) (c : ChanKey V) (v : V)
 
 /-- The trace alphabet: a possibly-infinite sequence of observable events. `Extra/Seq.lean`'s
 `Monoid (Seq α)` makes it the paper's `⟨T, *, ε, ≤⟩`.
@@ -143,15 +148,14 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
     }
   | true, false, .await e => test e ExprSemantics.tru
   | true, false, .receive c r coe =>
-    {⟨σ, ε, σ'⟩ | ∃ M F M' cpath rpath v v' vs p,
+    {⟨σ, ε, σ'⟩ | ∃ M F M' cpath rpath v v' vs,
       List.Forall₂ (EvalStep M) c.args cpath ∧
       List.Forall₂ (EvalStep M) r.args rpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
-      M.lookup selfName = .some p ∧
       σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
-      ε = Stream'.Seq.cons (.recv p ⟨c.name, cpath⟩ v) 1
+      ε = 1
     }
   | false, false, .skip => idle
   | false, true, .goto label =>

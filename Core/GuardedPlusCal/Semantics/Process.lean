@@ -129,8 +129,8 @@ its steps emit.
 **Not** the greatest fixed point of `X ↦ step ∘ᵣ₁ X`. That functional is not contractive when a
 step can emit the empty trace: at `step = {(σ, 1, σ)}` it is the identity, whose greatest fixed
 point is `⊤` — every trace whatsoever paired with `σ`, rather than the `1` that execution actually
-emits. Silent steps are not a corner case here, since `Behavior` observes only `print`/`send`/`recv`
-and so `while TRUE { x := x + 1 }` is an infinite chain of them. `Relation.omega` takes the product
+emits. Silent steps are not a corner case here, since `Behavior` observes only `print`/`send` and so
+`while TRUE { x := x + 1 }` is an infinite chain of them. `Relation.omega` takes the product
 of what the steps emit and gets this right by construction.
 
 The two agree exactly when `Relation.Productive step` holds, which `Algebra.step` does not satisfy;
