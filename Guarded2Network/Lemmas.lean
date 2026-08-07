@@ -1,7 +1,10 @@
 module
 
 public import Guarded2Network.PlusCal
+public import Guarded2Network.Lemmas.Seq
+public import Guarded2Network.Lemmas.Relation
 public import Core.NetworkPlusCal.Semantics.Lemmas
+public import VerifiedCompiler
 public import Std.Do.WP
 
 @[expose] public section

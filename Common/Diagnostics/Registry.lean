@@ -273,6 +273,16 @@ def bareTemporalOrAction : Entry :=
 def unboundedQuantifier : Entry :=
   { code := e 54, stage := .wellFormedness, summary := "An unbounded quantifier, which has no finite runtime meaning." }
 
+/-- A process receiving from more than one channel. -/
+def receiveChannelMismatch : Entry :=
+  { code := e 62, stage := .wellFormedness,
+    summary := "A process receives from a channel other than the single one it listens on." }
+
+/-- A process set receiving from a channel shared by all of its instances. -/
+def mailboxNotIndexedBySelf : Entry :=
+  { code := e 63, stage := .wellFormedness,
+    summary := "A process set receives from a channel not indexed by 'self'." }
+
 /-! ## `Typed2Computable` -/
 
 /-- A construct with no finite runtime representation. -/
@@ -362,7 +372,7 @@ def entries : List Entry :=
     notAChannelType, notShowable, notSendable, unconstrainedMetavariable,
     unknownLabel, redefinedDone, duplicateName, shadowedName, channelInExpression,
     channelTypedVariable, nonEmptyLocalChannels, globalPlusCalVariable, globalTLAPlusVariable,
-    bareTemporalOrAction, unboundedQuantifier,
+    bareTemporalOrAction, unboundedQuantifier, receiveChannelMismatch, mailboxNotIndexedBySelf,
     notComputable, computableInternalInvariant, guardedInternalInvariant, networkInternalInvariant,
     goInternalInvariant, goUnsupported,
     moduleNameMismatch,

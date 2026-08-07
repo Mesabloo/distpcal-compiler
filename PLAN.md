@@ -633,6 +633,32 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
   exists in `ComputableTLAPlus.Expression` at all, and `forall`/`exists`/`choose`'s domain
   field is a plain `Expression`, not `Option (Expression)` — enforced structurally.
 
+- **One receiving channel per process** (`WellFormednessError.receiveChannelMismatch`, not in the
+  thesis, added during phase 10 item 7). Every `receive` in a process must name the same channel:
+  its declared `@mailbox` if it has one, otherwise whatever channel the process's first `receive`
+  names. Index expressions count — `agt[self]` and `agt[other]` are different channels, compared
+  syntactically. **This is a precondition of `Guarded2Network` (§5.5) being correct at all**, not a
+  stylistic restriction: that pass gives a process one shared `inbox` sequence fed by a `.rx` thread
+  per channel, so with two channels the consumption site `x := Head(inbox)` cannot tell which
+  channel a message arrived on, and `.rx` threads are deduplicated by channel *name*, which drops
+  the second of `agt[self]`/`agt[other]` outright. The paper (`reference/jlamp.pdf` §4.1) assumes
+  this by construction — its `rxₚ` drains `mailboxₚ` — so checking it here is what lets the
+  refinement proof take it as a hypothesis it did not invent. Unlike this pass's other checks it is
+  process-scoped rather than expression-scoped, so it runs as its own walk
+  (`TypedPlusCal.Algorithm.checkReceiveChannels`) instead of a callback of the shared reachability
+  walk, whose `visitStatement` has no idea which process a statement came from.
+- **A process set's channel must be indexed by `self`**
+  (`WellFormednessError.mailboxNotIndexedBySelf`, also new in phase 10 item 7). For a `∈`-shaped
+  process — `process (a \in Agents)` — the channel every `receive` names must mention `self`
+  somewhere in its index path: `agt[self]`, not `coord`. One channel per process *text* is not one
+  channel per *instance*, and an unindexed channel gives every instance of the set the same FIFO,
+  so the messages one instance drains into its `inbox` are messages its siblings were equally
+  entitled to. The refinement invariant is then not merely hard to prove but unstateable: the
+  source FIFO would have to equal several instances' inboxes concatenated, with nothing fixing the
+  order. `chan[self]` resolves to a distinct `ChanKey` per instance, which is what makes each
+  instance's `inbox` account for exactly its own channel. `=`-shaped processes are single
+  instances and are exempt.
+
 ### 5.3 Type checking
 **Input:** `CoreTLAPlus`/`CorePlusCal`. **Output:** `TypedTLAPlus`/`TypedPlusCal`.
 
@@ -1671,6 +1697,17 @@ of events, not their order. `Behavior` is back to `print | send`, `.rx` is silen
 channel's contents to the target's `inbox` is the refinement invariant `relatesTo` on that channel.
 The generalized `Rτ` stays: it is what lets a pass pick its own trace relation, and this pass now
 picks equality (`Trace.instSeq`).
+
+**The expression interface carries four laws and a sequence vocabulary.** `ExprSemantics`
+(`Core/ComputableTLAPlus/Semantics/Interface.lean`) holds `evalUnique` (an expression has at most one
+value — non-determinism enters through `with x ∈ S` and scheduling, never through an expression),
+`evalLocal`, `evalSubst`, `evalExcept`, and the value-level sequence pair `isSeq`/`seqAppend` with
+`isSeq_inj`/`seqAppend_isSeq`. `evalUnique` is what makes a channel `Ref`'s index path resolve to
+one `ChanKey` (`EvalStep.inj`/`.path_inj`), without which the Guarded→Network invariant cannot name
+the FIFO a `receive` reads. What a *TLA⁺ builtin* means stays out of Core: the `Head`/`Tail`/
+`Len(e) > n`/`<<>>` expressions `Guarded2Network` emits get their laws from that pass's own
+`SeqBuiltins` class (`Guarded2Network/Lemmas/Seq.lean`), taken instance-implicit by the refinement
+theorems.
 
 **Correction (landed, item 7 step 3):** the trace relation is not axiom-free. Positive position
 rules out *vacuity* — no degenerate instantiation to exclude — but not *obligations*. Concretely,

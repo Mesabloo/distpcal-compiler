@@ -2,6 +2,7 @@ module
 
 public import Guarded2Network.Errors
 public import Guarded2Network.PlusCal
+public import Guarded2Network.Lemmas
 
 public section
 

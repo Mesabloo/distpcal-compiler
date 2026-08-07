@@ -87,16 +87,27 @@ abbrev Guarded2NetworkChans := List (String × ComputableTLAPlus.Typ)
 private def declsChans (decls : ComputableGuardedPlusCal.Declarations) : Guarded2NetworkChans :=
   (decls.channels ++ decls.fifos).map λ (x, τ, _) ↦ (x, τ)
 
-private def head (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
+namespace Guarded2Network
+
+/-! The three sequence expressions this pass builds over `inbox`. Public, and namespaced rather
+than file-private, because the refinement proof has to state what they *mean* — `Guarded2Network/
+Lemmas/Seq.lean`'s `SeqBuiltins` gives each one its evaluation law, and a law about a private
+definition cannot be written at all. -/
+
+/-- `Head(e)`. -/
+def head (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
   .opCall (.var "Head" (.operator [.seq τ] τ) (.module "Sequences")) [e]
 
-private def tail (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
+/-- `Tail(e)`. -/
+def tail (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
   .opCall (.var "Tail" (.operator [.seq τ] (.seq τ)) (.module "Sequences")) [e]
 
 /-- `Len(e) > n`, `n` a literal `Nat`. -/
-private def lenGt (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) (n : Nat) : ComputablePlusCal.Expression :=
+def lenGt (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) (n : Nat) : ComputablePlusCal.Expression :=
   .opCall (.var ">" (.operator [.int, .int] .bool) (.module "Naturals"))
     [.opCall (.var "Len" (.operator [.seq τ] .int) (.module "Sequences")) [e], .nat (toString n)]
+
+end Guarded2Network
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty G2NError m]
 
@@ -139,9 +150,9 @@ private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String)
       set { st with
         i := st.i + 1
         newInstrs := st.newInstrs
-          ++ [(r, coe.applyComputable (head τ inboxVar), pos), (inboxRef, tail τ inboxVar, pos)]
+          ++ [(r, coe.applyComputable (Guarded2Network.head τ inboxVar), pos), (inboxRef, Guarded2Network.tail τ inboxVar, pos)]
         rxs := st.rxs.concat (c, τ) }
-      pure <| .await (lenGt τ inboxVar st.i) @@ pos
+      pure <| .await (Guarded2Network.lenGt τ inboxVar st.i) @@ pos
 
 /-- Walk one branch's precondition block (`none` for a branch with no guards), threading
 substitution of every already-processed `receive` into later `await`/`with` guards — see the

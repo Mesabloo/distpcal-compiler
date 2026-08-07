@@ -47,6 +47,15 @@ inductive WellFormednessError : Type
   somewhere the algorithm's expressions reach — same direct-vs-transitive `path` shape as
   `bareTemporalOrAction`. -/
   | unboundedQuantifier (pos : SourceSpan) (path : List String)
+  /-- A process `receive`s from a channel other than the one it already listens on — its declared
+  `@mailbox` if it has one, otherwise the channel its first `receive` names. `expected`/`found` are
+  the two channels' names; they can be equal and the channels still differ, when the index
+  expressions do (`agt[self]` vs `agt[other]`), which `indicesDiffer` distinguishes. -/
+  | receiveChannelMismatch (pos : SourceSpan) (process : String) (expected : String)
+      (found : String) (indicesDiffer : Bool)
+  /-- A `∈`-shaped process (a process *set*) receives from a channel whose index path does not
+  mention `self`, so every instance of the set would drain the same FIFO. -/
+  | mailboxNotIndexedBySelf (pos : SourceSpan) (process : String) (channel : String)
   deriving Repr, Inhabited, BEq
 
 /-- Renders a direct-vs-transitive `path` breadcrumb (innermost first) as "directly in a
@@ -71,6 +80,8 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .globalTLAPlusVariable .. => Diagnostics.globalTLAPlusVariable.code
     | .bareTemporalOrAction .. => Diagnostics.bareTemporalOrAction.code
     | .unboundedQuantifier .. => Diagnostics.unboundedQuantifier.code
+    | .receiveChannelMismatch .. => Diagnostics.receiveChannelMismatch.code
+    | .mailboxNotIndexedBySelf .. => Diagnostics.mailboxNotIndexedBySelf.code
   posOf
     | .unknownLabel pos _ => pos
     | .redefinedDone pos => pos
@@ -83,6 +94,8 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .globalTLAPlusVariable pos _ _ => pos
     | .bareTemporalOrAction pos _ _ => pos
     | .unboundedQuantifier pos _ => pos
+    | .receiveChannelMismatch pos _ _ _ _ => pos
+    | .mailboxNotIndexedBySelf pos _ _ => pos
   msgOf
     | .unknownLabel _ label => s!"`goto {label}` targets a label that doesn't exist in this process."
     | .redefinedDone _ => "`Done` is a reserved label and cannot be redefined."
@@ -95,5 +108,12 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .globalTLAPlusVariable _ name definedIn => s!"`{name}` is a `VARIABLE` declared in module `{definedIn}` — a Distributed PlusCal algorithm may not reference module-level `VARIABLE`s."
     | .bareTemporalOrAction _ op path => s!"`{op}` is a temporal/action operator, {renderPath path} — not allowed anywhere in a Distributed PlusCal algorithm."
     | .unboundedQuantifier _ path => s!"Unbounded quantifier (no domain), {renderPath path} — not allowed anywhere in a Distributed PlusCal algorithm."
+    | .receiveChannelMismatch _ process expected found indicesDiffer =>
+      if indicesDiffer then
+        s!"Process `{process}` receives from `{found}` at two different indices — those are two different channels, and a process may only receive from one."
+      else
+        s!"Process `{process}` receives from `{found}` as well as from `{expected}` — a process may only receive from one channel."
+    | .mailboxNotIndexedBySelf _ process channel =>
+      s!"Process set `{process}` receives from `{channel}`, one channel shared by every instance — a process set's channel must be indexed by `self` (`{channel}[self]`), so that each instance has its own."
 
 end

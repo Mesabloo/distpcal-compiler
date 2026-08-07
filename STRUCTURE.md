@@ -199,8 +199,12 @@ Assignment-conflict checking stays ad hoc in `Desugarer/PlusCal.lean`, not dupli
   `visitExpr`): no channel value inside an ordinary expression (or in `assign`'s/`receive`'s
   non-channel `Ref` positions, `Statement.checkRefRestrictions`), no reference to a module-level
   `VARIABLE`, no bare/transitive temporal or action operator, no unbounded quantifier —
-  transitively through every operator/function the algorithm calls.
-- `WellFormedness.lean` — ties the four checks together; `TypedTLAPlus.Module.checkWellFormed`
+  transitively through every operator/function the algorithm calls. Also carries
+  `Algorithm.checkReceiveChannels`, outside that walk: every `receive` of one process names the
+  same channel (its `@mailbox` if declared, else the first `receive`'s channel), and a `∈`-shaped
+  process indexes that channel by `self` — together, what `Guarded2Network`'s single `inbox` per
+  process instance requires.
+- `WellFormedness.lean` — ties the five checks together; `TypedTLAPlus.Module.checkWellFormed`
   is the entry point `Driver/Modules.lean` calls.
 
 ## `Typed2Computable/`
@@ -257,7 +261,16 @@ Distributed → Guarded PlusCal (§5.4, thesis ch. 3.2) — **done** (phase 9).
 Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement proof pending** (phase
 10, current work).
 - `PlusCal.lean` — the pass (`guarded.toNetwork`), not split into subpasses.
-- `Errors.lean`, entry point `Guarded2Network.lean`.
+- `Errors.lean`, entry point `Guarded2Network.lean` — which imports `Lemmas.lean` too, so building
+  the executable checks the proofs (see `INSTRUCTIONS.md` §Build & iterate). Consumers
+  (`Driver/Pipeline.lean`) import this root module, never a submodule.
+- `Lemmas.lean` — proof support and the aggregator for the files below: the pinned monad `G2NM`,
+  its `MonadWriter`/`mvcgen` wiring, and the T1/T3 tactic validation examples.
+- `Lemmas/Seq.lean` — `SeqBuiltins`, the meaning of the `Head`/`Tail`/`Len(e) > n`/`<<>>`
+  expressions this pass builds over `inbox`. Pass-side on purpose: `ExprSemantics` carries the
+  value-level sequence vocabulary (`isSeq`/`seqAppend`), Core never names a TLA⁺ builtin.
+- `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
+  named introduction/projection lemmas instead of positional `conv … enter` navigation.
 - Missing: `Semantics/Denotational.lean`/`Semantics/Lemmas.lean` for `GuardedPlusCal`/
   `NetworkPlusCal`, and `Guarded2Network/Lemmas.lean` itself (§6.2). The well-scopedness
   precondition is ported (`WellFormedness/WellScoped/GuardedPlusCal.lean`).

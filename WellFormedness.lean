@@ -8,14 +8,14 @@ public import Elaborator
 
 public section
 
-/-! Ties `WellFormedness/`'s four checks together, mirroring `Elaborator/Elaborator.lean`'s role
+/-! Ties `WellFormedness/`'s five checks together, mirroring `Elaborator/Elaborator.lean`'s role
 for type checking: one entry point, called on `Driver/Modules.lean`'s `compileModule` output right
 after type checking succeeds, from outside the driver (`Fugue.lean`) — the driver's own job stops
 at type checking plus caching. -/
 
-/-- `Labelling` → `WellScoped` → `Declarations` → `Restrictions`, in that order, against a
-module's own embedded `pcalAlgorithm` — a no-op if it has none (an ordinary TLA⁺ module with no
-PlusCal algorithm has nothing for any of these four checks to say anything about).
+/-- `Labelling` → `WellScoped` → `Declarations` → `Restrictions` → `ReceiveChannels`, in that
+order, against a module's own embedded `pcalAlgorithm` — a no-op if it has none (an ordinary TLA⁺
+module with no PlusCal algorithm has nothing for any of these five checks to say anything about).
 `Restrictions`'s global-variable-reference and transitive-call checks need the whole module, not
 just the algorithm — its own `declarations₁ ++ declarations₂` (to resolve a same-module
 `Origin.module mod.name` reference without a `lookupForeign` round-trip) and `mod.name` (to tell a
@@ -30,5 +30,6 @@ def TypedTLAPlus.Module.checkWellFormed {m : Type → Type} [Monad m]
     TypedPlusCal.Algorithm.checkWellScoped algo
     TypedPlusCal.Algorithm.checkDeclarations algo
     TypedPlusCal.Algorithm.checkRestrictions mod.name (mod.declarations₁ ++ mod.declarations₂) algo
+    TypedPlusCal.Algorithm.checkReceiveChannels algo
 
 end

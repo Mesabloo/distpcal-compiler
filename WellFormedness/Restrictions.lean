@@ -114,6 +114,98 @@ def TypedPlusCal.Statement.checkRefRestrictions {b} (s : TypedPlusCal.Statement 
   | .receive _ r _, pos => checkNotChannel pos (TypedPlusCal.Ref.resultType r)
   | _, _ => pure ()
 
+/-! ## One receiving channel per process
+
+  `Guarded2Network` (§5.5) compiles every `receive` in a process into reads off **one** shared
+  `inbox` sequence, fed by a `.rx` thread per channel. That is only faithful while a process
+  receives from a single channel: with two, both `.rx` threads append into the same `inbox`, the
+  channel a message came from is no longer recoverable at the consumption site, and
+  `x := Head(inbox)` can hand a `receive(c₂, x)` a message that arrived on `c₁`. The pass's own
+  per-thread dedup compounds it — `.rx` threads are deduplicated by channel *name*, so
+  `receive(agt[self], …)` and `receive(agt[other], …)` in one thread produce a single `.rx` thread
+  draining only the first.
+
+  The paper (`reference/jlamp.pdf` §4.1) assumes this away by construction: its `rxₚ` drains
+  `mailboxₚ`, the one channel a process listens on. Checked here rather than assumed, so the
+  refinement proof's precondition is one the front end actually enforces.
+
+  The reference channel is the process's declared `@mailbox` when it has one, and otherwise the
+  channel its first `receive` names — an `@mailbox` annotation is optional (`tests/examples/
+  TwoPhaseCommit.tla` declares none and still receives), so requiring one would reject working
+  programs.
+
+  **A process *set* additionally has to index its channel by `self`.** `process (a \in Agents)`
+  declares many instances at once, and one channel per *process text* is not one channel per
+  *instance*: `receive(coord, m)` would give every instance the same FIFO, so the messages one
+  instance drains into its own `inbox` are messages another instance was equally entitled to. The
+  refinement invariant cannot even be stated there — the source FIFO would have to equal several
+  instances' inboxes concatenated, with nothing fixing the order. `chan[self]` resolves to a
+  different `ChanKey` per instance, which is what makes each instance's `inbox` account for exactly
+  its own channel. A `=`-shaped process is a single instance and needs no such index.
+-/
+
+/-- Path-segment equality for a channel `Ref`'s `args`. Field segments compare as names, index
+segments as whole expressions (`TypedTLAPlus.Expression` derives `BEq`) — syntactic equality, which
+is what the pass's own name-based `.rx` dedup can see. Two indices that are equal only semantically
+(`agt[self]` vs `agt[Id(self)]`) are reported as different channels; conservative in the safe
+direction. -/
+private def sameArg : (String ⊕ TypedPlusCal.Expression) → (String ⊕ TypedPlusCal.Expression) → Bool
+  | .inl f₁, .inl f₂ => f₁ == f₂
+  | .inr e₁, .inr e₂ => e₁ == e₂
+  | _, _ => false
+
+/-- The channel a process listens on, in the shape both a `@mailbox` annotation (`String × List
+Expression`, index expressions only) and a `receive`'s channel `Ref` (`String × List (String ⊕
+Expression)`, field or index segments) can be put into. -/
+private abbrev ChannelRef := String × List (String ⊕ TypedPlusCal.Expression)
+
+private def refChannel (c : TypedPlusCal.Ref) : ChannelRef := (c.name, c.args)
+
+/-- Whether a channel reference is indexed by `self` somewhere in its path. `"self"` is the name
+`Elaborator/PlusCal.lean` binds a process instance's own identity to, and a reference to it is an
+ordinary `.var` by the time this pass runs. -/
+private def indexedBySelf (c : ChannelRef) : Bool :=
+  c.2.any λ | .inr (.var "self" _ _) => true | _ => false
+
+private def mailboxChannel : String × List TypedPlusCal.Expression → ChannelRef
+  | (name, es) => (name, es.map .inr)
+
+/-- One process's receives, checked against `expected` — the process's `@mailbox` if declared, else
+filled in by the first `receive` seen. `StateT` rather than a fold so the first `receive` can
+install the reference channel for the rest of the walk. -/
+private def checkOneReceive (process : String) (isProcessSet : Bool)
+    (s : TypedPlusCal.Statement false) (pos : SourceSpan) : StateT (Option ChannelRef) m Unit :=
+  match s with
+  | .receive c _ _ => do
+    let found := refChannel c
+    if isProcessSet && !indexedBySelf found then
+      throw (.mailboxNotIndexedBySelf pos process found.1)
+    match ← get with
+    | none => set (some found)
+    | some expected =>
+      if expected.1 == found.1 && List.isEqv expected.2 found.2 sameArg then pure ()
+      else throw (.receiveChannelMismatch pos process expected.1 found.1
+        (indicesDiffer := expected.1 == found.1))
+  | _ => pure ()
+
+/-- Every `receive` reachable in `p` — including those nested inside `if`/`while`/`either`/`with`
+(`Statement.forEachNode`) — names the same channel, indexed by `self` when `p` is a process set
+(`«=|∈» = false` is the `∈` case: `Parser_/PlusCal.lean` sets `true` for `=`). -/
+def TypedPlusCal.Process.checkReceiveChannels (p : TypedPlusCal.Process) : m Unit :=
+  let visit : ∀ {b}, TypedPlusCal.Statement b → StateT (Option ChannelRef) m Unit :=
+    λ {b} s ↦ match_source s with
+      | s@(.receive ..), pos => checkOneReceive p.name (!p.«=|∈») s pos
+      | _, _ => pure ()
+  let go : StateT (Option ChannelRef) m Unit :=
+    ElaboratedPlusCal.Process.forStatements (λ {_} s ↦ ElaboratedPlusCal.Statement.forEachNode visit s) p
+  go.run' (p.mailbox.map mailboxChannel)
+
+/-- `Process.checkReceiveChannels` over every process of `algo`. Kept out of
+`Algorithm.checkRestrictions`'s shared walk: that walk's `visitStatement` callback sees a statement
+with no record of which process it came from, and this check is process-scoped by nature. -/
+def TypedPlusCal.Algorithm.checkReceiveChannels (algo : TypedPlusCal.Algorithm) : m Unit :=
+  algo.processes.forM TypedPlusCal.Process.checkReceiveChannels
+
 /-- Runs all the above checks over a whole algorithm, via the shared
 `TypedPlusCal.Algorithm.walkReachable` (`WellFormedness/Reachability.lean`), supplying
 `Statement.checkRefRestrictions`/`Expression.checkNode` as its two callbacks. `currentModule`/

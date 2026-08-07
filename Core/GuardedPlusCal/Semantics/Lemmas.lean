@@ -27,6 +27,39 @@ namespace GuardedPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
 
+/-! # Path resolution is deterministic
+
+  `Ref.args` resolves to a `List (PathStep V)` through `EvalStep`, and a `ChanKey` is a channel's
+  name paired with that list — so a reference names *the* FIFO it reads only if the resolution is
+  unique. It is, because `ExprSemantics.evalUnique` says an expression has at most one value; the
+  two lemmas below are that fact lifted over one segment and over a whole path.
+-/
+
+section Resolution
+
+variable {V : Type} [ExprSemantics V] {M : Memory V}
+
+/-- One path segment resolves to at most one `PathStep`. -/
+theorem EvalStep.inj {a : String ⊕ ComputablePlusCal.Expression} {p q : ComputableTLAPlus.PathStep V}
+    (h₁ : EvalStep M a p) (h₂ : EvalStep M a q) : p = q := by
+  cases h₁ with
+  | field f => cases h₂; rfl
+  | index hv =>
+    cases h₂ with
+    | index hw => rw [ExprSemantics.evalUnique hv hw]
+
+/-- A whole `Ref.args` resolves to at most one path. -/
+theorem EvalStep.path_inj {args : List (String ⊕ ComputablePlusCal.Expression)}
+    {p q : List (ComputableTLAPlus.PathStep V)}
+    (h₁ : List.Forall₂ (EvalStep M) args p) (h₂ : List.Forall₂ (EvalStep M) args q) : p = q := by
+  induction h₁ generalizing q with
+  | nil => cases h₂; rfl
+  | cons hhd _ ih =>
+    cases h₂ with
+    | cons hhd' htl' => rw [EvalStep.inj hhd hhd', ih htl']
+
+end Resolution
+
 /-! # Constructor-intro lemmas
 
   Restate each constructor's `Statement.reducing`/`.aborting` case as a named lemma whose
@@ -527,6 +560,35 @@ variable {V : Type}
 
 /-- `LocalState` with the terminality index traded for an `Option String` field. -/
 abbrev LocalState' (V : Type) : Type := Memory V × FIFOs V × Option String
+
+/-! Named projections of `LocalState'`. It is a nested anonymous product, so its components are
+otherwise reachable only as `σ.1`/`σ.2.1`/`σ.2.2` or by destructuring at every binding site — and
+the refinement proof binds a state roughly four times per lemma across dozens of lemmas. Named
+projections let those proofs `intro σₜ σₜ' ε σₛ` with no pattern at all and reach components by
+name, destructuring only where a proof genuinely case-splits on the label. Kept an `abbrev` rather
+than promoted to a structure so `toLocalState'_inj` and the `*_eq_map` lemmas below are unaffected;
+the `@[simp]` equations put each projection back into component form on demand. -/
+
+/-- The memory component. -/
+def LocalState'.mem (σ : LocalState' V) : Memory V := σ.1
+
+/-- The FIFO component. -/
+def LocalState'.fifos (σ : LocalState' V) : FIFOs V := σ.2.1
+
+/-- The label component: `none` while running, `some l` once the block has jumped to `l`. -/
+def LocalState'.label (σ : LocalState' V) : Option String := σ.2.2
+
+@[simp] theorem LocalState'.mem_mk (M : Memory V) (F : FIFOs V) (l : Option String) :
+    LocalState'.mem ⟨M, F, l⟩ = M := rfl
+
+@[simp] theorem LocalState'.fifos_mk (M : Memory V) (F : FIFOs V) (l : Option String) :
+    LocalState'.fifos ⟨M, F, l⟩ = F := rfl
+
+@[simp] theorem LocalState'.label_mk (M : Memory V) (F : FIFOs V) (l : Option String) :
+    LocalState'.label ⟨M, F, l⟩ = l := rfl
+
+@[simp] theorem LocalState'.mk_mem_fifos_label (σ : LocalState' V) :
+    (⟨σ.mem, σ.fifos, σ.label⟩ : LocalState' V) = σ := rfl
 
 /-- `LocalState` in the flat encoding. -/
 def LocalState.toLocalState' : {b : Bool} → LocalState V b → LocalState' V

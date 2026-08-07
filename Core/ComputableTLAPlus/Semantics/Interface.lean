@@ -78,9 +78,37 @@ class ExprSemantics (V : Type) where
   TLA⁺'s `Append(s, v)`. Needed by `NetworkPlusCal.Thread.rx`, which drains a channel into a
   process-local sequence. -/
   seqAppend : V → V → Option V
+  /-- `isSeq s vs` — `s` is the sequence value whose elements are `vs`, in order. The link between
+  the value world and a `List V` the `Guarded2Network` refinement invariant can compare against a
+  FIFO's contents: that pass's `inbox` is a sequence *value*, while the channel it mirrors is a
+  `List V`, and nothing else in this class can bridge the two.
+
+  A relation rather than a partial function to a list, for the same reason `Eval` is one: it is a
+  fact about a value, not a computation, and a value that is not a sequence is simply related to
+  no list. Kept element-level (no `isSeq`-vs-`seqAppend` well-formedness field): `seqAppend_isSeq`
+  below is the only interaction the semantics needs. -/
+  isSeq : V → List V → Prop
+  /-- A value is the sequence of at most one element list. -/
+  isSeq_inj {s : V} {vs ws : List V} : isSeq s vs → isSeq s ws → vs = ws
+  /-- Appending to a sequence value always succeeds, and appends to its element list. Stated as
+  existence rather than as an equation on a given result so that `seqAppend`'s *totality on
+  sequences* is part of the law — `Thread.rxBranch` treats a failed append as an abort, which must
+  not be reachable when `inbox` really holds a sequence. -/
+  seqAppend_isSeq {s v : V} {vs : List V} : isSeq s vs →
+    ∃ s', seqAppend s v = some s' ∧ isSeq s' (vs ++ [v])
   /-- `coerce c v v'` — applying the coercion `c` to `v` yields `v'`. The value-level counterpart of
   `Coercion.apply`/`Coercion.applyComputable`, which act on expressions. -/
   coerce : TypedTLAPlus.Coercion → V → V → Prop
+  /-- An expression has at most one value. `Eval` is a relation because evaluation may *fail* to
+  have a derivation, not because a TLA⁺ expression could denote two things — non-determinism enters
+  the PlusCal semantics through `with x ∈ S` and process scheduling, never through an expression.
+
+  Load-bearing rather than cosmetic: a `Ref`'s index path resolves through `EvalStep`, so without
+  this a channel reference could resolve to two different `ChanKey`s at once and the refinement
+  invariant could not name *the* FIFO a `receive` reads (`Guarded2Network/Lemmas/Relation.lean`'s
+  `relatesTo`). `EvalStep.path_inj` (`Core/GuardedPlusCal/Semantics/Lemmas.lean`) is that
+  consequence. -/
+  evalUnique {M : Memory V} {e : Expression Typ} {v w : V} : Eval M e v → Eval M e w → v = w
   /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
   agreeing results. Replaces prior art's `eval_ext`/`eval_mem_ext`. -/
   evalLocal {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
@@ -106,6 +134,15 @@ variable {V : Type} [ExprSemantics V]
 
 @[inherit_doc ExprSemantics.Eval]
 notation:60 M:60 " ⊢ " e:0 " ⇒ " v:60 => ExprSemantics.Eval M e v
+
+/-- `seqAppend_isSeq` read against a result already in hand: `seqAppend` is a function, so its
+`some` result is *the* one the law produces. -/
+theorem isSeq_of_seqAppend {s v s' : V} {vs : List V} (h : ExprSemantics.isSeq s vs)
+    (h' : ExprSemantics.seqAppend s v = some s') : ExprSemantics.isSeq s' (vs ++ [v]) := by
+  obtain ⟨s'', happ, hseq⟩ := ExprSemantics.seqAppend_isSeq (v := v) h
+  rw [h'] at happ
+  obtain rfl := Option.some.inj happ
+  exact hseq
 
 /-- `M ⊢ e ↯` — `e` has no value at all under `M`. Derived rather than assumed: with `Eval` a
 relation, "no derivation tree" already *is* the meaning of "no value", so nothing links the two

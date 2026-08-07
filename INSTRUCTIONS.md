@@ -96,6 +96,22 @@ memory of it.
 ## Build & iterate
 
 - `lake build` standard. Prior art's dev-mode CLI wrapper (`fugue.sh`) reasonable model.
+- **Every semantics/proof module must be reachable from the executable's imports.** `lake build`
+  with no target builds `lean_exe fugue` and nothing else, so a module outside `Fugue.lean`'s import
+  closure is never elaborated — and its *stale olean is replayed silently*, meaning `lake build`
+  reports success over source that no longer compiles. This bit twice before it was diagnosed. The
+  fix is structural, not a longer build command: a pass's root module imports its own proof files
+  (`Guarded2Network.lean` imports `Guarded2Network.Lemmas`, which imports `Lemmas/*` and
+  `VerifiedCompiler`), so `lake build` checks everything. **A new proof file is only checked once
+  something imports it** — wire it into the pass's `Lemmas.lean` as you create it.
+- **Consumers import a pass's root module, not its submodules.** `Driver/Pipeline.lean` imports
+  `Guarded2Network`, never `Guarded2Network.PlusCal`.
+- Suspect a module was skipped? Compare timestamps — an olean older than its source means nothing
+  built it, whatever the build said:
+
+  ```bash
+  ls -lT .lake/build/lib/lean/Core/GuardedPlusCal/Semantics/Lemmas.olean Core/GuardedPlusCal/Semantics/Lemmas.lean
+  ```
 - Build incrementally per plan's phase order — each phase leaves project buildable, even
   with parts stubbed `sorry`/`throw`. "Whole pipeline not done" doesn't block a complete,
   buildable phase.
