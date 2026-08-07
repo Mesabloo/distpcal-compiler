@@ -76,8 +76,8 @@ theorem relatesTo.eval_iff' {mbox : Mailbox} {σₛ σₜ : LocalState' V} (h : 
 /-- A reference's index path, evaluated. Named, rather than left as the raw `List.Forall₂` it
 unfolds to, so that transferring it between memories is one lemma about `EvalArgs` instead of a
 `Forall₂`-induction at every use site. -/
-def Ref.EvalArgs (M : Memory V) (r : ComputableGuardedPlusCal.Ref) (path : List (PathStep V)) :
-    Prop :=
+abbrev Ref.EvalArgs (M : Memory V) (r : ComputableGuardedPlusCal.Ref)
+    (path : List (PathStep V)) : Prop :=
   List.Forall₂ (EvalStep M) r.args path
 
 /-- A path resolves to at most one value — `EvalStep.path_inj`, at the named relation. -/
@@ -163,6 +163,14 @@ theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuarde
             exact (ExprSemantics.evalLocal (hhead _ rfl)).mpr hv
   exact step r.args path (λ e he hx ↦ fresh (Ref.freeVars_of_mem_args he hx))
 
+/-- With no mailbox the two states are equal outright — the three projections exhaust
+`LocalState'`. Lets the no-`receive` case of every simulation below close immediately. -/
+theorem relatesTo.eq_of_none {σₛ σₜ : LocalState' V} (h : σₛ ∼[.none] σₜ) : σₛ = σₜ := by
+  obtain ⟨M₁, F₁, l₁⟩ := σₛ
+  obtain ⟨M₂, F₂, l₂⟩ := σₜ
+  obtain ⟨hl, hm, hf⟩ := h
+  simp_all
+
 /-! ## Transferring a memory update
 
   `assign` (and, on the source side, `receive`) writes through `Memory.update`. Simulating that step
@@ -193,6 +201,30 @@ theorem Memory.update_transfer {M₁ M₂ M₁' : Memory V} {inbox x : String}
   · rw [AList.lookup_insert_ne hyx, AList.lookup_insert_ne hyx]
     exact agree y hy
 
+/-- An update touches only the name it writes. What keeps the refinement invariant's *other*
+components — the mailbox channel's resolved path, and `inbox`'s own contents — undisturbed by an
+`assign` to some third variable. -/
+theorem Memory.lookup_update_ne {M M' : Memory V} {x y : String} {path : List (PathStep V)} {v : V}
+    (h : ComputableTLAPlus.Memory.update M x path v = .some M') (hy : y ≠ x) :
+    M'.lookup y = M.lookup y := by
+  unfold ComputableTLAPlus.Memory.update at h
+  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
+  obtain ⟨old, -, new, -, h⟩ := h
+  obtain rfl := Option.some.inj h
+  exact AList.lookup_insert_ne hy
+
+/-- An update fails in one memory exactly when it fails in any memory agreeing at the written name:
+both read the same old value and run the same `updatePath` on it. The aborting counterpart of
+`Memory.update_transfer`. -/
+theorem Memory.update_none_transfer {M₁ M₂ : Memory V} {x : String} {path : List (PathStep V)}
+    {v : V} (hlk : M₁.lookup x = M₂.lookup x)
+    (h : ComputableTLAPlus.Memory.update M₂ x path v = .none) :
+    ComputableTLAPlus.Memory.update M₁ x path v = .none := by
+  unfold ComputableTLAPlus.Memory.update at h ⊢
+  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_none_iff] at h ⊢
+  intro old hold new hnew
+  exact absurd (h old (hlk ▸ hold) new hnew) (by simp)
+
 /-! ## D4 — action statements
 
   `convertActionStmt` maps each of the seven action constructors to its namesake in the target
@@ -201,6 +233,292 @@ theorem Memory.update_transfer {M₁ M₂ M₁' : Memory V} {inbox x : String}
   `receive` case). So the semantics is not merely preserved but *definitionally equal*, and the
   seven-lemma port prior art writes collapses to one `cases … <;> rfl` per semantic component.
 -/
+
+/-- The one name a statement writes, if any. Needed by `Fresh` below: the refinement invariant pins
+*one* resolved channel key, so a statement that overwrote a variable the mailbox channel is indexed
+by would move that key out from under it. -/
+def Statement.writtenName? {b b' : Bool} :
+    ComputableGuardedPlusCal.Statement b b' → Option String
+  | .assign r _ => .some r.name
+  | .receive _ r _ => .some r.name
+  | _ => .none
+
+/-- What an action statement must avoid for the pass's `inbox` not to disturb it: the statement
+cannot read `inbox`, and `inbox` cannot be `self` — `print`/`send` read `self` to tag the event they
+emit, which is a name the *semantics* reads on its own and so is invisible to a freshness condition
+stated over the statement's free variables. Both hold of any real compilation: `freshName`'s `$`
+separator puts `inbox` outside the source program's namespace entirely. -/
+def Fresh (mbox : Mailbox) {b : Bool} (S : ComputableGuardedPlusCal.Statement false b) : Prop :=
+  ∀ c inbox, mbox = .some (c, inbox) →
+    inbox ∉ GuardedPlusCal.Statement.freeVars S ∧ inbox ≠ GuardedPlusCal.selfName ∧
+      ∀ x, Statement.writtenName? S = .some x → x ∉ GuardedPlusCal.Ref.freeVars c
+
+/-- The workhorse behind `action_refines`: an action statement's semantics is closed under
+`relatesTo`. Given a target step out of `σₜ` and a source state related to it, the source takes the
+*same* step — same trace, results still related.
+
+Phrased on one language's semantics because `convertActionStmt_reducing'` already says the target's
+semantics *is* the source's; `action_refines` below is what states the result in the framework's own
+terms. Each piece built above is spent here: `eval_iff` for the statements that evaluate an
+expression, `Ref.EvalArgs.congr_of_fresh` for those that resolve a reference,
+`Memory.update_transfer` for `assign`, `relatesTo.fifo_split` for `send`. -/
+theorem Statement.reducing'_sim {mbox : Mailbox} {b : Bool}
+    (S : ComputableGuardedPlusCal.Statement false b) (fresh : Fresh mbox S)
+    {σₛ σₜ σₜ' : LocalState' V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[mbox] σₜ)
+    (step : (⟨σₜ, ε, σₜ'⟩ : LocalState' V × GuardedPlusCal.Trace V × LocalState' V) ∈
+      GuardedPlusCal.Statement.reducing' S) :
+    ∃ σₛ', σₛ' ∼[mbox] σₜ' ∧
+      (⟨σₛ, ε, σₛ'⟩ : LocalState' V × GuardedPlusCal.Trace V × LocalState' V) ∈
+        GuardedPlusCal.Statement.reducing' S := by
+  match mbox with
+  | .none =>
+    obtain rfl := sim.eq_of_none
+    exact ⟨σₜ', relatesTo.none_intro rfl rfl rfl, step⟩
+  | .some (c₀, inbox) =>
+    obtain ⟨hfresh, hself, hwrite⟩ := fresh c₀ inbox rfl
+    obtain ⟨cpath, sv, vs, hpath, hinbox, hseq, hoff, hsplit⟩ := sim.inbox_seq
+    obtain ⟨M₁, F₁, l₁⟩ := σₛ
+    obtain ⟨M₂, F₂, l₂⟩ := σₜ
+    obtain ⟨M₂', F₂', l₂'⟩ := σₜ'
+    have hagree := sim.mem_agree
+    have hlabel := sim.label_eq
+    simp only [LocalState'.mem_mk, LocalState'.fifos_mk, LocalState'.label_mk]
+      at hpath hinbox hoff hsplit hagree hlabel
+    cases S with
+    | skip =>
+      obtain ⟨σ', hl, ⟨M, F, hM, hσ', hε⟩, hpost, rfl⟩ := step
+      injection hM with hM hF
+      subst hM; subst hF; subst hσ'; subst hε
+      injection hpost with hM' hF'
+      subst hM'; subst hF'
+      exact ⟨⟨M₁, F₁, .none⟩,
+        relatesTo.chan_intro rfl hagree hpath hinbox hseq hoff hsplit,
+        ⟨.running M₁ F₁, hlabel.trans hl,
+          GuardedPlusCal.Statement.reducing.skip.intro ⟨M₁, F₁, rfl, rfl, rfl⟩, rfl, rfl⟩⟩
+    | goto label =>
+      obtain ⟨σ', hl, ⟨M, F, hM, hσ', hε⟩, l'', hpost, rfl⟩ := step
+      injection hM with hM hF
+      subst hM; subst hF; subst hε
+      rw [hσ'] at hpost
+      injection hpost with hM' hF' hl''
+      subst hM'; subst hF'; subst hl''
+      exact ⟨⟨M₁, F₁, .some label⟩,
+        relatesTo.chan_intro rfl hagree hpath hinbox hseq hoff hsplit,
+        ⟨.done M₁ F₁ label, hlabel.trans hl,
+          GuardedPlusCal.Statement.reducing.goto.intro ⟨M₁, F₁, rfl, rfl, rfl⟩, label, rfl, rfl⟩⟩
+    | print e =>
+      obtain ⟨σ', hl, ⟨M, F, v, p, hM, hσ', hv, hp, hε⟩, hpost, rfl⟩ := step
+      injection hM with hM hF
+      subst hM; subst hF; subst hσ'
+      injection hpost with hM' hF'
+      subst hM'; subst hF'; subst hε
+      refine ⟨⟨M₁, F₁, .none⟩,
+        relatesTo.chan_intro rfl hagree hpath hinbox hseq hoff hsplit,
+        ⟨.running M₁ F₁, hlabel.trans hl,
+          GuardedPlusCal.Statement.reducing.print.intro ⟨M₁, F₁, v, p, rfl, rfl, ?_, ?_, rfl⟩,
+          rfl, rfl⟩⟩
+      · exact (sim.eval_iff hfresh).mpr hv
+      · exact (hagree GuardedPlusCal.selfName (Ne.symm hself)).trans hp
+    | assert e =>
+      obtain ⟨σ', hl, ⟨M, F, hM, hσ', hv, hε⟩, hpost, rfl⟩ := step
+      injection hM with hM hF
+      subst hM; subst hF; subst hσ'
+      injection hpost with hM' hF'
+      subst hM'; subst hF'; subst hε
+      refine ⟨⟨M₁, F₁, .none⟩,
+        relatesTo.chan_intro rfl hagree hpath hinbox hseq hoff hsplit,
+        ⟨.running M₁ F₁, hlabel.trans hl,
+          GuardedPlusCal.Statement.reducing.assert.intro ⟨M₁, F₁, rfl, rfl, ?_, rfl⟩, rfl, rfl⟩⟩
+      exact (sim.eval_iff hfresh).mpr hv
+    | multicast c filter =>
+      obtain ⟨σ', -, hmem, -⟩ := step
+      exact hmem.elim
+    | assign r e =>
+      obtain ⟨σ', hl, ⟨M, F, M', v, rpath, hv, hrpath, hupd, hM, hσ', hε⟩, hpost, rfl⟩ := step
+      injection hM with hM hF
+      subst hM; subst hF; subst hσ'
+      injection hpost with hM' hF'
+      subst hM'; subst hF'; subst hε
+      -- `inbox` is read by neither the written reference nor the assigned expression
+      have hfr : inbox ∉ GuardedPlusCal.Ref.freeVars r := λ h ↦ hfresh (Finset.mem_union_left _ h)
+      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      have hrname : r.name ≠ inbox := by
+        rintro rfl
+        exact hfr (Finset.mem_union_left _ (Finset.mem_singleton_self _))
+      -- the same update runs in the source memory, and the results still agree away from `inbox`
+      obtain ⟨M₁', hupd₁, hagree'⟩ :=
+        Memory.update_transfer (λ y hy ↦ (hagree y hy).symm) hrname hupd
+      -- and it leaves the mailbox channel's own index expressions alone
+      have hstable : ∀ y ≠ r.name, M₁'.lookup y = M₁.lookup y :=
+        λ y hy ↦ Memory.lookup_update_ne hupd₁ hy
+      refine ⟨⟨M₁', F₁, .none⟩, relatesTo.chan_intro rfl (λ y hy ↦ (hagree' y hy).symm) ?_ ?_ hseq
+          hoff hsplit,
+        ⟨.running M₁' F₁, hlabel.trans hl,
+          GuardedPlusCal.Statement.reducing.assign.intro
+            ⟨M₁, F₁, M₁', v, rpath, ?_, ?_, hupd₁, rfl, rfl, rfl⟩, rfl, rfl⟩⟩
+      · exact (Ref.EvalArgs.congr_of_fresh hstable (hwrite r.name rfl)).mpr hpath
+      · exact (Memory.lookup_update_ne hupd (Ne.symm hrname)).trans hinbox
+      · exact (sim.eval_iff hfe).mpr hv
+      · exact (Ref.EvalArgs.congr_of_fresh (λ y hy ↦ (hagree y hy).symm) hfr).mp hrpath
+    | send c e =>
+      obtain ⟨σ', hl, ⟨M, F, v, cpath', vs', p, hv, hcpath, hlk, hp, hM, hσ', hε⟩, hpost, rfl⟩ :=
+        step
+      injection hM with hM hF
+      subst hM; subst hF; subst hσ'
+      injection hpost with hM' hF'
+      subst hM'; subst hF'; subst hε
+      have hfc : inbox ∉ GuardedPlusCal.Ref.freeVars c := λ h ↦ hfresh (Finset.mem_union_left _ h)
+      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      have hcpath₁ : Ref.EvalArgs M₁ c cpath' :=
+        (Ref.EvalArgs.congr_of_fresh (λ y hy ↦ (hagree y hy).symm) hfc).mp hcpath
+      -- the sent-to queue in the source: the target's, with this process's `inbox` in front when
+      -- the channel sent on is the very one it receives from
+      by_cases hkey : (c.name, cpath') = ((c₀.name, cpath) : ChanKey V)
+      · obtain rfl : cpath = cpath' := (congrArg Prod.snd hkey).symm
+        have hsplitc : F₁.lookup ((c.name, cpath) : ChanKey V) =
+            (vs ++ ·) <$> F₂.lookup ((c.name, cpath) : ChanKey V) := by
+          rw [hkey]
+          exact hsplit
+        have hsplit₁ : F₁.lookup ((c.name, cpath) : ChanKey V) = .some (vs ++ vs') := by
+          rw [hsplitc, hlk]
+          rfl
+        refine ⟨⟨M₁, F₁.replace (c.name, cpath) ((vs ++ vs').concat v), .none⟩,
+          relatesTo.chan_intro rfl hagree hpath hinbox hseq ?_ ?_,
+          ⟨.running M₁ (F₁.replace (c.name, cpath) ((vs ++ vs').concat v)), hlabel.trans hl,
+            GuardedPlusCal.Statement.reducing.send.intro
+              ⟨M₁, F₁, v, cpath, vs ++ vs', p, ?_, hcpath₁, hsplit₁, ?_, rfl, rfl, rfl⟩,
+            rfl, rfl⟩⟩
+        · intro k hk
+          simp only [LocalState'.fifos_mk]
+          have hk' : k ≠ ((c.name, cpath) : ChanKey V) := by rw [hkey]; exact hk
+          rw [AList.lookup_replace_ne hk', AList.lookup_replace_ne hk']
+          exact hoff k hk
+        · simp only [LocalState'.fifos_mk]
+          rw [← hkey, AList.lookup_replace, AList.lookup_replace, hsplit₁, hlk]
+          simp [Functor.mapConst, List.concat_eq_append, List.append_assoc]
+        · exact (sim.eval_iff hfe).mpr hv
+        · exact (hagree GuardedPlusCal.selfName (Ne.symm hself)).trans hp
+      · have hlk₁ : F₁.lookup (c.name, cpath') = .some vs' := (hoff _ hkey).trans hlk
+        refine ⟨⟨M₁, F₁.replace (c.name, cpath') (vs'.concat v), .none⟩,
+          relatesTo.chan_intro rfl hagree hpath hinbox hseq ?_ ?_,
+          ⟨.running M₁ (F₁.replace (c.name, cpath') (vs'.concat v)), hlabel.trans hl,
+            GuardedPlusCal.Statement.reducing.send.intro
+              ⟨M₁, F₁, v, cpath', vs', p, ?_, hcpath₁, hlk₁, ?_, rfl, rfl, rfl⟩, rfl, rfl⟩⟩
+        · intro k hk
+          simp only [LocalState'.fifos_mk]
+          by_cases hkk : k = (c.name, cpath')
+          · rw [hkk, AList.lookup_replace, AList.lookup_replace, hlk, hlk₁]
+          · rw [AList.lookup_replace_ne hkk, AList.lookup_replace_ne hkk]
+            exact hoff k hk
+        · simp only [LocalState'.fifos_mk, AList.lookup_replace_ne (Ne.symm hkey)]
+          exact hsplit
+        · exact (sim.eval_iff hfe).mpr hv
+        · exact (hagree GuardedPlusCal.selfName (Ne.symm hself)).trans hp
+
+/-- The aborting counterpart of `reducing'_sim`, and the simpler statement: an abort emits nothing,
+so the source aborts on the *same* trace rather than on a prefix of the target's. Each constructor's
+abort disjuncts transfer one by one — a failed evaluation stays failed (`eval_iff`), an unresolvable
+index path stays unresolvable, a missing FIFO stays missing (both cases of `relatesTo`'s FIFO
+clauses give `none` on one side exactly when the other does), and a failed update stays failed. -/
+theorem Statement.aborting'_sim {mbox : Mailbox} {b : Bool}
+    (S : ComputableGuardedPlusCal.Statement false b) (fresh : Fresh mbox S)
+    {σₛ σₜ : LocalState' V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[mbox] σₜ)
+    (step : (⟨σₜ, ε⟩ : LocalState' V × GuardedPlusCal.Trace V) ∈
+      GuardedPlusCal.Statement.aborting' S) :
+    (⟨σₛ, ε⟩ : LocalState' V × GuardedPlusCal.Trace V) ∈
+      GuardedPlusCal.Statement.aborting' S := by
+  match mbox with
+  | .none =>
+    obtain rfl := sim.eq_of_none
+    exact step
+  | .some (c₀, inbox) =>
+    obtain ⟨hfresh, hself, -⟩ := fresh c₀ inbox rfl
+    obtain ⟨cpath, sv, vs, hpath, hinbox, hseq, hoff, hsplit⟩ := sim.inbox_seq
+    obtain ⟨M₁, F₁, l₁⟩ := σₛ
+    obtain ⟨M₂, F₂, l₂⟩ := σₜ
+    have hagree := sim.mem_agree
+    have hlabel := sim.label_eq
+    simp only [LocalState'.mem_mk, LocalState'.fifos_mk, LocalState'.label_mk]
+      at hpath hinbox hoff hsplit hagree hlabel
+    -- an expression the statement reads has no value in one memory exactly when it has none in
+    -- the other
+    have habort : ∀ {e : ComputablePlusCal.Expression}, Expression.FreshIn inbox e →
+        (M₂ ⊢ e ↯) → (M₁ ⊢ e ↯) :=
+      λ hfe hab ⟨v, hv⟩ ↦ hab ⟨v, (sim.eval_iff hfe).mp hv⟩
+    -- and likewise for a reference's index path
+    have hpaths : ∀ {r : ComputableGuardedPlusCal.Ref},
+        inbox ∉ GuardedPlusCal.Ref.freeVars r →
+        GuardedPlusCal.Ref.pathAborts M₂ r → GuardedPlusCal.Ref.pathAborts M₁ r := by
+      rintro r hfr ⟨e, hmem, hab⟩
+      refine ⟨e, hmem, habort ?_ hab⟩
+      obtain ⟨seg, hseg, hval⟩ := List.mem_filterMap.mp hmem
+      match seg, hval with
+      | .inr e', rfl => exact λ hx ↦ hfr (Ref.freeVars_of_mem_args hseg hx)
+    obtain ⟨hl, hab⟩ := step
+    refine ⟨hlabel.trans hl, ?_⟩
+    cases S with
+    | skip => exact hab.elim
+    | goto label => exact hab.elim
+    | multicast c filter => exact hab.elim
+    | print e =>
+      obtain ⟨M, F, hab, hM, hε⟩ := hab
+      injection hM with hM hF
+      subst hM; subst hF; subst hε
+      exact ⟨M₁, F₁, habort hfresh hab, rfl, rfl⟩
+    | assert e =>
+      rcases hab with ⟨M, F, hab, hM, hε⟩ | ⟨M, F, v, hv, hvv, hM, hε⟩
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        exact .inl ⟨M₁, F₁, habort hfresh hab, rfl, rfl⟩
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        exact .inr ⟨M₁, F₁, v, hv, (sim.eval_iff hfresh).mpr hvv, rfl, rfl⟩
+    | assign r e =>
+      have hfr : inbox ∉ GuardedPlusCal.Ref.freeVars r := λ h ↦ hfresh (Finset.mem_union_left _ h)
+      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      have hrname : r.name ≠ inbox := by
+        rintro rfl
+        exact hfr (Finset.mem_union_left _ (Finset.mem_singleton_self _))
+      rcases hab with ((⟨M, F, hmem, hM, hε⟩ | ⟨M, F, hab, hM, hε⟩) | ⟨M, F, hab, hM, hε⟩) |
+        ⟨M, F, v, rpath, hv, hrpath, hupd, hM, hε⟩
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        refine .inl (.inl (.inl ⟨M₁, F₁, ?_, rfl, rfl⟩))
+        rw [← AList.lookup_isSome, hagree r.name hrname, AList.lookup_isSome]
+        exact hmem
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        exact .inl (.inl (.inr ⟨M₁, F₁, habort hfe hab, rfl, rfl⟩))
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        exact .inl (.inr ⟨M₁, F₁, hpaths hfr hab, rfl, rfl⟩)
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        refine .inr ⟨M₁, F₁, v, rpath, (sim.eval_iff hfe).mpr hv, ?_, ?_, rfl, rfl⟩
+        · exact (Ref.EvalArgs.congr_of_fresh (λ y hy ↦ (hagree y hy).symm) hfr).mp hrpath
+        · exact Memory.update_none_transfer (hagree r.name hrname) hupd
+    | send c e =>
+      have hfc : inbox ∉ GuardedPlusCal.Ref.freeVars c := λ h ↦ hfresh (Finset.mem_union_left _ h)
+      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      rcases hab with (⟨M, F, hab, hM, hε⟩ | ⟨M, F, hab, hM, hε⟩) |
+        ⟨M, F, cpath', hcpath, hlk, hM, hε⟩
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        exact .inl (.inl ⟨M₁, F₁, habort hfe hab, rfl, rfl⟩)
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        exact .inl (.inr ⟨M₁, F₁, hpaths hfc hab, rfl, rfl⟩)
+      -- the FIFO the channel resolves to is absent in the target exactly when it is in the source
+      · injection hM with hM hF
+        subst hM; subst hF; subst hε
+        refine .inr ⟨M₁, F₁, cpath',
+          (Ref.EvalArgs.congr_of_fresh (λ y hy ↦ (hagree y hy).symm) hfc).mp hcpath, ?_, rfl, rfl⟩
+        by_cases hkey : (c.name, cpath') = ((c₀.name, cpath) : ChanKey V)
+        · rw [hkey] at hlk ⊢
+          rw [hsplit, hlk]
+          rfl
+        · rw [hoff _ hkey]
+          exact hlk
 
 theorem convertActionStmt_reducing' {b : Bool} (S : ComputableGuardedPlusCal.Statement false b) :
     NetworkPlusCal.Statement.reducing' (V := V) (convertActionStmt S) =
@@ -216,6 +534,41 @@ theorem convertActionStmt_diverging' {b : Bool} (S : ComputableGuardedPlusCal.St
     NetworkPlusCal.Statement.diverging' (V := V) (convertActionStmt S) =
       GuardedPlusCal.Statement.diverging' (V := V) S := by
   cases S <;> rfl
+
+/-- **D4, the deliverable**: `convertActionStmt` refines, statement by statement, at this pass's
+own trace relation (equality — `Guarded2Network/Lemmas/Trace.lean`).
+
+The three components come out very differently. `terminating` is the whole of `reducing'_sim`;
+`aborting` is `aborting'_sim` with the `≼[Rτ]` obligation trivial, an abort emitting the empty
+trace; `diverging` is vacuous, a statement having no non-terminating semantics at all — divergence
+enters only at the block and algorithm layers. -/
+theorem action_refines {mbox : Mailbox} {b : Bool}
+    (S : ComputableGuardedPlusCal.Statement false b) (fresh : Fresh mbox S) :
+    StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Statement.reducing' S) (GuardedPlusCal.Statement.aborting' S)
+      (GuardedPlusCal.Statement.diverging' S)
+      (NetworkPlusCal.Statement.reducing' (convertActionStmt S))
+      (NetworkPlusCal.Statement.aborting' (convertActionStmt S))
+      (NetworkPlusCal.Statement.diverging' (convertActionStmt S)) := by
+  have hterm : StrongRefinement.Terminating (relatesTo (V := V) mbox) (relatesTo mbox)
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Statement.reducing' S)
+      (GuardedPlusCal.Statement.aborting' S) (GuardedPlusCal.Statement.reducing' S) := by
+    intro σₜ σₜ' ε σₛ sim step
+    obtain ⟨σₛ', hrel, hstep⟩ := Statement.reducing'_sim S fresh sim step
+    refines_match σₛ', ε
+    · exact hrel
+    · trace_rel
+    · exact hstep
+  have habort : StrongRefinement.Aborting (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Statement.aborting' S) (GuardedPlusCal.Statement.aborting' S) := by
+    intro σₜ ε σₛ sim step
+    refines_abort ε
+    · trace_pfx
+    · exact Statement.aborting'_sim S fresh sim step
+  -- the target cannot diverge, so the framework supplies the third component itself
+  rw [convertActionStmt_reducing', convertActionStmt_aborting', convertActionStmt_diverging',
+    GuardedPlusCal.Statement.diverging'_eq_empty]
+  exact StrongRefinement.ofNonDiverging (relatesTo (V := V) mbox) hterm habort
 
 end Guarded2Network
 

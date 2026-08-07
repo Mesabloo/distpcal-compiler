@@ -622,6 +622,19 @@ def Statement.diverging' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b
     Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.diverging S}
 
+/-- No statement diverges, in the flat encoding as in the indexed one. Stated rather than left
+implicit because it is what lets a statement-level refinement be discharged by
+`StrongRefinement.ofNonDiverging` instead of by an inlined "the target cannot diverge" argument. -/
+@[simp] theorem Statement.diverging'_eq_empty {b b' : Bool}
+    (S : ComputableGuardedPlusCal.Statement b b') :
+    Statement.diverging' (V := V) S = ∅ := by
+  ext ⟨⟨M, F, l⟩, ε⟩
+  constructor
+  · rintro ⟨-, hd⟩
+    exact hd.elim
+  · rintro hd
+    exact hd.elim
+
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableGuardedPlusCal.Statement b b') :
     Statement.reducing' (V := V) S =
