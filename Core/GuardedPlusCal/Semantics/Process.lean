@@ -151,10 +151,10 @@ def Algebra.diverging (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
 def InitProc [ExprSemantics V] (self : V) (inits : List (String × ComputablePlusCal.Expression))
     (entry : Set String) (σ : ProcState V) : Prop :=
   ∃ vs : List V,
-    List.Forall₂ (λ ie v ↦ ExprSemantics.Eval (AList.singleton selfName self) (Prod.snd ie) v)
+    List.Forall₂ (λ ie v ↦ ExprSemantics.Eval (Finmap.singleton selfName self) (Prod.snd ie) v)
       inits vs ∧
     σ.1 = (((inits.map Prod.fst).zip vs).foldl (λ M xv ↦ M.insert xv.1 xv.2)
-            (AList.singleton selfName self)) ∧
+            (Finmap.singleton selfName self)) ∧
     σ.2 = entry
 
 /-- Executions of `A` from an initial state satisfying `init`. -/

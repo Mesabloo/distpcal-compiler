@@ -1,10 +1,11 @@
 module
 
+meta import CustomPrelude
 public import Core.ComputableTLAPlus.Syntax
 public import Core.ComputableTLAPlus.FreeVars
 public import Core.ComputableTLAPlus.Subst
 public import Core.TypedTLAPlus.Coercion
-public import Mathlib.Data.List.AList
+public import Mathlib.Data.Finmap
 
 @[expose] public section
 
@@ -31,9 +32,16 @@ public import Mathlib.Data.List.AList
 
 namespace ComputableTLAPlus
 
-/-- A memory: a partial map from names to values. Shared by the process-local and temporary
-(`with`-bound) halves of a `LocalState`, which are combined with `∪` at every use site. -/
-abbrev Memory (V : Type) : Type := AList λ _ : String ↦ V
+/-- A memory: a partial map from names to values.
+
+`Finmap`, not `AList`. An `AList` is a list, so its identity includes the *order* its keys were
+inserted in — and `evalLocal` says evaluation depends on a memory only through `lookup`, so that
+order is information the semantics provably cannot observe. Keeping it visible makes false goals:
+binding two distinct names in the two possible orders gives equal lookups but unequal `AList`s, and
+any lemma commuting one write past another (`Guarded2Network/Lemmas/Reorder.lean`) then cannot be
+stated as an equation at all. `Finmap` is that quotient, so `Finmap.insert_insert_of_ne` holds and
+extensionality is by `lookup`. `FIFOs` is a `Finmap` for the same reason. -/
+abbrev Memory (V : Type) : Type := Finmap λ _ : String ↦ V
 
 /-- One resolved segment of a reference's access path. Mirrors `ElaboratedPlusCal.Ref.args`'s
 `List (String ⊕ ε)` with the index expressions already evaluated: `.inl f` is the record field `f`,
@@ -74,6 +82,12 @@ class ExprSemantics (V : Type) where
   /-- `updatePath old path v` — `old` with the position named by `path` overwritten by `v`, or
   `none` when `path` does not resolve inside `old`. `path = []` overwrites `old` outright. -/
   updatePath : V → List (PathStep V) → V → Option V
+  /-- The empty path overwrites the old value outright, and always succeeds. A law rather than only
+  a remark on `updatePath` above, because `Memory.update` routes an *unindexed* assignment (`x := e`,
+  where the reference has no `.args`) through `updatePath` too: without this, the memory such an
+  assignment produces is not pinned to `M.insert x v`, and the reorder lemmas
+  (`Guarded2Network/Lemmas/Reorder.lean`) cannot identify it with the one substitution describes. -/
+  updatePath_nil {old v : V} : updatePath old [] v = some v
   /-- `seqAppend s v` — `s` with `v` appended on the right, `none` when `s` is not a sequence value.
   TLA⁺'s `Append(s, v)`. Needed by `NetworkPlusCal.Thread.rx`, which drains a channel into a
   process-local sequence. -/
@@ -109,6 +123,16 @@ class ExprSemantics (V : Type) where
   `relatesTo`). `EvalStep.path_inj` (`Core/GuardedPlusCal/Semantics/Lemmas.lean`) is that
   consequence. -/
   evalUnique {M : Memory V} {e : Expression Typ} {v w : V} : Eval M e v → Eval M e w → v = w
+  /-- A variable node denotes what the memory binds its name to, and denotes nothing when the name
+  is unbound.
+
+  Stated for every `Origin`, not only `.binder`: `Expression.subst` and `Expression.freeVars` both
+  match a `.var` on its name alone and ignore its origin, so `evalSubst` below already commits every
+  `.var` node to being memory-resolved — a kind-restricted law would contradict a law already here.
+  TLA⁺ builtins are unaffected: they occur only as `opCall` callees, and it is the call as a whole
+  whose meaning `Eval` fixes. -/
+  evalVar {M : Memory V} {x : String} {τ : Typ} {o : Origin} {v : V} :
+    Eval M (.var x τ o) v ↔ M.lookup x = some v
   /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
   agreeing results. Replaces prior art's `eval_ext`/`eval_mem_ext`. -/
   evalLocal {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
@@ -163,6 +187,45 @@ def Memory.update {V : Type} [ExprSemantics V] (M : Memory V) (x : String)
   let old ← M.lookup x
   let new ← ExprSemantics.updatePath old path v
   return M.insert x new
+
+/-! `Memory.update` is a two-step `Option` bind, and taking one apart by hand costs an `unfold` plus
+the same `Option.bind_eq_*_iff` rewrite every time. The two equations below are that decomposition,
+stated once here where the definition lives so that no proof elsewhere has to reach into the body.
+Both are `↔`: consumers need the reading that takes a successful update apart *and* the one that
+builds a fresh update at a different memory. -/
+
+/-- An update succeeds exactly when the name is bound and `updatePath` accepts the value found
+there; the result is that name rebound to what came back. -/
+theorem Memory.update_eq_some_iff {V : Type} [ExprSemantics V] {M M' : Memory V} {x : String}
+    {path : List (PathStep V)} {v : V} :
+    M.update x path v = some M' ↔
+      ∃ old new, M.lookup x = some old ∧ ExprSemantics.updatePath old path v = some new ∧
+        M' = M.insert x new := by
+  unfold Memory.update
+  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_some_iff]
+  iff_rintro ⟨old, hold, new, hnew, h⟩ ⟨old, new, hold, hnew, rfl⟩
+  · exact ⟨old, new, hold, hnew, (Option.some.inj h).symm⟩
+  · exact ⟨old, hold, new, hnew, rfl⟩
+
+/-- An update fails exactly when the name is unbound, or `updatePath` rejects the value found
+there. -/
+theorem Memory.update_eq_none_iff {V : Type} [ExprSemantics V] {M : Memory V} {x : String}
+    {path : List (PathStep V)} {v : V} :
+    M.update x path v = none ↔
+      ∀ old, M.lookup x = some old → ExprSemantics.updatePath old path v = none := by
+  unfold Memory.update
+  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_none_iff, Option.some_ne_none,
+    imp_false, ← Option.eq_none_iff_forall_ne_some]
+
+/-- At the empty path an update is exactly `insert`: `updatePath_nil` says the old value plays no
+part. This is what an *unindexed* assignment `x := e` does to the memory, and it is the form
+substitution describes — `Expression.substRef` on a reference with no `.args` substitutes `e` for
+`x` outright rather than building an `EXCEPT`. -/
+theorem Memory.update_nil {V : Type} [ExprSemantics V] {M M' : Memory V} {x : String} {v : V}
+    (h : M.update x [] v = some M') : M' = M.insert x v := by
+  obtain ⟨_, new, _, hnew, hM'⟩ := Memory.update_eq_some_iff.mp h
+  rw [ExprSemantics.updatePath_nil] at hnew
+  rw [hM', Option.some.inj hnew]
 
 end ComputableTLAPlus
 

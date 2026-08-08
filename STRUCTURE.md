@@ -52,6 +52,8 @@ Vendored generic data-structure lemmas and instances.
 - `List.lean`, `AssocList.lean`, `Finmap.lean`, `HashMap.lean`, `AList.lean`, `Array.lean`,
   `Fin.lean`, `Finset.lean`, `Nat.lean`, `Option.lean`, `Prod.lean`, `Prop.lean`, `Rel.lean`,
   `Set.lean`, `String.lean`, `Substring.lean`, `Sum.lean`, `Monad.lean`.
+- `AList.lean` is **orphaned** — nothing imports it since `Memory`/`FIFOs` became `Finmap`, so
+  `lake build` no longer checks it. Delete-or-keep is an open owner call.
 - `Seq.lean` — `Stream'.Seq` as the trace monoid: `One`/`Mul`/`Monoid` instances (Mathlib proves
   the three laws but registers no algebraic instance), the `one_eq_nil`/`mul_eq_append` bridges
   (deliberately not `@[simp]`), absorption — appending to a non-terminating sequence changes

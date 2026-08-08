@@ -39,7 +39,7 @@ theorem eval_insert_of_fresh {M : Memory V} {x : String} {v' v : V}
     ((M.insert x v') ⊢ e ⇒ v) ↔ (M ⊢ e ⇒ v) := by
   apply ExprSemantics.evalLocal
   intro y hy
-  apply AList.lookup_insert_ne
+  apply Finmap.lookup_insert_of_ne _
   rintro rfl
   exact fresh hy
 
@@ -186,18 +186,16 @@ theorem Memory.update_transfer {M₁ M₂ M₁' : Memory V} {inbox x : String}
     (h₁ : ComputableTLAPlus.Memory.update M₁ x path v = .some M₁') :
     ∃ M₂', ComputableTLAPlus.Memory.update M₂ x path v = .some M₂' ∧
       ∀ y ≠ inbox, M₁'.lookup y = M₂'.lookup y := by
-  unfold ComputableTLAPlus.Memory.update at h₁ ⊢
-  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_some_iff] at h₁ ⊢
-  obtain ⟨old, hold, new, hnew, h₁⟩ := h₁
-  obtain rfl := Option.some.inj h₁
-  refine ⟨M₂.insert x new, ⟨old, ?_, new, hnew, rfl⟩, ?_⟩
+  obtain ⟨old, new, hold, hnew, rfl⟩ := ComputableTLAPlus.Memory.update_eq_some_iff.mp h₁
+  refine ⟨M₂.insert x new,
+    ComputableTLAPlus.Memory.update_eq_some_iff.mpr ⟨old, new, ?_, hnew, rfl⟩, ?_⟩
   · rw [← agree x hx]
     exact hold
   · intro y hy
     by_cases hyx : y = x
     · subst hyx
-      rw [AList.lookup_insert, AList.lookup_insert]
-    · rw [AList.lookup_insert_ne hyx, AList.lookup_insert_ne hyx]
+      rw [Finmap.lookup_insert _, Finmap.lookup_insert _]
+    · rw [Finmap.lookup_insert_of_ne _ hyx, Finmap.lookup_insert_of_ne _ hyx]
       exact agree y hy
 
 /-- An update touches only the name it writes. What keeps the refinement invariant's *other*
@@ -206,11 +204,8 @@ components — the mailbox channel's resolved path, and `inbox`'s own contents �
 theorem Memory.lookup_update_ne {M M' : Memory V} {x y : String} {path : List (PathStep V)} {v : V}
     (h : ComputableTLAPlus.Memory.update M x path v = .some M') (hy : y ≠ x) :
     M'.lookup y = M.lookup y := by
-  unfold ComputableTLAPlus.Memory.update at h
-  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
-  obtain ⟨old, -, new, -, h⟩ := h
-  obtain rfl := Option.some.inj h
-  exact AList.lookup_insert_ne hy
+  obtain ⟨-, -, -, -, rfl⟩ := ComputableTLAPlus.Memory.update_eq_some_iff.mp h
+  exact Finmap.lookup_insert_of_ne _ hy
 
 /-- An update fails in one memory exactly when it fails in any memory agreeing at the written name:
 both read the same old value and run the same `updatePath` on it. The aborting counterpart of
@@ -219,11 +214,9 @@ theorem Memory.update_none_transfer {M₁ M₂ : Memory V} {x : String} {path : 
     {v : V} (hlk : M₁.lookup x = M₂.lookup x)
     (h : ComputableTLAPlus.Memory.update M₂ x path v = .none) :
     ComputableTLAPlus.Memory.update M₁ x path v = .none := by
-  unfold ComputableTLAPlus.Memory.update at h ⊢
-  simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_none_iff] at h ⊢
-  intro old hold new hnew
-  have habs := h old (hlk ▸ hold) new hnew
-  contradiction
+  rw [ComputableTLAPlus.Memory.update_eq_none_iff] at h ⊢
+  intro old hold
+  exact h old (hlk ▸ hold)
 
 /-! ## D4 — action statements
 
@@ -388,35 +381,35 @@ theorem Statement.reducing'_sim {mbox : Mailbox} {b : Bool}
         have hsplit₁ : F₁.lookup ((c.name, cpath) : ChanKey V) = .some (vs ++ vs') := by
           rw [hsplitc, hlk]
           rfl
-        refine ⟨⟨M₁, F₁.replace (c.name, cpath) ((vs ++ vs').concat v), .none⟩,
+        refine ⟨⟨M₁, F₁.insert (c.name, cpath) ((vs ++ vs').concat v), .none⟩,
           relatesTo.chan_intro rfl hagree hpath hinbox hseq ?_ ?_,
-          ⟨.running M₁ (F₁.replace (c.name, cpath) ((vs ++ vs').concat v)), hlabel.trans hl,
+          ⟨.running M₁ (F₁.insert (c.name, cpath) ((vs ++ vs').concat v)), hlabel.trans hl,
             GuardedPlusCal.Statement.reducing.send.intro
               ⟨M₁, F₁, v, cpath, vs ++ vs', p, ?_, hcpath₁, hsplit₁, ?_, rfl, rfl, rfl⟩,
             rfl, rfl⟩⟩
         · intro k hk
           simp only [LocalState'.fifos_mk]
           have hk' : k ≠ ((c.name, cpath) : ChanKey V) := by rw [hkey]; exact hk
-          rw [AList.lookup_replace_ne hk', AList.lookup_replace_ne hk']
+          rw [Finmap.lookup_insert_of_ne _ hk', Finmap.lookup_insert_of_ne _ hk']
           exact hoff k hk
         · simp only [LocalState'.fifos_mk]
-          rewrite [← hkey, AList.lookup_replace, AList.lookup_replace, hsplit₁, hlk]
-          simp [Functor.mapConst, List.concat_eq_append, List.append_assoc]
+          rewrite [← hkey, Finmap.lookup_insert _, Finmap.lookup_insert _]
+          simp [List.concat_eq_append, List.append_assoc]
         · exact (sim.eval_iff hfe).mpr hv
         · exact (hagree GuardedPlusCal.selfName (Ne.symm hself)).trans hp
       · have hlk₁ : F₁.lookup (c.name, cpath') = .some vs' := (hoff _ hkey).trans hlk
-        refine ⟨⟨M₁, F₁.replace (c.name, cpath') (vs'.concat v), .none⟩,
+        refine ⟨⟨M₁, F₁.insert (c.name, cpath') (vs'.concat v), .none⟩,
           relatesTo.chan_intro rfl hagree hpath hinbox hseq ?_ ?_,
-          ⟨.running M₁ (F₁.replace (c.name, cpath') (vs'.concat v)), hlabel.trans hl,
+          ⟨.running M₁ (F₁.insert (c.name, cpath') (vs'.concat v)), hlabel.trans hl,
             GuardedPlusCal.Statement.reducing.send.intro
               ⟨M₁, F₁, v, cpath', vs', p, ?_, hcpath₁, hlk₁, ?_, rfl, rfl, rfl⟩, rfl, rfl⟩⟩
         · intro k hk
           simp only [LocalState'.fifos_mk]
           by_cases hkk : k = (c.name, cpath')
-          · rw [hkk, AList.lookup_replace, AList.lookup_replace, hlk, hlk₁]
-          · rw [AList.lookup_replace_ne hkk, AList.lookup_replace_ne hkk]
+          · rw [hkk, Finmap.lookup_insert _, Finmap.lookup_insert _]
+          · rw [Finmap.lookup_insert_of_ne _ hkk, Finmap.lookup_insert_of_ne _ hkk]
             exact hoff k hk
-        · simp only [LocalState'.fifos_mk, AList.lookup_replace_ne (Ne.symm hkey)]
+        · simp only [LocalState'.fifos_mk, Finmap.lookup_insert_of_ne _ (Ne.symm hkey)]
           exact hsplit
         · exact (sim.eval_iff hfe).mpr hv
         · exact (hagree GuardedPlusCal.selfName (Ne.symm hself)).trans hp
@@ -489,7 +482,7 @@ theorem Statement.aborting'_sim {mbox : Mailbox} {b : Bool}
       · injection hM with hM hF
         subst hM; subst hF; subst hε
         refine .inl (.inl (.inl ⟨M₁, F₁, ?_, rfl, rfl⟩))
-        rw [← AList.lookup_isSome, hagree r.name hrname, AList.lookup_isSome]
+        rw [← Finmap.lookup_isSome, hagree r.name hrname, Finmap.lookup_isSome]
         exact hmem
       · injection hM with hM hF
         subst hM; subst hF; subst hε

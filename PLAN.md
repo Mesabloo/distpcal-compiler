@@ -1779,6 +1779,16 @@ that `x ∉ tmp` could block an assignment to a block-local binder, but that is 
 and `WellFormedness/` establishes it on the way in. Keeping it would force every lemma transcribed
 from the paper through a state-shape translation for no proof-side gain.
 
+**`Memory` and `FIFOs` are `Finmap`, not `AList`.** An `AList` is a list, so key insertion order is
+part of its identity — but `evalLocal` make evaluation depend on a memory only through `lookup`, so
+that order is information the semantics cannot observe. Leaving it in the type make false goals:
+binding two distinct names in the two possible orders give equal lookups and unequal `AList`s, so
+any lemma commuting one write past another (`Guarded2Network/Lemmas/Reorder.lean`) cannot be an
+equation at all. `Finmap` is that quotient; `Finmap.insert_insert_of_ne` is the commutation, and
+extensionality is by `lookup`. A channel update is `insert`, not `AList.replace` — every rule
+establish `F.lookup k = some _` before write `k`, so the two agree wherever either reachable, and
+`insert` has the usable equation (`= some v`, not `v <$ lookup k F`).
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

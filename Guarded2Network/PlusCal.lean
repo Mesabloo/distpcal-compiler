@@ -107,6 +107,31 @@ def lenGt (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) (n : N
   .opCall (.var ">" (.operator [.int, .int] .bool) (.module "Naturals"))
     [.opCall (.var "Len" (.operator [.seq τ] .int) (.module "Sequences")) [e], .nat (toString n)]
 
+/-- One assignment's effect substituted into a guard-class statement — `.with`'s bound expression or
+`.await`'s condition, the only expression field either constructor carries. Delegates to
+`ComputableTLAPlus.Expression.substRef`, so a bare and a compound `Ref` behave here exactly as they
+do everywhere else substitution is applied.
+
+Public, namespaced and `@[expose]` for the same reasons `convertActionStmt` below is: the refinement
+proof's reorder lemmas (`Guarded2Network/Lemmas/Reorder.lean`) are stated against the pass's own
+substitution rather than against a re-derivation of it, and their proofs reduce through this body. -/
+@[expose] def substGuardStmt (r : ComputableGuardedPlusCal.Ref)
+    (rhs : ComputablePlusCal.Expression) (s : ComputableNetworkPlusCal.Statement true false) :
+    ComputableNetworkPlusCal.Statement true false :=
+  match_source s with
+  | .with x ann bound e, pos =>
+    .with x ann bound (ComputableTLAPlus.Expression.substRef r rhs e) @@ pos
+  | .await e, pos => .await (ComputableTLAPlus.Expression.substRef r rhs e) @@ pos
+
+/-- Every `receive` processed so far (`processPrecondition`'s `newInstrs`) substituted into a later
+guard — see the module doc's `foldr`/fold-direction explanation. The per-entry span plays no part in
+substitution and is dropped here. -/
+@[expose] def substGuards
+    (newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan))
+    (s : ComputableNetworkPlusCal.Statement true false) :
+    ComputableNetworkPlusCal.Statement true false :=
+  newInstrs.foldr (init := s) λ (r, rhs, _) s' ↦ substGuardStmt r rhs s'
+
 end Guarded2Network
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty G2NError m]
@@ -123,21 +148,15 @@ private structure ReceiveState where
   newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan) := []
   rxs : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ) := []
 
-/-- Substitutes every `receive` processed so far (`newInstrs`) into a later guard `e` — see the
-module doc's `foldr`/fold-direction explanation. The per-entry span plays no part in
-substitution and is dropped here. -/
-private def substGuard (newInstrs : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan))
-    (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
-  newInstrs.foldr (init := e) λ (r, rhs, _) e' ↦ ComputableTLAPlus.Expression.substRef r rhs e'
-
 /-- One statement of `processPrecondition`'s walk — `ReceiveState.i`'s value before this step's
 own increment is the count of receives already consumed prior to this one. -/
 private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String)
     (s : ComputableGuardedPlusCal.Statement true false) :
     StateT ReceiveState m (ComputableNetworkPlusCal.Statement true false) :=
   match_source s with
-  | .with x ann bound e, pos => return .with x ann bound (substGuard (← get).newInstrs e) @@ pos
-  | .await e, pos => return .await (substGuard (← get).newInstrs e) @@ pos
+  | .with x ann bound e, pos =>
+    return Guarded2Network.substGuards (← get).newInstrs (.with x ann bound e @@ pos)
+  | .await e, pos => return Guarded2Network.substGuards (← get).newInstrs (.await e @@ pos)
   | .receive c r coe, pos => do
     let st ← get
     match chans.lookup c.name with

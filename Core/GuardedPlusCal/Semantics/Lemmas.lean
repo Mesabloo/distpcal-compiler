@@ -59,6 +59,27 @@ theorem EvalStep.path_inj {args : List (String ⊕ ComputablePlusCal.Expression)
     cases h₂ with
     | cons hhd' htl' => rw [EvalStep.inj hhd hhd', ih htl']
 
+/-- `List.Forall₂ (EvalStep M)` and `ComputableTLAPlus.ResolvesPath` are one relation in two shapes.
+The statement semantics resolves a `Ref.args` with the former; `ExprSemantics.evalExcept` states the
+`EXCEPT` law against the latter, having been declared before `EvalStep` exists. Nothing else bridges
+them, so anything relating an `assign` to the substitution standing for it
+(`Guarded2Network/Lemmas/Reorder.lean`) passes through here. -/
+theorem EvalStep.resolvesPath_iff {args : List (String ⊕ ComputablePlusCal.Expression)}
+    {path : List (ComputableTLAPlus.PathStep V)} :
+    List.Forall₂ (EvalStep M) args path ↔
+      ComputableTLAPlus.ResolvesPath ExprSemantics.Eval M args path := by
+  iff_rintro h h
+  · induction h with
+    | nil => exact .nil
+    | cons hhd _ ih =>
+      cases hhd with
+      | field _ => exact .inl ih
+      | index hv => exact .inr hv ih
+  · induction h with
+    | nil => exact .nil
+    | inl _ ih => exact .cons (.field _) ih
+    | inr hv _ ih => exact .cons (.index hv) ih
+
 end Resolution
 
 /-! # Constructor-intro lemmas
@@ -82,7 +103,7 @@ variable {V : Type} [ExprSemantics V]
 
 theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
       match bound with
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
@@ -102,7 +123,7 @@ theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : Tra
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
+      σ = .running M F ∧ σ' = .running M' (F.insert ⟨c.name, cpath⟩ vs) ∧
       ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.receive c r coe) :=
   h
@@ -133,7 +154,7 @@ theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : Trace 
     (h : ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
-      σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.send c e) :=
   h

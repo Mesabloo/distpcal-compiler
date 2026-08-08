@@ -88,6 +88,17 @@ Citations illustrate the rule; this file is not a list of things to fix.
   shape — `have h := lemma …` then `rwa [...] at h`. Aiming the same rewrite at the right
   occurrence in the goal is more cumbersome, not less.
   `VerifiedCompiler/ClosedForm.lean:197`
+- **`unfold f` / `simp [f]` only inside a proof *about* `f`.** A definition's body belong to the file
+  that define it. Downstream proof that unfold reach past the API into the body, and every such site
+  break together the day the body change — the duplication is invisible because no two of them share
+  a name. Characterize the definition once, beside it, one lemma per outcome and `↔` where both
+  readings get used; downstream then `rw`/`obtain` against that name. Same rule as the `have` one
+  below, one level up: the repeated thing is a *decomposition*, not a fact.
+  `Core/ComputableTLAPlus/Semantics/Interface.lean` (`Memory.update_eq_some_iff`/`.update_eq_none_iff`
+  /`.update_nil`), which replaced three copies of `unfold Memory.update` + `simp only
+  [Option.bind_eq_some_iff]` + `obtain` in `Guarded2Network/Lemmas/Statement.lean`.
+  Not in `scripts/lean-style` — deciding whether a file "is about" the constant it unfolds needs
+  more than the text of one line.
 - **A `have` re-derived in more than one proof is a lemma.** Hoist it, next to the class or
   definition it is about. Repeated `have`s drift apart under refactor and each copy has to be
   re-checked. `mulmono` is `T.Rτ_closed` repackaged and belongs beside the `Trace` class.

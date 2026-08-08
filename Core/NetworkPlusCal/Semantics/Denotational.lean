@@ -32,7 +32,7 @@ def Statement.reducing : {b b' : Bool} → ComputableNetworkPlusCal.Statement b 
   | true, false, .with name _ bound e =>
     {⟨σ, ε, σ'⟩ | ∃ M F v,
       M ⊢ e ⇒ v ∧
-      AList.lookup name M = none ∧
+      Finmap.lookup name M = none ∧
       σ = .running M F ∧ ε = 1 ∧ match bound with
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F
@@ -50,7 +50,7 @@ def Statement.reducing : {b b' : Bool} → ComputableNetworkPlusCal.Statement b 
     {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
-      σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1
     }
   -- TODO(item 7): `multicast` has no semantics yet, exactly as on the Guarded side — see
@@ -219,7 +219,7 @@ def Thread.rxBranch (chan : ComputableNetworkPlusCal.Ref) (label inbox : String)
     M.lookup inbox = .some old ∧
     ExprSemantics.seqAppend old v = .some new ∧
     σ = .running M F ∧
-    σ' = .done (M.insert inbox new) (F.replace ⟨chan.name, cpath⟩ vs) label ∧
+    σ' = .done (M.insert inbox new) (F.insert ⟨chan.name, cpath⟩ vs) label ∧
     ε = 1
   }
 

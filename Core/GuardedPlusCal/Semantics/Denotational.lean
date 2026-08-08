@@ -3,7 +3,6 @@ module
 public import Core.GuardedPlusCal.Syntax
 public import Core.ComputableTLAPlus.Semantics.Interface
 public import Extra.Rel
-public import Extra.AList
 public import Extra.List
 public import Extra.Seq
 
@@ -102,8 +101,14 @@ needs it, and no proof relies on cancellativity (`Seq` has none: an infinite lef
 its right factor, `Extra/Seq.lean`'s `mul_eq_left_of_not_terminates`). -/
 abbrev Trace (V : Type) : Type := Stream'.Seq (Behavior V)
 
-/-- The global map containing FIFOs. Pushes go on the right, pops come off the left. -/
-abbrev FIFOs (V : Type) : Type := AList λ _ : ChanKey V ↦ List V
+/-- The global map containing FIFOs. Pushes go on the right, pops come off the left.
+
+`Finmap` for the reason `Memory` is one (`Core/ComputableTLAPlus/Semantics/Interface.lean`): key
+order is not observable, and letting it into the type turns commutation lemmas false. Updating a
+channel is `insert` rather than `AList.replace` — every rule below establishes `F.lookup k = some _`
+before writing `k`, so the two agree wherever either is reached, and `insert` is the one with a
+usable `lookup` equation (`= some v`, not `v <$ lookup k F`). -/
+abbrev FIFOs (V : Type) : Type := Finmap λ _ : ChanKey V ↦ List V
 
 /-- The local reduction state of an atomic block: the process's own memory and the channels. A
 `done` state additionally carries the label the branch's terminal `goto` jumped to — the paper's
@@ -139,7 +144,7 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
   | true, false, .with name _ bound e =>
     {⟨σ, ε, σ'⟩ | ∃ M F v,
       M ⊢ e ⇒ v ∧
-      AList.lookup name M = none ∧
+      Finmap.lookup name M = none ∧
       σ = .running M F ∧ ε = 1 ∧ match bound with
         -- `bound` is `true` for `=`, `false` for `∈` — the opposite polarity from prior art's
         -- `«=|∈»` field, see `Core/GuardedPlusCal/Syntax.lean`.
@@ -154,7 +159,7 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' (F.replace ⟨c.name, cpath⟩ vs) ∧
+      σ = .running M F ∧ σ' = .running M' (F.insert ⟨c.name, cpath⟩ vs) ∧
       ε = 1
     }
   | false, false, .skip => idle
@@ -169,7 +174,7 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
     {⟨σ, ε, σ'⟩ | ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
-      σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1
     }
   -- TODO(item 7): `multicast` has no semantics yet, so it currently neither steps nor aborts —

@@ -35,7 +35,7 @@ section Intro
 
 theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ AList.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
       match bound with
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
@@ -73,7 +73,7 @@ theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : Trace 
     (h : ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
-      σ = .running M F ∧ σ' = .running M (F.replace ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.send c e) :=
   h
@@ -131,6 +131,80 @@ theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : Trace V}
   h
 
 end Intro
+
+/-! # Constructor-elim lemmas
+
+  The mirror image of the section above, for the three constructors `Guarded2Network`'s reorder
+  lemmas (`Guarded2Network/Lemmas/Reorder.lean`) have to take *apart* rather than build: commuting an
+  assignment past a guard means reading both composites' membership down to their components. A
+  proof outside this file must not `unfold Statement.reducing` to do that (`LEAN_STYLE.md`), so the
+  decomposition is named here, where the definition lives.
+
+  Only the constructors that pass actually needs, and only for this language — the reorder happens
+  entirely on the target side. Each is `:= h` for the same reason its `.intro` twin is: the
+  hypothesis and the conclusion are the same proposition, one written as `Set` membership and one as
+  the body that membership unfolds to. Not in the `sem` rule set: these run backwards, and aesop
+  applying an elimination lemma to a goal is not what that set is for.
+-/
+
+section Elim
+
+/-- Stated as a bare implication rather than with a named hypothesis, unlike its siblings below:
+`bound`'s `match` sits in the *conclusion* here, and a hypothesis mentioning `bound` gets generalized
+into that match's motive (`match bound, h with`), which then no longer matches the definition.
+`Statement.aborting.with.elim` is the same case. -/
+theorem Statement.reducing.with.elim {σ σ' : LocalState V false} {ε : Trace V}
+    {name ann bound e} :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) →
+      ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
+        match bound with
+          | true => σ' = .running (M.insert name v) F
+          | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F :=
+  id
+
+theorem Statement.reducing.await.elim {σ σ' : LocalState V false} {ε : Trace V} {e}
+    (h : ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.await e)) :
+    ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1 :=
+  h
+
+theorem Statement.reducing.assign.elim {σ σ' : LocalState V false} {ε : Trace V} {r e}
+    (h : ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assign r e)) :
+    ∃ M F M' v rpath,
+      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+      Memory.update M r.name rpath v = .some M' ∧
+      σ = .running M F ∧ σ' = .running M' F ∧ ε = 1 :=
+  h
+
+@[inherit_doc Statement.reducing.with.elim]
+theorem Statement.aborting.with.elim {σ : LocalState V false} {ε : Trace V}
+    {name ann bound e} :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) →
+      (⟨σ, ε⟩ : LocalState V false × Trace V) ∈
+        {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+        ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1 ∧ match bound with
+            | true => False
+            | false => ¬ ExprSemantics.isSet v} :=
+  id
+
+theorem Statement.aborting.await.elim {σ : LocalState V false} {ε : Trace V} {e}
+    (h : ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e)) :
+    (⟨σ, ε⟩ : LocalState V false × Trace V) ∈
+      {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1} :=
+  h
+
+theorem Statement.aborting.assign.elim {σ : LocalState V false} {ε : Trace V} {r e}
+    (h : ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e)) :
+    (⟨σ, ε⟩ : LocalState V false × Trace V) ∈
+      {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
+          M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = 1} :=
+  h
+
+end Elim
 
 -- Leaf discharge for `sem_side` (T1, see below).
 attribute [aesop safe apply (rule_sets := [sem])]
