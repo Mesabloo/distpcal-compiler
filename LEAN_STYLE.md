@@ -8,7 +8,8 @@ Vendored `Extra/Mathlib/**` exempt — upstream code, upstream style.
 Checker: `scripts/lean-style [FILE…]`. Runs on `Stop`, after proof compile. Style is finishing
 concern, never blocks mid-proof iteration.
 
-Citation after rule = real occurrence in this repo. Marked ✗ = violation, still unfixed.
+Citation after rule = real occurrence in this repo, as an example. Marked ✗ = counterexample.
+Citations illustrate the rule; this file is not a list of things to fix.
 
 ---
 
@@ -18,7 +19,62 @@ Citation after rule = real occurrence in this repo. Marked ✗ = violation, stil
 
 - **No deep `exact` nests.** `exact f (g (h x))` hide proof shape, give one useless unification
   error for whole term. Write `apply` chain, one lemma per line, innermost last. `apply` chain
-  fail at line actually wrong. Anonymous constructor `exact ⟨a, b, c⟩` fine — literal, not chain.
+  fail at line actually wrong. Anonymous constructor `exact ⟨a, b, c⟩` fine — literal, not chain,
+  **but only while it fit one line.** Multi-line `⟨…⟩` lose the same readability the nesting rule
+  protect it.
+
+  Anonymous constructor stay fine for **short** components, and for **existential
+  instantiation** at any length — `⟨w, proof⟩` name the witness, which is the point. Reach for
+  `constructor` + one bullet per field only when a **structure** goal get long: nested
+  applications inside the `⟨…⟩`, or it spill across lines. Then each field arrive with its
+  expected type shown instead of being positioned by hand.
+  In term mode the `where` form beat both — fields by name, no positional counting at all.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:759` (`constructor`), `:824` (`where`)
+  ✗ `VerifiedCompiler/ClosedForm.lean:183`, `Denotational/StrongRefinement.lean:753`, `:783`
+- **No `rw [show … by …]`.** Inline `show`-by-tactic inside a rewrite hide a real proof step in a
+  rewrite argument. State it as a `have` and rewrite with that.
+  ✗ `VerifiedCompiler/ClosedForm.lean:179`, `Extra/Seq.lean:123`
+- **Avoid `(by …)` term arguments.** Same reason: a tactic proof passed as an argument is a step
+  with no name and no goal displayed. Prefer a named `have`. Not absolute — `(by omega)` on a
+  side condition is tolerable — and too common to mechanize, so not in the checker.
+- **Leave no live compiler warning.** Unused binder gets `_`, not a name. Unused section variable
+  gets `omit`. `<;>` where `;` suffice gets `;`. Warnings accumulate until nobody reads them, and
+  the real one arrives unnoticed. Not in `scripts/lean-style` — needs a build.
+  ✗ `VerifiedCompiler/ClosedForm.lean:331` (unused binder), `VerifiedCompiler/Relation.lean:141`
+  (`<;>` for `;`), `Guarded2Network/Lemmas/Statement.lean:533` (unused section variable).
+  `mvcgen`'s experimental banner is expected, not a warning to chase.
+- **Merge `rw [...]` into a following `simp only [...]`.** Rewrite lemmas go straight into the
+  `simp only` set — two traversals become one, and the intermediate goal nobody looks at stops
+  existing. ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:335`, `:384`,
+  `Guarded2Network/Lemmas/Statement.lean:397`, `Extra/Seq.lean:243`
+- **Prefer backward mode over a forward `have` chain.** Build the goal with `refine f ?_ ?_` and
+  discharge the pieces in bullets, rather than naming every intermediate with `have` and closing
+  with `exact f h₁ h₂`. Each subgoal then arrives with its expected type displayed instead of
+  having to be guessed and stated. Same reason `apply` chains beat nested `exact`.
+  ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:387` — `exact abs (Relation.lcomp₁.intro
+  hstep_i hrest)` with `hstep_i`/`hrest` hoisted above it, where `refine abs
+  (Relation.lcomp₁.intro ?_ ?_)` needs neither.
+
+  **Exception: rewriting.** When the massaging targets a *hypothesis*, forward is the honest
+  shape — `have h := lemma …` then `rwa [...] at h`. Aiming the same rewrite at the right
+  occurrence in the goal is more cumbersome, not less.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:846`
+- **A `have` re-derived in more than one proof is a lemma.** Hoist it, next to the class or
+  definition it is about. Repeated `have`s drift apart under refactor and each copy has to be
+  re-checked. `mulmono` is `T.Rτ_closed` repackaged and belongs beside the `Trace` class.
+  Applies to whole proofs too, not just `have`s: two blocks with identical statements mean a
+  diagnostic against one is a diagnostic against both, which is the cost the rule is about.
+  ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:169` (`mulmono`),
+  `Guarded2Network/Lemmas/Statement.lean:344` (`hfe`), `StrongRefinement.lean:429` (twin proofs)
+- **Name introduced hypotheses in signature order.** `rintro`/`intro` names should run in the order
+  the binders appear, so a reader can match them without counting. Out-of-order naming reads as a
+  slip even when deliberate. ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:550` —
+  `rintro ref₁ ref₃ ref₂`, where `ref₃` is the second hypothesis
+- **Delete `have`/`haveI` the proof does not use.** Lean's linter does not catch an unused
+  `haveI`, so a dead instance survives every refactor that made it dead.
+  Checking a deletion needs a forced rebuild — delete the `.olean` first, else `lake build` replays
+  the cache and reports success over the unchanged source.
+  ✗ `VerifiedCompiler/ClosedForm.lean:150` — `haveI : Nonempty α := ⟨σ⟩`, unused by `choose!`
 - **`by classical` on one line.** Not `by`, then `classical` next line.
 - **`contradiction`, not `Option.noConfusion`.** `noConfusion` need its implicits line up, fail
   `Application type mismatch` when they don't.
@@ -34,6 +90,12 @@ Citation after rule = real occurrence in this repo. Marked ✗ = violation, stil
   keep only what it close — so non-terminal is the point there. `Guarded2Network/Lemmas.lean:50`
 - **Lemma in `sem` rule set: never apply by hand.** `sem_side` already discharge it. Query
   membership: `scripts/facts s <name>` show `aesop:sem`.
+- **Signature indentation: binders 2, statement 4.** Continuation line carrying binders/hypotheses
+  indent 2; line carrying the statement itself — after the top-level `:` — indent 4. Statement
+  stay visually distinct from what it quantify over. Go-forward rule: most existing signatures put
+  binders at 4. Not in `scripts/lean-style` — telling a binder line from a wrapped statement
+  continuation need real parsing, and a crude version flag hundreds of conforming lines.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:91` ✗ `VerifiedCompiler/ClosedForm.lean:126`
 
 ### Language conventions
 
@@ -105,23 +167,36 @@ The project made these calls; they are not open.
 - **Monadic `G2NM` goal → `mvcgen`.** `sem_side` already wired in as its VC-discharge hook, so
   cheap side conditions never surface as named verification conditions.
   `Guarded2Network/Lemmas.lean:60`, hook at `:54`
+- **`Iff` goal whose both sides open with `intro`/`rintro` → `iff_intro` / `iff_rintro`.** Never
+  `constructor` there. `iff_intro x y` take two idents, `iff_rintro p q` two rintro patterns, and
+  both fold the `intro` into the split. `constructor` is right for an `Iff` only when the branches
+  do *not* start by introducing. Applies after `ext` too, where the `Iff` only appears once the
+  `ext` has run. ✗ `VerifiedCompiler/Trace.lean:142`, `VerifiedCompiler/ClosedForm.lean:76`
+  (post-`ext`), `Extra/Rel.lean:128`
+- **Need a stronger induction hypothesis → `induction x generalizing y z`.** Not a hoisted
+  `have main : ∀ …` re-quantifying the arguments by hand and proving it by an inner `induction`.
+  Hypotheses that would clutter the IH: `clear` them before the `induction`, not restate the goal
+  around them. `VerifiedCompiler/Relation.lean:52`, `Extra/List.lean:67`
+  ✗ `VerifiedCompiler/ClosedForm.lean:223`, `Denotational/StrongRefinement.lean:173` — a
+  `have main : ∀ (n : ℕ) …` whose body opens `intro n; induction n`
 
 ### Available, unused here, worth reaching for
 
-Zero occurrences in this project. Checked against the pinned toolchain's tactic set.
+Not yet used here, checked against the pinned toolchain's tactic set. Consider them before
+hand-rolling the equivalent.
 
 | Situation | Tactic |
 |---|---|
 | Find the lemma that closes goal | `exact?` / `apply?` / `rw?` — use while developing, paste the found term |
-| Inaccessible hypothesis `h✝` after `rintro`/`cases` | `expose_names` — repo currently hand-fixes with `rename_i` |
-| Case-split following a function's own equations | `fun_cases` — non-recursive twin of `fun_induction`, which repo *does* use |
-| Rewrite under `≤`/`⊆` rather than `=` | `grw` / `grewrite` — natural fit for `Extra/Rel.lean`'s whole vocabulary |
-| Rewrite only the *n*th occurrence | `nth_rw` / `nth_rewrite` — 354 `rw` in repo, zero `nth_rw` |
+| Is this step leaning on defeq? | `#defeq_abuse in <tac>` — runs `tac` at both `backward.isDefEq.respectTransparency` settings, names the `isDefEq` checks that only pass at the loose one. Needs `import Mathlib.Tactic.DefEqAbuse`. Experimental; tactic still runs, so the proof stays valid while debugging. Use before deleting a `rw`/`change` that looks redundant — e.g. `rw [Set.mem_sUnion] at h` before an `obtain h` |
+| Inaccessible hypothesis `h✝` after `rintro`/`cases` | `expose_names`, rather than hand-fixing with `rename_i` |
+| Case-split following a function's own equations | `fun_cases` — non-recursive twin of `fun_induction` |
+| Rewrite under `≤`/`⊆` rather than `=` | `grw` / `grewrite` — fits `Extra/Rel.lean`'s vocabulary |
+| Rewrite only the *n*th occurrence | `nth_rw` / `nth_rewrite` |
 | Congruence at a chosen subterm | `congrm` / `congr!` |
 | Strip matching binders off goal *and* hypothesis | `peel` |
-| Several consecutive `· exact` bullets | `exacts [a, b, c]` — 16 such runs in repo |
 | Factor a `have` into a standalone lemma | `extract_goal` |
-| Generalize before `induction` | `revert` — zero uses, notable for a repo with 105 `induction` |
+| Generalize before `induction` | `revert` |
 | Symmetric cases proved once | `wlog` |
 
 Already in use, keep using: `grind` (`Extra/List.lean:720`), `omega`, `gcongr`, `mono`,

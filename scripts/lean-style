@@ -107,6 +107,13 @@ def _classical(code, raw):
                 break
 
 
+@rule("rw [show … by …]", "state it as a `have` and rewrite with that")
+def _rwshow(code, raw):
+    for i, l in enumerate(code):
+        if re.search(r'\b(rw|rwa|simp_rw|erw|erwa)\s*\[[^\]]*\bshow\b[^\]]*\bby\b', l):
+            yield i, l.strip()
+
+
 @rule("noConfusion", "use `contradiction` — `noConfusion` needs its implicits to line up")
 def _noconfusion(code, raw):
     for i, l in enumerate(code):
