@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Guarded2Network.Lemmas.Relation
 public import Guarded2Network.Lemmas.Trace
 
@@ -142,9 +143,8 @@ theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuarde
         exact hfresh _ (List.mem_cons_self ..) hy
       have htail : ∀ e, Sum.inr e ∈ tl → Expression.FreshIn inbox e :=
         λ e he ↦ hfresh e (List.mem_cons_of_mem _ he)
-      constructor
-      · intro h
-        cases h with
+      iff_intro h h
+      · cases h with
         | cons hstep hrest =>
           refine List.Forall₂.cons ?_ ((ih _ htail).mp hrest)
           cases hstep with
@@ -152,8 +152,7 @@ theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuarde
           | index hv =>
             apply EvalStep.index
             exact (ExprSemantics.evalLocal (hhead _ rfl)).mp hv
-      · intro h
-        cases h with
+      · cases h with
         | cons hstep hrest =>
           refine List.Forall₂.cons ?_ ((ih _ htail).mpr hrest)
           cases hstep with
@@ -194,12 +193,12 @@ theorem Memory.update_transfer {M₁ M₂ M₁' : Memory V} {inbox x : String}
   refine ⟨M₂.insert x new, ⟨old, ?_, new, hnew, rfl⟩, ?_⟩
   · rw [← agree x hx]
     exact hold
-  intro y hy
-  by_cases hyx : y = x
-  · subst hyx
-    rw [AList.lookup_insert, AList.lookup_insert]
-  · rw [AList.lookup_insert_ne hyx, AList.lookup_insert_ne hyx]
-    exact agree y hy
+  · intro y hy
+    by_cases hyx : y = x
+    · subst hyx
+      rw [AList.lookup_insert, AList.lookup_insert]
+    · rw [AList.lookup_insert_ne hyx, AList.lookup_insert_ne hyx]
+      exact agree y hy
 
 /-- An update touches only the name it writes. What keeps the refinement invariant's *other*
 components — the mailbox channel's resolved path, and `inbox`'s own contents — undisturbed by an
@@ -223,7 +222,8 @@ theorem Memory.update_none_transfer {M₁ M₂ : Memory V} {x : String} {path : 
   unfold ComputableTLAPlus.Memory.update at h ⊢
   simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_eq_none_iff] at h ⊢
   intro old hold new hnew
-  exact absurd (h old (hlk ▸ hold) new hnew) (by simp)
+  have habs := h old (hlk ▸ hold) new hnew
+  contradiction
 
 /-! ## D4 — action statements
 
@@ -252,6 +252,14 @@ def Fresh (mbox : Mailbox) {b : Bool} (S : ComputableGuardedPlusCal.Statement fa
   ∀ c inbox, mbox = .some (c, inbox) →
     inbox ∉ GuardedPlusCal.Statement.freeVars S ∧ inbox ≠ GuardedPlusCal.selfName ∧
       ∀ x, Statement.writtenName? S = .some x → x ∉ GuardedPlusCal.Ref.freeVars c
+
+/-- `assign` and `send` each read one reference and one expression, and `Statement.freeVars` is the
+union of the two halves' free variables. Every branch of the two simulation lemmas below splits
+`Fresh`'s first component this way, so the split is named once here. -/
+theorem fresh_split {x : String} {r : ComputableGuardedPlusCal.Ref} {e : ComputablePlusCal.Expression}
+    (h : x ∉ GuardedPlusCal.Ref.freeVars r ∪ Expression.freeVars e) :
+    x ∉ GuardedPlusCal.Ref.freeVars r ∧ Expression.FreshIn x e :=
+  ⟨λ hr ↦ h (Finset.mem_union_left _ hr), λ he ↦ h (Finset.mem_union_right _ he)⟩
 
 /-- The workhorse behind `action_refines`: an action statement's semantics is closed under
 `relatesTo`. Given a target step out of `σₜ` and a source state related to it, the source takes the
@@ -340,8 +348,7 @@ theorem Statement.reducing'_sim {mbox : Mailbox} {b : Bool}
       injection hpost with hM' hF'
       subst hM'; subst hF'; subst hε
       -- `inbox` is read by neither the written reference nor the assigned expression
-      have hfr : inbox ∉ GuardedPlusCal.Ref.freeVars r := λ h ↦ hfresh (Finset.mem_union_left _ h)
-      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      obtain ⟨hfr, hfe⟩ := fresh_split hfresh
       have hrname : r.name ≠ inbox := by
         rintro rfl
         exact hfr (Finset.mem_union_left _ (Finset.mem_singleton_self _))
@@ -367,8 +374,7 @@ theorem Statement.reducing'_sim {mbox : Mailbox} {b : Bool}
       subst hM; subst hF; subst hσ'
       injection hpost with hM' hF'
       subst hM'; subst hF'; subst hε
-      have hfc : inbox ∉ GuardedPlusCal.Ref.freeVars c := λ h ↦ hfresh (Finset.mem_union_left _ h)
-      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      obtain ⟨hfc, hfe⟩ := fresh_split hfresh
       have hcpath₁ : Ref.EvalArgs M₁ c cpath' :=
         (Ref.EvalArgs.congr_of_fresh (λ y hy ↦ (hagree y hy).symm) hfc).mp hcpath
       -- the sent-to queue in the source: the target's, with this process's `inbox` in front when
@@ -394,7 +400,7 @@ theorem Statement.reducing'_sim {mbox : Mailbox} {b : Bool}
           rw [AList.lookup_replace_ne hk', AList.lookup_replace_ne hk']
           exact hoff k hk
         · simp only [LocalState'.fifos_mk]
-          rw [← hkey, AList.lookup_replace, AList.lookup_replace, hsplit₁, hlk]
+          rewrite [← hkey, AList.lookup_replace, AList.lookup_replace, hsplit₁, hlk]
           simp [Functor.mapConst, List.concat_eq_append, List.append_assoc]
         · exact (sim.eval_iff hfe).mpr hv
         · exact (hagree GuardedPlusCal.selfName (Ne.symm hself)).trans hp
@@ -455,7 +461,7 @@ theorem Statement.aborting'_sim {mbox : Mailbox} {b : Bool}
       match seg, hval with
       | .inr e', rfl => exact λ hx ↦ hfr (Ref.freeVars_of_mem_args hseg hx)
     obtain ⟨hl, hab⟩ := step
-    refine ⟨hlabel.trans hl, ?_⟩
+    exists hlabel.trans hl
     cases S with
     | skip => exact hab.elim
     | goto label => exact hab.elim
@@ -474,8 +480,7 @@ theorem Statement.aborting'_sim {mbox : Mailbox} {b : Bool}
         subst hM; subst hF; subst hε
         exact .inr ⟨M₁, F₁, v, hv, (sim.eval_iff hfresh).mpr hvv, rfl, rfl⟩
     | assign r e =>
-      have hfr : inbox ∉ GuardedPlusCal.Ref.freeVars r := λ h ↦ hfresh (Finset.mem_union_left _ h)
-      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      obtain ⟨hfr, hfe⟩ := fresh_split hfresh
       have hrname : r.name ≠ inbox := by
         rintro rfl
         exact hfr (Finset.mem_union_left _ (Finset.mem_singleton_self _))
@@ -498,8 +503,7 @@ theorem Statement.aborting'_sim {mbox : Mailbox} {b : Bool}
         · exact (Ref.EvalArgs.congr_of_fresh (λ y hy ↦ (hagree y hy).symm) hfr).mp hrpath
         · exact Memory.update_none_transfer (hagree r.name hrname) hupd
     | send c e =>
-      have hfc : inbox ∉ GuardedPlusCal.Ref.freeVars c := λ h ↦ hfresh (Finset.mem_union_left _ h)
-      have hfe : Expression.FreshIn inbox e := λ h ↦ hfresh (Finset.mem_union_right _ h)
+      obtain ⟨hfc, hfe⟩ := fresh_split hfresh
       rcases hab with (⟨M, F, hab, hM, hε⟩ | ⟨M, F, hab, hM, hε⟩) |
         ⟨M, F, cpath', hcpath, hlk, hM, hε⟩
       · injection hM with hM hF
@@ -530,6 +534,7 @@ theorem convertActionStmt_aborting' {b : Bool} (S : ComputableGuardedPlusCal.Sta
       GuardedPlusCal.Statement.aborting' (V := V) S := by
   cases S <;> rfl
 
+omit [ExprSemantics V] in
 theorem convertActionStmt_diverging' {b : Bool} (S : ComputableGuardedPlusCal.Statement false b) :
     NetworkPlusCal.Statement.diverging' (V := V) (convertActionStmt S) =
       GuardedPlusCal.Statement.diverging' (V := V) S := by

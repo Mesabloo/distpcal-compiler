@@ -29,63 +29,98 @@ Citations illustrate the rule; this file is not a list of things to fix.
   applications inside the `⟨…⟩`, or it spill across lines. Then each field arrive with its
   expected type shown instead of being positioned by hand.
   In term mode the `where` form beat both — fields by name, no positional counting at all.
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:759` (`constructor`), `:824` (`where`)
-  ✗ `VerifiedCompiler/ClosedForm.lean:183`, `Denotational/StrongRefinement.lean:753`, `:783`
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:710` (`constructor`), `:785` (`where`)
+- **Existential goal: `exists`, not `refine ⟨…⟩`.** `exists w₁, w₂` supply the witnesses and leave
+  what is left as the goal, no `?_` to count and no closing `⟩` to match. It descend through `∧`
+  and finish with `trivial`, so a component already in context need not be named at all.
+  Applies whenever the holes are **trailing** — hole nested inside a term (`Or.inr ?_`,
+  `λ i ↦ ?_`) stay `refine`, `exists` having no way to spell that.
+  `Extra/Seq.lean:226`, `VerifiedCompiler/Denotational/StrongRefinement.lean:73`
+  ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:77`, `:248` — legitimately `refine`,
+  the hole sit under `Or.inr`
+- **Bullet every subgoal.** A tactic that split the goal is followed by one `·` per branch, always —
+  never one bullet and then the next branch's tactics written unindented at the bullet's own column.
+  Unbulleted, nothing marks where one branch ends and the next begins, and a later edit to the first
+  branch silently changes which goal the rest applies to. Only a combinator (`<;>`, `all_goals`)
+  is exempt, being explicit about applying to every goal.
+  `Guarded2Network/Lemmas/Statement.lean:193` (a two-hole `refine`),
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:345` (an `obtain` whose second branch runs to
+  the end of the proof — bulleted anyway)
 - **No `rw [show … by …]`.** Inline `show`-by-tactic inside a rewrite hide a real proof step in a
   rewrite argument. State it as a `have` and rewrite with that.
-  ✗ `VerifiedCompiler/ClosedForm.lean:179`, `Extra/Seq.lean:123`
+  `Extra/Seq.lean:125` — `have hm : m = 0 := by omega`, then `rwa [hm] at h`
 - **Avoid `(by …)` term arguments.** Same reason: a tactic proof passed as an argument is a step
   with no name and no goal displayed. Prefer a named `have`. Not absolute — `(by omega)` on a
   side condition is tolerable — and too common to mechanize, so not in the checker.
 - **Leave no live compiler warning.** Unused binder gets `_`, not a name. Unused section variable
   gets `omit`. `<;>` where `;` suffice gets `;`. Warnings accumulate until nobody reads them, and
   the real one arrives unnoticed. Not in `scripts/lean-style` — needs a build.
-  ✗ `VerifiedCompiler/ClosedForm.lean:331` (unused binder), `VerifiedCompiler/Relation.lean:141`
-  (`<;>` for `;`), `Guarded2Network/Lemmas/Statement.lean:533` (unused section variable).
+  `Guarded2Network/Lemmas/Statement.lean:537` (`omit [ExprSemantics V] in`, which must go *above*
+  the doc comment — after it, the parser reports `unexpected token 'omit'`).
   `mvcgen`'s experimental banner is expected, not a warning to chase.
 - **Merge `rw [...]` into a following `simp only [...]`.** Rewrite lemmas go straight into the
   `simp only` set — two traversals become one, and the intermediate goal nobody looks at stops
-  existing. ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:335`, `:384`,
-  `Guarded2Network/Lemmas/Statement.lean:397`, `Extra/Seq.lean:243`
+  existing. `VerifiedCompiler/Denotational/StrongRefinement.lean:316`, `:368`
+
+  Same for a following `grind`: try folding the lemma in as `grind [= X]` first.
+
+  **Where the merge does not go through, use `rewrite`, not `rw`.** `simp only` rewrites everywhere
+  and repeatedly where `rw` rewrites the first match once, so the merged set can loop or overshoot —
+  `Extra/Seq.lean:244` hits `maximum recursion depth`, `Guarded2Network/Lemmas/Statement.lean:403`
+  leaves the goal unsolved, and `grind only [= List.length_pos_iff, …]` fails at
+  `Extra/List.lean:701`. Keeping the two steps separate is then right, but `rw`'s closing `rfl`
+  attempt is dead work when a `simp`/`grind` follows — and a *failing* `rfl` at that. `rewrite` is
+  the same tactic without it. `Extra/Seq.lean:244`, `Extra/List.lean:701`,
+  `Guarded2Network/Lemmas/Statement.lean:403`
 - **Prefer backward mode over a forward `have` chain.** Build the goal with `refine f ?_ ?_` and
   discharge the pieces in bullets, rather than naming every intermediate with `have` and closing
   with `exact f h₁ h₂`. Each subgoal then arrives with its expected type displayed instead of
   having to be guessed and stated. Same reason `apply` chains beat nested `exact`.
-  ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:387` — `exact abs (Relation.lcomp₁.intro
-  hstep_i hrest)` with `hstep_i`/`hrest` hoisted above it, where `refine abs
-  (Relation.lcomp₁.intro ?_ ?_)` needs neither.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:369`, where two hoisted `have`s became
+  `refine abs (Relation.lcomp₁.intro (b := σs (i + 1)) ?_ ?_)` and two bullets.
+
+  **Name the intermediate the goal does not fix.** A composition lemma's middle state occurs in
+  neither side of the conclusion, so `refine` cannot infer it and reports "don't know how to
+  synthesize implicit argument" — supply it as `(b := …)` rather than falling back to forward mode.
+  The forward `have`s were pinning it down implicitly; the named argument says so out loud.
 
   **Exception: rewriting.** When the massaging targets a *hypothesis*, forward is the honest
   shape — `have h := lemma …` then `rwa [...] at h`. Aiming the same rewrite at the right
   occurrence in the goal is more cumbersome, not less.
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:846`
+  `VerifiedCompiler/ClosedForm.lean:197`
 - **A `have` re-derived in more than one proof is a lemma.** Hoist it, next to the class or
   definition it is about. Repeated `have`s drift apart under refactor and each copy has to be
   re-checked. `mulmono` is `T.Rτ_closed` repackaged and belongs beside the `Trace` class.
   Applies to whole proofs too, not just `have`s: two blocks with identical statements mean a
   diagnostic against one is a diagnostic against both, which is the cost the rule is about.
-  ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:169` (`mulmono`),
-  `Guarded2Network/Lemmas/Statement.lean:344` (`hfe`), `StrongRefinement.lean:429` (twin proofs)
+  `VerifiedCompiler/Trace.lean:60` (`MulClosed.rmul_le`, four copies of `mulmono`),
+  `Guarded2Network/Lemmas/Statement.lean:259` (`fresh_split`, four copies of `hfe`/`hfr`),
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:666` — `Aborting.star`, forty lines of
+  induction twinned with `Diverging.star`, now derived from it through `Diverging.toAborting`
 - **Name introduced hypotheses in signature order.** `rintro`/`intro` names should run in the order
   the binders appear, so a reader can match them without counting. Out-of-order naming reads as a
-  slip even when deliberate. ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:550` —
-  `rintro ref₁ ref₃ ref₂`, where `ref₃` is the second hypothesis
+  slip even when deliberate. Naming by role rather than by position is the usual cause:
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:543` used to read `rintro ref₁ ref₃ ref₂`
+  because `ref₃` was "the aborting one".
 - **Delete `have`/`haveI` the proof does not use.** Lean's linter does not catch an unused
   `haveI`, so a dead instance survives every refactor that made it dead.
   Checking a deletion needs a forced rebuild — delete the `.olean` first, else `lake build` replays
-  the cache and reports success over the unchanged source.
-  ✗ `VerifiedCompiler/ClosedForm.lean:150` — `haveI : Nonempty α := ⟨σ⟩`, unused by `choose!`
+  the cache and reports success over the unchanged source. The one this repo had was
+  `haveI : Nonempty α := ⟨σ⟩` in front of a `choose!`, which does not need it.
 - **`by classical` on one line.** Not `by`, then `classical` next line.
 - **`contradiction`, not `Option.noConfusion`.** `noConfusion` need its implicits line up, fail
   `Application type mismatch` when they don't.
 - **`by_cases! h : p`**, not `by_cases h : p` then `push_neg at h`. `!` do `push_neg` itself. Same
-  for `by_contra!`. `VerifiedCompiler/Denotational/StrongRefinement.lean:339`,
-  `VerifiedCompiler/ClosedForm.lean:192`
-- **No `exact absurd x y`.** Use `absurd` tactic (`absurd x`, then supply negation), or `nomatch h`
-  when `h` itself impossible equation. ✗ `Guarded2Network/Lemmas/Statement.lean:226`
+  for `by_contra!`. `VerifiedCompiler/Denotational/StrongRefinement.lean:319`,
+  `VerifiedCompiler/ClosedForm.lean:193`
+- **No `exact absurd x y`.** Use `absurd` tactic (`absurd x`, then supply negation), `nomatch h`
+  when `h` itself impossible equation, or — when the absurdity is an equation between distinct
+  constructors — name it with a `have` and let `contradiction` find it.
+  `Extra/Seq.lean:71` (`absurd` tactic), `Guarded2Network/Lemmas/Statement.lean:226`
+  (`have habs := …` then `contradiction`)
 - **Aesop terminal or not at all** (plan §3 T1). Non-terminal aesop leave whatever search stopped
   at — same instability as non-terminal `simp`, worse, because later steps written against fixed
-  goal order. `Core/NetworkPlusCal/Semantics/Lemmas.lean:460`
+  goal order. `Core/NetworkPlusCal/Semantics/Lemmas.lean:449`
   **One exception: under `mvcgen`.** `sem_side` registered as its VC-discharge hook, and `mvcgen`
   keep only what it close — so non-terminal is the point there. `Guarded2Network/Lemmas.lean:50`
 - **Lemma in `sem` rule set: never apply by hand.** `sem_side` already discharge it. Query
@@ -95,7 +130,7 @@ Citations illustrate the rule; this file is not a list of things to fix.
   stay visually distinct from what it quantify over. Go-forward rule: most existing signatures put
   binders at 4. Not in `scripts/lean-style` — telling a binder line from a wrapped statement
   continuation need real parsing, and a crude version flag hundreds of conforming lines.
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:91` ✗ `VerifiedCompiler/ClosedForm.lean:126`
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:91` ✗ `VerifiedCompiler/ClosedForm.lean:127`
 
 ### Language conventions
 
@@ -103,9 +138,8 @@ Set in `lakefile.lean`, not negotiable per-file:
 
 - **`autoImplicit` off.** Every implicit explicit, in `variable` block or signature.
   `lakefile.lean:35`
-- **`pp.unicode.fun` on — write `λ x ↦ y`, never `fun x => y`.** `lakefile.lean:36`
-  ✗ `Core/ComputableTLAPlus/FreeVars.lean:86`, `Core/TypedTLAPlus/Coercion.lean:121`,
-  `WellFormedness/WellScoped/GuardedPlusCal.lean:62`, `:98`, `CustomPrelude.lean:139`
+- **`pp.unicode.fun` on — write `λ x ↦ y`, never `fun x => y`.** `lakefile.lean:36`. Holds in
+  metaprogramming too, where the surrounding code is Lean's own: `CustomPrelude.lean:139`
 - **`linter.missingDocs` on by default.** Toggleable for fast iteration; not left off when module
   "done". `lakefile.lean:31`
 - **Adopt prior-art idioms:** `Located α` with `match_source`/`@@` pair, `Bifunctor`/`Bitraversable`
@@ -138,7 +172,7 @@ Full list + docstrings: `scripts/facts t`.
 
 | Situation | Reach for | Defined |
 |---|---|---|
-| `Statement.reducing` membership goal | `sem_red`, then `sem_side` | `Core/NetworkPlusCal/Semantics/Lemmas.lean:437`, `:460` |
+| `Statement.reducing` membership goal | `sem_red`, then `sem_side` | `Core/NetworkPlusCal/Semantics/Lemmas.lean:426`, `:449` |
 | `StrongRefinement` matching disjunct | `refines_match σ, ε` — two-arg form | `VerifiedCompiler/Denotational/Tactics.lean:41` |
 | Source aborted instead | `refines_abort ε` | `:50` |
 | Source diverges too | `refines_diverge ε` | `:57` |
@@ -163,7 +197,14 @@ The project made these calls; they are not open.
   `rw` chain through `right_union_eq_union`/`left_lcomp₂_eq` to massage both sides. `gcongr` find
   the tagged congruence lemma and reduce to the component inequalities itself.
   `Guarded2Network/Lemmas.lean:84`; tags at `Extra/Rel.lean:34`, `:44`
-  ✗ old style still at `VerifiedCompiler/ClosedForm.lean:118`, `:249`
+
+  **An `OrderHom`'s `monotone'` field needs `beta_reduce` first** — the goal is a beta-redex against
+  the `toFun` just given, and `gcongr` reports "did not make progress" until it is reduced.
+  `VerifiedCompiler/ClosedForm.lean:116`, `:251`
+
+  **`gcongr` matches the relation syntactically**, so `≤` and `⊆` are different keys even on `Set`.
+  Mathlib tags union at `⊆` only and this project's composition lemmas at `≤`, so a goal mixing the
+  two matched neither; `Set.union_le_union` (`Extra/Rel.lean:59`) is the missing `≤` form.
 - **Monadic `G2NM` goal → `mvcgen`.** `sem_side` already wired in as its VC-discharge hook, so
   cheap side conditions never surface as named verification conditions.
   `Guarded2Network/Lemmas.lean:60`, hook at `:54`
@@ -171,14 +212,33 @@ The project made these calls; they are not open.
   `constructor` there. `iff_intro x y` take two idents, `iff_rintro p q` two rintro patterns, and
   both fold the `intro` into the split. `constructor` is right for an `Iff` only when the branches
   do *not* start by introducing. Applies after `ext` too, where the `Iff` only appears once the
-  `ext` has run. ✗ `VerifiedCompiler/Trace.lean:142`, `VerifiedCompiler/ClosedForm.lean:76`
-  (post-`ext`), `Extra/Rel.lean:128`
+  `ext` has run. `VerifiedCompiler/ClosedForm.lean:76` (post-`ext`), `Extra/Rel.lean:136`
+
+  **One pattern per side, no more.** `iff_rintro` takes exactly one `rintroPat` on each side, so
+  `intro h n` becomes `iff_intro h …` with the second `intro n` left in the bullet
+  (`Extra/Seq.lean:158`). A pattern that itself splits — `(h|⟨…⟩)` — yields two goals for that side,
+  so the bullets that follow are four siblings at one level, not two nested pairs.
+  `Core/NetworkPlusCal/Semantics/Lemmas.lean:363`
+
+  Both tactics live in `CustomPrelude`, reached by `meta import CustomPrelude`; it is not
+  transitive, so a file using them needs that import of its own.
 - **Need a stronger induction hypothesis → `induction x generalizing y z`.** Not a hoisted
   `have main : ∀ …` re-quantifying the arguments by hand and proving it by an inner `induction`.
   Hypotheses that would clutter the IH: `clear` them before the `induction`, not restate the goal
-  around them. `VerifiedCompiler/Relation.lean:52`, `Extra/List.lean:67`
-  ✗ `VerifiedCompiler/ClosedForm.lean:223`, `Denotational/StrongRefinement.lean:173` — a
-  `have main : ∀ (n : ℕ) …` whose body opens `intro n; induction n`
+  around them. `VerifiedCompiler/Relation.lean:52`, `Extra/List.lean:67`,
+  `VerifiedCompiler/ClosedForm.lean:228`,
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:172`
+
+  Destructure *first*, then generalize: the run's `σs`/`es` only exist once the hypothesis is
+  taken apart, so the `rintro`/`obtain` comes before the `induction`.
+  **The IH's argument order is Lean's, not yours** — `generalizing` reverts in context order, and
+  the resulting telescope need not follow the order you listed. Read it off the first
+  "Application type mismatch" rather than guessing; that unpredictability is the one thing the
+  hoisted `have main` did better, and it is not worth a hand-restated goal.
+
+  Genuinely auxiliary facts stay `have`s. The rule is about a `have` that re-quantifies the
+  *enclosing goal's* own variables — not about `have hstab : ∀ m, n ≤ m → …`
+  (`Extra/Seq.lean:251`), whose statement is nothing the surrounding proof is trying to prove.
 
 ### Available, unused here, worth reaching for
 

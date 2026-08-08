@@ -557,7 +557,7 @@ namespace List
   theorem removeAll_concat_of_not_mem [DecidableEq α] {xs ys : List α} {y : α} (h : y ∉ ys) : (xs.removeAll ys).concat y = (xs.concat y).removeAll ys := by
     induction xs with
     | nil =>
-      simp [removeAll, filter_singleton, Bool.cond_eq_if, ite_cond_eq_false _ _ (eq_false h)]
+      simp [removeAll, filter_singleton, Bool.cond_eq_ite, ite_cond_eq_false _ _ (eq_false h)]
     | cons x xs IH =>
       simp [cons_removeAll, -concat_eq_append]
       split_ifs
@@ -698,7 +698,7 @@ namespace List
       · congr
         have xs_ne_nil : xs ≠ [] := by grind only [= length_nil]
         have xs_tail_ne_nil : xs.tail ≠ [] := by
-          rw [← List.length_pos_iff]
+          rewrite [← List.length_pos_iff]
           grind only [= length_tail, cases Or]
         have drop_one_xs_ne_nil : xs.drop 1 ≠ [] := by rwa [List.drop_one]
 

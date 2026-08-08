@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Extra.Rel
 public import Extra.Seq
 public import Mathlib.Order.FixedPoints
@@ -73,13 +74,11 @@ theorem Relation.omega_unfold {α ε : Type _} [Monoid ε] [OmegaProd ε]
     (hunfold : OmegaProd.HasUnfold ε) (R : Set (α × ε × α)) :
     Relation.omega R = R ∘ᵣ₁ Relation.omega R := by
   ext ⟨a, e⟩
-  constructor
-  · rintro ⟨σs, es, rfl, hstep, rfl⟩
-    rw [hunfold es]
+  iff_rintro ⟨σs, es, rfl, hstep, rfl⟩ ⟨b, e₁, e₂, hR, ⟨σs, es, rfl, hstep, rfl⟩, rfl⟩
+  · rw [hunfold es]
     apply Relation.lcomp₁.intro (hstep 0)
-    exact ⟨λ i ↦ σs (i + 1), λ i ↦ es (i + 1), rfl, λ i ↦ hstep (i + 1), rfl⟩
-  · rintro ⟨b, e₁, e₂, hR, ⟨σs, es, rfl, hstep, rfl⟩, rfl⟩
-    refine ⟨λ i ↦ Nat.rec a (λ j _ ↦ σs j) i, λ i ↦ Nat.rec e₁ (λ j _ ↦ es j) i, rfl, ?_, ?_⟩
+    exact Relation.omega.tail hstep
+  · refine ⟨λ i ↦ Nat.rec a (λ j _ ↦ σs j) i, λ i ↦ Nat.rec e₁ (λ j _ ↦ es j) i, rfl, ?_, ?_⟩
     · intro i
       cases i with
       | zero => exact hR
@@ -115,7 +114,9 @@ def Relation.Productive {α ε : Type _} [Monoid ε] (R : Set (α × ε × α)) 
 def Relation.divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) (Y : Set (α × ε)) :
     Set (α × ε) →o Set (α × ε) where
   toFun x := Y ∪ X ∘ᵣ₁ x
-  monotone' _ _ h := Set.union_subset_union le_rfl (Relation.lcomp₁.mono le_rfl h)
+  monotone' _ _ h := by
+    beta_reduce
+    gcongr
 
 @[simp] theorem Relation.divFun_apply {α ε : Type _} [Monoid ε] {X : Set (α × ε × α)}
     {Y x : Set (α × ε)} : Relation.divFun X Y x = Y ∪ X ∘ᵣ₁ x := rfl
@@ -135,7 +136,7 @@ theorem Relation.closedForm_le_gfp {α ε : Type _} [Monoid ε] [OmegaProd ε]
   · dsimp only at h₀ ⊢
     subst h₀
     refine Or.inr ⟨σs 1, es 0, OmegaProd.ωProd (λ i ↦ es (i + 1)), hstep 0, Or.inr ?_, hunfold es⟩
-    exact ⟨λ i ↦ σs (i + 1), λ i ↦ es (i + 1), rfl, λ i ↦ hstep (i + 1), rfl⟩
+    exact Relation.omega.tail hstep
 
 /-- The converse inclusion, under productivity. Unfolding the fixed point greedily either reaches
 `Y` — a finite run, hence `X* ∘ᵣ₁ Y` — or never does, and dependent choice then produces an infinite
@@ -147,7 +148,6 @@ theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [OmegaProd ε]
     (prod : Relation.Productive X) :
     OrderHom.gfp (Relation.divFun X Y) ≤ (Relation.star X ∘ᵣ₁ Y) ∪ Relation.omega X := by classical
   rintro ⟨σ, e⟩ hmem
-  haveI : Nonempty α := ⟨σ⟩
   have unf : ∀ p : α × ε, p ∈ OrderHom.gfp (Relation.divFun X Y) → p ∉ Y →
       ∃ q : ε × α × ε, (p.1, q.1, q.2.1) ∈ X ∧
         q.2 ∈ OrderHom.gfp (Relation.divFun X Y) ∧ p.2 = q.1 * q.2.2 := by
@@ -176,7 +176,8 @@ theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [OmegaProd ε]
       · intro i hi
         rcases Nat.lt_or_ge i n with h | h
         · exact hst i h
-        · rw [show i = n by omega]
+        · have hin : i = n := by omega
+          rw [hin]
           exact hgX _ hg hnY
   by_cases hstop : ∃ n, P n ∈ Y
   · obtain ⟨-, htr, hst⟩ := inv (Nat.find hstop) (λ j hj ↦ Nat.find_min hstop hj)
@@ -220,25 +221,18 @@ run on the left, and the reducing functional extends it on the right. -/
 theorem Relation.star.snoc {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} {a b c : α} {e e' : ε}
     (h : (a, e, b) ∈ Relation.star R) (h' : (b, e', c) ∈ R) :
     (a, e * e', c) ∈ Relation.star R := by
-  have main : ∀ (n : ℕ) (σs : ℕ → α) (es : ℕ → ε) (d : α) (f : ε),
-      (∀ i, i < n → (σs i, es i, σs (i + 1)) ∈ R) → (σs n, f, d) ∈ R →
-      (σs 0, Monoid.partialProd es n * f, d) ∈ Relation.star R := by
-    intro n
-    induction n with
-    | zero =>
-      intro σs es d f _ hstep
-      rw [Monoid.partialProd_zero, one_mul, ← mul_one f]
-      apply Relation.star.head hstep (Relation.star.refl d)
-    | succ n ih =>
-      intro σs es d f hsteps hstep
-      rw [Monoid.partialProd_succ' es n, mul_assoc]
-      apply Relation.star.head (hsteps 0 (by omega))
-      apply ih (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) d f (λ i hi ↦ hsteps (i + 1) (by omega)) hstep
   obtain ⟨n, σs, es, h₀, hn, hsteps, rfl⟩ := h
   dsimp only at h₀ hn ⊢
   subst h₀
   subst hn
-  exact main n σs es c e' hsteps h'
+  induction n generalizing σs es with
+  | zero =>
+    rw [Monoid.partialProd_zero, one_mul, ← mul_one e']
+    apply Relation.star.head h' (Relation.star.refl c)
+  | succ n ih =>
+    rw [Monoid.partialProd_succ' es n, mul_assoc]
+    apply Relation.star.head (hsteps 0 (by omega))
+    exact ih (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) (λ i hi ↦ hsteps (i + 1) (by omega)) h'
 
 /-- The functional whose least fixed point used to define the reducing semantics: the empty
 execution, or a run followed by one more step. -/
@@ -246,7 +240,9 @@ execution, or a run followed by one more step. -/
 def Relation.starFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) :
     Set (α × ε × α) →o Set (α × ε × α) where
   toFun Z := {⟨x, e, y⟩ | x = y ∧ e = 1} ∪ Z ∘ᵣ₂ X
-  monotone' _ _ h := Set.union_subset_union le_rfl (Relation.lcomp₂.mono h le_rfl)
+  monotone' _ _ h := by
+    beta_reduce
+    gcongr
 
 /-- `step*` is what `μZ. Id ∪ Z ∘ᵣ₂ step` denoted. -/
 theorem Relation.lfp_starFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) :
@@ -256,26 +252,19 @@ theorem Relation.lfp_starFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × 
     rintro ⟨a, e, b⟩ (⟨rfl, rfl⟩ | ⟨c, e₁, e₂, hrun, hstep, rfl⟩)
     · exact Relation.star.refl a
     · exact Relation.star.snoc hrun hstep
-  · have main : ∀ (n : ℕ) (σs : ℕ → α) (es : ℕ → ε),
-        (∀ i, i < n → (σs i, es i, σs (i + 1)) ∈ X) →
-        (σs 0, Monoid.partialProd es n, σs n) ∈ OrderHom.lfp (Relation.starFun X) := by
-      intro n
-      induction n with
-      | zero =>
-        intro σs es _
-        rw [← OrderHom.map_lfp]
-        exact Or.inl ⟨rfl, rfl⟩
-      | succ n ih =>
-        intro σs es hsteps
-        rw [← OrderHom.map_lfp, Monoid.partialProd_succ]
-        apply Or.inr
-        apply Relation.lcomp₂.intro (ih σs es (λ i hi ↦ hsteps i (by omega)))
-        exact hsteps n (by omega)
-    rintro ⟨a, e, b⟩ ⟨n, σs, es, h₀, hn, hsteps, rfl⟩
+  · rintro ⟨a, e, b⟩ ⟨n, σs, es, h₀, hn, hsteps, rfl⟩
     dsimp only at h₀ hn ⊢
     subst h₀
     subst hn
-    exact main n σs es hsteps
+    induction n generalizing σs es with
+    | zero =>
+      rw [← OrderHom.map_lfp]
+      exact Or.inl ⟨rfl, rfl⟩
+    | succ n ih =>
+      rw [← OrderHom.map_lfp, Monoid.partialProd_succ]
+      apply Or.inr
+      apply Relation.lcomp₂.intro (ih σs es (λ i hi ↦ hsteps i (by omega)))
+      exact hsteps n (by omega)
 
 /-- `step* ∘ᵣ₁ immediate` is what `μx. immediate ∪ step ∘ᵣ₁ x` denoted. The *least* fixed point of
 the functional whose *greatest* one overshoots — the paper states both halves at 5:36, and this half
@@ -288,26 +277,19 @@ theorem Relation.lfp_divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × �
     · rw [← one_mul e]
       apply Relation.lcomp₁.intro (Relation.star.refl σ) hY
     · exact Relation.star.lcomp₁_absorb hstep
-  · have main : ∀ (n : ℕ) (σs : ℕ → α) (es : ℕ → ε) (e₂ : ε), (σs n, e₂) ∈ Y →
-        (∀ i, i < n → (σs i, es i, σs (i + 1)) ∈ X) →
-        (σs 0, Monoid.partialProd es n * e₂) ∈ OrderHom.lfp (Relation.divFun X Y) := by
-      intro n
-      induction n with
-      | zero =>
-        intro σs es e₂ hY _
-        rw [Monoid.partialProd_zero, one_mul, ← OrderHom.map_lfp]
-        exact Or.inl hY
-      | succ n ih =>
-        intro σs es e₂ hY hsteps
-        rw [Monoid.partialProd_succ' es n, mul_assoc, ← OrderHom.map_lfp]
-        apply Or.inr
-        apply Relation.lcomp₁.intro (hsteps 0 (by omega))
-        exact ih (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) e₂ hY (λ i hi ↦ hsteps (i + 1) (by omega))
-    rintro ⟨σ, e⟩ ⟨σ', e₁, e₂, ⟨n, σs, es, h₀, hn, hsteps, rfl⟩, hY, rfl⟩
+  · rintro ⟨σ, e⟩ ⟨σ', e₁, e₂, ⟨n, σs, es, h₀, hn, hsteps, rfl⟩, hY, rfl⟩
     dsimp only at h₀ hn ⊢
     subst h₀
     subst hn
-    exact main n σs es e₂ hY hsteps
+    induction n generalizing σs es with
+    | zero =>
+      rw [Monoid.partialProd_zero, one_mul, ← OrderHom.map_lfp]
+      exact Or.inl hY
+    | succ n ih =>
+      rw [Monoid.partialProd_succ' es n, mul_assoc, ← OrderHom.map_lfp]
+      apply Or.inr
+      apply Relation.lcomp₁.intro (hsteps 0 (by omega))
+      exact ih (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) (λ i hi ↦ hsteps (i + 1) (by omega)) hY
 
 /-! ## The trace monoid satisfies all three
 
@@ -328,7 +310,7 @@ namespace Stream'.Seq
   /-- A `Seq` sharing every partial product as a left factor is the product, once the factors keep
   coming. -/
   theorem hasProductLimit : OmegaProd.HasProductLimit (Seq α) :=
-    λ e r x hx hne ↦ ωProduct_eq_of_forall_dvd (λ n ↦ ⟨r n, hx n⟩) hne
+    λ _ r _ hx hne ↦ ωProduct_eq_of_forall_dvd (λ n ↦ ⟨r n, hx n⟩) hne
 end Stream'.Seq
 
 end

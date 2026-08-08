@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Mathlib.Data.Seq.Basic
 public import Mathlib.Algebra.Group.Defs
 public import Extra.Rel
@@ -120,12 +121,15 @@ namespace Stream'.Seq
   theorem get?_partialProd_of_le {e : ℕ → Seq α} {m n k : ℕ} {a : α} (hmn : m ≤ n)
       (h : (Monoid.partialProd e m).get? k = some a) : (Monoid.partialProd e n).get? k = some a := by
     induction n with
-    | zero => rwa [show m = 0 by omega] at h
+    | zero =>
+      have hm : m = 0 := by omega
+      rwa [hm] at h
     | succ n ih =>
       rcases Nat.lt_or_ge m (n + 1) with h' | h'
       · rw [Monoid.partialProd_succ]
         exact get?_mul_of_get? _ (ih (by omega))
-      · rwa [show m = n + 1 by omega] at h
+      · have hm : m = n + 1 := by omega
+        rwa [hm] at h
 
   open Classical in
   /-- Index `k` of the infinite product: whatever some partial product holds there, if any does.
@@ -137,13 +141,11 @@ namespace Stream'.Seq
   theorem ωFun_eq_some {e : ℕ → Seq α} {k : ℕ} {a : α} :
       ωFun e k = some a ↔ ∃ n, (Monoid.partialProd e n).get? k = some a := by classical
     unfold ωFun
-    constructor
-    · intro h
-      split at h
+    iff_rintro h ⟨n, hn⟩
+    · split at h
       · exact ⟨_, h⟩
       · nomatch h
-    · rintro ⟨n, hn⟩
-      have hex : ∃ n, ((Monoid.partialProd e n).get? k).isSome := ⟨n, by rw [hn]; rfl⟩
+    · have hex : ∃ n, ((Monoid.partialProd e n).get? k).isSome := ⟨n, by rw [hn]; rfl⟩
       rw [dif_pos hex]
       obtain ⟨b, hb⟩ := Option.isSome_iff_exists.mp (Nat.find_spec hex)
       rcases Nat.le_total (Nat.find hex) n with h' | h'
@@ -153,14 +155,13 @@ namespace Stream'.Seq
 
   theorem ωFun_eq_none {e : ℕ → Seq α} {k : ℕ} :
       ωFun e k = none ↔ ∀ n, (Monoid.partialProd e n).get? k = none := by
-    constructor
-    · intro h n
+    iff_intro h h
+    · intro n
       by_contra hn
       obtain ⟨a, ha⟩ := Option.ne_none_iff_exists'.mp hn
       rw [ωFun_eq_some.mpr ⟨n, ha⟩] at h
       contradiction
-    · intro h
-      by_contra hne
+    · by_contra hne
       obtain ⟨a, ha⟩ := Option.ne_none_iff_exists'.mp hne
       obtain ⟨n, hn⟩ := ωFun_eq_some.mp ha
       rw [h n] at hn
@@ -222,13 +223,13 @@ namespace Stream'.Seq
     induction n with
     | zero =>
       intro s u hs _
-      refine ⟨u, ?_⟩
+      exists u
       rw [terminatedAt_zero_iff.mp hs, mul_eq_append, nil_append]
     | succ n ih =>
       intro s u hs h
       cases s with
       | nil =>
-        refine ⟨u, ?_⟩
+        exists u
         rw [mul_eq_append, nil_append]
       | cons b s' =>
         have hu : u = cons b u.tail := by
@@ -239,8 +240,8 @@ namespace Stream'.Seq
           rw [get?_tail]
           apply h (k + 1)
           rwa [get?_cons_succ])
-        refine ⟨r, ?_⟩
-        rw [hu, hr]
+        exists r
+        rewrite [hu, hr]
         simp only [mul_eq_append, cons_append]
 
   /-- Once a partial product is infinite, every later one equals it and the whole product stops
@@ -250,25 +251,27 @@ namespace Stream'.Seq
     have hstab : ∀ m, n ≤ m → Monoid.partialProd e m = Monoid.partialProd e n := by
       intro m
       induction m with
-      | zero => intro hm; rw [show n = 0 by omega]
+      | zero =>
+        intro hm
+        have hn : n = 0 := by omega
+        rw [hn]
       | succ m ih =>
         intro hm
         rcases Nat.lt_or_ge n (m + 1) with h' | h'
         · rw [Monoid.partialProd_succ, ih (by omega)]
           apply mul_eq_left_of_not_terminates h
-        · rw [show n = m + 1 by omega]
+        · have hn : n = m + 1 := by omega
+          rw [hn]
     apply Seq.ext
     intro k
     apply Option.ext
     intro a
-    constructor
-    · intro hk
-      obtain ⟨m, hm⟩ := get?_ωProduct.mp hk
+    iff_intro hk hk
+    · obtain ⟨m, hm⟩ := get?_ωProduct.mp hk
       rcases Nat.le_total m n with h' | h'
       · apply get?_partialProd_of_le h' hm
       · rwa [hstab m h'] at hm
-    · intro hk
-      apply get?_ωProduct.mpr
+    · apply get?_ωProduct.mpr
       exact ⟨n, hk⟩
 
   /-- Every finite prefix of a `Seq` product is a left factor of it.
@@ -284,7 +287,7 @@ namespace Stream'.Seq
       intro k a hk
       apply get?_ωProduct.mpr
       exact ⟨n, hk⟩
-    · refine ⟨1, ?_⟩
+    · exists 1
       rw [mul_one]
       apply ωProduct_eq_of_not_terminates h
 
@@ -315,7 +318,8 @@ namespace Stream'.Seq
         absurd (show (nil : Seq α).TerminatedAt 0 from rfl)
         exact hmin 0 (by omega)
       | cons b s' =>
-        rw [mul_eq_append, cons_append, show n + 1 + j = n + j + 1 by omega, get?_cons_succ]
+        have hj : n + 1 + j = n + j + 1 := by omega
+        rw [mul_eq_append, cons_append, hj, get?_cons_succ]
         apply ih ?_ (cons_terminatedAt_succ_iff.mp hterm)
         intro k hk h
         apply hmin (k + 1) (by omega)
@@ -352,17 +356,15 @@ namespace Stream'.Seq
         apply Option.ext
         intro a
         rw [get?_ωProduct, get?_ωProduct]
-        constructor
-        · rintro ⟨n, hn⟩
-          cases n with
+        iff_rintro ⟨n, hn⟩ ⟨m, hm⟩
+        · cases n with
           | zero =>
             rw [Monoid.partialProd_zero, one_eq_nil, get?_nil] at hn
             contradiction
           | succ m =>
-            refine ⟨m, ?_⟩
+            exists m
             rwa [Monoid.partialProd_succ', get?_mul_of_terminatedAt hLmin hL] at hn
-        · rintro ⟨m, hm⟩
-          refine ⟨m + 1, ?_⟩
+        · exists m + 1
           rwa [Monoid.partialProd_succ', get?_mul_of_terminatedAt hLmin hL]
     · rw [mul_eq_left_of_not_terminates hterm, ← hp1]
       apply ωProduct_eq_of_not_terminates
@@ -386,7 +388,7 @@ namespace Stream'.Seq
       · obtain ⟨a, ha⟩ := h
         exact ⟨m, a, ha⟩
       · obtain ⟨a, ha⟩ := exists_get?_zero_of_ne_one hm
-        refine ⟨m + 1, a, ?_⟩
+        exists m + 1, a
         rw [Monoid.partialProd_succ,
           show (0 : ℕ) = 0 + 0 from rfl, get?_mul_of_terminatedAt (by omega) ?_]
         · exact ha
@@ -399,12 +401,13 @@ namespace Stream'.Seq
       · obtain ⟨b, hb⟩ := h
         exact ⟨m, b, hb⟩
       · obtain ⟨b, hb⟩ := exists_get?_zero_of_ne_one hm
-        refine ⟨m + 1, b, ?_⟩
+        exists m + 1, b
         rw [Monoid.partialProd_succ, show k + 1 = k + 1 + 0 from rfl,
           get?_mul_of_terminatedAt ?_ ?_]
         · exact hb
         · intro i hi hterm
-          rw [le_stable _ (show i ≤ k by omega) hterm] at hsa
+          have hik : i ≤ k := by omega
+          rw [le_stable _ hik hterm] at hsa
           contradiction
         · exact Option.eq_none_iff_forall_ne_some.mpr (λ b hb ↦ h ⟨b, hb⟩)
 
@@ -417,9 +420,8 @@ namespace Stream'.Seq
     intro k
     apply Option.ext
     intro a
-    constructor
-    · intro hk
-      obtain ⟨n, b, hb⟩ := exists_get?_partialProd hne k
+    iff_intro hk hk
+    · obtain ⟨n, b, hb⟩ := exists_get?_partialProd hne k
       obtain ⟨r, hr⟩ := hx n
       have hxb : x.get? k = some b := by
         rw [hr]
@@ -427,8 +429,7 @@ namespace Stream'.Seq
       rw [hxb] at hk
       apply get?_ωProduct.mpr
       exact ⟨n, hk ▸ hb⟩
-    · intro hk
-      obtain ⟨n, hn⟩ := get?_ωProduct.mp hk
+    · obtain ⟨n, hn⟩ := get?_ωProduct.mp hk
       obtain ⟨r, hr⟩ := hx n
       rw [hr]
       exact get?_mul_of_get? _ hn

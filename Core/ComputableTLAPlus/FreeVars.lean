@@ -83,7 +83,7 @@ construction, and a substituted-in expression's free variables are always a subs
 (it can only mention already-declared names), so the two never collide. -/
 theorem Expression.not_mem_of_fresh {α} {x : String} {inScope : List String} {e : Expression α}
     (fresh : x ∉ inScope) (sub : ∀ z ∈ e.freeVars, z ∈ inScope) : x ∉ e.freeVars :=
-  fun h => fresh (sub x h)
+  λ h ↦ fresh (sub x h)
 
 end ComputableTLAPlus
 

@@ -70,7 +70,7 @@ namespace StrongRefinement
         ref_semᵥ _ _ _ _ σₛ'Rσᵥ' red_σᵥ'_σᵥ''
       · left
         exists σᵤ, εₛ₁ * εₛ₂
-        refine ⟨σᵤRσᵥ'', ⟨εₛ₁, εₛ₂, ε₁, ε₂, rfl, rfl, Rτ_εₛ₁_ε₁, Rτ_εₛ₂_ε₂⟩, ?_⟩
+        exists σᵤRσᵥ'', ⟨εₛ₁, εₛ₂, ε₁, ε₂, rfl, rfl, Rτ_εₛ₁_ε₁, Rτ_εₛ₂_ε₂⟩
         exists σₛ', εₛ₁, εₛ₂
       · right
         exists εₛ₁ * εₛ₂
@@ -166,46 +166,32 @@ namespace StrongRefinement
       (ref : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ) :
         StrongRefinement.Terminating R R T.Rτ (Relation.star semₛ) semₛ'
           (Relation.star semₜ) := by
-    have mulmono : ∀ x y, (T.Rτ ⊗ᵣ T.Rτ) x y → T.Rτ x y := by
-      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
-      exact T.Rτ_closed _ _ _ _ h₁ h₂
-
-    have main : ∀ (n : ℕ) (σts : ℕ → β) (ets : ℕ → εₜ) (σₛ : α) (σₜ' : β),
-        R σₛ (σts 0) → (∀ i, i < n → (σts i, ets i, σts (i + 1)) ∈ semₜ) → σts n = σₜ' →
-        (∃ σₛ' ε', R σₛ' σₜ' ∧ T.Rτ ε' (Monoid.partialProd ets n) ∧
-          (σₛ, ε', σₛ') ∈ Relation.star semₛ) ∨
-        (∃ ε', ε' ≼[T.Rτ] Monoid.partialProd ets n ∧ (σₛ, ε') ∈ semₛ') := by
-      intro n
-      induction n with
-      | zero =>
-        intro σts ets σₛ σₜ' hR _ hlast
-        subst hlast
-        exact Or.inl ⟨σₛ, 1, hR, T.Rτ_one, Relation.star.refl σₛ⟩
-      | succ n ih =>
-        intro σts ets σₛ σₜ' hR hsteps hlast
-        obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
-          ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
-        · obtain ⟨σₛ'', ε'', hR'', hRτ'', hmem''⟩|⟨ε'', hscp'', hmem''⟩ :=
-            ih (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1)) σₛ' σₜ' hR'
-              (λ i hi ↦ hsteps (i + 1) (by omega)) hlast
-          · refine Or.inl ⟨σₛ'', e' * ε'', hR'', ?_, Relation.star.head hmem' hmem''⟩
-            rw [Monoid.partialProd_succ' ets n]
-            apply T.Rτ_closed _ _ _ _ hRτ' hRτ''
-          · refine Or.inr ⟨e' * ε'', ?_, ?_⟩
-            · rw [Monoid.partialProd_succ' ets n]
-              apply Trace.scPrefix_mono mulmono
-              apply Trace.scPrefix_rmul_right hRτ' hscp''
-            · apply abs
-              apply Relation.lcomp₁.intro hmem' hmem''
-        · refine Or.inr ⟨ea, ?_, hea_mem⟩
-          rw [Monoid.partialProd_succ' ets n]
-          apply Trace.scPrefix_mono mulmono
-          apply Trace.scPrefix_rmul_left T.Rτ_total hea
-
     rintro σₜ σₜ' ε σₛ hR ⟨n, σts, ets, h₀, hn, hsteps, rfl⟩
     dsimp only at h₀ hn
     subst h₀
-    exact main n σts ets σₛ σₜ' hR hsteps hn
+    induction n generalizing σts ets σₛ with
+    | zero =>
+      subst hn
+      exact Or.inl ⟨σₛ, 1, hR, T.Rτ_one, Relation.star.refl σₛ⟩
+    | succ n ih =>
+      obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
+        ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
+      · obtain ⟨σₛ'', ε'', hR'', hRτ'', hmem''⟩|⟨ε'', hscp'', hmem''⟩ :=
+          ih σₛ' (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1))
+            (λ i hi ↦ hsteps (i + 1) (by omega)) hn hR'
+        · refine Or.inl ⟨σₛ'', e' * ε'', hR'', ?_, Relation.star.head hmem' hmem''⟩
+          rw [Monoid.partialProd_succ' ets n]
+          apply T.Rτ_closed _ _ _ _ hRτ' hRτ''
+        · refine Or.inr ⟨e' * ε'', ?_, ?_⟩
+          · rw [Monoid.partialProd_succ' ets n]
+            apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+            apply Trace.scPrefix_rmul_right hRτ' hscp''
+          · apply abs
+            apply Relation.lcomp₁.intro hmem' hmem''
+      · refine Or.inr ⟨ea, ?_, hea_mem⟩
+        rw [Monoid.partialProd_succ' ets n]
+        apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+        apply Trace.scPrefix_rmul_left T.Rτ_total hea
 
   /--
     Behavior refinement in the diverging case.
@@ -313,11 +299,6 @@ namespace StrongRefinement
     rintro σₜ ε σₛ R_σₛ_σₜ ⟨σts, ets, hσts₀, hstep, rfl⟩
     subst hσts₀
 
-    -- `T.Rτ ⊗ᵣ T.Rτ` collapses to `T.Rτ`; used to discharge every `≼` obligation below.
-    have mulmono : ∀ x y, (T.Rτ ⊗ᵣ T.Rτ) x y → T.Rτ x y := by
-      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
-      exact T.Rτ_closed _ _ _ _ h₁ h₂
-
     -- One index of the target, matched against a source state sitting over it.
     set cont : ℕ → α → Prop :=
       λ i σ ↦ ∃ p : α × εₛ, R p.1 (σts (i + 1)) ∧ T.Rτ p.2 (ets i) ∧ (σ, p.2, p.1) ∈ semₛ with hcont
@@ -332,8 +313,7 @@ namespace StrongRefinement
         R (σs (i + 1)) (σts (i + 1)) ∧ T.Rτ (es i) (ets i) ∧ (σs i, es i, σs (i + 1)) ∈ semₛ := by
       intro i h
       have : σs (i + 1) = (nextp i (σs i)).1 := rfl
-      rw [this, hes, hnextp]
-      simp only [dif_pos h]
+      simp only [this, hes, hnextp, dif_pos h]
       exact h.choose_spec
 
     by_cases! hall : ∀ i, cont i (σs i)
@@ -368,43 +348,47 @@ namespace StrongRefinement
         exact hm_spec
 
       -- The abort is reached after `m` steps; `abs` walks it back one step at a time to `σₛ`.
-      have habort : ∀ k i, i + k = m →
-          (σs i, Monoid.partialProd (λ j ↦ es (i + j)) k * ea) ∈ semₛ' := by
-        intro k
-        induction k with
-        | zero => intro i hi; simpa using (by rw [show i = m by omega]; exact hea_mem)
-        | succ k ih =>
-          intro i hi
-          have hstep_i := (hstep_of i (hm_min i (by omega))).2.2
-          have hrest := ih (i + 1) (by omega)
-          have hfun : (λ j ↦ es (i + (j + 1))) = (λ j ↦ es (i + 1 + j)) := by
-            funext j; congr 1; omega
-          have hsplit : Monoid.partialProd (λ j ↦ es (i + j)) (k + 1) * ea
-               = es i * (Monoid.partialProd (λ j ↦ es (i + 1 + j)) k * ea) := by
-            rw [Monoid.partialProd_succ' (λ j ↦ es (i + j)) k, mul_assoc]
-            simp only [Nat.add_zero, hfun]
-          rw [hsplit]
-          exact abs (Relation.lcomp₁.intro hstep_i hrest)
+      · have habort : ∀ k i, i + k = m →
+            (σs i, Monoid.partialProd (λ j ↦ es (i + j)) k * ea) ∈ semₛ' := by
+          intro k
+          induction k with
+          | zero =>
+            intro i hi
+            have him : i = m := by omega
+            rw [him]
+            simpa using hea_mem
+          | succ k ih =>
+            intro i hi
+            have hfun : (λ j ↦ es (i + (j + 1))) = (λ j ↦ es (i + 1 + j)) := by
+              funext j; congr 1; omega
+            have hsplit : Monoid.partialProd (λ j ↦ es (i + j)) (k + 1) * ea
+                 = es i * (Monoid.partialProd (λ j ↦ es (i + 1 + j)) k * ea) := by
+              simp only [Monoid.partialProd_succ' (λ j ↦ es (i + j)) k, mul_assoc, Nat.add_zero,
+                hfun]
+            rw [hsplit]
+            refine abs (Relation.lcomp₁.intro (b := σs (i + 1)) ?_ ?_)
+            · exact (hstep_of i (hm_min i (by omega))).2.2
+            · exact ih (i + 1) (by omega)
 
-      -- And its trace is a sequentially consistent prefix of the target's.
-      have hpp : ∀ n, n ≤ m → T.Rτ (Monoid.partialProd es n) (Monoid.partialProd ets n) := by
-        intro n
-        induction n with
-        | zero => exact λ _ ↦ T.Rτ_one
-        | succ n ih =>
-          intro hn
-          apply T.Rτ_closed _ _ _ _ (ih (by omega))
-          exact (hstep_of n (hm_min n (by omega))).2.1
-      obtain ⟨r, hr⟩ := dvd ets (m + 1)
-      refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
-      · rw [hr, Monoid.partialProd_succ, mul_assoc]
-        apply Trace.scPrefix_mono mulmono
-        apply Trace.scPrefix_rmul_right (hpp m le_rfl)
-        apply Trace.scPrefix_mono mulmono
-        apply Trace.scPrefix_rmul_left T.Rτ_total hea
-      · have h₀ := habort m 0 (by omega)
-        simp only [Nat.zero_add] at h₀
-        exact h₀
+        -- And its trace is a sequentially consistent prefix of the target's.
+        have hpp : ∀ n, n ≤ m → T.Rτ (Monoid.partialProd es n) (Monoid.partialProd ets n) := by
+          intro n
+          induction n with
+          | zero => exact λ _ ↦ T.Rτ_one
+          | succ n ih =>
+            intro hn
+            apply T.Rτ_closed _ _ _ _ (ih (by omega))
+            exact (hstep_of n (hm_min n (by omega))).2.1
+        obtain ⟨r, hr⟩ := dvd ets (m + 1)
+        refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
+        · rw [hr, Monoid.partialProd_succ, mul_assoc]
+          apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+          apply Trace.scPrefix_rmul_right (hpp m le_rfl)
+          apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+          apply Trace.scPrefix_rmul_left T.Rτ_total hea
+        · have h₀ := habort m 0 (by omega)
+          simp only [Nat.zero_add] at h₀
+          exact h₀
 
   /-- Divergence refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a divergence.
 
@@ -422,60 +406,46 @@ namespace StrongRefinement
       (refY : StrongRefinement.Diverging R T.Rτ Yₛ semₛ' Yₜ) :
         StrongRefinement.Diverging R T.Rτ (Relation.star semₛ ∘ᵣ₁ Yₛ) semₛ'
           (Relation.star semₜ ∘ᵣ₁ Yₜ) := by
-    have mulmono : ∀ x y, (T.Rτ ⊗ᵣ T.Rτ) x y → T.Rτ x y := by
-      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
-      exact T.Rτ_closed _ _ _ _ h₁ h₂
-
-    have main : ∀ (n : ℕ) (σts : ℕ → β) (ets : ℕ → εₜ) (σₛ : α) (σₜ' : β) (e₂ : εₜ),
-        R σₛ (σts 0) → (∀ i, i < n → (σts i, ets i, σts (i + 1)) ∈ semₜ) → σts n = σₜ' →
-        (σₜ', e₂) ∈ Yₜ →
-        (∃ ε', T.Rτ ε' (Monoid.partialProd ets n * e₂) ∧ (σₛ, ε') ∈ Relation.star semₛ ∘ᵣ₁ Yₛ) ∨
-        (∃ ε', ε' ≼[T.Rτ] (Monoid.partialProd ets n * e₂) ∧ (σₛ, ε') ∈ semₛ') := by
-      intro n
-      induction n with
-      | zero =>
-        intro σts ets σₛ σₜ' e₂ hR _ hlast hY
-        subst hlast
-        obtain ⟨ε', hRτ, hmem⟩|⟨ε', hscp, hmem⟩ := refY (σts 0) e₂ σₛ hR hY
-        · left
-          refine ⟨ε', ?_, ?_⟩
-          · rwa [Monoid.partialProd_zero, one_mul]
-          · rw [← one_mul ε']
-            apply Relation.lcomp₁.intro (Relation.star.refl σₛ) hmem
-        · right
-          refine ⟨ε', ?_, hmem⟩
-          rwa [Monoid.partialProd_zero, one_mul]
-      | succ n ih =>
-        intro σts ets σₛ σₜ' e₂ hR hsteps hlast hY
-        obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
-          ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
-        · obtain ⟨ε'', hRτ'', hmem''⟩|⟨ε'', hscp'', hmem''⟩ :=
-            ih (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1)) σₛ' σₜ' e₂ hR'
-              (λ i hi ↦ hsteps (i + 1) (by omega)) hlast hY
-          · left
-            refine ⟨e' * ε'', ?_, ?_⟩
-            · rw [Monoid.partialProd_succ' ets n, mul_assoc]
-              apply T.Rτ_closed _ _ _ _ hRτ' hRτ''
-            · obtain ⟨σᵣ, e₃, e₄, hs, hy, rfl⟩ := hmem''
-              rw [← mul_assoc]
-              apply Relation.lcomp₁.intro (Relation.star.head hmem' hs) hy
-          · right
-            refine ⟨e' * ε'', ?_, ?_⟩
-            · rw [Monoid.partialProd_succ' ets n, mul_assoc]
-              apply Trace.scPrefix_mono mulmono
-              apply Trace.scPrefix_rmul_right hRτ' hscp''
-            · apply abs
-              apply Relation.lcomp₁.intro hmem' hmem''
-        · right
-          refine ⟨ea, ?_, hea_mem⟩
-          rw [Monoid.partialProd_succ' ets n, mul_assoc]
-          apply Trace.scPrefix_mono mulmono
-          apply Trace.scPrefix_rmul_left T.Rτ_total hea
-
     rintro σₜ ε σₛ hR ⟨σₜ', e₁, e₂, ⟨n, σts, ets, h₀, hn, hsteps, rfl⟩, hY, rfl⟩
     dsimp only at h₀ hn
     subst h₀
-    exact main n σts ets σₛ σₜ' e₂ hR hsteps hn hY
+    induction n generalizing σₛ σts ets with
+    | zero =>
+      subst hn
+      obtain ⟨ε', hRτ, hmem⟩|⟨ε', hscp, hmem⟩ := refY (σts 0) e₂ σₛ hR hY
+      · left
+        refine ⟨ε', ?_, ?_⟩
+        · rwa [Monoid.partialProd_zero, one_mul]
+        · rw [← one_mul ε']
+          apply Relation.lcomp₁.intro (Relation.star.refl σₛ) hmem
+      · right
+        refine ⟨ε', ?_, hmem⟩
+        rwa [Monoid.partialProd_zero, one_mul]
+    | succ n ih =>
+      obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
+        ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
+      · obtain ⟨ε'', hRτ'', hmem''⟩|⟨ε'', hscp'', hmem''⟩ :=
+          ih σₛ' (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1))
+            (λ i hi ↦ hsteps (i + 1) (by omega)) hn hR'
+        · left
+          refine ⟨e' * ε'', ?_, ?_⟩
+          · rw [Monoid.partialProd_succ' ets n, mul_assoc]
+            apply T.Rτ_closed _ _ _ _ hRτ' hRτ''
+          · obtain ⟨σᵣ, e₃, e₄, hs, hy, rfl⟩ := hmem''
+            rw [← mul_assoc]
+            apply Relation.lcomp₁.intro (Relation.star.head hmem' hs) hy
+        · right
+          refine ⟨e' * ε'', ?_, ?_⟩
+          · rw [Monoid.partialProd_succ' ets n, mul_assoc]
+            apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+            apply Trace.scPrefix_rmul_right hRτ' hscp''
+          · apply abs
+            apply Relation.lcomp₁.intro hmem' hmem''
+      · right
+        refine ⟨ea, ?_, hea_mem⟩
+        rw [Monoid.partialProd_succ' ets n, mul_assoc]
+        apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+        apply Trace.scPrefix_rmul_left T.Rτ_total hea
 
   omit [Monoid εₜ] in
   /-- Binary union on both sides. The aborting set is shared, so unlike `Terminating.sup` there is
@@ -535,6 +505,29 @@ namespace StrongRefinement
     ∀ (σₜ : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ' → ∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ'
 
   omit [Monoid εₜ] in
+  /-- An abort *is* a divergence that always takes the aborting branch. The reducing set is
+  unconstrained because that branch never mentions it; `hle` places the witness in whichever
+  aborting set the diverging statement carries, which is rarely the same one. -/
+  protected theorem Aborting.toDiverging {R : Rel α β} {Rτ : Rel εₛ εₜ}
+      {semₛ semₛ' semₛ'' : Set (α × εₛ)} {semₜ' : Set (β × εₜ)}
+      (h : StrongRefinement.Aborting R Rτ semₛ' semₜ') (hle : semₛ' ≤ semₛ'') :
+        StrongRefinement.Diverging R Rτ semₛ semₛ'' semₜ' := by
+    intro σₜ ε σₛ hR hmem
+    obtain ⟨ε', hscp, h'⟩ := h σₜ ε σₛ hR hmem
+    exact Or.inr ⟨ε', hscp, hle h'⟩
+
+  omit [Monoid εₜ] in
+  /-- The converse, when the two source sets coincide: with nowhere else for the matched branch to
+  land, `Rτ ε' ε` weakens to `ε' ≼[Rτ] ε` and the disjunction collapses. -/
+  protected theorem Diverging.toAborting {R : Rel α β} {Rτ : Rel εₛ εₜ} {semₛ' : Set (α × εₛ)}
+      {semₜ' : Set (β × εₜ)} (h : StrongRefinement.Diverging R Rτ semₛ' semₛ' semₜ') :
+        StrongRefinement.Aborting R Rτ semₛ' semₜ' := by
+    intro σₜ ε σₛ hR hmem
+    obtain ⟨ε', hRτ, h'⟩|⟨ε', hscp, h'⟩ := h σₜ ε σₛ hR hmem
+    · exact ⟨ε', Trace.scPrefix_of hRτ, h'⟩
+    · exact ⟨ε', hscp, h'⟩
+
+  omit [Monoid εₜ] in
   /-- Horizontal composition, through an intermediate language with trace type `εₘ`. Needs `Rτ₁`
   (the first leg) both left-total and closed — bundled as `T₁ : Trace εₛ εₘ` — per
   `Trace.scPrefix_rcomp`. The second leg's `Rτ₂` needs nothing. -/
@@ -547,16 +540,16 @@ namespace StrongRefinement
       StrongRefinement.Aborting R₁ T₁.Rτ semₛ' semₜ' →
       StrongRefinement.Terminating R₂ S₂ Rτ₂ semₜ semₜ' semᵤ →
       StrongRefinement.Terminating (Relation.Comp R₁ R₂) (Relation.Comp S₁ S₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ semₛ' semᵤ := by
-    rintro ref₁ ref₃ ref₂ σᵤ σᵤ' ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ semᵤ_σᵤ_σᵤ'
+    rintro ref₁ ref₂ ref₃ σᵤ σᵤ' ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ semᵤ_σᵤ_σᵤ'
     obtain ⟨σₜ', εₘ', S₂_σₜ'_σᵤ', Rτ₂_εₘ'_ε, semₜ_σₜ_σₜ'⟩|⟨εₘ', εₘ'_scp_ε, semₜ'_σₜ⟩ :=
-      ref₂ _ _ _ _ R₂_σₜ_σᵤ semᵤ_σᵤ_σᵤ'
+      ref₃ _ _ _ _ R₂_σₜ_σᵤ semᵤ_σᵤ_σᵤ'
     · obtain ⟨σₛ', εₛ', S₁_σₛ'_σₜ', Rτ₁_εₛ'_εₘ', semₛ_σₛ_σₛ'⟩|⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ :=
         ref₁ _ _ _ _ R₁_σₛ_σₜ semₜ_σₜ_σₜ'
       · left
         exact ⟨σₛ', εₛ', ⟨σₜ', S₁_σₛ'_σₜ', S₂_σₜ'_σᵤ'⟩, ⟨εₘ', Rτ₁_εₛ'_εₘ', Rτ₂_εₘ'_ε⟩, semₛ_σₛ_σₛ'⟩
       · right
         exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' (Trace.scPrefix_of Rτ₂_εₘ'_ε), semₛ'_σₛ⟩
-    · obtain ⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ := ref₃ σₜ εₘ' σₛ R₁_σₛ_σₜ semₜ'_σₜ
+    · obtain ⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ := ref₂ σₜ εₘ' σₛ R₁_σₛ_σₜ semₜ'_σₜ
       right
       exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, semₛ'_σₛ⟩
 
@@ -569,14 +562,14 @@ namespace StrongRefinement
       StrongRefinement.Aborting R₁ T₁.Rτ semₛ' semₜ' →
       StrongRefinement.Diverging R₂ Rτ₂ semₜ'' semₜ' semᵤ'' →
       StrongRefinement.Diverging (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ'' semₛ' semᵤ'' := by
-    rintro ref₁ ref₃ ref₂ σᵤ ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ semᵤ''_σᵤ
-    obtain ⟨εₘ', Rτ₂_εₘ'_ε, semₜ''_σₜ⟩|⟨εₘ', εₘ'_scp_ε, semₜ'_σₜ⟩ := ref₂ _ ε _ R₂_σₜ_σᵤ semᵤ''_σᵤ
+    rintro ref₁ ref₂ ref₃ σᵤ ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ semᵤ''_σᵤ
+    obtain ⟨εₘ', Rτ₂_εₘ'_ε, semₜ''_σₜ⟩|⟨εₘ', εₘ'_scp_ε, semₜ'_σₜ⟩ := ref₃ _ ε _ R₂_σₜ_σᵤ semᵤ''_σᵤ
     · obtain ⟨εₛ', Rτ₁_εₛ'_εₘ', semₛ''_σₛ⟩|⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ := ref₁ _ εₘ' _ R₁_σₛ_σₜ semₜ''_σₜ
       · left
         exact ⟨εₛ', ⟨εₘ', Rτ₁_εₛ'_εₘ', Rτ₂_εₘ'_ε⟩, semₛ''_σₛ⟩
       · right
         exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' (Trace.scPrefix_of Rτ₂_εₘ'_ε), semₛ'_σₛ⟩
-    · obtain ⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ := ref₃ _ εₘ' _ R₁_σₛ_σₜ semₜ'_σₜ
+    · obtain ⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ := ref₂ _ εₘ' _ R₁_σₛ_σₜ semₜ'_σₜ
       right
       exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, semₛ'_σₛ⟩
 
@@ -659,9 +652,11 @@ namespace StrongRefinement
   semantics of an algorithm has exactly this shape — `Algebra.aborting` is `step* ∘ᵣ₁ immediate` —
   so this is the operator-preservation law that replaces induction over its least fixed point.
 
-  `Diverging.star`'s proof, with its two conclusions collapsed into one: `Aborting` has no
+  `Diverging.star` at the diagonal, with its two conclusions collapsed into one: `Aborting` has no
   "matched exactly" disjunct, only the `≼` one, so the run's traces and the abort's are related the
-  same way whether the source kept up or stopped early.
+  same way whether the source kept up or stopped early. That collapse is `Diverging.toAborting`,
+  and reading the abort of `Yₛ` as an abort of the whole run is `Aborting.toDiverging` against
+  `Relation.star.le_lcomp₁` — so the induction over the run's length is not repeated here.
 
   Note what is *not* a hypothesis. `Diverging.star` takes the source aborting set as a parameter
   with an `abs` law relating it to `semₛ`; here that set is the conclusion's own left-hand side, so
@@ -674,48 +669,10 @@ namespace StrongRefinement
       (ref : StrongRefinement.Terminating R R T.Rτ semₛ (Relation.star semₛ ∘ᵣ₁ Yₛ) semₜ)
       (refY : StrongRefinement.Aborting R T.Rτ Yₛ Yₜ) :
         StrongRefinement.Aborting R T.Rτ (Relation.star semₛ ∘ᵣ₁ Yₛ)
-          (Relation.star semₜ ∘ᵣ₁ Yₜ) := by
-    have mulmono : ∀ x y, (T.Rτ ⊗ᵣ T.Rτ) x y → T.Rτ x y := by
-      rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
-      exact T.Rτ_closed _ _ _ _ h₁ h₂
-
-    have main : ∀ (n : ℕ) (σts : ℕ → β) (ets : ℕ → εₜ) (σₛ : α) (σₜ' : β) (e₂ : εₜ),
-        R σₛ (σts 0) → (∀ i, i < n → (σts i, ets i, σts (i + 1)) ∈ semₜ) → σts n = σₜ' →
-        (σₜ', e₂) ∈ Yₜ →
-        ∃ ε', ε' ≼[T.Rτ] (Monoid.partialProd ets n * e₂) ∧
-          (σₛ, ε') ∈ Relation.star semₛ ∘ᵣ₁ Yₛ := by
-      intro n
-      induction n with
-      | zero =>
-        intro σts ets σₛ σₜ' e₂ hR _ hlast hY
-        subst hlast
-        obtain ⟨ε', hscp, hmem⟩ := refY (σts 0) e₂ σₛ hR hY
-        refine ⟨ε', ?_, ?_⟩
-        · rwa [Monoid.partialProd_zero, one_mul]
-        · rw [← one_mul ε']
-          apply Relation.lcomp₁.intro (Relation.star.refl σₛ) hmem
-      | succ n ih =>
-        intro σts ets σₛ σₜ' e₂ hR hsteps hlast hY
-        obtain ⟨σₛ', e', hR', hRτ', hmem'⟩|⟨ea, hea, hea_mem⟩ :=
-          ref (σts 0) (σts 1) (ets 0) σₛ hR (hsteps 0 (by omega))
-        · obtain ⟨ε'', hscp'', hmem''⟩ :=
-            ih (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1)) σₛ' σₜ' e₂ hR'
-              (λ i hi ↦ hsteps (i + 1) (by omega)) hlast hY
-          refine ⟨e' * ε'', ?_, ?_⟩
-          · rw [Monoid.partialProd_succ' ets n, mul_assoc]
-            apply Trace.scPrefix_mono mulmono
-            apply Trace.scPrefix_rmul_right hRτ' hscp''
-          · apply Relation.star.lcomp₁_absorb
-            apply Relation.lcomp₁.intro hmem' hmem''
-        · refine ⟨ea, ?_, hea_mem⟩
-          rw [Monoid.partialProd_succ' ets n, mul_assoc]
-          apply Trace.scPrefix_mono mulmono
-          apply Trace.scPrefix_rmul_left T.Rτ_total hea
-
-    rintro σₜ ε σₛ hR ⟨σₜ', e₁, e₂, ⟨n, σts, ets, h₀, hn, hsteps, rfl⟩, hY, rfl⟩
-    dsimp only at h₀ hn
-    subst h₀
-    exact main n σts ets σₛ σₜ' e₂ hR hsteps hn hY
+          (Relation.star semₜ ∘ᵣ₁ Yₜ) :=
+    StrongRefinement.Diverging.toAborting <|
+      StrongRefinement.Diverging.star Relation.star.lcomp₁_absorb ref
+        (refY.toDiverging Relation.star.le_lcomp₁)
 
 end StrongRefinement
 
@@ -750,8 +707,10 @@ namespace StrongRefinement
       StrongRefinement R T₂.Rτ semᵤ semᵤ' semᵤ'' semᵥ semᵥ' semᵥ'' →
       StrongRefinement R (Rτ₁ ⊔ Rτ₁ ⊗ᵣ T₂.Rτ) (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₜ ∘ᵣ₂ semᵥ) (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') := by
     rintro ⟨t₁, a₁, d₁⟩ ⟨t₂, a₂, d₂⟩
-    exact ⟨Terminating.Mono le_rfl le_rfl (λ _ _ ↦ Or.inr) le_rfl (Terminating.Comp t₁ t₂), Aborting.Comp a₁ a₂ t₁,
-      Diverging.Comp d₁ d₂ t₁⟩
+    constructor
+    · exact Terminating.Mono le_rfl le_rfl (λ _ _ ↦ Or.inr) le_rfl (Terminating.Comp t₁ t₂)
+    · exact Aborting.Comp a₁ a₂ t₁
+    · exact Diverging.Comp d₁ d₂ t₁
 
   protected theorem ofNonDiverging {Rτ : Rel εₛ εₜ} {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' : Set (β × εₜ)}
     (h₁ : StrongRefinement.Terminating R R Rτ semₛ semₛ' semₜ) (h₂ : StrongRefinement.Aborting R Rτ semₛ' semₜ') :
@@ -780,8 +739,10 @@ namespace StrongRefinement
       StrongRefinement R₂ Rτ₂ semₜ semₜ' semₜ'' semᵤ semᵤ' semᵤ'' →
       StrongRefinement (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ semₛ' semₛ'' semᵤ semᵤ' semᵤ'' := by
     rintro ⟨ref₁_red, ref₁_abort, ref₁_div⟩ ⟨ref₂_red, ref₂_abort, ref₂_div⟩
-    exact ⟨Terminating.Trans ref₁_red ref₁_abort ref₂_red, Aborting.Trans ref₁_abort ref₂_abort,
-      Diverging.Trans ref₁_div ref₁_abort ref₂_div⟩
+    constructor
+    · exact Terminating.Trans ref₁_red ref₁_abort ref₂_red
+    · exact Aborting.Trans ref₁_abort ref₂_abort
+    · exact Diverging.Trans ref₁_div ref₁_abort ref₂_div
 
   protected theorem Mono {R} {Rτ : Rel εₛ εₜ}
     {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semᵣ'' semₛ' semₛ'' : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)} {semₜ' semₜ'' semᵤ' semᵤ'' : Set (β × εₜ)}

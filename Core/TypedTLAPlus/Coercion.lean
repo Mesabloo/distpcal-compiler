@@ -118,7 +118,7 @@ partial def Coercion.apply (c : Coercion) (e : Expr) : Expr :=
   | .comp c₁ c₂ => c₂.apply (c₁.apply e)
 
 /-- A placeholder rendering (module doc). -/
-instance : Repr Coercion := ⟨fun _ _ => "<coercion>"⟩
+instance : Repr Coercion := ⟨λ _ _ ↦ "<coercion>"⟩
 
 end TypedTLAPlus
 

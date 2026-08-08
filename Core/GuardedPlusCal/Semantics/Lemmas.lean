@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Core.GuardedPlusCal.Semantics.Denotational
 public import Core.GuardedPlusCal.Syntax.Lemmas
 
@@ -432,16 +433,14 @@ theorem Block.reducing_map {α β δ : Bool → Type} {γ : Type} [Monoid γ] {b
     rw [← IH]
 
     ext ⟨a', e, c'⟩
-    constructor
-    · rintro ⟨⟨a, e, c⟩, ⟨b₀, e₁, e₂, _, _, rfl⟩, _|_⟩
-      exists g b₀, e₁, e₂
+    iff_rintro ⟨⟨a, e, c⟩, ⟨b₀, e₁, e₂, _, _, rfl⟩, _|_⟩ ⟨b', e₁, e₂, ⟨⟨a, e₁', b₀⟩, _, h₁⟩, ⟨⟨b'', e₂', c⟩, _, h₂⟩, rfl⟩
+    · exists g b₀, e₁, e₂
       and_intros
       · exists ⟨a, e₁, b₀⟩
       · exists ⟨b₀, e₂, c⟩
       · rfl
-    · rintro ⟨b', e₁, e₂, ⟨⟨a, e₁', b₀⟩, _, h₁⟩, ⟨⟨b'', e₂', c⟩, _, h₂⟩, rfl⟩
 
-      have : g a = a' ∧ e₁' = e₁ ∧ g b₀ = b' := by cases h₁; trivial
+    · have : g a = a' ∧ e₁' = e₁ ∧ g b₀ = b' := by cases h₁; trivial
       obtain ⟨_, _, _⟩ := this
       have : g b'' = b' ∧ e₂' = e₂ ∧ g c = c' := by cases h₂; trivial
       obtain ⟨h₃, _, _⟩ := this
@@ -622,6 +621,7 @@ def Statement.diverging' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b
     Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.diverging S}
 
+omit [ExprSemantics V] in
 /-- No statement diverges, in the flat encoding as in the indexed one. Stated rather than left
 implicit because it is what lets a statement-level refinement be discharged by
 `StrongRefinement.ofNonDiverging` instead of by an inlined "the target cannot diverge" argument. -/
@@ -629,11 +629,9 @@ implicit because it is what lets a statement-level refinement be discharged by
     (S : ComputableGuardedPlusCal.Statement b b') :
     Statement.diverging' (V := V) S = ∅ := by
   ext ⟨⟨M, F, l⟩, ε⟩
-  constructor
-  · rintro ⟨-, hd⟩
-    exact hd.elim
-  · rintro hd
-    exact hd.elim
+  iff_rintro ⟨-, hd⟩ hd
+  · exact hd.elim
+  · exact hd.elim
 
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableGuardedPlusCal.Statement b b') :
@@ -661,11 +659,9 @@ private theorem Statement.aborting'_eq_map {b b' : Bool}
     Statement.aborting' (V := V) S =
       Prod.map LocalState.toLocalState' id '' Statement.aborting S := by
   ext ⟨⟨M, F, l⟩, e⟩
-  constructor
-  · rintro ⟨rfl, sem⟩
-    exists _, sem
-  · rintro ⟨⟨⟨_⟩, _⟩, _, _|_⟩
-    trivial
+  iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
+  · exists _, sem
+  · trivial
 
 -- `Statement.diverging` is `∅` regardless of the expression semantics, so this one does not use it.
 omit [ExprSemantics V] in
@@ -674,11 +670,9 @@ private theorem Statement.diverging'_eq_map {b b' : Bool}
     Statement.diverging' (V := V) S =
       Prod.map LocalState.toLocalState' id '' Statement.diverging S := by
   ext ⟨⟨M, F, l⟩, e⟩
-  constructor
-  · rintro ⟨rfl, sem⟩
-    exists _, sem
-  · rintro ⟨⟨⟨_⟩, _⟩, _, _|_⟩
-    trivial
+  iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
+  · exists _, sem
+  · trivial
 
 theorem Block.reducing'_eq_map {g b : Bool}
     {B : Block (ComputableGuardedPlusCal.Statement g) b} :
@@ -719,9 +713,9 @@ theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
       ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈
         Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.reducing'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V}
     {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) false} :
@@ -730,9 +724,9 @@ theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
       ⟨(M₁, F₁, none), ε, (M₂, F₂, none)⟩ ∈
         Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.reducing'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
     {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
@@ -742,9 +736,9 @@ theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
         Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
           (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.aborting'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
     {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
@@ -754,9 +748,9 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
         Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
           (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.diverging'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 -- Leaf discharge for `sem_side` (T1). `simp` builder, not `apply`: these are `↔`, and aesop's own
 -- apply-builder linter is right that an iff wants `simp`, not `apply` (which only ever tries one

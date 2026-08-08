@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Mathlib.Algebra.Group.Basic
 public import Extra.Rel
 public import Extra.List
@@ -30,7 +31,7 @@ same type.
 
 /-- Relational composition is mathlib's `Relation.Comp`; only the notation is ours, since mathlib
 declares its `∘r` `local`. Named to match this file's `∘ᵣ₁`/`∘ᵣ₂`. -/
-@[inherit_doc Relation.Comp] infixr:140 " ∘ᵣ " => Relation.Comp
+infixr:140 " ∘ᵣ " => Relation.Comp
 
 /-- Pointwise product through the two monoids: the left-hand sides multiply and so do the
 right-hand sides, each factor related by its own relation. Composing two refinements in sequence
@@ -52,6 +53,14 @@ refinement needs of it. -/
 @[expose]
 def Relation.MulClosed {α β : Type _} [Monoid α] [Monoid β] (R : Rel α β) : Prop :=
   ∀ a b c d, R a b → R c d → R (a * c) (b * d)
+
+/-- Closure under concatenation, in the form the composition lemmas consume: the pointwise product
+of the relation with itself is again the relation. `MulClosed` states the same fact with the four
+components named, which is the convenient shape to *prove* and the inconvenient one to *apply*. -/
+theorem Relation.MulClosed.rmul_le {α β : Type _} [Monoid α] [Monoid β] {R : Rel α β}
+    (cl : Relation.MulClosed R) : R ⊗ᵣ R ≤ R := by
+  rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
+  exact cl _ _ _ _ h₁ h₂
 
 /-- Any extension of the right-hand side can be matched by some extension of the left. Not an extra
 assumption: it is what `LeftTotal` and `MulClosed` give together, and it is the form horizontal
@@ -139,12 +148,10 @@ theorem scPrefix_mono {R S : Rel εₛ εₜ} (hRS : ∀ x y, R x y → S x y) {
 
 omit [Monoid εₜ] in
 theorem scPrefix_idem {R : Rel εₛ εₜ} {a : εₛ} {b : εₜ} : a ≼[SCPrefix R] b ↔ a ≼[R] b := by
-  constructor
-  · rintro ⟨δ, δ', h⟩
-    exists δ * δ'
+  iff_rintro ⟨δ, δ', h⟩ h
+  · exists δ * δ'
     rwa [← mul_assoc]
-  · intro h
-    exact scPrefix_of h
+  · exact scPrefix_of h
 
 /-- A reflexive relation gives a reflexive `≼`, which is what a leaf proof uses to discharge an
 abort against the trace the target actually emitted. Stated at one trace type, the only case where

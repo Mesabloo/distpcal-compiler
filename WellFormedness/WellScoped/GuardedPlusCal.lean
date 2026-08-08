@@ -59,7 +59,7 @@ theorem GuardedPlusCal.wellscoped_mono_of_subset {Typ Expr} {stmts : List (Guard
     | «with» name _ _ _ =>
       intro inScope inScope' h
       rintro ⟨fresh, ws⟩
-      refine ⟨fun mem => fresh (h mem), ih (inScope := name :: inScope) (inScope' := name :: inScope') ?_ ws⟩
+      refine ⟨λ mem ↦ fresh (h mem), ih (inScope := name :: inScope) (inScope' := name :: inScope') ?_ ws⟩
       intro x hx
       cases hx with
       | head => exact List.mem_cons_self
@@ -95,7 +95,7 @@ theorem GuardedPlusCal.fresh_of_wellscoped_of_not_mem {inScope : List String}
         simp only [GuardedPlusCal.Statement.boundName?, Option.some.injEq] at heq
         exact heq ▸ ComputableTLAPlus.Expression.not_mem_of_fresh fresh sub
       | tail _ hmem' =>
-        exact ih (fun z hz => List.mem_cons_of_mem name (sub z hz)) ws s' hmem' name' heq
+        exact ih (λ z hz ↦ List.mem_cons_of_mem name (sub z hz)) ws s' hmem' name' heq
     | await _ =>
       intro ws s' hmem name' heq
       cases hmem with

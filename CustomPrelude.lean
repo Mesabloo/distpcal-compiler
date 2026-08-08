@@ -136,7 +136,7 @@ namespace Lean.Parser.Tactic
             (do
               evalTactic t
               pure abort)
-            (fun ex => do
+            (λ ex ↦ do
               if (← read).recover then
                 logException ex
                 let msgLog ← Core.getMessageLog

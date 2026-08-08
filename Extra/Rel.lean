@@ -51,6 +51,14 @@ theorem Relation.lcomp₂.mono {α β γ δ : Type _} [Monoid β] {R₁ R₁' : 
   have yR₂'z : (y, c, z) ∈ R₂' := R₂_sub yR₂z
   exists y, b, c
 
+/-- `Set.union_subset_union` restated at `≤`. Mathlib tags only the `⊆` form for `gcongr`, while
+the two composition lemmas above are tagged at `≤`, so a goal mixing a union with a composition —
+which is every monotonicity obligation of a semantic functional — matches at neither relation and
+`gcongr` reports no progress. Registering the `≤` form is what lets it descend through both. -/
+@[gcongr]
+theorem Set.union_le_union {α : Type _} {s s' t t' : Set α} (h₁ : s ≤ s') (h₂ : t ≤ t') : s ∪ t ≤ s' ∪ t' :=
+  Set.union_subset_union h₁ h₂
+
 theorem Relation.mem_lcomp₂ {α β γ δ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {R₂ : Set (γ × β × δ)} {a c} {e} :
   (a, e, c) ∈ R₁ ∘ᵣ₂ R₂ ↔ ∃ b e₁ e₂, (a, e₁, b) ∈ R₁ ∧ (b, e₂, c) ∈ R₂ ∧ e = e₁ * e₂ := by rfl
 
@@ -125,11 +133,9 @@ theorem Relation.lcomp₁.right_empty_eq_empty {α β γ : Type _} [Monoid β] {
 
 theorem Relation.lcomp₂.left_id_eq {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} : {⟨x, e, y⟩ | x = y ∧ e = 1} ∘ᵣ₂ R = R := by
   ext ⟨a, e, c⟩
-  constructor
-  · rintro ⟨b, e₁, e₂, ⟨rfl, rfl⟩, _, rfl⟩
-    rwa [Monoid.one_mul]
-  · intro
-    exists a, 1, e
+  iff_rintro ⟨b, e₁, e₂, ⟨rfl, rfl⟩, _, rfl⟩ _
+  · rwa [Monoid.one_mul]
+  · exists a, 1, e
     and_intros
     · rfl
     · rfl
@@ -138,21 +144,17 @@ theorem Relation.lcomp₂.left_id_eq {α β γ : Type _} [Monoid β] {R : Set (�
 
 theorem Relation.lcomp₁.left_id_eq {α β : Type _} [Monoid β] {R : Set (α × β)} : {⟨x, e, y⟩ | x = y ∧ e = 1} ∘ᵣ₁ R = R := by
   ext ⟨a, e⟩
-  constructor
-  · rintro ⟨b, e₁, e₂, ⟨rfl, rfl⟩, _, rfl⟩
-    rwa [Monoid.one_mul]
-  · intro
-    exists a, 1, e
+  iff_rintro ⟨b, e₁, e₂, ⟨rfl, rfl⟩, _, rfl⟩ _
+  · rwa [Monoid.one_mul]
+  · exists a, 1, e
     and_intros <;> try trivial
     rw [Monoid.one_mul]
 
 theorem Relation.lcomp₂.right_id_eq {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} : R ∘ᵣ₂ {⟨x, e, y⟩ | x = y ∧ e = 1} = R := by
   ext ⟨a, e, c⟩
-  constructor
-  · rintro ⟨b, e₁, e₂, _, ⟨rfl, rfl⟩, rfl⟩
-    rwa [Monoid.mul_one]
-  · intro
-    exists c, e, 1
+  iff_rintro ⟨b, e₁, e₂, _, ⟨rfl, rfl⟩, rfl⟩ _
+  · rwa [Monoid.mul_one]
+  · exists c, e, 1
     and_intros
     · assumption
     · rfl
@@ -162,16 +164,14 @@ theorem Relation.lcomp₂.right_id_eq {α β γ : Type _} [Monoid β] {R : Set (
 theorem Relation.lcomp₂.assoc {α β γ δ ε : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {R₂ : Set (γ × β × δ)} {R₃ : Set (δ × β × ε)} :
   R₁ ∘ᵣ₂ (R₂ ∘ᵣ₂ R₃) = (R₁ ∘ᵣ₂ R₂) ∘ᵣ₂ R₃ := by
     ext ⟨a, e, d⟩
-    constructor
-    · rintro ⟨b, e₁, e₂, aR₁b, ⟨c, e₃, e₄, bR₂c, cR₃d, rfl⟩, rfl⟩
-      rw [← mul_assoc]
+    iff_rintro ⟨b, e₁, e₂, aR₁b, ⟨c, e₃, e₄, bR₂c, cR₃d, rfl⟩, rfl⟩ ⟨c, e₁, e₂, ⟨b, e₃, e₄, aR₁b, bR₂c, rfl⟩, cR₃d, rfl⟩
+    · rw [← mul_assoc]
       exists c, e₁ * e₃, e₄
       and_intros
       · exists b, e₁, e₃
       · assumption
       · rfl
-    · rintro ⟨c, e₁, e₂, ⟨b, e₃, e₄, aR₁b, bR₂c, rfl⟩, cR₃d, rfl⟩
-      rw [mul_assoc]
+    · rw [mul_assoc]
       exists b, e₃, e₄ * e₂
       and_intros
       · assumption
@@ -180,14 +180,12 @@ theorem Relation.lcomp₂.assoc {α β γ δ ε : Type _} [Monoid β] {R₁ : Se
 
 theorem Relation.lcomp₁.left_lcomp₂_eq {α β γ δ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {R₂ : Set (γ × β × δ)} {R₃ : Set (δ × β)} : (R₁ ∘ᵣ₂ R₂) ∘ᵣ₁ R₃ = R₁ ∘ᵣ₁ (R₂ ∘ᵣ₁ R₃) := by
   ext ⟨a, e⟩
-  constructor
-  · rintro ⟨c, _, e₃, ⟨b, e₁, e₂, _, _, rfl⟩, _, rfl⟩
-    rw [mul_assoc]
+  iff_rintro ⟨c, _, e₃, ⟨b, e₁, e₂, _, _, rfl⟩, _, rfl⟩ ⟨b, e₁, e₂, _, ⟨c, e₂, e₃, _, _, rfl⟩, rfl⟩
+  · rw [mul_assoc]
     exists b, e₁, e₂ * e₃
     and_intros <;> try trivial
     exists c, e₂, e₃
-  · rintro ⟨b, e₁, e₂, _, ⟨c, e₂, e₃, _, _, rfl⟩, rfl⟩
-    rw [← mul_assoc]
+  · rw [← mul_assoc]
     exists c, e₁ * e₂, e₃
     and_intros <;> try trivial
     exists b, e₁, e₂
@@ -348,6 +346,14 @@ theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [OmegaProd ε] {R S : S
   rintro ⟨σ, ε⟩ ⟨σs, es, h₀, hstep, hε⟩
   exact ⟨σs, es, h₀, λ i ↦ h (hstep i), hε⟩
 
+/-- Dropping the first step of an infinite run leaves an infinite run. Every proof that
+destructures a `Relation.omega` membership and then has to put the tail back together needs this,
+so it is stated once here rather than re-instantiated at each site. -/
+theorem Relation.omega.tail {α ε : Type _} [Monoid ε] [OmegaProd ε] {R : Set (α × ε × α)}
+    {σs : ℕ → α} {es : ℕ → ε} (hstep : ∀ i, (σs i, es i, σs (i + 1)) ∈ R) :
+    (σs 1, OmegaProd.ωProd (λ i ↦ es (i + 1))) ∈ Relation.omega R :=
+  ⟨λ i ↦ σs (i + 1), λ i ↦ es (i + 1), rfl, λ i ↦ hstep (i + 1), rfl⟩
+
 
 /-! ## Finite iteration
 
@@ -420,5 +426,13 @@ theorem Relation.star.lcomp₁_absorb {α ε : Type _} [Monoid ε] {R : Set (α 
   rintro ⟨σ, e⟩ ⟨b, e₁, e₂, hR, ⟨c, e₃, e₄, hs, hy, rfl⟩, rfl⟩
   rw [← mul_assoc]
   apply Relation.lcomp₁.intro (Relation.star.head hR hs) hy
+
+/-- `Y` itself is a run-then-`Y`, the run being empty. The base case of the absorption above, and
+what lets an aborting refinement of `Y` be read as one of `R* ∘ᵣ₁ Y`. -/
+theorem Relation.star.le_lcomp₁ {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)}
+    {Y : Set (α × ε)} : Y ≤ Relation.star R ∘ᵣ₁ Y := by
+  rintro ⟨σ, e⟩ hy
+  rw [← one_mul e]
+  apply Relation.lcomp₁.intro (Relation.star.refl σ) hy
 
 end

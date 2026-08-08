@@ -127,7 +127,8 @@ theorem Relation.Eventually.wellformed {α} (R : α → Set α → Prop) (R_wf :
     exact IH x' x'_in_P'
 
 theorem Relation.Eventually.step_chained {α} {x : α} {R : α → Set α → Prop} {P : Set _} (h : R x {y | Relation.Eventually R y P}) : Relation.Eventually R x P := by
-  apply Relation.Eventually.step _ h <;> simp
+  apply Relation.Eventually.step _ h
+  simp
 
 theorem Relation.Eventually.cut {α} {x : α} {P : Set α} (P' : Set α) {R : α → Set α → Prop} (h : Relation.Eventually R x P') (h' : ∀ y ∈ P', Relation.Eventually R y P) : Relation.Eventually R x P := by
   induction h with
@@ -138,7 +139,8 @@ theorem Relation.Eventually.cut {α} {x : α} {P : Set α} (P' : Set α) {R : α
       exact IH _ x'_in_P'' h'
 
 theorem Relation.Eventually.cut_chained  {α} {x : α} {R : α → Set α → Prop} {P : Set _} (h : Relation.Eventually R x {y | Relation.Eventually R y P}) : Relation.Eventually R x P := by
-  apply Relation.Eventually.cut _ h <;> simp
+  apply Relation.Eventually.cut _ h
+  simp
 
 --------
 

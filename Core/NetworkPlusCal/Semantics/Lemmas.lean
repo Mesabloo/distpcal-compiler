@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Core.NetworkPlusCal.Semantics.Denotational
 public import Core.GuardedPlusCal.Semantics.Lemmas
 
@@ -184,11 +185,9 @@ private theorem Statement.aborting'_eq_map {b b' : Bool}
     Statement.aborting' (V := V) S =
       Prod.map LocalState.toLocalState' id '' Statement.aborting S := by
   ext ⟨⟨M, F, l⟩, e⟩
-  constructor
-  · rintro ⟨rfl, sem⟩
-    exists _, sem
-  · rintro ⟨⟨⟨_⟩, _⟩, _, _|_⟩
-    trivial
+  iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
+  · exists _, sem
+  · trivial
 
 -- `Statement.diverging` is `∅` regardless of the expression semantics, so this one does not use it.
 omit [ExprSemantics V] in
@@ -197,11 +196,9 @@ private theorem Statement.diverging'_eq_map {b b' : Bool}
     Statement.diverging' (V := V) S =
       Prod.map LocalState.toLocalState' id '' Statement.diverging S := by
   ext ⟨⟨M, F, l⟩, e⟩
-  constructor
-  · rintro ⟨rfl, sem⟩
-    exists _, sem
-  · rintro ⟨⟨⟨_⟩, _⟩, _, _|_⟩
-    trivial
+  iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
+  · exists _, sem
+  · trivial
 
 theorem Block.reducing'_eq_map {g b : Bool}
     {B : Block (ComputableNetworkPlusCal.Statement g) b} :
@@ -240,9 +237,9 @@ theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
       ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈
         Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.reducing'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V}
     {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) false} :
@@ -251,9 +248,9 @@ theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FI
       ⟨(M₁, F₁, none), ε, (M₂, F₂, none)⟩ ∈
         Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.reducing'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
     {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) b} :
@@ -263,9 +260,9 @@ theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
         Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
           (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.aborting'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
     {ε : Trace V} {B : Block (ComputableNetworkPlusCal.Statement g) b} :
@@ -275,9 +272,9 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
         Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
           (λ ⦃_⦄ ↦ Statement.reducing') B := by
   rw [Block.diverging'_eq_map, Set.mem_image]
-  constructor
-  · intro sem; exists _, sem
-  · rintro ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩; exact sem
+  iff_rintro sem ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩
+  · exists _, sem
+  · exact sem
 
 /-! # `AtomicBranch`/`AtomicBlock`, flat
 
@@ -346,12 +343,10 @@ theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l :
     exact LocalState.sem_glue₁
   | some B' =>
     simp only [Option.elim]
-    constructor
-    · rintro ⟨⟨M', F'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
-      exact ⟨(M', F', none), ε₁, ε₂,
+    iff_rintro ⟨⟨M', F'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩ ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
+    · exact ⟨(M', F', none), ε₁, ε₂,
         (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.sem_glue₁ (B := Br.action)).mp red_act, rfl⟩
-    · rintro ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
-      have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+    · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
         (σ' := (M', F', l')) red_pre).2
       subst hl'
       exact ⟨LocalState.running M' F', ε₁, ε₂,
@@ -365,18 +360,16 @@ theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace 
   cases hpre : Br.precondition with
   | none => exact LocalState.abort_glue
   | some B' =>
-    constructor
-    · rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
-      · exact Or.inl ((LocalState.abort_glue (B := B')).mp h)
-      · exact Or.inr ⟨(M', F', none), ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.abort_glue (B := Br.action)).mp abort_act, rfl⟩
-    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
-      · exact Or.inl ((LocalState.abort_glue (B := B')).mpr h)
-      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-          (σ' := (M', F', l')) red_pre).2
-        subst hl'
-        exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.abort_glue (B := Br.action)).mpr abort_act, rfl⟩
+    iff_rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩) (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
+    · exact Or.inl ((LocalState.abort_glue (B := B')).mp h)
+    · exact Or.inr ⟨(M', F', none), ε₁, ε₂,
+        (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.abort_glue (B := Br.action)).mp abort_act, rfl⟩
+    · exact Or.inl ((LocalState.abort_glue (B := B')).mpr h)
+    · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+        (σ' := (M', F', l')) red_pre).2
+      subst hl'
+      exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
+        (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.abort_glue (B := Br.action)).mpr abort_act, rfl⟩
 
 theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
     {Br : ComputableNetworkPlusCal.AtomicBranch} :
@@ -386,29 +379,25 @@ theorem LocalState.div_glue₃ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
   cases hpre : Br.precondition with
   | none => exact LocalState.div_glue
   | some B' =>
-    constructor
-    · rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
-      · exact Or.inl ((LocalState.div_glue (B := B')).mp h)
-      · exact Or.inr ⟨(M', F', none), ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.div_glue (B := Br.action)).mp div_act, rfl⟩
-    · rintro (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
-      · exact Or.inl ((LocalState.div_glue (B := B')).mpr h)
-      · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-          (σ' := (M', F', l')) red_pre).2
-        subst hl'
-        exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
-          (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.div_glue (B := Br.action)).mpr div_act, rfl⟩
+    iff_rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩) (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, div_act, rfl⟩)
+    · exact Or.inl ((LocalState.div_glue (B := B')).mp h)
+    · exact Or.inr ⟨(M', F', none), ε₁, ε₂,
+        (LocalState.sem_glue₂ (B := B')).mp red_pre, (LocalState.div_glue (B := Br.action)).mp div_act, rfl⟩
+    · exact Or.inl ((LocalState.div_glue (B := B')).mpr h)
+    · have hl' : l' = none := (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+        (σ' := (M', F', l')) red_pre).2
+      subst hl'
+      exact Or.inr ⟨LocalState.running M' F', ε₁, ε₂,
+        (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.div_glue (B := Br.action)).mpr div_act, rfl⟩
 
 theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
     {B : ComputableNetworkPlusCal.AtomicBlock} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBlock.diverging B ↔
       ∃ Br ∈ B.branches, ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.diverging' (V := V) Br := by
   unfold AtomicBlock.diverging
-  constructor
-  · rintro ⟨Br, Br_in, h⟩
-    exact ⟨Br, Br_in, LocalState.div_glue₃.mp h⟩
-  · rintro ⟨Br, Br_in, h⟩
-    exact ⟨Br, Br_in, LocalState.div_glue₃.mpr h⟩
+  iff_rintro ⟨Br, Br_in, h⟩ ⟨Br, Br_in, h⟩
+  · exact ⟨Br, Br_in, LocalState.div_glue₃.mp h⟩
+  · exact ⟨Br, Br_in, LocalState.div_glue₃.mpr h⟩
 
 -- Leaf discharge for `sem_side` (T1).
 attribute [aesop norm simp (rule_sets := [sem])]

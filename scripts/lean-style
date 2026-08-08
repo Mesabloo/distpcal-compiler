@@ -114,6 +114,43 @@ def _rwshow(code, raw):
             yield i, l.strip()
 
 
+FOCUSING = ("|", "·", "case ", "next ", "all_goals", "any_goals", "end", "where", "<;>")
+
+
+@rule("unbulleted subgoal", "bullet it — a `·` block must not be followed by a sibling goal at its own column")
+def _unbulleted(code, raw):
+    """A `·` block whose sibling branch is written unbulleted at the bullet's own column.
+
+    Comments introducing the next branch are fine — they are already blank in `code`. A closing
+    bracket is not a tactic, `case`/`next`/`|` are their own focusing syntax, and a combinator is
+    explicit about applying to every goal."""
+    for i, l in enumerate(code):
+        s = l.lstrip()
+        if not s.startswith("· "):
+            continue
+        ind = len(l) - len(s)
+        j = i + 1
+        while j < len(code) and (not code[j].strip() or len(code[j]) - len(code[j].lstrip()) > ind):
+            j += 1
+        if j >= len(code):
+            continue
+        nxt = code[j].lstrip()
+        if len(code[j]) - len(nxt) == ind and not nxt.startswith(FOCUSING) and nxt[0] not in ")]}":
+            yield j, raw[j].strip()
+
+
+@rule("rw before simp/grind", "merge it in, or use `rewrite` — `rw`'s closing `rfl` is dead work here")
+def _rwbeforesimp(code, raw):
+    for i, l in enumerate(code[:-1]):
+        if not re.match(r'^\s*rw\b', l):
+            continue
+        nxt = code[i + 1]
+        if len(nxt) - len(nxt.lstrip()) != len(l) - len(l.lstrip()):
+            continue
+        if re.match(r'^\s*(simp|grind)\b', nxt):
+            yield i, l.strip()
+
+
 @rule("noConfusion", "use `contradiction` — `noConfusion` needs its implicits to line up")
 def _noconfusion(code, raw):
     for i, l in enumerate(code):
