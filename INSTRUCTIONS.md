@@ -63,35 +63,14 @@ cost far more than what a call return once.
 
 ## Lean conventions
 
-Carried from prior art's `lakefile.lean`; raise open question before dropping any:
+**Moved. `LEAN_STYLE.md` is canonical** — language conventions, proof style, module-system rules,
+and the tactic playbook (project's own 15, style calls already settled, Mathlib tactics worth
+reaching for). Don't restate rules here; that duplication is what the move removed.
 
-- `autoImplicit` **off**. Every implicit argument explicit in `variable` block or signature.
-- `linter.missingDocs` on by default (toggleable for fast iteration). Don't leave off by
-  time module "done".
-- `pp.unicode.fun` on — write `λ x ↦ y`, not `fun x => y`.
-- Adopt prior art idioms: `Located α` (position-tagged AST nodes) with `match_source`/`@@`
-  notation pair; `Bifunctor`/`Bitraversable` instances on every two-parameter AST; type-level
-  encoding of structural invariants where cheap.
-- Pass naming: `<Source>2<Target>`, matching `lean_lib` shorthand in `lakefile.lean`.
-- **Compilation functions monad-polymorphic** — abstract `{m : Type _ → Type _}` plus the
-  typeclass constraints the pass actually needs, not a fixed `ReaderT`/`ExceptT` stack.
+Rules carried from prior art's `lakefile.lean`; raise open question before dropping any.
 
-### Proof style
-
-**Check every Lean proof against this list before output it.** Not after review, not when
-convenient — every time, including one-line proofs and proofs inside `have`. Same as build: proof
-not done till it compile *and* match this list. List grow over time; re-read it, don't work from
-memory of it.
-
-- **No deep `exact` nests.** `exact f (g (h x))` hide the proof shape and give useless errors when
-  one layer break. Write `apply` chain, one lemma per line, innermost last. Anonymous constructor
-  (`exact ⟨a, b, c⟩`) fine — that a literal, not a chain.
-- **`by classical` on one line.** Not `by` then `classical` on next line.
-- **`contradiction`, not `Option.noConfusion`**, to kill absurd hypothesis. `noConfusion` also need
-  its implicits line up, fail with `Application type mismatch` when they don't.
-- **`by_cases! h : p`**, not `by_cases h : p` then `push_neg at h`. `!` do the `push_neg` itself.
-- **No `exact absurd x y`.** Use `absurd` tactic (`absurd x` then supply negation), or `nomatch h`
-  when `h` itself impossible equation.
+Enforcement is `scripts/lean-style`, run on `Stop` over working-tree `.lean` files. Mechanical
+rules only — the judgment ones stay a reader's job.
 
 ## Build & iterate
 

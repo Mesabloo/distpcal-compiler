@@ -462,6 +462,9 @@ it, so a broken script cannot break the build.
   locally defined tactic into `.claude/facts/lemmas.jsonl` (name, type, conclusion, source
   location, conclusion key heads, attributes, docstring). Needs a built project; takes ~12s.
   Rerun after adding or renaming anything it indexes.
+- `lean-style` — checks `.lean` sources against `LEAN_STYLE.md`'s mechanically-checkable rules.
+  `--changed` limits it to the working tree. Runs on `Stop` via `.claude/hooks/lean-style-check.sh`;
+  also a manual linter. Only unambiguous rules live here — judgment ones stay in `LEAN_STYLE.md`.
 - `facts` — queries that database. `q` ranked search across all kinds, `c` by the constants a
   conclusion mentions, `m` one file's lemmas in source order, `s` one full record, `t` the
   project's own tactics, `n` curated notes, `add`/`rm` to curate, `doctor` to check the database
@@ -492,4 +495,6 @@ it, so a broken script cannot break the build.
   writes it. Delete it by hand and the next build fails until `lakefile.lean` is touched.
 - `lean-toolchain`, `lake-manifest.json` — toolchain pin and dependency lockfile.
 - `fugue.sh` — dev-mode CLI wrapper.
+- `LEAN_STYLE.md` — **canonical** Lean rules: proof style, language conventions, module-system
+  rules, and the tactic playbook. `INSTRUCTIONS.md` §"Lean conventions" points here.
 - `AGENTS.md` — caveman-mode config for non-Claude-Code agents.

@@ -24,9 +24,12 @@ sequences where dropped conjunctions make order ambiguous. Resume right after.
 
 ## Lean proof rule — applies every time, no exceptions
 
-Before output **any** Lean proof, check it against `INSTRUCTIONS.md` §"Lean conventions" →
-"Proof style". Every proof, including one-liners and `have` bodies. Re-read that list; don't work
-from memory of it. Proof not done till it compile *and* match.
+Before output **any** Lean proof, check it against `LEAN_STYLE.md`. Every proof, including
+one-liners and `have` bodies. Re-read that file; don't work from memory of it. Proof not done till
+it compile *and* match. Part B is a tactic playbook — check it before hand-rolling a proof step.
+
+`scripts/lean-style` enforce the mechanical rules on `Stop`. Passing checker ≠ matching file:
+checker only cover rules with unambiguous textual form.
 
 **Never re-derive fact project already prove.** Before write proof step, query local fact database:
 

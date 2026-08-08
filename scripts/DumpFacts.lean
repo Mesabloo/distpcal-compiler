@@ -57,7 +57,7 @@ def modPath (m : Name) : String :=
 excluded by having no declaration range at all; this catches the rest. -/
 def isInternal (n : Name) : Bool :=
   n.isInternal || n.hasMacroScopes ||
-    n.components.any fun c =>
+    n.components.any λ c ↦
       let s := c.toString
       ["rec", "recOn", "casesOn", "below", "brecOn", "ndrec", "ndrecOn", "noConfusion",
        "injEq", "sizeOf_spec", "eq_def"].contains s
@@ -66,7 +66,7 @@ def isInternal (n : Name) : Bool :=
 /-- Instance and coercion plumbing (`Set.instHasSubset`, `MulOneClass.toMulOne`, …). Real constants,
 but indexing a lemma under them buries the one head symbol a reader would actually search for. -/
 def isPlumbing (n : Name) : Bool :=
-  n.components.any fun c =>
+  n.components.any λ c ↦
     let s := c.toString
     s.startsWith "inst" || s.startsWith "to"
 
@@ -163,18 +163,18 @@ def scanSource (file : String) (declStart nameLine : Nat) (leafName : String) : 
     for keyword in ["theorem ", "lemma "] do
       if line.startsWith keyword
           || ["private ", "protected ", "public ", "public private "].any
-               (fun modifier => line.startsWith (modifier ++ keyword))
+               (λ modifier ↦ line.startsWith (modifier ++ keyword))
           || (line.splitOn "] " |>.getD 1 "" |>.startsWith keyword) then
         isTheorem := true
   -- The line the selection range points at must actually spell the constant's own name.
   -- Attribute-generated companions inherit their source theorem's range, so `@[ext] theorem
   -- Block.ext_iff` otherwise contributes a phantom `Block.ext_iff_iff` sitting on the same line.
   let namesItself :=
-    (src[nameLine - 1]?.map fun l => decide ((l.splitOn leafName).length > 1)).getD false
+    (src[nameLine - 1]?.map λ l ↦ decide ((l.splitOn leafName).length > 1)).getD false
   let declaresTheorem := isTheorem && namesItself
   -- A class field is named by the window's own last line, with no keyword in front of it.
   let isField := !declaresTheorem &&
-    ((src[nameLine - 1]?.map fun l =>
+    ((src[nameLine - 1]?.map λ l ↦
       let t := l.trimAsciiStart.toString
       t.startsWith (leafName ++ " ") || t.startsWith (leafName ++ ":")
         || t.startsWith (leafName ++ " :") || t.startsWith (leafName ++ "{")).getD false)
@@ -346,7 +346,7 @@ structure Fact where
 
 /-- Constants worth indexing, in first-seen order and without duplicates. -/
 def informative (ns : Array Name) : Array Name :=
-  ns.filter fun n => !isInternal n && !isPlumbing n
+  ns.filter λ n ↦ !isInternal n && !isPlumbing n
 
 /-- The head symbols a reader would search a conclusion under.
 
@@ -367,12 +367,12 @@ def conclusionKeys (body : Expr) : Array Name := Id.run do
 /-- Build a fact from a constant, given what its source window says. -/
 def mkFact (n : Name) (ci : ConstantInfo) (m : Name) (line : Nat)
     (src : SrcInfo) : MetaM Fact := do
-  let pp (e : Expr) : MetaM String := withOptions (fun o => o.setBool `pp.unicode.fun true) do
+  let pp (e : Expr) : MetaM String := withOptions (λ o ↦ o.setBool `pp.unicode.fun true) do
     return oneLine ((← ppExpr e).pretty (width := 1000))
-  let (hyps, concl, keys, concise, hypCount) ← forallTelescope ci.type fun binders body => do
-    let hyps ← binders.foldlM (init := (∅ : NameSet)) fun acc binder => do
+  let (hyps, concl, keys, concise, hypCount) ← forallTelescope ci.type λ binders body ↦ do
+    let hyps ← binders.foldlM (init := (∅ : NameSet)) λ acc binder ↦ do
       return (← inferType binder).getUsedConstants.foldl NameSet.insert acc
-    let hypCount ← binders.foldlM (init := 0) fun acc binder => do
+    let hypCount ← binders.foldlM (init := 0) λ acc binder ↦ do
       return if (← isProp (← inferType binder)) then acc + 1 else acc
     let concl := body.getUsedConstants.foldl NameSet.insert (∅ : NameSet)
     return (hyps, concl, conclusionKeys body, ← pp body, hypCount)
@@ -392,7 +392,7 @@ def mkFact (n : Name) (ci : ConstantInfo) (m : Name) (line : Nat)
 
 /-- Serialize a fact as one compact JSON object. -/
 def Fact.toJson (f : Fact) : Json :=
-  let names (ns : Array Name) : Json := Json.arr (ns.map fun n => Json.str n.toString)
+  let names (ns : Array Name) : Json := Json.arr (ns.map λ n ↦ Json.str n.toString)
   Json.mkObj <|
     [("n", Json.str f.name.toString), ("k", Json.str f.kind),
      ("m", Json.str f.module.toString), ("f", Json.str f.file),
@@ -408,8 +408,8 @@ def applyAttributeCommands (facts : Array Fact) : IO (Array Fact) := do
   for file in facts.map (·.file) do
     unless byFile.contains file do
       byFile := byFile.insert file (← scanAttributeCommands file)
-  return facts.map fun f =>
-    let extra := (byFile.getD f.file #[]).filterMap fun (name, attr) =>
+  return facts.map λ f ↦
+    let extra := (byFile.getD f.file #[]).filterMap λ (name, attr) ↦
       if f.name.toString == name || f.name.toString.endsWith ("." ++ name) then some attr else none
     { f with attrs := f.attrs ++ extra.filter (!f.attrs.contains ·) }
 
@@ -426,7 +426,7 @@ def collectTactics (roots : NameSet) : IO (Array TacticFact) := do
     for path in paths do
       let file := path.toString.stripPrefix "./"
       out := out ++ (← scanTactics path file)
-  return out.qsort fun a b => if a.file == b.file then a.line < b.line else a.file < b.file
+  return out.qsort λ a b ↦ if a.file == b.file then a.line < b.line else a.file < b.file
 
 /-- Collect every local fact from an imported environment. -/
 def collect (env : Environment) (roots : NameSet) : MetaM (Array Fact) := do
@@ -444,7 +444,7 @@ def collect (env : Environment) (roots : NameSet) : MetaM (Array Fact) := do
     if src.isTheorem || src.isField then
       facts := facts.push (← mkFact n ci m nameLine src)
   let tagged ← applyAttributeCommands facts
-  return tagged.qsort fun a b =>
+  return tagged.qsort λ a b ↦
     if a.file == b.file then a.line < b.line else a.file < b.file
 
 /-- `enableInitializersExecution` is `unsafe`, and loading environment extensions needs it: the
@@ -462,11 +462,11 @@ unsafe def main (args : List String) : IO Unit := do
   if let some dir := (System.FilePath.mk out).parent then
     IO.FS.createDirAll dir
   IO.FS.writeFile out (String.join
-    (facts.toList.map (fun f => f.toJson.compress ++ "\n")
-      ++ tactics.toList.map (fun t => t.toJson.compress ++ "\n")))
+    (facts.toList.map (λ f ↦ f.toJson.compress ++ "\n")
+      ++ tactics.toList.map (λ t ↦ t.toJson.compress ++ "\n")))
   let theorems := facts.filter (·.kind == "thm") |>.size
   let fields := facts.size - theorems
-  let files := facts.foldl (init := (∅ : NameSet)) (fun s f => s.insert (Name.mkSimple f.file))
+  let files := facts.foldl (init := (∅ : NameSet)) (λ s f ↦ s.insert (Name.mkSimple f.file))
   let documented := (facts.filter (·.doc.isSome)).size + (tactics.filter (·.doc.isSome)).size
   let total := facts.size + tactics.size
   IO.println s!"{total} facts ({theorems} theorems, {fields} class fields, \

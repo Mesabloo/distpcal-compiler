@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Check Lean sources against the mechanically-checkable rules in `LEAN_STYLE.md`.
+
+    scripts/lean-style [FILE…]      check these files (default: everything tracked)
+    scripts/lean-style --changed    check only files modified in the working tree
+
+Exit status is 1 when anything is reported, so it works as a Stop hook and as a manual linter.
+
+Only rules with a zero-ambiguity textual form live here. "No deep `exact` nests", "aesop must be
+terminal" and the tactic playbook are judgment calls — a regex for them produces false positives
+(the first attempt flagged `exact Or.inl ((foo (B := B')).mp h)`, which is one lemma applied to one
+projection and perfectly fine), and a checker that cries wolf gets switched off. Those stay in
+`LEAN_STYLE.md` for a reader.
+
+Vendored `Extra/Mathlib/**` is exempt: upstream code, upstream style.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXEMPT = ("Extra/Mathlib",)
+
+
+def strip_noncode(lines: list[str]) -> list[str]:
+    """Blank out comments and string literals so a rule cannot fire on prose.
+
+    `LEAN_STYLE.md`'s own rules are quoted in docstrings all over this project; without this,
+    the file documenting a rule is its own worst offender."""
+    out, in_block = [], 0
+    for line in lines:
+        s = line
+        if in_block:
+            end = s.find("-/")
+            if end == -1:
+                out.append("")
+                continue
+            in_block -= 1
+            s = " " * (end + 2) + s[end + 2:]
+        # Block comments opening on this line.
+        while True:
+            start = s.find("/-")
+            if start == -1:
+                break
+            end = s.find("-/", start + 2)
+            if end == -1:
+                s = s[:start]
+                in_block += 1
+                break
+            s = s[:start] + " " * (end + 2 - start) + s[end + 2:]
+        s = re.sub(r'--.*$', "", s)
+        s = re.sub(r'"(?:[^"\\]|\\.)*"', '""', s)
+        out.append(s)
+    return out
+
+
+RULES = []
+
+
+def rule(name: str, fix: str):
+    def deco(fn):
+        RULES.append((name, fix, fn))
+        return fn
+    return deco
+
+
+@rule("exact absurd", "use the `absurd` tactic, or `nomatch h`")
+def _absurd(code, raw):
+    for i, l in enumerate(code):
+        if re.search(r'\bexact\s+absurd\b', l):
+            yield i, l.strip()
+
+
+@rule("fun x => ", "write `λ x ↦` — `pp.unicode.fun` is on")
+def _lambda(code, raw):
+    for i, l in enumerate(code):
+        if re.search(r'\bfun\b[^=]*=>', l):
+            yield i, l.strip()
+
+
+@rule("by_cases then push_neg", "use `by_cases! h : p` (same for `by_contra!`)")
+def _bycases(code, raw):
+    for i, l in enumerate(code):
+        m = re.search(r'\bby_cases\s+(\w+)\s*:', l) or re.search(r'\bby_contra\s+(\w+)\b', l)
+        if not m:
+            continue
+        h = m.group(1)
+        for j in range(i + 1, min(i + 4, len(code))):
+            if re.search(r'\bpush_neg\b.*\b' + re.escape(h) + r'\b', code[j]):
+                yield i, l.strip()
+                break
+
+
+@rule("by / classical split", "put `by classical` on one line")
+def _classical(code, raw):
+    for i, l in enumerate(code[:-1]):
+        if not l.rstrip().endswith(":= by"):
+            continue
+        for j in range(i + 1, len(code)):
+            if code[j].strip():
+                if code[j].strip() == "classical":
+                    yield i, l.strip()
+                break
+
+
+@rule("noConfusion", "use `contradiction` — `noConfusion` needs its implicits to line up")
+def _noconfusion(code, raw):
+    for i, l in enumerate(code):
+        if re.search(r'\.noConfusion\b', l):
+            yield i, l.strip()
+
+
+def check(path: str) -> list[tuple[int, str, str, str]]:
+    rel = os.path.relpath(os.path.abspath(path), ROOT)
+    if any(e in rel for e in EXEMPT):
+        return []
+    raw = open(path, encoding="utf-8").read().splitlines()
+    code = strip_noncode(raw)
+    found = []
+    for name, fix, fn in RULES:
+        for i, _ in fn(code, raw):
+            # Report the source line, not the comment/string-stripped one the rules matched on.
+            found.append((i + 1, name, fix, raw[i].strip()))
+    return sorted(found)
+
+
+def lean_files(args: list[str]) -> list[str]:
+    if args and args[0] == "--changed":
+        out = subprocess.run(["git", "diff", "--name-only", "HEAD"], cwd=ROOT,
+                             capture_output=True, text=True).stdout.split()
+        out += subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], cwd=ROOT,
+                              capture_output=True, text=True).stdout.split()
+        return [os.path.join(ROOT, f) for f in out
+                if f.endswith(".lean") and os.path.exists(os.path.join(ROOT, f))]
+    if args:
+        return args
+    out = subprocess.run(["git", "ls-files", "*.lean"], cwd=ROOT,
+                         capture_output=True, text=True).stdout.split()
+    return [os.path.join(ROOT, f) for f in out]
+
+
+def main(argv: list[str]) -> int:
+    total = 0
+    for path in lean_files(argv):
+        rel = os.path.relpath(os.path.abspath(path), ROOT)
+        for line, name, fix, text in check(path):
+            total += 1
+            print(f"{rel}:{line}: {name} — {fix}")
+            print(f"    {text[:110]}")
+    if total:
+        print(f"\n{total} style violation(s). Rules: LEAN_STYLE.md")
+    return 1 if total else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
