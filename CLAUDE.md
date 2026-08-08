@@ -28,6 +28,22 @@ Before output **any** Lean proof, check it against `INSTRUCTIONS.md` §"Lean con
 "Proof style". Every proof, including one-liners and `have` bodies. Re-read that list; don't work
 from memory of it. Proof not done till it compile *and* match.
 
+**Never re-derive fact project already prove.** Before write proof step, query local fact database:
+
+```bash
+scripts/facts q <words>
+```
+
+Index 370 theorem, 23 class field, 15 project-defined tactic, plus curated note. Also:
+`c <const>,<const>` (lemma whose *conclusion* mention all these), `m <file>` (one file lemma, source
+order), `t` (project tactic — `sem_red`, `sem_side`, `erwa`, `iff_rintro`, `refines_match`, …),
+`s <name>` (full record plus note about it), `n` (note). Grep for `theorem`/`lemma` blocked by hook —
+this is why. Mathlib **not** indexed: use `Loogle` / `lean_local_search` for that.
+
+Learn something durable while proving — goal shape maps to lemma, tactic trap, rule-set membership:
+`scripts/facts add '<text>' --tag <tag> --ref <name>`. Run `scripts/facts refresh` after add or
+rename lemma; `scripts/facts doctor` check database against source.
+
 ## Files to check before work
 
 - `INSTRUCTIONS.md` — working rules, conventions, check-in-first list. Read first.
@@ -40,6 +56,8 @@ from memory of it. Proof not done till it compile *and* match.
 - `.claude/tasklist*.md` — task lists for current work. May be stale; confirm with owner.
 - `.claude/FINDINGS.md` — implementation findings log (bugs hit/fixed, debugging trails, dead
   ends). Separate from `PLAN.md` on purpose.
+- `.claude/facts/` — local fact database. Query with `scripts/facts`, never read the `.jsonl`
+  directly. `lemmas.jsonl` generated, `notes.jsonl` curated. Both regenerable/small, neither tracked.
 
 ## Reference material
 

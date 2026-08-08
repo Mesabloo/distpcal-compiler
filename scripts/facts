@@ -1,0 +1,542 @@
+#!/usr/bin/env python3
+"""Query the local theorem, tactic and note database.
+
+    scripts/facts q <words...>          ranked search across everything below
+    scripts/facts c <const>[,<const>]   lemmas whose conclusion mentions all of these constants
+    scripts/facts m <file|module>       every lemma in a file, in source order
+    scripts/facts s <name>              the full record for one lemma or tactic
+    scripts/facts t [name]              tactics this project defines
+    scripts/facts n [tag]               curated notes
+    scripts/facts add <text> [--tag a,b] [--ref x,y] [--src where]
+    scripts/facts rm <id>
+    scripts/facts doctor                check the database against the sources
+    scripts/facts refresh               re-extract and reindex
+
+Two layers. `.claude/facts/lemmas.jsonl` is *derived* — theorems, Prop-valued class fields and
+locally defined tactics, written by `scripts/DumpFacts.lean` and never hand-edited.
+`.claude/facts/notes.jsonl` is *curated*: the things no extractor can know, added with `add` and
+removed with `rm`. Both feed one index, so a single `q` surfaces all three kinds.
+
+Mathlib is deliberately not indexed. That is what lean-lsp's Loogle and `lean_local_search` are
+for; this database answers "what has *this project* already proved".
+
+Output is one line per result on purpose: this exists to be cheaper than grepping the sources,
+and a result that wraps costs more to read than the lemma it found. `s` is where full statements
+live.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import textwrap
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FACTS_DIR = os.path.join(ROOT, ".claude", "facts")
+JSONL = os.path.join(FACTS_DIR, "lemmas.jsonl")
+NOTES = os.path.join(FACTS_DIR, "notes.jsonl")
+DB = os.path.join(FACTS_DIR, "index.db")
+EXTRACTOR = os.path.join("scripts", "DumpFacts.lean")
+
+WIDTH = int(os.environ.get("FACTS_WIDTH", "168"))
+DEFAULT_LIMIT = 8
+
+# FTS5 reserved characters. Every query token is quoted as a phrase anyway, but a stray quote
+# would end the phrase early and turn the rest of the query into syntax errors.
+FTS_STRIP = re.compile(r'["*:^()]')
+
+
+# --------------------------------------------------------------------------- index
+
+SCHEMA = """
+CREATE TABLE fact (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL,
+  kind   TEXT NOT NULL,          -- thm | field | tac | note
+  file   TEXT NOT NULL,
+  line   INTEGER NOT NULL,
+  type   TEXT NOT NULL,
+  concl  TEXT NOT NULL,
+  nhyp   INTEGER NOT NULL,
+  attrs  TEXT NOT NULL,
+  doc    TEXT NOT NULL
+);
+CREATE INDEX fact_file ON fact (file, line);
+CREATE INDEX fact_kind ON fact (kind);
+
+-- One row per (fact, constant) so that `c` can require *all* of several constants with a
+-- GROUP BY ... HAVING COUNT, which a substring match over a joined string cannot express.
+CREATE TABLE ref (
+  fact_id INTEGER NOT NULL REFERENCES fact (id),
+  const   TEXT NOT NULL,
+  is_key  INTEGER NOT NULL
+);
+CREATE INDEX ref_const ON ref (const);
+
+-- `tokenchars` keeps subscripts attached: `lcomp₁` and `lcomp₂` are different lemmas, and the
+-- default tokenizer would split both down to `lcomp` and conflate them.
+-- `porter` on top so that a docstring saying "the memories agree" answers a search for "memory".
+-- Lemma names go through it too and are unharmed: stemming applies to the query identically, so
+-- any fragment still matches whatever it matched before.
+CREATE VIRTUAL TABLE fts USING fts5 (
+  name, doc, concl, type, keys,
+  content = 'fact',
+  content_rowid = 'id',
+  tokenize = "porter unicode61 remove_diacritics 0 tokenchars '_₀₁₂₃₄₅₆₇₈₉ᵢⱼₙₖₛₜᵣ'"
+);
+"""
+
+# What each column contributes to a match. A hit on the name is worth far more than a hit
+# somewhere inside a long pretty-printed type, which mentions half of Mathlib by construction.
+BM25_WEIGHTS = "10.0, 3.0, 2.0, 0.5, 4.0"
+
+
+def read_jsonl(path: str) -> list[dict]:
+    if not os.path.exists(path):
+        return []
+    out = []
+    with open(path, encoding="utf-8") as handle:
+        for lineno, raw in enumerate(handle, 1):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                out.append(json.loads(raw))
+            except json.JSONDecodeError as exc:
+                die(f"{rel(path)}:{lineno}: {exc}")
+    return out
+
+
+def build_index() -> sqlite3.Connection:
+    if not os.path.exists(JSONL):
+        die(f"no fact database at {rel(JSONL)} — run: scripts/facts refresh")
+    tmp = DB + ".tmp"
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    db = sqlite3.connect(tmp)
+    db.executescript(SCHEMA)
+    for f in read_jsonl(JSONL):
+        attrs = " ".join(short_attr(a) for a in f.get("a", []))
+        add_row(db, name=f["n"], kind=f["k"], file=f["f"], line=f["l"], typ=f["t"],
+                concl=f.get("s", f["t"]), nhyp=f.get("H", 0), attrs=attrs,
+                doc=f.get("d", ""), keys=f.get("K", []), consts=f.get("c", []))
+    for note in read_jsonl(NOTES):
+        # Refs are indexed as constants, so `c <lemma>` also turns up the notes about it.
+        add_row(db, name=note["id"], kind="note", file=note.get("src", ""), line=0,
+                typ=note["txt"], concl=note["txt"], nhyp=0,
+                attrs=" ".join(note.get("tag", [])), doc=note["txt"],
+                keys=note.get("ref", []), consts=[])
+    db.commit()
+    db.close()
+    os.replace(tmp, DB)
+    return sqlite3.connect(DB)
+
+
+def add_row(db, *, name, kind, file, line, typ, concl, nhyp, attrs, doc, keys, consts):
+    fid = db.execute(
+        "INSERT INTO fact (name, kind, file, line, type, concl, nhyp, attrs, doc)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (name, kind, file, line, typ, concl, nhyp, attrs, doc),
+    ).lastrowid
+    seen = set()
+    for const in list(keys) + list(consts):
+        if const in seen:
+            continue
+        seen.add(const)
+        db.execute("INSERT INTO ref (fact_id, const, is_key) VALUES (?,?,?)",
+                   (fid, const, 1 if const in keys else 0))
+    db.execute("INSERT INTO fts (rowid, name, doc, concl, type, keys) VALUES (?,?,?,?,?,?)",
+               (fid, name, doc, concl, typ, " ".join(keys)))
+
+
+def stale() -> bool:
+    if not os.path.exists(DB):
+        return True
+    age = os.path.getmtime(DB)
+    return any(os.path.exists(p) and os.path.getmtime(p) > age for p in (JSONL, NOTES))
+
+
+def open_db() -> sqlite3.Connection:
+    """Open the index, rebuilding it first if either source file has moved on."""
+    return build_index() if stale() else sqlite3.connect(DB)
+
+
+# --------------------------------------------------------------------------- formatting
+
+AESOP = re.compile(r"aesop\s+\S+(?:\s+\S+)?\s*\(rule_sets\s*:=\s*\[([^\]]*)\]\)")
+
+
+def short_attr(attr: str) -> str:
+    """`aesop safe apply (rule_sets := [sem])` is 38 characters saying one thing: `aesop:sem`."""
+    m = AESOP.match(attr)
+    return "aesop:" + m.group(1).strip() if m else attr.split(" ")[0]
+
+
+def die(msg: str) -> None:
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def rel(path: str) -> str:
+    return os.path.relpath(path, ROOT)
+
+
+def clip(text: str, budget: int) -> str:
+    text = text.strip()
+    if budget < 4:
+        return ""
+    return text if len(text) <= budget else text[: budget - 1] + "…"
+
+
+def one_line(row, with_file: bool = True) -> str:
+    """One result, one line. Each kind gets the shape that carries its meaning: a lemma is its
+    conclusion, a tactic is what it does, a note is its text.
+
+    `with_file` is off when the caller already printed the path as a heading — repeating it on
+    every row of a 50-lemma file is exactly the waste this tool exists to avoid."""
+    name, kind, file, line, concl, nhyp, attrs, doc = row
+    if kind == "note":
+        tags = f" [{attrs}]" if attrs else ""
+        return f"note {name}{tags} {clip(concl, WIDTH - len(name) - len(tags) - 6)}"
+    tags = ""
+    if kind == "tac":
+        tags += " (tactic)"
+    if attrs:
+        tags += " [" + ",".join(attrs.split(" ")) + "]"
+    if nhyp:
+        tags += f" {nhyp}h"
+    body_text = doc if kind == "tac" and doc else concl
+    lead = " — " if kind == "tac" else " ⊢ "
+    where = f"{file}:{line}" if with_file else ""
+    fixed = len(name) + len(tags) + len(where) + len(lead) + 4
+    body = f"{name}{tags}{lead}{clip(body_text, max(WIDTH - fixed, 12))}"
+    return f"{body}  · {where}" if with_file else f"{line:>5}  {body}"
+
+
+def print_rows(rows, total: int | None = None, limit: int = DEFAULT_LIMIT) -> None:
+    for row in rows:
+        print(one_line(row))
+    if total is not None and total > len(rows):
+        print(f"… {total - len(rows)} more (-n {min(total, limit * 4)} to widen)")
+
+
+SELECT = ("SELECT fact.name, fact.kind, fact.file, fact.line, fact.concl, fact.nhyp,"
+          " fact.attrs, fact.doc FROM fact")
+
+
+# --------------------------------------------------------------------------- commands
+
+def cmd_q(db, args: list[str], limit: int) -> None:
+    """Ranked full-text search. Falls back to a substring match on the name when FTS finds
+    nothing, which is what happens for a fragment the tokenizer split differently."""
+    terms = [t for t in (FTS_STRIP.sub("", t) for t in args) if t]
+    if not terms:
+        die("usage: facts q <words...>")
+    match = " ".join(f'"{t}"*' for t in terms)
+    try:
+        rows = db.execute(
+            f"{SELECT} JOIN fts ON fts.rowid = fact.id WHERE fts MATCH ?"
+            f" ORDER BY bm25(fts, {BM25_WEIGHTS}) LIMIT ?",
+            (match, limit + 1),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        die(f"bad query: {exc}")
+    if not rows:
+        like = "%" + "%".join(terms) + "%"
+        rows = db.execute(f"{SELECT} WHERE fact.name LIKE ? ORDER BY length(fact.name) LIMIT ?",
+                          (like, limit + 1)).fetchall()
+    if not rows:
+        print(f"nothing local matches {' '.join(args)!r}")
+        print("mathlib is not indexed here — use lean-lsp's Loogle or lean_local_search")
+        return
+    print_rows(rows[:limit], len(rows), limit)
+
+
+def cmd_c(db, args: list[str], limit: int) -> None:
+    """Lemmas whose conclusion mentions every one of the given constants.
+
+    Constants may be written unqualified: `lcomp₂` finds `Relation.lcomp₂`, because nobody
+    searching for a lemma types out the namespace they are trying to discover."""
+    wanted = [c for c in re.split(r"[,\s]+", " ".join(args)) if c]
+    if not wanted:
+        die("usage: facts c <const>[,<const>...]")
+    clauses, params = [], []
+    for const in wanted:
+        clauses.append("(const = ? OR const LIKE ?)")
+        params += [const, "%." + const]
+    where = " OR ".join(clauses)
+    rows = db.execute(
+        f"{SELECT} WHERE fact.id IN ("
+        f"  SELECT fact_id FROM ref WHERE {where}"
+        f"  GROUP BY fact_id HAVING COUNT(DISTINCT const) >= ?)"
+        f" ORDER BY (SELECT MAX(is_key) FROM ref WHERE fact_id = fact.id AND ({where})) DESC,"
+        f" fact.nhyp, length(fact.concl) LIMIT ?",
+        params + [len(wanted)] + params + [limit + 1],
+    ).fetchall()
+    if not rows:
+        print(f"nothing local concludes about all of: {', '.join(wanted)}")
+        return
+    print_rows(rows[:limit], len(rows), limit)
+
+
+def cmd_m(db, args: list[str], limit: int) -> None:
+    """Every lemma in a file, in source order. Replaces reading the file to see what is there."""
+    if not args:
+        die("usage: facts m <file|module>")
+    needle = "%" + args[0].replace(".lean", "").replace(".", "/") + "%"
+    rows = db.execute(f"{SELECT} WHERE fact.file LIKE ? AND fact.kind != 'note'"
+                      f" ORDER BY fact.file, fact.line", (needle,)).fetchall()
+    if not rows:
+        print(f"no indexed file matches {args[0]!r}. Files with local facts:")
+        for (f,) in db.execute(
+                "SELECT DISTINCT file FROM fact WHERE kind != 'note' ORDER BY file"):
+            print("  " + f)
+        return
+    current = None
+    for row in rows:
+        if row[2] != current:
+            current = row[2]
+            print(f"\n{current}  ({sum(1 for r in rows if r[2] == current)})")
+        print(one_line(row, with_file=False))
+
+
+def cmd_t(db, args: list[str], limit: int) -> None:
+    """Tactics this project defines. Listed in full by default — there are not many, and a tactic
+    nobody knows about gets the proof written the long way."""
+    if args:
+        return cmd_s(db, args, limit)
+    rows = db.execute(f"{SELECT} WHERE fact.kind = 'tac' ORDER BY fact.file, fact.line").fetchall()
+    current = None
+    for row in rows:
+        if row[2] != current:
+            current = row[2]
+            print(f"\n{current}")
+        print(one_line(row, with_file=False))
+
+
+def cmd_n(db, args: list[str], limit: int) -> None:
+    """Curated notes, optionally filtered by tag."""
+    sql = f"{SELECT} WHERE fact.kind = 'note'"
+    params: list = []
+    if args:
+        sql += " AND fact.attrs LIKE ?"
+        params.append("%" + args[0] + "%")
+    rows = db.execute(sql + " ORDER BY fact.attrs, fact.name", params).fetchall()
+    if not rows:
+        print("no notes" + (f" tagged {args[0]!r}" if args else "")
+              + " — add one with: scripts/facts add '<text>' --tag <tag>")
+        return
+    for row in rows:
+        print(one_line(row))
+
+
+def cmd_s(db, args: list[str], limit: int) -> None:
+    """The full record for one lemma or tactic."""
+    if not args:
+        die("usage: facts s <name>")
+    name = args[0]
+    rows = db.execute(
+        "SELECT id, name, kind, file, line, type, concl, nhyp, attrs, doc FROM fact"
+        " WHERE name = ? OR name LIKE ? ORDER BY length(name) LIMIT 12",
+        (name, "%." + name),
+    ).fetchall()
+    if not rows:
+        print(f"nothing local named {name!r}; searching instead:")
+        return cmd_q(db, [name], limit)
+    if len(rows) > 1:
+        print(f"{len(rows)} matches:")
+        for r in rows:
+            print(f"  {r[1]}  · {r[3]}:{r[4]}")
+        return
+    fid, name, kind, file, line, typ, concl, nhyp, attrs, doc = rows[0]
+    refs = [k for (k,) in db.execute(
+        "SELECT const FROM ref WHERE fact_id = ? AND is_key = 1", (fid,))]
+    print(f"{name}   [{kind}]   {file}:{line}" if file else f"{name}   [{kind}]")
+    print()
+    if kind == "tac":
+        print("  syntax     " + typ)
+    else:
+        print("  statement  " + typ)
+        print("  concludes  " + concl)
+        print(f"  hypotheses {nhyp}")
+    if refs:
+        print(("  refers to  " if kind == "note" else "  keys       ") + " · ".join(refs))
+    if attrs:
+        print("  attributes " + " ".join(attrs.split(" ")))
+        if "aesop:" in attrs:
+            print("             (in an aesop rule set — `sem_side` discharges this; do not apply "
+                  "it by hand)")
+    if doc and kind != "tac":
+        wrapped = "\n             ".join(textwrap.wrap(doc, max(WIDTH - 13, 40)))
+        print("  doc        " + wrapped)
+    elif doc:
+        print("  doc        " + "\n             ".join(
+            textwrap.wrap(doc, max(WIDTH - 13, 40))))
+    notes = db.execute(
+        f"{SELECT} JOIN ref ON ref.fact_id = fact.id"
+        f" WHERE fact.kind = 'note' AND (ref.const = ? OR ? LIKE '%.' || ref.const)",
+        (name, name)).fetchall()
+    if notes:
+        print()
+        for note in notes:
+            print("  " + one_line(note))
+
+
+def next_id(notes: list[dict]) -> str:
+    used = {int(n["id"][1:]) for n in notes if re.fullmatch(r"n\d+", n.get("id", ""))}
+    return "n" + str(max(used, default=0) + 1)
+
+
+def cmd_add(db, args: list[str], limit: int) -> None:
+    """Append a curated note. Everything an extractor cannot know goes here."""
+    opts = {"--tag": "", "--ref": "", "--src": ""}
+    text_parts = []
+    i = 0
+    while i < len(args):
+        if args[i] in opts:
+            if i + 1 >= len(args):
+                die(f"{args[i]} takes a value")
+            opts[args[i]] = args[i + 1]
+            i += 2
+        else:
+            text_parts.append(args[i])
+            i += 1
+    text = " ".join(text_parts).strip()
+    if not text:
+        die("usage: facts add <text> [--tag a,b] [--ref x,y] [--src where]")
+    notes = read_jsonl(NOTES)
+    note = {"id": next_id(notes), "txt": text}
+    if opts["--tag"]:
+        note["tag"] = [t for t in re.split(r"[,\s]+", opts["--tag"]) if t]
+    if opts["--ref"]:
+        note["ref"] = [r for r in re.split(r"[,\s]+", opts["--ref"]) if r]
+    if opts["--src"]:
+        note["src"] = opts["--src"]
+    os.makedirs(FACTS_DIR, exist_ok=True)
+    with open(NOTES, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(note, ensure_ascii=False) + "\n")
+    print(f"added {note['id']}")
+
+
+def cmd_rm(db, args: list[str], limit: int) -> None:
+    """Delete a curated note by id. Derived rows are not removable here — they come back on the
+    next refresh, because the source is what says they exist."""
+    if not args:
+        die("usage: facts rm <id>")
+    target = args[0]
+    notes = read_jsonl(NOTES)
+    kept = [n for n in notes if n.get("id") != target]
+    if len(kept) == len(notes):
+        die(f"no note {target!r} (derived facts cannot be removed — edit the source and refresh)")
+    with open(NOTES, "w", encoding="utf-8") as handle:
+        for note in kept:
+            handle.write(json.dumps(note, ensure_ascii=False) + "\n")
+    print(f"removed {target}")
+
+
+def cmd_doctor(db, args: list[str], limit: int) -> None:
+    """Check the database against the sources: drifted locations, dangling note references, and
+    whether the extract predates the code it describes."""
+    problems = 0
+
+    newer = [f for f in walk_lean()
+             if os.path.exists(JSONL) and os.path.getmtime(f) > os.path.getmtime(JSONL)]
+    if newer:
+        problems += 1
+        print(f"stale: {len(newer)} source file(s) changed since the last extract, e.g. "
+              f"{rel(newer[0])}")
+        print("       fix: scripts/facts refresh")
+
+    cache: dict[str, list[str]] = {}
+    drifted = []
+    for name, kind, file, line in db.execute(
+            "SELECT name, kind, file, line FROM fact WHERE kind != 'note' ORDER BY file, line"):
+        path = os.path.join(ROOT, file)
+        if file not in cache:
+            cache[file] = (open(path, encoding="utf-8").read().splitlines()
+                           if os.path.exists(path) else [])
+        lines = cache[file]
+        if not lines:
+            drifted.append((name, f"{file} is gone"))
+            continue
+        leaf = name.split(".")[-1] if kind != "tac" else name
+        if not (1 <= line <= len(lines)) or leaf not in lines[line - 1]:
+            drifted.append((name, f"{file}:{line} no longer names it"))
+    if drifted:
+        problems += 1
+        print(f"drifted: {len(drifted)} fact(s) point at the wrong line")
+        for name, why in drifted[:10]:
+            print(f"  {name} — {why}")
+        print("       fix: scripts/facts refresh")
+
+    known = {n for (n,) in db.execute("SELECT name FROM fact WHERE kind != 'note'")}
+    leaves = {n.split(".")[-1] for n in known}
+    dangling = []
+    for note_id, ref in db.execute(
+            "SELECT fact.name, ref.const FROM fact JOIN ref ON ref.fact_id = fact.id"
+            " WHERE fact.kind = 'note'"):
+        if ref not in known and ref not in leaves:
+            dangling.append((note_id, ref))
+    if dangling:
+        problems += 1
+        print(f"dangling: {len(dangling)} note reference(s) name nothing in the database")
+        for note_id, ref in dangling:
+            print(f"  {note_id} → {ref}")
+        print("       fix: scripts/facts rm <id> and re-add, or refresh if the lemma was renamed")
+
+    counts = dict(db.execute("SELECT kind, COUNT(*) FROM fact GROUP BY kind").fetchall())
+    summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
+    print(("ok — " if not problems else "") + summary)
+
+
+def walk_lean() -> list[str]:
+    out = []
+    # `scripts/` mirrors the extractor's own exclusions: nothing there declares a theorem, and
+    # editing the extractor is not what "the sources moved on" is asking about.
+    skip = {".lake", ".claude", ".git", ".fugue", "reference", "runtime", "persistent", "docs",
+            "scripts", "tests"}
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith(".")]
+        out += [os.path.join(dirpath, f) for f in filenames if f.endswith(".lean")]
+    return out
+
+
+def cmd_refresh(db, args: list[str], limit: int) -> None:
+    """Re-extract from the built project, then rebuild the index."""
+    print(f"$ lake env lean --run {EXTRACTOR}", flush=True)
+    if subprocess.run(["lake", "env", "lean", "--run", EXTRACTOR], cwd=ROOT).returncode:
+        die("extraction failed — is the project built? try: lake build")
+    conn = build_index()
+    counts = conn.execute("SELECT kind, COUNT(*) FROM fact GROUP BY kind").fetchall()
+    print("indexed " + ", ".join(f"{v} {k}" for k, v in sorted(counts)))
+
+
+COMMANDS = {"q": cmd_q, "c": cmd_c, "m": cmd_m, "s": cmd_s, "t": cmd_t, "n": cmd_n,
+            "add": cmd_add, "rm": cmd_rm, "doctor": cmd_doctor, "refresh": cmd_refresh}
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+    cmd, rest = argv[0], argv[1:]
+    if cmd not in COMMANDS:
+        die(f"unknown command {cmd!r} — one of: {', '.join(COMMANDS)}")
+    limit = DEFAULT_LIMIT
+    if "-n" in rest:
+        i = rest.index("-n")
+        try:
+            limit = int(rest[i + 1])
+        except (IndexError, ValueError):
+            die("-n takes a number")
+        rest = rest[:i] + rest[i + 2:]
+    db = None if cmd in ("refresh", "add", "rm") else open_db()
+    COMMANDS[cmd](db, rest, limit)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
