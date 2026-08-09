@@ -343,7 +343,7 @@ namespace StrongRefinement
       have hR : ∀ i, i ≤ m → R (σs i) (σts i) := by
         rintro (_|i) h
         · exact R_σₛ_σₜ
-        · exact (hstep_of i (hm_min i (by omega))).1
+        · exact (hstep_of i (hm_min i h)).1
 
       -- At `m` the refinement cannot take its reducing branch, so it takes the aborting one.
       obtain ⟨σ', e', hR', hRτ', hsem'⟩|⟨ea, hea, hea_mem⟩ :=
@@ -358,7 +358,7 @@ namespace StrongRefinement
           induction k with
           | zero =>
             intro i hi
-            obtain rfl : i = m := Nat.succ_inj.mp (congrArg Nat.succ hi)
+            obtain rfl : i = m := hi
             simpa only [Monoid.partialProd_zero, one_mul]
           | succ k ih =>
             intro i hi
@@ -382,7 +382,7 @@ namespace StrongRefinement
           | zero => exact T.Rτ_one
           | succ n ih =>
             apply T.Rτ_closed _ _ _ _ (ih (Nat.le_of_succ_le hn))
-            exact (hstep_of n (hm_min n (Nat.lt_of_lt_of_eq hn rfl))).2.1
+            exact (hstep_of n (hm_min n hn)).2.1
         obtain ⟨r, hr⟩ := dvd ets (m + 1)
         refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
         · rw [hr, Monoid.partialProd_succ, mul_assoc]

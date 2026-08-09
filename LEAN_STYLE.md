@@ -29,7 +29,7 @@ Citations illustrate the rule; this file is not a list of things to fix.
   applications inside the `⟨…⟩`, or it spill across lines. Then each field arrive with its
   expected type shown instead of being positioned by hand.
   In term mode the `where` form beat both — fields by name, no positional counting at all.
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:710` (`constructor`), `:785` (`where`)
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:713` (`constructor`), `:781` (`where`)
 - **Existential goal: `exists`, not `refine ⟨…⟩`.** `exists w₁, w₂` supply the witnesses and leave
   what is left as the goal, no `?_` to count and no closing `⟩` to match. It descend through `∧`
   and finish with `trivial`, so a component already in context need not be named at all.
@@ -44,14 +44,28 @@ Citations illustrate the rule; this file is not a list of things to fix.
   branch silently changes which goal the rest applies to. Only a combinator (`<;>`, `all_goals`)
   is exempt, being explicit about applying to every goal.
   `Guarded2Network/Lemmas/Statement.lean:193` (a two-hole `refine`),
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:345` (an `obtain` whose second branch runs to
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:349` (an `obtain` whose second branch runs to
   the end of the proof — bulleted anyway)
 - **No `rw [show … by …]`.** Inline `show`-by-tactic inside a rewrite hide a real proof step in a
   rewrite argument. State it as a `have` and rewrite with that.
   `Extra/Seq.lean:125` — `have hm : m = 0 := by omega`, then `rwa [hm] at h`
-- **Avoid `(by …)` term arguments.** Same reason: a tactic proof passed as an argument is a step
-  with no name and no goal displayed. Prefer a named `have`. Not absolute — `(by omega)` on a
-  side condition is tolerable — and too common to mechanize, so not in the checker.
+- **No `(by …)` in argument position.** Same reason: a tactic proof passed as an argument is a step
+  with no name and no goal displayed. Two replacements, in this order.
+
+  **A term, when one exists** — and usually one does, because the side condition is a hypothesis
+  already in context up to defeq. `n < m` *is* `n + 1 ≤ m` and `i + 0` *is* `i`, so `hm_min n
+  (by omega)` is `hm_min n hn` and `have him : i = m := by omega` over `hi : i + 0 = m` is
+  `obtain rfl : i = m := hi`. A bridging lemma is the same mistake one step later:
+  `Nat.lt_of_lt_of_eq hn rfl` and `Nat.succ_inj.mp (congrArg Nat.succ hi)` are longer spellings of
+  `hn` and `hi`. Where the step is real, name it — `ih (Nat.le_of_succ_le hn)`.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:346`, `:361`, `:384`, `:385`
+
+  **Otherwise a `?_` and the next line.** `exact f (g (by tac))` is `refine f (g ?_)` then `tac`;
+  `exact f x (by tac)` is `apply f x` then `tac`. The side goal gets displayed and gets its own
+  line, and `omega` on it is then fine — the objection was to the position, not the tactic. `:373`,
+  `:375`, where two `(by omega)`s became `simp +arith [← hi]` under their own `refine`/`apply`.
+
+  Too common to mechanize, so not in the checker.
 - **Leave no live compiler warning.** Unused binder gets `_`, not a name. Unused section variable
   gets `omit`. `<;>` where `;` suffice gets `;`. Warnings accumulate until nobody reads them, and
   the real one arrives unnoticed. Not in `scripts/lean-style` — needs a build.
@@ -63,11 +77,76 @@ Citations illustrate the rule; this file is not a list of things to fix.
   thing and hides that nothing was proved. `z` a nullary global: inline it at its use site instead
   of naming it, unless it is used several times or the name genuinely reads better than the term.
   `Guarded2Network/Lemmas/Monad.lean:68`. `scripts/lean-style` checks the one-line form.
+- **A proof-local definition is a `let`, never a `set`.** `set` exists to abstract a term that
+  *already occurs* in goal or context; a name for something new is `let`. Three things follow, all
+  at `VerifiedCompiler/Denotational/StrongRefinement.lean:308`–`:314`, where four `set`s became four
+  `let`s:
+
+  **Binders on the left of `:=`.** `let cont (i : ℕ) (σ : α) : Prop := …`, not
+  `set cont : ℕ → α → Prop := λ i σ ↦ …`. Parameters read as parameters, the annotation shrinks to
+  the result type, and the body stops being a lambda nobody applied.
+
+  **Then eta-reduce what is left.** `let σs : ℕ → α := Nat.rec σₛ (λ i s ↦ (nextp i s).1)` (`:313`) —
+  the old form bound `n` only to hand it straight through. Binder form when the body uses the
+  binder, arrow type and point-free body when it does not.
+
+  **And drop the `with h` equation.** A `let` *is* its body: `rfl` proves `σs 0 = σₛ` (`:316`),
+  `change` retypes the goal against it, `unfold cont` opens it by name (`:322`). `set`'s `with h`
+  is only there to undo `set`'s own abstraction — three equation names died with the `set`s and
+  nothing needed them. Naming the equation is not a reason to reach back for `set` either:
+  `let (eq := h) x := e` does it, giving `h : e = x` (body first, like `set … with ← h`).
+
+  What survives as `set` is the bare form over a closed term, `set m := Nat.find hall` (`:339`).
+  Even there `set` and `let` both produce a local definition, so with nothing to abstract the two
+  differ in name only.
+- **`have` takes binders too, and usually no type.** `have hm_min i (hi : i < m) :=
+  not_not.mp (Nat.find_min hall hi)` (`:341`), not
+  `have hm_min : ∀ i, i < m → cont i (σs i) := λ i hi ↦ …`. Binder syntax and inference between them
+  delete a restated `∀`/`→` telescope and the `λ` that re-introduces it; what is left is the one
+  thing a reader cannot recover, the proof. Ascribe the type when it is the point of the `have` —
+  when inference would land somewhere unhelpful, or the statement is what the next step reads.
+- **Defeq massaging is `change`, not `simp only` over `rfl`-`have`s.** `have : x = y := rfl` followed
+  by `simp only [this, …]` states the new goal *and* pays a traversal to arrive at it. `change`
+  states it once, and the traversal was never doing anything. `:320` replaced
+  `have : σs (i + 1) = (nextp i (σs i)).1 := rfl` plus `simp only [this, hes, hnextp, dif_pos h]`
+  with a `change`, an `unfold nextp`, and `repeat rw [dif_pos h]` — three lines, each naming which
+  of the three things it does. `unfold` reaches a local `let` by name, so no equation is needed for
+  that step either. Same rule as the bare-name `have` above, one level out: a `rfl`-`have` consumed
+  by a single `simp only` is a `change`.
+- **Never pack a term only to unpack it.** `obtain ⟨a, b, c⟩ : ∃ …, … := ⟨x, y, z⟩` builds an
+  existential out of components that already have names and destructures it on the same line; the
+  ascription then restates types those components already carried. Write the `have`s.
+  `:339`–`:341`, where an `obtain` of `∃ m, ¬cont m (σs m) ∧ ∀ i, i < m → cont i (σs i)` against
+  `⟨Nat.find hex, Nat.find_spec hex, λ i hi ↦ …⟩` became a `set` and two `have`s.
+
+  `obtain ⟨…⟩ : T := by tac` is a different tactic and stays fine — there the ascription is the
+  tactic block's goal, which it genuinely needs.
+
+  Mirror case, in the same hunk: `obtain ⟨n, hn⟩ := hall` and then `⟨n, hn⟩` reassembled *is*
+  `hall`. Destructure only what stays destructured.
+- **`obtain rfl : a = b := proof`, not `have h : a = b := …` then `rw [h]`.** Substitution collapses
+  the two names and takes the equation out of context; `rw` leaves `h` behind and only fires where
+  it was aimed. `:361`
 - **`rw` then `exact <hypothesis>` is `rwa`.** Whenever the tactic after a rewrite is `exact h` for
   a name already in context, the rewrite absorbs it: `rw [foo] at h; exact h` is `rwa [foo] at h`,
   and `rw [foo]; exact h` is `rwa [foo]`. Same for `erw`/`erwa`. Applies whichever side the rewrite
   targets — the pattern is "rewrite, then close by assumption", and `rwa` *is* that pattern.
   `Guarded2Network/Lemmas/Monad.lean:56`
+- **`have h := e` then `simp only [S] at h` then `exact h` is `simpa only [S] using e`.** Same
+  absorption as `rwa`, one tactic over: the hypothesis exists only to be simplified and handed
+  over, so it needs no name and no line.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:394`. Three riders:
+
+  **Name the lemmas — `simpa only [S]`, not `simpa`.** Same reason terminal `simp` is a liability.
+  `:362`, where `simpa using hea_mem` became `simpa only [Monoid.partialProd_zero, one_mul]`.
+
+  **Drop `using` when the term is already a hypothesis.** Bare `simpa only [S]` simplifies the goal
+  and closes with `assumption`, so a name in context need not be repeated. `:362` again.
+
+  **`using!` when closing needs a local `let` unfolded.** `simpa … using e` matches at *reducible*
+  transparency, which does not see through a local definition; `using!` matches at the ambient one.
+  At `:394` the goal is about `σₛ` and the term about `σs 0` — defeq only after `σs` unfolds, so
+  plain `using` fails there.
 - **Merge `rw [...]` into a following `simp only [...]`.** Rewrite lemmas go straight into the
   `simp only` set — two traversals become one, and the intermediate goal nobody looks at stops
   existing. `VerifiedCompiler/Denotational/StrongRefinement.lean:316`, `:368`
@@ -86,7 +165,7 @@ Citations illustrate the rule; this file is not a list of things to fix.
   discharge the pieces in bullets, rather than naming every intermediate with `have` and closing
   with `exact f h₁ h₂`. Each subgoal then arrives with its expected type displayed instead of
   having to be guessed and stated. Same reason `apply` chains beat nested `exact`.
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:369`, where two hoisted `have`s became
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:372`, where two hoisted `have`s became
   `refine abs (Relation.lcomp₁.intro (b := σs (i + 1)) ?_ ?_)` and two bullets.
 
   **Name the intermediate the goal does not fix.** A composition lemma's middle state occurs in
@@ -107,10 +186,14 @@ Citations illustrate the rule; this file is not a list of things to fix.
   component, pass it. The same `refine` re-spelled a 17-field `consumption_pair_iff` witness that
   was exactly `hpair`, already in scope.
 
-  **Exception: rewriting.** When the massaging targets a *hypothesis*, forward is the honest
-  shape — `have h := lemma …` then `rwa [...] at h`. Aiming the same rewrite at the right
-  occurrence in the goal is more cumbersome, not less.
+  **Exception: rewriting.** When the massaging targets a *hypothesis* the proof goes on to use,
+  forward is the honest shape — `have h := lemma …` then `rwa [...] at h`. Aiming the same rewrite
+  at the right occurrence in the goal is more cumbersome, not less.
   `VerifiedCompiler/ClosedForm.lean:197`
+
+  The exception stops where the hypothesis does. A `have` massaged and then immediately spent on
+  the goal is the `rwa`/`simpa … using` pattern under another name, and gets written that way —
+  see those two rules above. `VerifiedCompiler/Denotational/StrongRefinement.lean:394`
 - **`unfold f` / `simp [f]` only inside a proof *about* `f`.** A definition's body belong to the file
   that define it. Downstream proof that unfold reach past the API into the body, and every such site
   break together the day the body change — the duplication is invisible because no two of them share
@@ -129,12 +212,12 @@ Citations illustrate the rule; this file is not a list of things to fix.
   diagnostic against one is a diagnostic against both, which is the cost the rule is about.
   `VerifiedCompiler/Trace.lean:60` (`MulClosed.rmul_le`, four copies of `mulmono`),
   `Guarded2Network/Lemmas/Statement.lean:259` (`fresh_split`, four copies of `hfe`/`hfr`),
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:666` — `Aborting.star`, forty lines of
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:663` — `Aborting.star`, forty lines of
   induction twinned with `Diverging.star`, now derived from it through `Diverging.toAborting`
 - **Name introduced hypotheses in signature order.** `rintro`/`intro` names should run in the order
   the binders appear, so a reader can match them without counting. Out-of-order naming reads as a
   slip even when deliberate. Naming by role rather than by position is the usual cause:
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:543` used to read `rintro ref₁ ref₃ ref₂`
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:542` used to read `rintro ref₁ ref₃ ref₂`
   because `ref₃` was "the aborting one".
 - **Delete `have`/`haveI` the proof does not use.** Lean's linter does not catch an unused
   `haveI`, so a dead instance survives every refactor that made it dead.
@@ -145,7 +228,7 @@ Citations illustrate the rule; this file is not a list of things to fix.
 - **`contradiction`, not `Option.noConfusion`.** `noConfusion` need its implicits line up, fail
   `Application type mismatch` when they don't.
 - **`by_cases! h : p`**, not `by_cases h : p` then `push_neg at h`. `!` do `push_neg` itself. Same
-  for `by_contra!`. `VerifiedCompiler/Denotational/StrongRefinement.lean:319`,
+  for `by_contra!`. `VerifiedCompiler/Denotational/StrongRefinement.lean:326`,
   `VerifiedCompiler/ClosedForm.lean:193`
 - **No `exact absurd x y`.** Use `absurd` tactic (`absurd x`, then supply negation), `nomatch h`
   when `h` itself impossible equation, or — when the absurdity is an equation between distinct
@@ -273,6 +356,18 @@ The project made these calls; they are not open.
   Genuinely auxiliary facts stay `have`s. The rule is about a `have` that re-quantifies the
   *enclosing goal's* own variables — not about `have hstab : ∀ m, n ≤ m → …`
   (`Extra/Seq.lean:251`), whose statement is nothing the surrounding proof is trying to prove.
+- **An `induction` whose IH goes unused is a case split → `rintro (_|i)`.** Nothing mentions `ih`,
+  so `induction … with | zero | succ i ih` costs the reader a hunt for the recursive appeal that is
+  not there, and costs two lines of `| case =>` scaffolding to say what a pattern says. Fold the
+  split into the `rintro`/`obtain` that was already there and bullet the branches.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:330`, `:344`
+- **Introduce every binder before the split, not inside each branch.** `intro n hn` and *then*
+  `induction n` — not `intro n`, then `intro hn` in one branch and `exact λ _ ↦ …` in the other.
+  `induction` reverts the hypotheses that depend on the target and reintroduces them per branch, so
+  the IH comes out already quantified over them and is applied to the reproved side condition:
+  `ih (Nat.le_of_succ_le hn)`. Hand-threading `∀ n, n ≤ m → …` through the branches reaches the
+  same IH with the binders written twice.
+  `VerifiedCompiler/Denotational/StrongRefinement.lean:380`, `:384`
 
 ### Available, unused here, worth reaching for
 
