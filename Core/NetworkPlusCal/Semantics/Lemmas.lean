@@ -333,6 +333,47 @@ def Statement.diverging' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b
     Set (LocalState' V × Trace V) :=
   {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.diverging S}
 
+/-! `Statement.listReducing`/`.listAborting` in the flat encoding, with their two equations. A
+generated statement run is what `Guarded2Network` prepends to an action block, and the refinement
+invariant it is proved against lives on `LocalState'`. -/
+
+@[inherit_doc Statement.reducing']
+def Statement.listReducing' {g : Bool} (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState' V × Trace V × LocalState' V) :=
+  Block.listReducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') A
+
+@[inherit_doc Statement.reducing']
+def Statement.listAborting' {g : Bool} (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState' V × Trace V) :=
+  Block.listAborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+    (λ ⦃_⦄ ↦ Statement.reducing') A
+
+@[inherit_doc Statement.reducing']
+def Statement.listDiverging' {g : Bool} (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState' V × Trace V) :=
+  Block.listAborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+    (λ ⦃_⦄ ↦ Statement.reducing') A
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listReducing'_nil {g : Bool} :
+    Statement.listReducing' (V := V) (g := g) [] = Relation.Idle := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listReducing'_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
+    {A : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listReducing' (V := V) (S :: A) =
+      Statement.reducing' S ∘ᵣ₂ Statement.listReducing' A := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listAborting'_nil {g : Bool} :
+    Statement.listAborting' (V := V) (g := g) [] = ∅ := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listAborting'_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
+    {A : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listAborting' (V := V) (S :: A) =
+      Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
+
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableNetworkPlusCal.Statement b b') :
     Statement.reducing' (V := V) S =

@@ -271,7 +271,8 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Trace.lean` — this pass's `Rτ := Eq`, as a `scoped instance` (traces are preserved
   exactly, reception being unobservable).
 - `Lemmas/Seq.lean` — `SeqBuiltins`, the meaning of the `Head`/`Tail`/`Len(e) > n`/`<<>>`
-  expressions this pass builds over `inbox`. Pass-side on purpose: `ExprSemantics` carries the
+  expressions this pass builds over `inbox`, plus `eval_{head,tail,lenGt}_inbox`, those laws at the
+  one argument the pass ever passes them. Pass-side on purpose: `ExprSemantics` carries the
   value-level sequence vocabulary (`isSeq`/`seqAppend`), Core never names a TLA⁺ builtin.
 - `Lemmas/Statement.lean` — evaluation transfer across `relatesTo` (`eval_iff`), reference-argument
   resolution (`Ref.EvalArgs` and its congruence), `Memory.update_transfer`, and the
@@ -280,6 +281,13 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   `evalSubstRef`/`abortsSubstRef` (the assignment-as-substitution transfer), `GuardFresh`, the
   reorder pair `reorder_assign_guard` (equation) / `reorder_assign_guard_abort` (inclusion), and
   `reorder_assigns_guard`, the same against the whole accumulated assignment list.
+- `Lemmas/Precondition.lean` — `processPrecondition`'s spec and `receive` elimination.
+  `inboxVar`/`inboxRef`/`receiveInstrs`/`ReceiveFresh` (the pass's `receive` syntax and its side
+  conditions), `receive_reducing_sim`/`receive_aborting_sim`, and `receive_refines` assembling them
+  — all in the *adjacent* ordering. Plus the two step characterizations (`await_lenGt_iff`,
+  `consumption_pair_iff`) and `reorder_consumption_lenGt`, the semantic reorder converting adjacent
+  to emitted for the guards the *pass* invented; `Lemmas/Reorder.lean`'s substitution reorder covers
+  only the ones the source wrote. The block walk itself is not written yet.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

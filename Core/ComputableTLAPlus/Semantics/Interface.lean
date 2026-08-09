@@ -4,6 +4,7 @@ meta import CustomPrelude
 public import Core.ComputableTLAPlus.Syntax
 public import Core.ComputableTLAPlus.FreeVars
 public import Core.ComputableTLAPlus.Subst
+public import Core.ComputableTLAPlus.Coercion
 public import Core.TypedTLAPlus.Coercion
 public import Mathlib.Data.Finmap
 
@@ -110,6 +111,12 @@ class ExprSemantics (V : Type) where
   not be reachable when `inbox` really holds a sequence. -/
   seqAppend_isSeq {s v : V} {vs : List V} : isSeq s vs →
     ∃ s', seqAppend s v = some s' ∧ isSeq s' (vs ++ [v])
+  /-- Every tail of a sequence is itself a sequence value. The counterpart of `seqAppend_isSeq` on
+  the other side: that one says the value world is closed under adding an element, this one that it
+  is closed under dropping the first. Needed because `isSeq` is a relation — without it a list could
+  have no value representing it, and `Guarded2Network`'s `inbox := Tail(inbox)` would be free to
+  abort where the source `receive` it compiles does not. -/
+  isSeq_tail {s v : V} {vs : List V} : isSeq s (v :: vs) → ∃ t, isSeq t vs
   /-- `coerce c v v'` — applying the coercion `c` to `v` yields `v'`. The value-level counterpart of
   `Coercion.apply`/`Coercion.applyComputable`, which act on expressions. -/
   coerce : TypedTLAPlus.Coercion → V → V → Prop
@@ -133,6 +140,16 @@ class ExprSemantics (V : Type) where
   whose meaning `Eval` fixes. -/
   evalVar {M : Memory V} {x : String} {τ : Typ} {o : Origin} {v : V} :
     Eval M (.var x τ o) v ↔ M.lookup x = some v
+  /-- Applying a coercion to an expression denotes the coercion applied to that expression's value.
+  `TypedTLAPlus.Coercion.applyComputable` and `coerce` above are the expression-level and
+  value-level views of one operation, and this is the only thing connecting them — a pass that
+  compiles a coercion into synthesized syntax (`Guarded2Network` does, on a `receive`'s consumption
+  assignment) can relate the two only through this law.
+
+  An `↔`: the forward reading turns the target's evaluated right-hand side into the source's
+  `coerce` obligation, the backward one builds the target's from the source's. -/
+  evalCoerce {M : Memory V} {c : TypedTLAPlus.Coercion} {e : Expression Typ} {v' : V} :
+    Eval M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔ ∃ v, Eval M e v ∧ coerce c v v'
   /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
   agreeing results. Replaces prior art's `eval_ext`/`eval_mem_ext`. -/
   evalLocal {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :

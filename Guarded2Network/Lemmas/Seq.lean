@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Guarded2Network.PlusCal
 public import Core.ComputableTLAPlus.Semantics.Interface
 
@@ -59,6 +60,49 @@ class SeqBuiltins (V : Type) [ExprSemantics V] where
   state, and so what the refinement invariant starts from. -/
   evalSeqNil {M : Memory V} {τ : Typ} {s : V} :
     ExprSemantics.Eval M (.seq [] τ) s ↔ ExprSemantics.isSeq s []
+
+/-! ## The three laws at the one argument the pass ever passes them
+
+  Every call site builds its sequence expression over the *variable* `inbox`, so each law arrives
+  with its inner `Eval` already determined by a memory lookup. Specialising once here keeps
+  `ExprSemantics.evalVar` and `isSeq_inj` out of the refinement proofs, which is otherwise the same
+  four lines at every use.
+-/
+
+variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {M : Memory V} {inbox : String} {τ : Typ}
+  {sv : V}
+
+/-- `Head(inbox)` denotes the first element `inbox` holds, and only that. Note the hypothesis has the
+sequence *non-empty*: on an empty `inbox` the law gives no value at all, which is what makes the
+compiled guard block rather than abort. -/
+theorem eval_head_inbox {v w : V} {vs : List V} (hlk : M.lookup inbox = some sv)
+    (hseq : ExprSemantics.isSeq sv (v :: vs)) :
+    (M ⊢ head τ (.var inbox (.seq τ) .binder) ⇒ w) ↔ w = v := by
+  rw [SeqBuiltins.evalHead]
+  iff_rintro ⟨s, ws, hs, hws⟩ rfl
+  · rw [ExprSemantics.evalVar, hlk, Option.some.injEq] at hs
+    subst hs
+    exact (List.cons.inj (ExprSemantics.isSeq_inj hws hseq)).1
+  · exact ⟨sv, vs, ExprSemantics.evalVar.mpr hlk, hseq⟩
+
+/-- `Tail(inbox)` denotes the sequence of everything after that first element. -/
+theorem eval_tail_inbox {v t : V} {vs : List V} (hlk : M.lookup inbox = some sv)
+    (hseq : ExprSemantics.isSeq sv (v :: vs)) :
+    (M ⊢ tail τ (.var inbox (.seq τ) .binder) ⇒ t) ↔ ExprSemantics.isSeq t vs := by
+  rw [SeqBuiltins.evalTail]
+  iff_rintro ⟨s, w, ws, hs, hws, ht⟩ h
+  · rw [ExprSemantics.evalVar, hlk, Option.some.injEq] at hs
+    subst hs
+    rwa [(List.cons.inj (ExprSemantics.isSeq_inj hws hseq)).2] at ht
+  · exact ⟨sv, v, vs, ExprSemantics.evalVar.mpr hlk, hseq, h⟩
+
+/-- `Len(inbox) > n` is a boolean, and is `TRUE` exactly when `inbox` holds more than `n`
+elements. -/
+theorem eval_lenGt_inbox {n : Nat} {vs : List V} (hlk : M.lookup inbox = some sv)
+    (hseq : ExprSemantics.isSeq sv vs) :
+    ∃ b, (M ⊢ lenGt τ (.var inbox (.seq τ) .binder) n ⇒ b) ∧ ExprSemantics.isBool b ∧
+      (b = ExprSemantics.tru ↔ n < vs.length) :=
+  SeqBuiltins.evalLenGt (ExprSemantics.evalVar.mpr hlk) hseq
 
 end Guarded2Network
 

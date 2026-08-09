@@ -161,14 +161,22 @@ theorem ne_name_of_fresh {r : ComputableGuardedPlusCal.Ref} {x : String}
     (hx : x ∉ GuardedPlusCal.Ref.freeVars r) : x ≠ r.name :=
   λ h ↦ hx (h ▸ GuardedPlusCal.Ref.name_mem_freeVars r)
 
-/-- Binding a name the reference does not read cannot change whether its path resolves. -/
-theorem pathAborts_insert_iff {M : Memory V} {r : ComputableGuardedPlusCal.Ref} {x : String}
-    {u : V} (hx : x ∉ GuardedPlusCal.Ref.freeVars r) :
-    GuardedPlusCal.Ref.pathAborts (M.insert x u) r ↔ GuardedPlusCal.Ref.pathAborts M r := by
+/-- Memories agreeing away from a name the reference does not read cannot disagree about whether its
+path resolves. Every index expression of the reference reads only names the reference reads
+(`Ref.freeVars_of_mem_args`), so `evalLocal` applies segment by segment. -/
+theorem pathAborts_congr {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref} {x : String}
+    (agree : ∀ y ≠ x, M₁.lookup y = M₂.lookup y) (hx : x ∉ GuardedPlusCal.Ref.freeVars r) :
+    GuardedPlusCal.Ref.pathAborts M₁ r ↔ GuardedPlusCal.Ref.pathAborts M₂ r := by
   rw [GuardedPlusCal.Ref.pathAborts_iff, GuardedPlusCal.Ref.pathAborts_iff]
   refine exists_congr λ e ↦ and_congr_right λ hmem ↦ ?_
-  exact ExprSemantics.aborts_congr λ _ ↦
-    eval_insert_of_fresh λ hy ↦ hx (Ref.freeVars_of_mem_args hmem hy)
+  exact ExprSemantics.aborts_congr λ _ ↦ ExprSemantics.evalLocal λ y hy ↦
+    agree y λ heq ↦ hx (heq ▸ Ref.freeVars_of_mem_args hmem hy)
+
+@[inherit_doc pathAborts_congr]
+theorem pathAborts_insert_iff {M : Memory V} {r : ComputableGuardedPlusCal.Ref} {x : String}
+    {u : V} (hx : x ∉ GuardedPlusCal.Ref.freeVars r) :
+    GuardedPlusCal.Ref.pathAborts (M.insert x u) r ↔ GuardedPlusCal.Ref.pathAborts M r :=
+  (pathAborts_congr lookup_insert_agree hx).symm
 
 /-- An assignment either aborts or takes a step. The four aborting clauses are jointly the exact
 complement of "the reference resolves, the right-hand side has a value, and the update succeeds", so
