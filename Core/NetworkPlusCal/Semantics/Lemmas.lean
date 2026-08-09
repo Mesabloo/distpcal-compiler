@@ -302,6 +302,19 @@ attribute [aesop safe apply (rule_sets := [sem])]
   Statement.aborting.print.intro Statement.aborting.assert.intro Statement.aborting.send.intro
   Statement.aborting.assign.intro
 
+/-! `Statement.listReducing`'s two equations, so a proof about a generated statement run inducts on
+the list without reaching through the wrapper to `Block.listReducing`. -/
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listReducing_nil {g : Bool} :
+    Statement.listReducing (V := V) (g := g) [] = Relation.Idle := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listReducing_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
+    {A : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listReducing (V := V) (S :: A) =
+      Statement.reducing S ∘ᵣ₂ Statement.listReducing A := rfl
+
 /-- `Statement.reducing` in the flat encoding — see `GuardedPlusCal.Statement.reducing'`. -/
 def Statement.reducing' {b b' : Bool} (S : ComputableNetworkPlusCal.Statement b b') :
     Set (LocalState' V × Trace V × LocalState' V) :=
@@ -450,7 +463,7 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
 /-- `AtomicBranch.reducing` in the flat encoding. -/
 def AtomicBranch.reducing' (B : ComputableNetworkPlusCal.AtomicBranch) :
     Set (LocalState' V × Trace V × LocalState' V) :=
-  B.precondition.elim {⟨x, e, y⟩ | x = y ∧ e = 1}
+  B.precondition.elim Relation.Idle
     (Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₂
     Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B.action
 

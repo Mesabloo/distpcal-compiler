@@ -1798,6 +1798,16 @@ counterpart, so the sets differ. The asymmetry cuts the other way too — `assig
 outcome is exactly what makes the inclusion provable (`assign_aborts_or_steps`), and that step is
 classical twice over, `Eval` being a relation.
 
+**One state relation, composite target.** `relatesTo` is both pre- and post-relation everywhere in
+the Guarded→Network proof; no second relation gets named. The precondition looks like a
+counterexample and is not: between the compiled precondition and the consumption assignments the
+source has written k refs and popped k messages while the target has done neither, so `relatesTo`
+genuinely fails *there* — but the target side of the refinement is the composite
+`⟦B'⟧* ∘ᵣ₂ ⟦assigns⟧*`, and `StrongRefinement` only ever quantifies a composite's endpoints. Both
+endpoints are `relatesTo`, the drained prefix `vs` being existential inside it. A `.rx` relay is not
+even an apparent exception: it moves a value from `F₂[c]` to `inbox`, growing `vs` exactly as
+`F₂[c]` shrinks, so `F₁[c] = vs ++ F₂[c]` is untouched.
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

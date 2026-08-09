@@ -344,7 +344,7 @@ theorem Block.reducing_left_append_of_ne_nil {b : Bool} {A : List (α false)} {B
 
 theorem Block.reducing_left_append {b : Bool} {A : List (α false)} {B : Block α b} :
     Block.reducing f {B with begin := A ++ B.begin} =
-      A.foldl (init := {⟨x, e, y⟩ | x = y ∧ e = 1}) (λ sem x ↦ sem ∘ᵣ₂ f x) ∘ᵣ₂ Block.reducing f B := by
+      A.foldl (init := Relation.Idle) (λ sem x ↦ sem ∘ᵣ₂ f x) ∘ᵣ₂ Block.reducing f B := by
   cases A with
   | nil => rw [List.foldl_nil, List.nil_append, Relation.lcomp₂.left_id_eq]
   | cons =>
@@ -353,11 +353,28 @@ theorem Block.reducing_left_append {b : Bool} {A : List (α false)} {B : Block �
 
 theorem Block.reducing_prepend {b : Bool} {A : List (α false)} {B : Block α b} :
     Block.reducing f (B.prepend A) =
-      A.foldl (init := {⟨x, e, y⟩ | x = y ∧ e = 1}) (λ sem x ↦ sem ∘ᵣ₂ f x) ∘ᵣ₂ Block.reducing f B :=
+      A.foldl (init := Relation.Idle) (λ sem x ↦ sem ∘ᵣ₂ f x) ∘ᵣ₂ Block.reducing f B :=
   Block.reducing_left_append f
 
+@[aesop safe apply (rule_sets := [sem])]
+theorem Block.listReducing_nil : Block.listReducing f [] = Relation.Idle := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Block.listReducing_cons {S : α false} {A : List (α false)} :
+    Block.listReducing f (S :: A) = f S ∘ᵣ₂ Block.listReducing f A := rfl
+
+/-- The form `Block.reducing_prepend` is used in: prefix first, block after. Same equation, with the
+prefix's `foldl` re-associated into `listReducing`'s `foldr`. -/
+theorem Block.reducing_prepend' {b : Bool} {A : List (α false)} {B : Block α b} :
+    Block.reducing f (B.prepend A) = Block.listReducing f A ∘ᵣ₂ Block.reducing f B := by
+  induction A with
+  | nil => rw [Block.prepend_nil, Block.listReducing_nil, Relation.lcomp₂.left_id_eq]
+  | cons S A IH =>
+    rw [Block.listReducing_cons, ← Relation.lcomp₂.assoc, ← IH, Block.prepend_cons,
+      Block.reducing_cons]
+
 theorem Block.reducing_eq_foldr {B : Block α false} :
-    Block.reducing f B = List.foldr (f · ∘ᵣ₂ ·) {⟨x, e, y⟩ | x = y ∧ e = 1} B.toList := by
+    Block.reducing f B = List.foldr (f · ∘ᵣ₂ ·) Relation.Idle B.toList := by
   induction B using Block.reducing.induct with
   | case1 B _ =>
     let ⟨[], S⟩ := B
@@ -428,6 +445,28 @@ theorem Block.aborting_left_append {b : Bool} {A : List (α false)} {B : Block �
       List.foldr (λ x sem ↦ g x ∪ f x ∘ᵣ₁ sem) (Block.aborting g f B) A := by
   simp [Block.aborting_eq_foldr]
 
+@[aesop safe apply (rule_sets := [sem])]
+theorem Block.listAborting_nil : Block.listAborting g f [] = ∅ := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Block.listAborting_cons {S : α false} {A : List (α false)} :
+    Block.listAborting g f (S :: A) = g S ∪ f S ∘ᵣ₁ Block.listAborting g f A := rfl
+
+/-- A prefixed block goes wrong either inside the prefix or, having run it, inside the block —
+`aborting_left_append`'s `foldr` split into its two halves. The shape a refinement against a block
+whose prefix a pass generated (`Guarded2Network`'s consumption assignments) is stated in. -/
+theorem Block.aborting_prepend {b : Bool} {A : List (α false)} {B : Block α b} :
+    Block.aborting g f (B.prepend A) =
+      Block.listAborting g f A ∪ Block.listReducing f A ∘ᵣ₁ Block.aborting g f B := by
+  induction A with
+  | nil =>
+    rw [Block.prepend_nil, Block.listAborting_nil, Block.listReducing_nil,
+      Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | cons S A IH =>
+    rw [Block.prepend_cons, Block.aborting_cons, IH, Block.listAborting_cons,
+      Block.listReducing_cons, Relation.lcomp₁.right_union_eq_union, Set.union_assoc,
+      Relation.lcomp₁.left_lcomp₂_eq]
+
 end Aborting
 
 section Diverging
@@ -470,6 +509,21 @@ theorem Block.diverging_left_append {b : Bool} {A : List (α false)} {B : Block 
     Block.diverging d f { B with begin := A ++ B.begin } =
       List.foldr (λ x sem ↦ d x ∪ f x ∘ᵣ₁ sem) (Block.diverging d f B) A := by
   simp [Block.diverging_eq_foldr]
+
+/-- `Block.listAborting` at the diverging instantiation. The two are the same function — as
+`Block.aborting` and `Block.diverging` themselves are — so the list form is defined once and this
+lemma is what lets a diverging goal use it under its own name. -/
+theorem Block.diverging_prepend {b : Bool} {A : List (α false)} {B : Block α b} :
+    Block.diverging d f (B.prepend A) =
+      Block.listAborting d f A ∪ Block.listReducing f A ∘ᵣ₁ Block.diverging d f B := by
+  induction A with
+  | nil =>
+    rw [Block.prepend_nil, Block.listAborting_nil, Block.listReducing_nil,
+      Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | cons S A IH =>
+    rw [Block.prepend_cons, Block.diverging_cons, IH, Block.listAborting_cons,
+      Block.listReducing_cons, Relation.lcomp₁.right_union_eq_union, Set.union_assoc,
+      Relation.lcomp₁.left_lcomp₂_eq]
 
 end Diverging
 

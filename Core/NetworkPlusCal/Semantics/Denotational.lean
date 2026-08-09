@@ -130,9 +130,27 @@ def Statement.blockDiverging {g b : Bool} (B : Block (ComputableNetworkPlusCal.S
     Set (LocalState V false × Trace V) :=
   Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) B
 
+/-- A possibly-empty *list* of Network PlusCal statements — see `GuardedPlusCal.Block.listReducing`
+for why the shape exists alongside `Block`. `Guarded2Network` prepends one of these (a branch's
+consumption assignments) to an action block, and its refinement proof states the two factors
+separately. -/
+def Statement.listReducing {g : Bool} (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState V false × Trace V × LocalState V false) :=
+  Block.listReducing (λ ⦃_⦄ ↦ Statement.reducing) A
+
+@[inherit_doc Statement.listReducing]
+def Statement.listAborting {g : Bool} (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState V false × Trace V) :=
+  Block.listAborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) A
+
+@[inherit_doc Statement.listReducing]
+def Statement.listDiverging {g : Bool} (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState V false × Trace V) :=
+  Block.listAborting (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) A
+
 def AtomicBranch.reducing (B : ComputableNetworkPlusCal.AtomicBranch) :
     Set (LocalState V false × Trace V × LocalState V true) :=
-  B.precondition.elim {⟨x, e, y⟩ | x = y ∧ e = 1} Statement.blockReducing ∘ᵣ₂
+  B.precondition.elim Relation.Idle Statement.blockReducing ∘ᵣ₂
     Statement.blockReducing B.action
 
 def AtomicBranch.aborting (B : ComputableNetworkPlusCal.AtomicBranch) :

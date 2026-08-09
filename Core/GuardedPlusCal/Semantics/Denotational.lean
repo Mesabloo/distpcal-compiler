@@ -287,6 +287,25 @@ termination_by B.begin
 decreasing_by
   · rw [_h]; decreasing_trivial
 
+/-- A possibly-empty *list* of statements as a relation — `Block.reducing` minus the non-emptiness.
+A `Block` is a non-empty list by construction, while a pass can hand back an empty run of statements
+(`Guarded2Network`'s consumption assignments, for a branch that receives nothing), so both shapes
+have to exist. `foldr`, not the `foldl` `Block.reducing_left_append` produces: every proof about one
+of these is an induction on the list, and the `foldl` form has to be re-associated first. -/
+def Block.listReducing {α β : Bool → Type} {γ : Type} [Monoid γ]
+    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (A : List (α false)) :
+    Set (β false × γ × β false) :=
+  A.foldr (f · ∘ᵣ₂ ·) Relation.Idle
+
+/-- The list counterpart of `Block.aborting` — and of `Block.diverging` too. Those two are the same
+function, so this one serves both, at whichever instantiation the caller passes
+(`Block.diverging_prepend` is what states it under the diverging name). -/
+def Block.listAborting {α β : Bool → Type} {γ : Type} [Monoid γ]
+    (g : ⦃b : Bool⦄ → α b → Set (β false × γ))
+    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (A : List (α false)) :
+    Set (β false × γ) :=
+  A.foldr (λ S sem ↦ g S ∪ f S ∘ᵣ₁ sem) ∅
+
 def Block.diverging {α β : Bool → Type} {γ : Type} [Monoid γ] {b : Bool}
     (f : ⦃b : Bool⦄ → α b → Set (β false × γ)) (g : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
     (B : Block α b) : Set (β false × γ) :=
@@ -320,7 +339,7 @@ def Statement.blockDiverging {g b : Bool} (B : Block (ComputableGuardedPlusCal.S
 
 def AtomicBranch.reducing (B : ComputableGuardedPlusCal.AtomicBranch) :
     Set (LocalState V false × Trace V × LocalState V true) :=
-  B.precondition.elim {⟨x, e, y⟩ | x = y ∧ e = 1} Statement.blockReducing ∘ᵣ₂
+  B.precondition.elim Relation.Idle Statement.blockReducing ∘ᵣ₂
     Statement.blockReducing B.action
 
 def AtomicBranch.aborting (B : ComputableGuardedPlusCal.AtomicBranch) :

@@ -59,9 +59,9 @@ Vendored generic data-structure lemmas and instances.
   (deliberately not `@[simp]`), absorption — appending to a non-terminating sequence changes
   nothing, which is why `Seq` is a monoid and never cancellative — and `ωProduct`, the infinite
   product, with the `get?` lemmas characterizing it.
-- `Rel.lean` carries only what the *semantics* need: `∘ᵣ₁`/`∘ᵣ₂`, `Monoid.partialProd`, the
-  `OmegaProd` class, and the two iteration operators the three algorithm semantics are built from,
-  `Relation.star` and `Relation.omega`.
+- `Rel.lean` carries only what the *semantics* need: `∘ᵣ₁`/`∘ᵣ₂` and their unit `Relation.Idle`,
+  `Monoid.partialProd`, the `OmegaProd` class, and the two iteration operators the three algorithm
+  semantics are built from, `Relation.star` and `Relation.omega`.
   Anything whose only consumer is a refinement proof lives in `VerifiedCompiler/` instead, so that
   `Extra/` never imports that library. Same rule inside `Seq.lean`: its lemmas never mention a
   refinement predicate, and `VerifiedCompiler/ClosedForm.lean` discharges the predicates from them.
@@ -276,9 +276,10 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Statement.lean` — evaluation transfer across `relatesTo` (`eval_iff`), reference-argument
   resolution (`Ref.EvalArgs` and its congruence), `Memory.update_transfer`, and the
   `convertActionStmt` semantic equations.
-- `Lemmas/Reorder.lean` — D5: `substGuardStmt`'s semantic equations, `evalSubstRef`/`abortsSubstRef`
-  (the assignment-as-substitution transfer), `GuardFresh`, and the reorder pair
-  `reorder_assign_guard` (equation) / `reorder_assign_guard_abort` (inclusion).
+- `Lemmas/Reorder.lean` — D5: `substGuardStmt`/`substGuards`/`consumptions` semantic equations,
+  `evalSubstRef`/`abortsSubstRef` (the assignment-as-substitution transfer), `GuardFresh`, the
+  reorder pair `reorder_assign_guard` (equation) / `reorder_assign_guard_abort` (inclusion), and
+  `reorder_assigns_guard`, the same against the whole accumulated assignment list.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

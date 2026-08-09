@@ -31,6 +31,17 @@ def Relation.lcomp₂ {α β γ δ : Type _} [Monoid β] (R₁ : Set (α × β �
 @[inherit_doc] infixr:140 " ∘ᵣ₁ " => Relation.lcomp₁
 @[inherit_doc] infixr:140 " ∘ᵣ₂ " => Relation.lcomp₂
 
+/-- The idle transition: no state change, empty trace. Unit of both compositions above
+(`lcomp₁.left_id_eq`, `lcomp₂.left_id_eq`/`.right_id_eq`), base case of a statement list's semantics
+(`GuardedPlusCal.Block.listReducing`), semantics of a branch with no precondition
+(`AtomicBranch.reducing`), and the reflexive half of `Relation.starFun` — one set, written out inline
+at every site before it had a name.
+
+Exposed for the same reason the two compositions are: proofs destructure membership directly with
+`rintro ⟨rfl, rfl⟩`. -/
+@[expose]
+def Relation.Idle {α β : Type _} [Monoid β] : Set (α × β × α) := {⟨x, e, y⟩ | x = y ∧ e = 1}
+
 @[mono, gcongr]
 theorem Relation.lcomp₁.mono {α β γ : Type _} [Monoid β] {R₁ R₁' : Set (α × β × γ)} {W₂ W₂' : Set (γ × β)} (R₁_sub : R₁ ≤ R₁') (W₂_sub : W₂ ≤ W₂') : R₁ ∘ᵣ₁ W₂ ≤ R₁' ∘ᵣ₁ W₂' := by
   dsimp [Relation.lcomp₁] at *
@@ -131,7 +142,7 @@ theorem Relation.lcomp₁.right_empty_eq_empty {α β γ : Type _} [Monoid β] {
   apply Set.eq_empty_of_subset_empty
   rintro ⟨a, e⟩ ⟨b, e₁, e₂, b_in_r, _|_, _⟩
 
-theorem Relation.lcomp₂.left_id_eq {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} : {⟨x, e, y⟩ | x = y ∧ e = 1} ∘ᵣ₂ R = R := by
+theorem Relation.lcomp₂.left_id_eq {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} : Relation.Idle ∘ᵣ₂ R = R := by
   ext ⟨a, e, c⟩
   iff_rintro ⟨b, e₁, e₂, ⟨rfl, rfl⟩, _, rfl⟩ _
   · rwa [Monoid.one_mul]
@@ -142,7 +153,7 @@ theorem Relation.lcomp₂.left_id_eq {α β γ : Type _} [Monoid β] {R : Set (�
     · assumption
     · rw [Monoid.one_mul]
 
-theorem Relation.lcomp₁.left_id_eq {α β : Type _} [Monoid β] {R : Set (α × β)} : {⟨x, e, y⟩ | x = y ∧ e = 1} ∘ᵣ₁ R = R := by
+theorem Relation.lcomp₁.left_id_eq {α β : Type _} [Monoid β] {R : Set (α × β)} : Relation.Idle ∘ᵣ₁ R = R := by
   ext ⟨a, e⟩
   iff_rintro ⟨b, e₁, e₂, ⟨rfl, rfl⟩, _, rfl⟩ _
   · rwa [Monoid.one_mul]
@@ -150,7 +161,7 @@ theorem Relation.lcomp₁.left_id_eq {α β : Type _} [Monoid β] {R : Set (α �
     and_intros <;> try trivial
     rw [Monoid.one_mul]
 
-theorem Relation.lcomp₂.right_id_eq {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} : R ∘ᵣ₂ {⟨x, e, y⟩ | x = y ∧ e = 1} = R := by
+theorem Relation.lcomp₂.right_id_eq {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} : R ∘ᵣ₂ Relation.Idle = R := by
   ext ⟨a, e, c⟩
   iff_rintro ⟨b, e₁, e₂, _, ⟨rfl, rfl⟩, rfl⟩ _
   · rwa [Monoid.mul_one]

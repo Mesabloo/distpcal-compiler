@@ -32,6 +32,11 @@ theorem Block.foldr_cons_eq {α : Bool → Type} {b : Bool} {B : Block α b} {Ss
 
 theorem Block.prepend_nil {α : Bool → Type} {b : Bool} {B : Block α b} : B.prepend [] = B := rfl
 
+/-- Prepending peels one statement at a time into a `cons` — the equation an induction over the
+prepended list runs on. -/
+theorem Block.prepend_cons {α : Bool → Type} {b : Bool} {S : α false} {Ss : List (α false)}
+    {B : Block α b} : B.prepend (S :: Ss) = Block.cons S (B.prepend Ss) := rfl
+
 theorem Block.concat_ne_end {α : Bool → Type} {b : Bool} {B : Block α false} {S S' : α b} :
     B.concat S ≠ Block.end S' := by
   unfold Block.concat Block.end

@@ -49,6 +49,39 @@ theorem substGuardStmt_await {r : ComputableGuardedPlusCal.Ref}
     substGuardStmt r rhs (.await e) = .await (Expression.substRef r rhs e) :=
   rfl
 
+/-- No assignments accumulated yet, so nothing is substituted. -/
+theorem substGuards_nil {S : ComputableNetworkPlusCal.Statement true false} :
+    substGuards [] S = S :=
+  rfl
+
+/-- `substGuards` peels its head first — it is a `foldr`, so the *first* accumulated assignment is
+the outermost substitution. That direction is what makes the iterated reorder below come out: the
+assignments run left to right, and each one is pushed past the guard in the order it was emitted. -/
+theorem substGuards_cons {a : ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false} :
+    substGuards (a :: A) S = substGuardStmt a.1 a.2.1 (substGuards A S) := by
+  obtain ⟨_, _, _⟩ := a
+  rfl
+
+/-- The consumption assignments `processPrecondition` emits for an accumulated `newInstrs` —
+`Guarded2Network/PlusCal.lean`'s own `st.newInstrs.map …`, named so that the reorder lemma and the
+precondition spec talk about one list rather than two spellings of it. -/
+def consumptions
+    (A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)) :
+    List (ComputableNetworkPlusCal.Statement false false) :=
+  A.map λ (r, e, pos) ↦ .assign r e @@ pos
+
+@[inherit_doc consumptions]
+theorem consumptions_nil : consumptions [] = [] := rfl
+
+@[inherit_doc consumptions]
+theorem consumptions_cons {a : ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)} :
+    consumptions (a :: A) = .assign a.1 a.2.1 :: consumptions A := by
+  obtain ⟨_, _, _⟩ := a
+  rfl
+
 /-- `ExprSemantics.evalSubstRef` at the shape the statement semantics writes reference paths in —
 `List.Forall₂ (EvalStep M)` rather than `ResolvesPath`, bridged by `EvalStep.resolvesPath_iff`. Every
 branch of the two reorder lemmas needs the transfer in this form, so the conversion happens once. -/
@@ -84,6 +117,35 @@ def GuardFresh (r : ComputableGuardedPlusCal.Ref) (rhs : ComputablePlusCal.Expre
     (S : ComputableNetworkPlusCal.Statement true false) : Prop :=
   ∀ x ann bound e, S = .with x ann bound e →
     x ∉ GuardedPlusCal.Ref.freeVars r ∧ Expression.FreshIn x rhs
+
+/-- Substitution leaves a guard's freshness alone: `substGuardStmt` rewrites the guard *expression*
+and nothing else, so the bound name a `with` carries — the only thing `GuardFresh` looks at — comes
+through unchanged. What lets the iterated reorder discharge each step's side condition from the
+hypothesis about the original statement. -/
+theorem GuardFresh.substGuardStmt {r r' : ComputableGuardedPlusCal.Ref}
+    {rhs rhs' : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
+    (h : GuardFresh r rhs S) : GuardFresh r rhs (Guarded2Network.substGuardStmt r' rhs' S) := by
+  cases S with
+  | «with» x ann bound e =>
+    rintro x' ann' bound' e' heq
+    rw [substGuardStmt_with] at heq
+    injection heq with hx _ _ _
+    subst hx
+    exact h x ann bound e rfl
+  | await e =>
+    rintro _ _ _ _ heq
+    rw [substGuardStmt_await] at heq
+    contradiction
+
+@[inherit_doc GuardFresh.substGuardStmt]
+theorem GuardFresh.substGuards {r : ComputableGuardedPlusCal.Ref}
+    {rhs : ComputablePlusCal.Expression}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false} (h : GuardFresh r rhs S) :
+    GuardFresh r rhs (Guarded2Network.substGuards A S) := by
+  induction A with
+  | nil => exact h
+  | cons _ _ IH => rw [substGuards_cons]; exact IH.substGuardStmt
 
 omit [ExprSemantics V] in
 /-- Two memories differing only at `x` agree away from `x` — `Ref.EvalArgs.congr_of_fresh`'s
@@ -242,6 +304,32 @@ theorem reorder_assign_guard {r : ComputableGuardedPlusCal.Ref}
           ⟨M, F, M', v, rpath, hv, hpath, hupd, rfl, rfl, rfl⟩
       · exact NetworkPlusCal.Statement.reducing.await.intro
           ⟨M', F, rfl, rfl, (evalSubstRef hv hpath hupd).mpr htru, rfl⟩
+
+/-- **D5, iterated.** The pass never substitutes one assignment: `substGuards` folds *every*
+consumption assignment accumulated so far into the guard, and emits them, in list order, after it. So
+the single-assignment equation lifts to the whole list — which is the form
+`Guarded2Network/Lemmas/Precondition.lean` needs, `substGuards` being what `stepStatement` applies.
+
+The `foldr` in `substGuards` is what makes the induction come out: its head is the *outermost*
+substitution and the *first* assignment to run, so peeling one entry peels one factor off each side
+at once. -/
+theorem reorder_assigns_guard
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing S =
+      NetworkPlusCal.Statement.reducing (substGuards A S) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) := by
+  induction A with
+  | nil =>
+    rw [consumptions_nil, NetworkPlusCal.Statement.listReducing_nil, substGuards_nil,
+      Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
+  | cons a A IH =>
+    rw [consumptions_cons, NetworkPlusCal.Statement.listReducing_cons,
+      ← Relation.lcomp₂.assoc, IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb),
+      Relation.lcomp₂.assoc, reorder_assign_guard (fresh a List.mem_cons_self).substGuards,
+      ← Relation.lcomp₂.assoc, substGuards_cons]
 
 /-- **D5, aborting.** The same commutation for the runs that fail — and here only an inclusion. Every
 way the compiled order `guard[subst] ; assign` can abort is a way the source order `assign ; guard`

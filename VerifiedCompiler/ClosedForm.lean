@@ -239,7 +239,7 @@ execution, or a run followed by one more step. -/
 @[expose]
 def Relation.starFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) :
     Set (α × ε × α) →o Set (α × ε × α) where
-  toFun Z := {⟨x, e, y⟩ | x = y ∧ e = 1} ∪ Z ∘ᵣ₂ X
+  toFun Z := Relation.Idle ∪ Z ∘ᵣ₂ X
   monotone' _ _ h := by
     beta_reduce
     gcongr
