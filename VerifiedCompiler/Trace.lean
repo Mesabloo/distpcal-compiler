@@ -62,6 +62,13 @@ theorem Relation.MulClosed.rmul_le {α β : Type _} [Monoid α] [Monoid β] {R :
   rintro _ _ ⟨a₁, a₂, b₁, b₂, rfl, rfl, h₁, h₂⟩
   exact cl _ _ _ _ h₁ h₂
 
+/-- What `StrongRefinement.Comp`'s trace relation collapses to when both operands run at the same
+one: `Rτ₁ ⊔ Rτ₁ ⊗ᵣ Rτ₂` with `Rτ₁ = Rτ₂ = R`. Only `rmul_le` is needed — `R ≤ R ⊔ _` is free, so no
+unit law about `R 1 1` enters. -/
+theorem Relation.MulClosed.sup_rmul_self {α β : Type _} [Monoid α] [Monoid β] {R : Rel α β}
+    (cl : Relation.MulClosed R) : R ⊔ R ⊗ᵣ R = R :=
+  sup_eq_left.mpr cl.rmul_le
+
 /-- Any extension of the right-hand side can be matched by some extension of the left. Not an extra
 assumption: it is what `LeftTotal` and `MulClosed` give together, and it is the form horizontal
 composition actually consumes. -/
@@ -114,6 +121,20 @@ still concludes something a reader can name.
 namespace Trace
 
 variable {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ]
+
+/-- The canonical trace relation is idempotent for the pointwise product. `Rτ_closed` gives `≤`;
+the converse is `Rτ_one`, splitting a trace as `ε * 1`. Both laws are the class's, which is why this
+is stated here and not at `MulClosed` — `Relation.MulClosed.rmul_le` alone cannot prove it.
+
+This is what lets the composition lemmas conclude at `Rτ` rather than at the `⊗ᵣ`/`⊔` shape their
+proofs naturally produce, so that composing two refinements needs no repair at the call site. -/
+theorem rmul_self [T : Trace εₛ εₜ] : T.Rτ ⊗ᵣ T.Rτ = T.Rτ :=
+  le_antisymm T.Rτ_closed.rmul_le
+    λ a b h ↦ ⟨a, 1, b, 1, (mul_one a).symm, (mul_one b).symm, h, T.Rτ_one⟩
+
+@[inherit_doc rmul_self]
+theorem sup_rmul_self [T : Trace εₛ εₜ] : T.Rτ ⊔ T.Rτ ⊗ᵣ T.Rτ = T.Rτ := by
+  rw [rmul_self, sup_idem]
 
 /-- `a ≼[R] b` — `a` is a **sequentially consistent prefix** of `b` under `R`: the source emitted
 `a` and, had it not aborted, could have continued with some `δ` to produce a trace `R`-related to

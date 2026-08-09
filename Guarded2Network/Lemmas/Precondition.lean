@@ -454,15 +454,19 @@ pair the inbox is one element longer, so `Len(inbox) > n` afterwards is `Len(inb
 
 An equation, with only `r.name ≠ inbox` assumed. Both sides evaluate the two assignments at exactly
 the same pair of memories — only the guard moves — and either side can run at all only if the pair
-can, which is what forces the inbox to hold a sequence and makes the `Len` law apply. -/
+can, which is what forces the inbox to hold a sequence and makes the `Len` law apply.
+
+The pair's element type `τ` and the guard's `τ'` are independent: each compiled guard carries the
+element type of *its own* channel, and the pending pairs carry theirs. Nothing in the proof couples
+them — the type annotation rides along inside the expressions and never reaches the memory. -/
 theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
-    {inbox : String} {τ : ComputableTLAPlus.Typ} {n : Nat} (hne : r.name ≠ inbox) :
+    {inbox : String} {τ τ' : ComputableTLAPlus.Typ} {n : Nat} (hne : r.name ≠ inbox) :
     (NetworkPlusCal.Statement.reducing' (V := V)
           (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing'
           (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))) ∘ᵣ₂
-      NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) n)) =
-    NetworkPlusCal.Statement.reducing' (V := V) (.await (lenGt τ (inboxVar inbox τ) (n + 1))) ∘ᵣ₂
+      NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') n)) =
+    NetworkPlusCal.Statement.reducing' (V := V) (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∘ᵣ₂
       (NetworkPlusCal.Statement.reducing'
           (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing'
@@ -485,13 +489,72 @@ theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : Type
     subst hMb; subst hFb; subst hσ''
     injection hpost with hpM hpF
     subst hpM; subst hpF
-    obtain ⟨b, hb, -, hiff⟩ := eval_lenGt_inbox (τ := τ) (n := n + 1) hsv hseq
+    obtain ⟨b, hb, -, hiff⟩ := eval_lenGt_inbox (τ := τ') (n := n + 1) hsv hseq
     obtain rfl := ExprSemantics.evalUnique hb htru
     have hlen := hiff.mp rfl
     refine ⟨_, _, _, hpair, (await_lenGt_iff (Finmap.lookup_insert _) ht).mpr ⟨rfl, rfl, ?_⟩, ?_⟩
     · rw [List.length_cons] at hlen
       omega
     · rw [mul_one]
+
+/-! ## Every pending assignment moved past a compiled guard at once
+
+  `reorder_consumption_lenGt` moves one pair. What the walk actually meets is the whole accumulator:
+  `stepStatement` emits the k-th `receive`'s guard as `Len(inbox) > k` in a program where the k
+  earlier pairs have not run yet, and the refinement wants it where they have — at `Len(inbox) > 0`,
+  the index `receive_refines` proves. Moving k pairs across costs the guard k.
+
+  That needs to know the accumulator *is* k pairs, which no type records, hence the predicate below.
+-/
+
+/-- What `ReceiveState.newInstrs` holds after `k` receives: exactly `k` consumption pairs over this
+`inbox`, in the order they were appended. Each pair's own channel element type and source span are
+its own — only the shared `inbox` and the target reference being distinct from it matter. -/
+inductive ConsumptionPairs (inbox : String) :
+    Nat → List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan) → Prop
+  | nil : ConsumptionPairs inbox 0 []
+  | snoc {k A r coe τ pos} (h : ConsumptionPairs inbox k A) (hne : r.name ≠ inbox) :
+      ConsumptionPairs inbox (k + 1) (A ++ receiveInstrs r coe inbox τ pos)
+
+@[inherit_doc consumptions]
+theorem consumptions_append
+    {A B : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)} :
+    consumptions (A ++ B) = consumptions A ++ consumptions B :=
+  List.map_append
+
+@[inherit_doc receiveInstrs]
+theorem consumptions_receiveInstrs {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
+    {inbox : String} {τ : ComputableTLAPlus.Typ} {pos : SourceSpan} :
+    consumptions (receiveInstrs r coe inbox τ pos) =
+      [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+        .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] :=
+  rfl
+
+/-- **The whole accumulator past one compiled guard.** `k` pending consumption pairs commute past
+`Len(inbox) > n`, leaving `Len(inbox) > n + k` in front of them — each pair drops one element from
+the inbox, so a guard that ran before them all was asking for `k` more.
+
+The induction generalizes `n`: each step hands the next one a guard whose index has already been
+bumped. -/
+theorem reorder_pairs_lenGt {inbox : String} {τ' : ComputableTLAPlus.Typ} {k : Nat}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    (h : ConsumptionPairs inbox k A) {n : Nat} :
+    NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') n)) =
+      NetworkPlusCal.Statement.reducing' (V := V)
+          (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing' (consumptions A) := by
+  induction h generalizing n with
+  | nil =>
+    rw [consumptions_nil, NetworkPlusCal.Statement.listReducing'_nil, Nat.add_zero,
+      Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
+  | snoc _ hne IH =>
+    rw [consumptions_append, NetworkPlusCal.Statement.listReducing'_append,
+      consumptions_receiveInstrs, NetworkPlusCal.Statement.listReducing'_cons,
+      NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
+      Relation.lcomp₂.right_id_eq, ← Relation.lcomp₂.assoc,
+      reorder_consumption_lenGt hne, Relation.lcomp₂.assoc, IH, ← Relation.lcomp₂.assoc,
+      Nat.add_assoc, Nat.add_comm 1]
 
 /-! ## The walk over a precondition block
 
@@ -632,6 +695,265 @@ private theorem processPrecondition_walk {chans : Guarded2NetworkChans} {inbox :
     omega
   refine ⟨st, ?_, rfl, rfl⟩
   rwa [List.dropLast_concat_getLast! hne]
+
+/-! ## From the emitted ordering to the adjacent one
+
+  The target the pass produces runs every compiled guard and *then* every consumption assignment.
+  `receive_refines` is proved in the ordering where each `receive`'s two assignments sit immediately
+  after its own guard. Getting from one to the other is pure equational work — no refinement
+  reasoning, no `relatesTo` — and it is why the mid-walk state never has to be related to anything:
+  the two orderings are the *same relation*, and only its endpoints are ever quantified.
+
+  Each step of the walk pushes the pending accumulator `⟦consumptions st.newInstrs⟧` one statement to
+  the left. Past a guard the source wrote, that is `reorder_assigns_guard'` — substitution. Past a
+  guard the pass invented, it is `reorder_pairs_lenGt` — the index bumps by the number of pending
+  pairs, which is `st.i`, which is what `ConsumptionPairs` is carried along to know.
+-/
+
+/-- The pending accumulator moved past one source-written guard, with the rest of the block along
+for the ride. `reorder_assigns_guard'` with its two operands re-associated, which is all the walk's
+`with`/`await` case is. -/
+theorem reorder_pending_guard
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false}
+    {adj : Set (LocalState' V × Trace V × LocalState' V)}
+    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A) ∘ᵣ₂
+        (NetworkPlusCal.Statement.reducing' S ∘ᵣ₂ adj) =
+      NetworkPlusCal.Statement.reducing' (substGuards A S) ∘ᵣ₂
+        (NetworkPlusCal.Statement.listReducing' (consumptions A) ∘ᵣ₂ adj) := by
+  rw [Relation.lcomp₂.assoc, reorder_assigns_guard' fresh, ← Relation.lcomp₂.assoc]
+
+/-- The pending accumulator moved past one *compiled* guard and absorbed into the pair that guard's
+`receive` contributes. The guard's index picks up `k`, the number of pairs already pending, and the
+new pair joins them — which is exactly the state `stepStatement` hands its successor. -/
+theorem reorder_pending_receive {inbox : String} {τ : ComputableTLAPlus.Typ} {k : Nat}
+    {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion} {pos : SourceSpan}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {adj : Set (LocalState' V × Trace V × LocalState' V)}
+    (pairs : ConsumptionPairs inbox k A) :
+    NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A) ∘ᵣ₂
+        (NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
+          NetworkPlusCal.Statement.listReducing'
+            [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+              .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ∘ᵣ₂ adj) =
+      NetworkPlusCal.Statement.reducing' (V := V) (.await (lenGt τ (inboxVar inbox τ) k)) ∘ᵣ₂
+        (NetworkPlusCal.Statement.listReducing'
+          (consumptions (A ++ receiveInstrs r coe inbox τ pos)) ∘ᵣ₂ adj) := by
+  rw [Relation.lcomp₂.assoc, reorder_pairs_lenGt pairs, ← Relation.lcomp₂.assoc,
+    Relation.lcomp₂.assoc
+      (R₁ := NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A)),
+    ← consumptions_receiveInstrs (r := r) (coe := coe) (pos := pos),
+    ← NetworkPlusCal.Statement.listReducing'_append, ← consumptions_append, Nat.zero_add]
+
+/-- One `receive`'s adjacent target: its inbox-length guard, then the two consumption assignments
+it contributes. Named because it appears four times — twice in `Adjacent`, twice in the refinement
+below — and because it is `receive_refines`'s target. -/
+def receiveGroup (r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.Coercion) (inbox : String)
+    (τ : ComputableTLAPlus.Typ) : Set (LocalState' V × Trace V × LocalState' V) :=
+  NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
+    NetworkPlusCal.Statement.listReducing'
+      [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+        .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))]
+
+@[inherit_doc receiveGroup]
+def receiveGroupAborting (r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.Coercion)
+    (inbox : String) (τ : ComputableTLAPlus.Typ) : Set (LocalState' V × Trace V) :=
+  NetworkPlusCal.Statement.aborting' (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
+    NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
+      NetworkPlusCal.Statement.listAborting'
+        [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+          .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))]
+
+/-- `receive_refines` at the two named groups, with the trailing `Relation.Idle`/`∅` the list forms
+carry discharged. Nothing new — the same theorem, in the shape `Adjacent` states. -/
+theorem receiveGroup_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
+    {inbox : String} {τ : ComputableTLAPlus.Typ} (fresh : ReceiveFresh c r inbox) :
+    StrongRefinement (relatesTo (V := V) (.some (c, inbox))) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Statement.reducing' (.receive c r coe))
+      (GuardedPlusCal.Statement.aborting' (.receive c r coe))
+      (GuardedPlusCal.Statement.diverging' (.receive c r coe))
+      (receiveGroup r coe inbox τ) (receiveGroupAborting r coe inbox τ) ∅ := by
+  rw [receiveGroup, receiveGroupAborting, NetworkPlusCal.Statement.listReducing'_cons,
+    NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
+    Relation.lcomp₂.right_id_eq, NetworkPlusCal.Statement.listAborting'_cons,
+    NetworkPlusCal.Statement.listAborting'_cons, NetworkPlusCal.Statement.listAborting'_nil,
+    Relation.lcomp₁.right_empty_eq_empty, Set.union_empty]
+  exact receive_refines fresh
+
+/-- The adjacent ordering of a precondition block's target, as a relation. One constructor per
+source guard, mirroring `Walk`, but recording *meaning* rather than syntax: the adjacent form
+interleaves guard-class and action-class statements, so it is not a list of statements in either
+class and has to be a relation.
+
+The `receive` case is `receive_refines`'s target — which is the point of the whole detour. -/
+inductive Adjacent (chans : Guarded2NetworkChans) (inbox : String) :
+    List (ComputableGuardedPlusCal.Statement true false) →
+      Set (LocalState' V × Trace V × LocalState' V) → Set (LocalState' V × Trace V) → Prop
+  | nil : Adjacent chans inbox [] Relation.Idle ∅
+  | «with» {x ann bound e Ss adj adj'} : Adjacent chans inbox Ss adj adj' →
+      Adjacent chans inbox (.with x ann bound e :: Ss)
+        (NetworkPlusCal.Statement.reducing' (.with x ann bound e) ∘ᵣ₂ adj)
+        (NetworkPlusCal.Statement.aborting' (.with x ann bound e) ∪
+          NetworkPlusCal.Statement.reducing' (.with x ann bound e) ∘ᵣ₁ adj')
+  | await {e Ss adj adj'} : Adjacent chans inbox Ss adj adj' →
+      Adjacent chans inbox (.await e :: Ss)
+        (NetworkPlusCal.Statement.reducing' (.await e) ∘ᵣ₂ adj)
+        (NetworkPlusCal.Statement.aborting' (.await e) ∪
+          NetworkPlusCal.Statement.reducing' (.await e) ∘ᵣ₁ adj')
+  | receive {c r coe τ Ss adj adj'} (hτ : chans.lookup c.name = .some τ) :
+      Adjacent chans inbox Ss adj adj' →
+      Adjacent chans inbox (.receive c r coe :: Ss)
+        (receiveGroup (V := V) r coe inbox τ ∘ᵣ₂ adj)
+        (receiveGroupAborting (V := V) r coe inbox τ ∪ receiveGroup r coe inbox τ ∘ᵣ₁ adj')
+
+/-- Every walk has an adjacent ordering: the walk is what certifies each `receive`'s channel
+resolves, which is the only thing `Adjacent` cannot supply for itself. -/
+private theorem Walk.adjacent {chans : Guarded2NetworkChans} {inbox : String}
+    {st st' : ReceiveState} {Ss res} (h : Walk chans inbox st Ss res st') :
+    ∃ adj adj', Adjacent (V := V) chans inbox Ss adj adj' := by
+  induction h with
+  | nil => exact ⟨_, _, .nil⟩
+  | «with» _ IH =>
+    obtain ⟨_, _, IH⟩ := IH
+    exact ⟨_, _, .with IH⟩
+  | await _ IH =>
+    obtain ⟨_, _, IH⟩ := IH
+    exact ⟨_, _, .await IH⟩
+  | receive hτ _ IH =>
+    obtain ⟨_, _, IH⟩ := IH
+    exact ⟨_, _, .receive hτ IH⟩
+
+/-- The accumulator only ever grows on the right. Needed so that a freshness condition stated once
+about the *final* accumulator covers every intermediate one. -/
+private theorem Walk.newInstrs_prefix {chans : Guarded2NetworkChans} {inbox : String}
+    {st st' : ReceiveState} {Ss res} (h : Walk chans inbox st Ss res st') :
+    st.newInstrs <+: st'.newInstrs := by
+  induction h with
+  | nil => exact List.prefix_rfl
+  | «with» _ IH | await _ IH => exact IH
+  | receive _ _ IH => exact List.IsPrefix.trans (List.prefix_append _ _) IH
+
+/-- **The two orderings are the same relation.** Reading the equation right to left: the pass's
+output — every compiled guard, then every consumption assignment — is the adjacent ordering with
+whatever was already pending still in front of it. At the top of a block nothing is pending, so it
+says the emitted target *is* the adjacent one.
+
+Both freshness hypotheses are conditions on the source program, and both concern the pass's own
+generated names rather than anything a user wrote: no `with` in the block may bind a name a pending
+consumption assignment reads, and no `receive` may target the `inbox` itself. -/
+private theorem Walk.reorder {chans : Guarded2NetworkChans} {inbox : String}
+    {st st' : ReceiveState} {Ss res} {adj : Set (LocalState' V × Trace V × LocalState' V)}
+    {adj' : Set (LocalState' V × Trace V)}
+    (walk : Walk chans inbox st Ss res st') (adjacent : Adjacent chans inbox Ss adj adj')
+    (pairs : ConsumptionPairs inbox st.i st.newInstrs)
+    (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ Ss → r.name ≠ inbox)
+    (gfresh : ∀ a ∈ st'.newInstrs, ∀ x ann bound e,
+      GuardedPlusCal.Statement.with x ann bound e ∈ Ss →
+        x ∉ GuardedPlusCal.Ref.freeVars a.1 ∧ Expression.FreshIn x a.2.1) :
+    NetworkPlusCal.Statement.listReducing' (V := V) (consumptions st.newInstrs) ∘ᵣ₂ adj =
+      NetworkPlusCal.Statement.listReducing' res ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing' (consumptions st'.newInstrs) := by
+  induction walk generalizing adj adj' with
+  | nil =>
+    cases adjacent
+    rw [NetworkPlusCal.Statement.listReducing'_nil, Relation.lcomp₂.left_id_eq,
+      Relation.lcomp₂.right_id_eq]
+  | «with» walk IH =>
+    cases adjacent with
+    | «with» adjacent =>
+      rw [NetworkPlusCal.Statement.listReducing'_cons, reorder_pending_guard ?fresh,
+        IH adjacent pairs (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+          (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h)),
+        Relation.lcomp₂.assoc]
+      case fresh =>
+        intro a ha _ _ _ _ hS
+        cases hS
+        exact gfresh a (walk.newInstrs_prefix.subset ha) _ _ _ _ List.mem_cons_self
+  | await _ IH =>
+    cases adjacent with
+    | await adjacent =>
+      rw [NetworkPlusCal.Statement.listReducing'_cons,
+        reorder_pending_guard (λ _ _ ↦ GuardFresh.await),
+        IH adjacent pairs (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+          (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h)),
+        Relation.lcomp₂.assoc]
+  | receive hτ _ IH =>
+    cases adjacent with
+    | receive hτ' adjacent =>
+      obtain rfl := Option.some.inj (hτ'.symm.trans hτ)
+      rw [receiveGroup, ← Relation.lcomp₂.assoc, reorder_pending_receive pairs,
+        IH adjacent (pairs.snoc (rfresh _ _ _ List.mem_cons_self))
+          (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+          (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h)),
+        NetworkPlusCal.Statement.listReducing'_cons, Relation.lcomp₂.assoc]
+
+/-- **The adjacent ordering refines the source block.** One `StrongRefinement.Comp` per source
+guard: `receiveGroup_refines` where the source received, and the two languages' `with`/`await`
+semantics being literally the same relation where it did not.
+
+This is the half of the walk that reasons about states, and it is stated only about the *adjacent*
+ordering — never about the emitted one, whose intermediate states are not `relatesTo`-related.
+`Walk.reorder` is what connects the two, and it is an equation precisely so that this half never has
+to look at them.
+
+Divergence is `∅` on both sides (`Statement.listDiverging'_eq_empty`), so
+`StrongRefinement.Diverging.Empty` carries that component throughout and `Adjacent` need not record
+it. The trace relation stays `Rτ` rather than growing with each composition: `Comp` produces
+`Rτ ⊔ Rτ ⊗ᵣ Rτ`, which `Relation.MulClosed.sup_rmul_self` collapses. -/
+private theorem Adjacent.refines {chans : Guarded2NetworkChans} {c₀ : ComputableGuardedPlusCal.Ref}
+    {inbox : String} {Ss} {adj : Set (LocalState' V × Trace V × LocalState' V)}
+    {adj' : Set (LocalState' V × Trace V)} (adjacent : Adjacent chans inbox Ss adj adj')
+    (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ Ss → c = c₀ ∧ ReceiveFresh c r inbox)
+    (gfresh : ∀ S ∈ Ss, Fresh (.some (c₀, inbox)) S) :
+    StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Statement.listReducing' Ss) (GuardedPlusCal.Statement.listAborting' Ss)
+      (GuardedPlusCal.Statement.listDiverging' Ss) adj adj' ∅ := by
+  -- one composition per source guard; `head` is what each step contributes, `IH` the rest
+  have step : ∀ {S : ComputableGuardedPlusCal.Statement true false} {Ss'}
+      {aS : Set (LocalState' V × Trace V × LocalState' V)} {aS' : Set (LocalState' V × Trace V)}
+      {a : Set (LocalState' V × Trace V × LocalState' V)} {a' : Set (LocalState' V × Trace V)},
+      StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+        (GuardedPlusCal.Statement.reducing' S) (GuardedPlusCal.Statement.aborting' S)
+        (GuardedPlusCal.Statement.diverging' S) aS aS' ∅ →
+      StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+        (GuardedPlusCal.Statement.listReducing' Ss') (GuardedPlusCal.Statement.listAborting' Ss')
+        (GuardedPlusCal.Statement.listDiverging' Ss') a a' ∅ →
+      StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+        (GuardedPlusCal.Statement.listReducing' (S :: Ss'))
+        (GuardedPlusCal.Statement.listAborting' (S :: Ss'))
+        (GuardedPlusCal.Statement.listDiverging' (S :: Ss'))
+        (aS ∘ᵣ₂ a) (aS' ∪ aS ∘ᵣ₁ a') ∅ := by
+    intro _ _ _ _ _ _ head tail
+    have hcomp := StrongRefinement.Comp _ head tail
+    simp only [GuardedPlusCal.Statement.diverging'_eq_empty,
+      GuardedPlusCal.Statement.listDiverging'_eq_empty, Relation.lcomp₁.right_empty_eq_empty,
+      Set.union_self] at hcomp
+    rwa [GuardedPlusCal.Statement.listReducing'_cons, GuardedPlusCal.Statement.listAborting'_cons,
+      GuardedPlusCal.Statement.listDiverging'_eq_empty]
+  induction adjacent with
+  | nil =>
+    rw [GuardedPlusCal.Statement.listReducing'_nil, GuardedPlusCal.Statement.listAborting'_nil]
+    exact StrongRefinement.ofNonDiverging _
+      (StrongRefinement.Terminating.Id _)
+      (StrongRefinement.Aborting.Empty _)
+  | «with» _ IH =>
+    rw [with_reducing'_eq, with_aborting'_eq]
+    exact step (guard_refines _ (λ _ _ _ h ↦ nomatch h) (gfresh _ List.mem_cons_self))
+      (IH (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+        (λ S hS ↦ gfresh S (List.mem_cons_of_mem _ hS)))
+  | await _ IH =>
+    rw [await_reducing'_eq, await_aborting'_eq]
+    exact step (guard_refines _ (λ _ _ _ h ↦ nomatch h) (gfresh _ List.mem_cons_self))
+      (IH (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+        (λ S hS ↦ gfresh S (List.mem_cons_of_mem _ hS)))
+  | receive _ _ IH =>
+    obtain ⟨rfl, hfr⟩ := rfresh _ _ _ List.mem_cons_self
+    exact step (receiveGroup_refines hfr)
+      (IH (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+        (λ S hS ↦ gfresh S (List.mem_cons_of_mem _ hS)))
 
 end Guarded2Network
 

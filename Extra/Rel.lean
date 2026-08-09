@@ -7,6 +7,7 @@ public import Mathlib.Algebra.Group.Defs
 public import Mathlib.Order.FixedPoints
 public import Mathlib.Order.OmegaCompletePartialOrder
 public import Extra.AesopRuleSets
+public import Extra.Prod
 import Extra.Set
 
 public section
@@ -188,6 +189,26 @@ theorem Relation.lcomp₂.assoc {α β γ δ ε : Type _} [Monoid β] {R₁ : Se
       · assumption
       · exists c, e₄, e₂
       · rfl
+
+/-- Relabelling the state type commutes with composition, provided the relabelling is injective.
+
+Injectivity is the whole content: without it two distinct middle states could be identified, and the
+composite would gain a step neither relation had. This is the same fact `Block.reducing_map` proves
+inline for a whole block — hoisted here so a bare composition can use it too, which is what carries
+an equation between unprimed semantics over to the flat encoding. -/
+theorem Relation.lcomp₂.image {α β γ : Type _} [Monoid β] {g : γ → α} (g_inj : Function.Injective g)
+    {R₁ R₂ : Set (γ × β × γ)} :
+    Prod.map₃ g id g '' (R₁ ∘ᵣ₂ R₂) =
+      (Prod.map₃ g id g '' R₁) ∘ᵣ₂ (Prod.map₃ g id g '' R₂) := by
+  ext ⟨a', e, c'⟩
+  iff_rintro ⟨⟨a, _, c⟩, ⟨b, e₁, e₂, hR₁, hR₂, rfl⟩, _|_⟩
+    ⟨b', _, _, ⟨⟨a, e₁, b₁⟩, hR₁, h₁⟩, ⟨⟨b₂, e₂, c⟩, hR₂, h₂⟩, rfl⟩
+  · exact ⟨g b, e₁, e₂, ⟨⟨a, e₁, b⟩, hR₁, rfl⟩, ⟨⟨b, e₂, c⟩, hR₂, rfl⟩, rfl⟩
+  · simp only [Prod.map₃, Prod.mk.injEq] at h₁ h₂
+    obtain ⟨rfl, rfl, rfl⟩ := h₁
+    obtain ⟨hb, rfl, rfl⟩ := h₂
+    obtain rfl : b₂ = b₁ := g_inj hb
+    exact ⟨⟨a, e₁ * e₂, c⟩, ⟨b₂, e₁, e₂, hR₁, hR₂, rfl⟩, rfl⟩
 
 theorem Relation.lcomp₁.left_lcomp₂_eq {α β γ δ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {R₂ : Set (γ × β × δ)} {R₃ : Set (δ × β)} : (R₁ ∘ᵣ₂ R₂) ∘ᵣ₁ R₃ = R₁ ∘ᵣ₁ (R₂ ∘ᵣ₁ R₃) := by
   ext ⟨a, e⟩

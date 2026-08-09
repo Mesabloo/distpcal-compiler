@@ -364,6 +364,19 @@ theorem Statement.listReducing'_cons {g : Bool} {S : ComputableNetworkPlusCal.St
     Statement.listReducing' (V := V) (S :: A) =
       Statement.reducing' S ∘ᵣ₂ Statement.listReducing' A := rfl
 
+/-- A statement run splits wherever its list does. `Guarded2Network`'s consumption assignments
+accumulate by `++` — one `receive` appends its pair to what earlier ones left — so every proof about
+them meets this shape rather than a `cons`. -/
+theorem Statement.listReducing'_append {g : Bool}
+    {A B : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listReducing' (V := V) (A ++ B) =
+      Statement.listReducing' A ∘ᵣ₂ Statement.listReducing' B := by
+  induction A with
+  | nil => rw [List.nil_append, Statement.listReducing'_nil, Relation.lcomp₂.left_id_eq]
+  | cons S A IH =>
+    rw [List.cons_append, Statement.listReducing'_cons, Statement.listReducing'_cons, IH,
+      Relation.lcomp₂.assoc]
+
 @[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listAborting'_nil {g : Bool} :
     Statement.listAborting' (V := V) (g := g) [] = ∅ := rfl
@@ -373,6 +386,26 @@ theorem Statement.listAborting'_cons {g : Bool} {S : ComputableNetworkPlusCal.St
     {A : List (ComputableNetworkPlusCal.Statement g false)} :
     Statement.listAborting' (V := V) (S :: A) =
       Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
+
+omit [ExprSemantics V] in
+/-- No statement diverges — see `GuardedPlusCal.Statement.diverging'_eq_empty`. -/
+@[simp] theorem Statement.diverging'_eq_empty {b b' : Bool}
+    (S : ComputableNetworkPlusCal.Statement b b') :
+    Statement.diverging' (V := V) S = ∅ := by
+  ext ⟨⟨M, F, l⟩, ε⟩
+  iff_rintro ⟨-, hd⟩ hd
+  · exact hd.elim
+  · exact hd.elim
+
+/-- No *list* of statements diverges — see `GuardedPlusCal.Statement.listDiverging'_eq_empty`. -/
+@[simp] theorem Statement.listDiverging'_eq_empty {g : Bool}
+    {A : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listDiverging' (V := V) A = ∅ := by
+  induction A with
+  | nil => rfl
+  | cons S A IH =>
+    show Statement.diverging' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listDiverging' A = ∅
+    rw [Statement.diverging'_eq_empty, IH, Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
 
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableNetworkPlusCal.Statement b b') :
@@ -414,6 +447,25 @@ private theorem Statement.diverging'_eq_map {b b' : Bool}
   iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
   · exists _, sem
   · trivial
+
+/-- An equation between two two-step compositions survives the move to the flat encoding.
+
+Item 7's reorder lemmas are proved on `Statement.reducing`, where the intro/elim lemmas live;
+`relatesTo` and `StrongRefinement` are stated on `LocalState'`. This is the bridge, and
+`Relation.lcomp₂.image` plus `LocalState.toLocalState'_inj` is all it takes — the injectivity being
+what stops the flattened composition from acquiring middle states the original never had. -/
+theorem Statement.reducing'_lcomp₂_congr {g₁ g₂ g₃ g₄ : Bool}
+    {S₁ : ComputableNetworkPlusCal.Statement g₁ false}
+    {S₂ : ComputableNetworkPlusCal.Statement g₂ false}
+    {T₁ : ComputableNetworkPlusCal.Statement g₃ false}
+    {T₂ : ComputableNetworkPlusCal.Statement g₄ false}
+    (h : Statement.reducing (V := V) S₁ ∘ᵣ₂ Statement.reducing S₂ =
+      Statement.reducing T₁ ∘ᵣ₂ Statement.reducing T₂) :
+    Statement.reducing' (V := V) S₁ ∘ᵣ₂ Statement.reducing' S₂ =
+      Statement.reducing' T₁ ∘ᵣ₂ Statement.reducing' T₂ := by
+  rw [Statement.reducing'_eq_map, Statement.reducing'_eq_map, Statement.reducing'_eq_map,
+    Statement.reducing'_eq_map, ← Relation.lcomp₂.image (LocalState.toLocalState'_inj (b := false)),
+    ← Relation.lcomp₂.image (LocalState.toLocalState'_inj (b := false)), h]
 
 theorem Block.reducing'_eq_map {g b : Bool}
     {B : Block (ComputableNetworkPlusCal.Statement g) b} :

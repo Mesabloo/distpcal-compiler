@@ -20,6 +20,10 @@ removed with `rm`. Both feed one index, so a single `q` surfaces all three kinds
 Mathlib is deliberately not indexed. That is what lean-lsp's Loogle and `lean_local_search` are
 for; this database answers "what has *this project* already proved".
 
+Query with the identifier as Lean spells it, Unicode and all — `q "Trace.τ"`, not `q "Trace.tau"`,
+and `∘ᵣ₂` rather than any transliteration. Names are matched as text, so an ASCII spelling of a
+Unicode identifier matches nothing and looks exactly like the lemma not existing.
+
 Output is one line per result on purpose: this exists to be cheaper than grepping the sources,
 and a result that wraps costs more to read than the lemma it found. `s` is where full statements
 live.

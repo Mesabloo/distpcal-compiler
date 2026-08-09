@@ -64,6 +64,8 @@ Vendored generic data-structure lemmas and instances.
   nothing, which is why `Seq` is a monoid and never cancellative — and `ωProduct`, the infinite
   product, with the `get?` lemmas characterizing it.
 - `Rel.lean` carries only what the *semantics* need: `∘ᵣ₁`/`∘ᵣ₂` and their unit `Relation.Idle`,
+  `Relation.lcomp₂.image` (an injective state relabelling commutes with composition — the bridge
+  between the `Bool`-indexed and flat encodings),
   `Monoid.partialProd`, the `OmegaProd` class, and the two iteration operators the three algorithm
   semantics are built from, `Relation.star` and `Relation.omega`.
   Anything whose only consumer is a refinement proof lives in `VerifiedCompiler/` instead, so that
@@ -287,7 +289,9 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Reorder.lean` — D5: `substGuardStmt`/`substGuards`/`consumptions` semantic equations,
   `evalSubstRef`/`abortsSubstRef` (the assignment-as-substitution transfer), `GuardFresh`, the
   reorder pair `reorder_assign_guard` (equation) / `reorder_assign_guard_abort` (inclusion), and
-  `reorder_assigns_guard`, the same against the whole accumulated assignment list.
+  `reorder_assigns_guard`, the same against the whole accumulated assignment list — and
+  `reorder_assign_guard'`/`reorder_assigns_guard'`, both in the flat encoding, where `relatesTo`
+  lives.
 - `Lemmas/Precondition.lean` — `processPrecondition`'s spec and `receive` elimination.
   `inboxVar`/`inboxRef`/`receiveInstrs`/`ReceiveFresh` (the pass's `receive` syntax and its side
   conditions), `receive_reducing_sim`/`receive_aborting_sim`, and `receive_refines` assembling them
@@ -299,7 +303,11 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   that the pass meets it) and `processPrecondition_walk`/`_none`. The walk's lemmas are `private`
   and reach the pass's own `private` `stepStatement`/`processPrecondition` through `import all` —
   the pass keeps its API narrow, the proof is allowed past it. Files above this one in the proof
-  chain need `import all` of *this* file in turn.
+  chain need `import all` of *this* file in turn. Plus `ConsumptionPairs`/`reorder_pairs_lenGt`,
+  the whole pending accumulator moved past one compiled guard; `Adjacent`, the adjacent ordering as
+  a relation (a relation and not a statement list, since it interleaves guard- and action-class
+  statements); and `Walk.reorder`, the equation saying the emitted and adjacent orderings *are* the
+  same relation — which is what keeps any refinement from ever being stated about a mid-walk state.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

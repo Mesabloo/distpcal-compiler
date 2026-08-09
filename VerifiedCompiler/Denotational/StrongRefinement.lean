@@ -56,13 +56,20 @@ namespace StrongRefinement
       (∃ (σₛ' : α) (ε' : εₛ), S σₛ' σₜ' ∧ Rτ ε' ε ∧ (σₛ, ε', σₛ') ∈ semₛ) ∨
       (∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ')
 
-  /-- Vertical composition. `T₂` bundles the second factor's trace relation with its left-totality
-  law — needed for the branch where the source aborts inside the *first* factor, so the target's
-  full trace (which ran both) still has to be matchable. -/
-  protected theorem Terminating.Comp {R S T : Rel α β} {Rτ₁ : Rel εₛ εₜ} [T₂ : Trace εₛ εₜ]
+  /-- Vertical composition. Concludes at `Rτ` itself: the proof naturally produces `Rτ ⊗ᵣ Rτ` — the
+  two factors' traces concatenate — and `Trace.rmul_self` says that is `Rτ` again. Running both
+  factors at the class rather than at two bare relations is what makes that collapse available;
+  the class's left-totality is needed anyway, for the branch where the source aborts inside the
+  *first* factor and the target's full trace still has to be matchable. -/
+  protected theorem Terminating.Comp {R S T : Rel α β} [T₂ : Trace εₛ εₜ]
       {semₛ semᵤ : Set (α × εₛ × α)} {semₛ' semᵤ' : Set (α × εₛ)} {semₜ semᵥ : Set (β × εₜ × β)} :
-      StrongRefinement.Terminating R S Rτ₁ semₛ semₛ' semₜ → StrongRefinement.Terminating S T T₂.Rτ semᵤ semᵤ' semᵥ →
-      StrongRefinement.Terminating R T (Rτ₁ ⊗ᵣ T₂.Rτ) (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₜ ∘ᵣ₂ semᵥ) := by
+      StrongRefinement.Terminating R S T₂.Rτ semₛ semₛ' semₜ →
+      StrongRefinement.Terminating S T T₂.Rτ semᵤ semᵤ' semᵥ →
+      StrongRefinement.Terminating R T T₂.Rτ (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ')
+        (semₜ ∘ᵣ₂ semᵥ) := by
+    intro ref_semₜ ref_semᵥ
+    rw [← Trace.rmul_self (T := T₂)]
+    revert ref_semₜ ref_semᵥ
     rintro ref_semₜ ref_semᵥ σₜ σᵥ'' ε σₛ σₛRσₜ ⟨σᵥ', ε₁, ε₂, red_σₜ_σᵥ', red_σᵥ'_σᵥ'', rfl⟩
     obtain ⟨σₛ', εₛ₁, σₛ'Rσᵥ', Rτ_εₛ₁_ε₁, sem_εₛ₁⟩|⟨εₛ₁, εₛ₁_scp_ε₁, semₛ'_εₛ₁⟩ :=
       ref_semₜ _ _ _ _ σₛRσₜ red_σₜ_σᵥ'
@@ -80,37 +87,34 @@ namespace StrongRefinement
       exists εₛ₁
       exact ⟨Trace.scPrefix_rmul_left T₂.Rτ_total εₛ₁_scp_ε₁, Or.inl semₛ'_εₛ₁⟩
 
-  omit [Monoid εₜ] in
-  /-- Monotone in both the state sets and the trace relation: `Rτ` occurs only positively in
-  `Terminating`'s conclusion, so widening it to a superset only weakens the statement, same as
-  widening the semantics sets. Both axes are needed together where a vertical composition's
-  natural relation (`Rτ₁ ⊗ᵣ Rτ₂` for `Terminating`) has to be widened to match the union
-  `Aborting`/`Diverging`'s composition actually produces (`StrongRefinement.Comp`) — there the set
-  hypotheses are trivial (`le_rfl`) and only the `Rτ` one does anything. -/
-  protected theorem Terminating.Mono {R S : Rel α β} {Rτ Rτ' : Rel εₛ εₜ}
+  /-- Monotone in the state sets. There is no trace-relation axis: `Rτ` occurs only positively in
+  the conclusion, so widening it would be sound, but after the composition lemmas moved onto `Trace`
+  nothing needs it — every caller was already passing the identity. -/
+  protected theorem Terminating.Mono {R S : Rel α β} [T : Trace εₛ εₜ]
     {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semₛ' : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)}
-    (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (hyp₃ : ∀ x y, Rτ x y → Rτ' x y) (concl : semᵤ ≤ semₜ) :
-      StrongRefinement.Terminating R S Rτ semₛ semₛ' semₜ ≤ StrongRefinement.Terminating R S Rτ' semᵣ semᵣ' semᵤ := by
+    (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (concl : semᵤ ≤ semₜ) :
+      StrongRefinement.Terminating R S T.Rτ semₛ semₛ' semₜ ≤
+        StrongRefinement.Terminating R S T.Rτ semᵣ semᵣ' semᵤ := by
     intros ref σᵤ σᵤ' ε σᵣ' R_σᵣ'_σᵤ' sem_σᵤ'
     obtain ⟨σₛ', ε', R_σₛ'_σᵤ', Rτ_ε'_ε, sem_σₛ'⟩|⟨ε', ε'_scp_ε, sem_σₛ'⟩ :=
       ref _ _ ε _ R_σᵣ'_σᵤ' (Set.mem_of_subset_of_mem concl sem_σᵤ')
-    · left
-      exact ⟨σₛ', ε', R_σₛ'_σᵤ', hyp₃ _ _ Rτ_ε'_ε, Set.mem_of_subset_of_mem hyp₁ sem_σₛ'⟩
-    · right
-      exact ⟨ε', Trace.scPrefix_mono hyp₃ ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
+    · exact Or.inl ⟨σₛ', ε', R_σₛ'_σᵤ', Rτ_ε'_ε, Set.mem_of_subset_of_mem hyp₁ sem_σₛ'⟩
+    · exact Or.inr ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
 
-  protected theorem Terminating.Id {X} :
-      StrongRefinement.Terminating R R (Eq (α := εₛ)) {(x, ε, y) : α × εₛ × α | x = y ∧ ε = Trace.τ} X
-        {(x, ε, y) | x = y ∧ ε = Trace.τ} := by
+  /-- Doing nothing refines doing nothing. Runs at the canonical `Trace.Rτ` rather than at `Eq` or
+  at a bare relation plus a side condition: the single law the identity transition needs is
+  `Rτ_one`, which is one of the class's, and every use of this lemma is alongside the composition
+  lemmas that take the class anyway. -/
+  protected theorem Terminating.Id [T : Trace εₛ εₜ] {X} :
+      StrongRefinement.Terminating R R T.Rτ Relation.Idle X Relation.Idle := by
     rintro σₜ σₜ' ε σₛ σₛRσₜ ⟨rfl, rfl⟩
     left
-    exact ⟨σₛ, Trace.τ, σₛRσₜ, rfl, rfl, rfl⟩
+    exact ⟨σₛ, 1, σₛRσₜ, T.Rτ_one, rfl, rfl⟩
 
-  omit [Monoid εₜ] in
-  protected theorem Terminating.sup {R S : Rel α β} {Rτ : Rel εₛ εₜ} {A : Set (Set (α × εₛ × α))}
+  protected theorem Terminating.sup {R S : Rel α β} [T : Trace εₛ εₜ] {A : Set (Set (α × εₛ × α))}
     {B : Set (Set (β × εₜ × β))} {C : Set (Set (α × εₛ))}
-    (sup : ∀ y ∈ B, ∃ x ∈ A, ∃ z ∈ C, StrongRefinement.Terminating R S Rτ x z y) :
-      StrongRefinement.Terminating R S Rτ (⋃₀ A) (⋃₀ C) (⋃₀ B) := by
+    (sup : ∀ y ∈ B, ∃ x ∈ A, ∃ z ∈ C, StrongRefinement.Terminating R S T.Rτ x z y) :
+      StrongRefinement.Terminating R S T.Rτ (⋃₀ A) (⋃₀ C) (⋃₀ B) := by
     rintro σₜ σₜ' ε σₛ R_σₛ_σₜ sem_σₜ_σₜ'
 
     rw [Set.mem_sUnion] at sem_σₜ_σₜ'
@@ -124,17 +128,16 @@ namespace StrongRefinement
       exists ε', ε'_scp_ε
       exact Set.mem_sUnion_of_mem abortₛ_σₛ abortₛ_in_C
 
-  omit [Monoid εₜ] in
   /-- Binary union on both sides, the `Diverging.union` shape at `Terminating`. The aborting set is
   shared and the summands are paired positionally, so there is nothing to choose: each disjunct is
   discharged by its own refinement. `Terminating.sup` is the `⋃₀` generalization, where every target
   summand picks its own source and aborting sets instead; this is its two-element special case, kept
   separate because the positional pairing is what a union-shaped semantics actually wants. -/
-  protected theorem Terminating.union {R S : Rel α β} {Rτ : Rel εₛ εₜ}
+  protected theorem Terminating.union {R S : Rel α β} [T : Trace εₛ εₜ]
       {Aₛ Bₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ × β)}
-      (h₁ : StrongRefinement.Terminating R S Rτ Aₛ semₛ' Aₜ)
-      (h₂ : StrongRefinement.Terminating R S Rτ Bₛ semₛ' Bₜ) :
-        StrongRefinement.Terminating R S Rτ (Aₛ ∪ Bₛ) semₛ' (Aₜ ∪ Bₜ) := by
+      (h₁ : StrongRefinement.Terminating R S T.Rτ Aₛ semₛ' Aₜ)
+      (h₂ : StrongRefinement.Terminating R S T.Rτ Bₛ semₛ' Bₜ) :
+        StrongRefinement.Terminating R S T.Rτ (Aₛ ∪ Bₛ) semₛ' (Aₜ ∪ Bₜ) := by
     rintro σₜ σₜ' ε σₛ hR (hmem|hmem)
     · obtain ⟨σₛ', ε', hS, hRτ, h⟩|⟨ε', hscp, h⟩ := h₁ σₜ σₜ' ε σₛ hR hmem
       · exact Or.inl ⟨σₛ', ε', hS, hRτ, Or.inl h⟩
@@ -228,12 +231,15 @@ namespace StrongRefinement
   `Rτ₁`-relatedness has to survive as-is (via `Or.inl`) rather than being forced through a
   repackaging that would need `T₂.Rτ` to relate the empty trace to itself. Only the sequenced
   branch (`Or.inr`) needs `T₂`'s left-totality, same reason as `Terminating.Comp`. -/
-  protected theorem Diverging.Comp {R} {Rτ₁ : Rel εₛ εₜ} [T₂ : Trace εₛ εₜ]
+  protected theorem Diverging.Comp {R} [T₂ : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semᵤ' semᵤ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ'' semᵥ'' : Set (β × εₜ)} :
-      StrongRefinement.Diverging R Rτ₁ semₛ'' semₛ' semₜ'' →
+      StrongRefinement.Diverging R T₂.Rτ semₛ'' semₛ' semₜ'' →
       StrongRefinement.Diverging R T₂.Rτ semᵤ'' semᵤ' semᵥ'' →
-      StrongRefinement.Terminating R R Rτ₁ semₛ semₛ' semₜ →
-      StrongRefinement.Diverging R (Rτ₁ ⊔ Rτ₁ ⊗ᵣ T₂.Rτ) (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') := by
+      StrongRefinement.Terminating R R T₂.Rτ semₛ semₛ' semₜ →
+      StrongRefinement.Diverging R T₂.Rτ (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') := by
+    intro ref₁ ref₂ ref₃
+    rw [← Trace.sup_rmul_self (T := T₂)]
+    revert ref₁ ref₂ ref₃
     rintro ref₁ ref₂ ref₃ σₜ ε σₛ R_σₛ_σₜ (semₜ''_σₜ|⟨σₜ', ε₁, ε₂, semₜ_σₜ_σₜ', semᵥ''_σₜ', rfl⟩)
     · obtain ⟨εₛ₁, Rτ_εₛ₁_ε, semₛ''_εₛ₁⟩|⟨εₛ₁, εₛ₁_scp_ε, semₛ'_εₛ₁⟩ := ref₁ _ _ _ R_σₛ_σₜ semₜ''_σₜ
       · left
@@ -255,11 +261,11 @@ namespace StrongRefinement
         exists εₛ₁
         refine ⟨Trace.scPrefix_mono (λ _ _ ↦ Or.inr) (Trace.scPrefix_rmul_left T₂.Rτ_total εₛ₁_scp_ε₁), Or.inl semₛ'_εₛ₁⟩
 
-  omit [Monoid εₜ] in
-  protected theorem Diverging.Mono {R} {Rτ : Rel εₛ εₜ}
+  protected theorem Diverging.Mono {R} [T : Trace εₛ εₜ]
     {semᵣ'' semᵣ' semₛ'' semₛ' : Set (α × εₛ)} {semₜ'' semᵤ'' : Set (β × εₜ)}
     (hyp₁ : semₛ'' ≤ semᵣ'') (hyp₂ : semₛ' ≤ semᵣ') (concl : semᵤ'' ≤ semₜ'') :
-      StrongRefinement.Diverging R Rτ semₛ'' semₛ' semₜ'' ≤ StrongRefinement.Diverging R Rτ semᵣ'' semᵣ' semᵤ'' := by
+      StrongRefinement.Diverging R T.Rτ semₛ'' semₛ' semₜ'' ≤
+        StrongRefinement.Diverging R T.Rτ semᵣ'' semᵣ' semᵤ'' := by
     intros ref σᵤ' ε σᵣ' R_σᵣ'_σᵤ' sem_σᵤ''
     obtain ⟨ε', Rτ_ε'_ε, sem_σₛ''⟩|⟨ε', ε'_scp_ε, sem_σₛ'⟩ :=
       ref _ ε _ R_σᵣ'_σᵤ' (Set.mem_of_subset_of_mem concl sem_σᵤ'')
@@ -268,9 +274,8 @@ namespace StrongRefinement
     · right
       exact ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
 
-  omit [Monoid εₜ] in
-  protected theorem Diverging.Empty {Rτ : Rel εₛ εₜ} {semₛ'' semₛ' : Set (α × εₛ)} :
-      StrongRefinement.Diverging R Rτ semₛ'' semₛ' ∅ := by
+  protected theorem Diverging.Empty [T : Trace εₛ εₜ] {semₛ'' semₛ' : Set (α × εₛ)} :
+      StrongRefinement.Diverging R T.Rτ semₛ'' semₛ' ∅ := by
     rintro _ _ _ _ (_|_)
 
   /-- Divergence refinement for `R^∞`, the replacement for `Diverging.gfp`'s coinduction.
@@ -447,14 +452,13 @@ namespace StrongRefinement
         apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
         apply Trace.scPrefix_rmul_left T.Rτ_total hea
 
-  omit [Monoid εₜ] in
   /-- Binary union on both sides. The aborting set is shared, so unlike `Terminating.sup` there is
   nothing to choose: each disjunct is discharged by its own refinement. -/
-  protected theorem Diverging.union {R : Rel α β} {Rτ : Rel εₛ εₜ}
+  protected theorem Diverging.union {R : Rel α β} [T : Trace εₛ εₜ]
       {Aₛ Bₛ semₛ' : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
-      (h₁ : StrongRefinement.Diverging R Rτ Aₛ semₛ' Aₜ)
-      (h₂ : StrongRefinement.Diverging R Rτ Bₛ semₛ' Bₜ) :
-        StrongRefinement.Diverging R Rτ (Aₛ ∪ Bₛ) semₛ' (Aₜ ∪ Bₜ) := by
+      (h₁ : StrongRefinement.Diverging R T.Rτ Aₛ semₛ' Aₜ)
+      (h₂ : StrongRefinement.Diverging R T.Rτ Bₛ semₛ' Bₜ) :
+        StrongRefinement.Diverging R T.Rτ (Aₛ ∪ Bₛ) semₛ' (Aₜ ∪ Bₜ) := by
     rintro σₜ ε σₛ hR (hmem|hmem)
     · obtain ⟨ε', hRτ, h⟩|⟨ε', hscp, h⟩ := h₁ σₜ ε σₛ hR hmem
       · exact Or.inl ⟨ε', hRτ, Or.inl h⟩
@@ -504,42 +508,39 @@ namespace StrongRefinement
   protected def Aborting (semₛ' : Set (α × εₛ)) (semₜ' : Set (β × εₜ)) : Prop :=
     ∀ (σₜ : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ' → ∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ'
 
-  omit [Monoid εₜ] in
   /-- An abort *is* a divergence that always takes the aborting branch. The reducing set is
   unconstrained because that branch never mentions it; `hle` places the witness in whichever
   aborting set the diverging statement carries, which is rarely the same one. -/
-  protected theorem Aborting.toDiverging {R : Rel α β} {Rτ : Rel εₛ εₜ}
+  protected theorem Aborting.toDiverging {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ semₛ' semₛ'' : Set (α × εₛ)} {semₜ' : Set (β × εₜ)}
-      (h : StrongRefinement.Aborting R Rτ semₛ' semₜ') (hle : semₛ' ≤ semₛ'') :
-        StrongRefinement.Diverging R Rτ semₛ semₛ'' semₜ' := by
+      (h : StrongRefinement.Aborting R T.Rτ semₛ' semₜ') (hle : semₛ' ≤ semₛ'') :
+        StrongRefinement.Diverging R T.Rτ semₛ semₛ'' semₜ' := by
     intro σₜ ε σₛ hR hmem
     obtain ⟨ε', hscp, h'⟩ := h σₜ ε σₛ hR hmem
     exact Or.inr ⟨ε', hscp, hle h'⟩
 
-  omit [Monoid εₜ] in
   /-- The converse, when the two source sets coincide: with nowhere else for the matched branch to
   land, `Rτ ε' ε` weakens to `ε' ≼[Rτ] ε` and the disjunction collapses. -/
-  protected theorem Diverging.toAborting {R : Rel α β} {Rτ : Rel εₛ εₜ} {semₛ' : Set (α × εₛ)}
-      {semₜ' : Set (β × εₜ)} (h : StrongRefinement.Diverging R Rτ semₛ' semₛ' semₜ') :
-        StrongRefinement.Aborting R Rτ semₛ' semₜ' := by
+  protected theorem Diverging.toAborting {R : Rel α β} [T : Trace εₛ εₜ] {semₛ' : Set (α × εₛ)}
+      {semₜ' : Set (β × εₜ)} (h : StrongRefinement.Diverging R T.Rτ semₛ' semₛ' semₜ') :
+        StrongRefinement.Aborting R T.Rτ semₛ' semₜ' := by
     intro σₜ ε σₛ hR hmem
     obtain ⟨ε', hRτ, h'⟩|⟨ε', hscp, h'⟩ := h σₜ ε σₛ hR hmem
     · exact ⟨ε', Trace.scPrefix_of hRτ, h'⟩
     · exact ⟨ε', hscp, h'⟩
 
-  omit [Monoid εₜ] in
   /-- Horizontal composition, through an intermediate language with trace type `εₘ`. Needs `Rτ₁`
   (the first leg) both left-total and closed — bundled as `T₁ : Trace εₛ εₘ` — per
   `Trace.scPrefix_rcomp`. The second leg's `Rτ₂` needs nothing. -/
   protected theorem Terminating.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ S₁ : Rel α β} {R₂ S₂ : Rel β γ}
-    [T₁ : Trace εₛ εₘ] {Rτ₂ : Rel εₘ εₜ}
+    [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
     {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)}
     {semₜ : Set (β × εₘ × β)} {semₜ' : Set (β × εₘ)}
     {semᵤ : Set (γ × εₜ × γ)} :
       StrongRefinement.Terminating R₁ S₁ T₁.Rτ semₛ semₛ' semₜ →
       StrongRefinement.Aborting R₁ T₁.Rτ semₛ' semₜ' →
-      StrongRefinement.Terminating R₂ S₂ Rτ₂ semₜ semₜ' semᵤ →
-      StrongRefinement.Terminating (Relation.Comp R₁ R₂) (Relation.Comp S₁ S₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ semₛ' semᵤ := by
+      StrongRefinement.Terminating R₂ S₂ T₂.Rτ semₜ semₜ' semᵤ →
+      StrongRefinement.Terminating (Relation.Comp R₁ R₂) (Relation.Comp S₁ S₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ semₛ' semᵤ := by
     rintro ref₁ ref₂ ref₃ σᵤ σᵤ' ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ semᵤ_σᵤ_σᵤ'
     obtain ⟨σₜ', εₘ', S₂_σₜ'_σᵤ', Rτ₂_εₘ'_ε, semₜ_σₜ_σₜ'⟩|⟨εₘ', εₘ'_scp_ε, semₜ'_σₜ⟩ :=
       ref₃ _ _ _ _ R₂_σₜ_σᵤ semᵤ_σᵤ_σᵤ'
@@ -553,15 +554,14 @@ namespace StrongRefinement
       right
       exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, semₛ'_σₛ⟩
 
-  omit [Monoid εₜ] in
   /-- Horizontal composition. Same `scPrefix_rcomp` shape as `Terminating.Trans`: only the first
   leg's `Rτ₁` (bundled as `T₁`) needs laws. -/
-  protected theorem Diverging.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] {Rτ₂ : Rel εₘ εₜ}
+  protected theorem Diverging.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
     {semₛ'' semₛ' : Set (α × εₛ)} {semₜ'' semₜ' : Set (β × εₘ)} {semᵤ'' : Set (γ × εₜ)} :
       StrongRefinement.Diverging R₁ T₁.Rτ semₛ'' semₛ' semₜ'' →
       StrongRefinement.Aborting R₁ T₁.Rτ semₛ' semₜ' →
-      StrongRefinement.Diverging R₂ Rτ₂ semₜ'' semₜ' semᵤ'' →
-      StrongRefinement.Diverging (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ'' semₛ' semᵤ'' := by
+      StrongRefinement.Diverging R₂ T₂.Rτ semₜ'' semₜ' semᵤ'' →
+      StrongRefinement.Diverging (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ'' semₛ' semᵤ'' := by
     rintro ref₁ ref₂ ref₃ σᵤ ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ semᵤ''_σᵤ
     obtain ⟨εₘ', Rτ₂_εₘ'_ε, semₜ''_σₜ⟩|⟨εₘ', εₘ'_scp_ε, semₜ'_σₜ⟩ := ref₃ _ ε _ R₂_σₜ_σᵤ semᵤ''_σᵤ
     · obtain ⟨εₛ', Rτ₁_εₛ'_εₘ', semₛ''_σₛ⟩|⟨εₛ', εₛ'_scp_εₘ', semₛ'_σₛ⟩ := ref₁ _ εₘ' _ R₁_σₛ_σₜ semₜ''_σₜ
@@ -573,15 +573,18 @@ namespace StrongRefinement
       right
       exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, semₛ'_σₛ⟩
 
-  /-- Vertical composition. Same union shape as `Diverging.Comp`, for the same reason: the first
-  branch (abort directly in the first factor) never reaches the second, so `Rτ₁`'s relatedness
-  survives as-is instead of being forced through `⊗ᵣ`. -/
-  protected theorem Aborting.Comp {R} {Rτ₁ : Rel εₛ εₜ} [T₂ : Trace εₛ εₜ]
+  /-- Vertical composition. The proof produces the union `Rτ ⊔ Rτ ⊗ᵣ Rτ` — the first branch is an
+  abort inside the first factor, which never reaches the second, so its relatedness survives as-is
+  rather than being forced through `⊗ᵣ` — and `Trace.sup_rmul_self` collapses that back to `Rτ`. -/
+  protected theorem Aborting.Comp {R} [T₂ : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ' semᵤ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' semᵥ' : Set (β × εₜ)} :
-      StrongRefinement.Aborting R Rτ₁ semₛ' semₜ' →
+      StrongRefinement.Aborting R T₂.Rτ semₛ' semₜ' →
       StrongRefinement.Aborting R T₂.Rτ semᵤ' semᵥ' →
-      StrongRefinement.Terminating R R Rτ₁ semₛ semₛ' semₜ →
-      StrongRefinement.Aborting R (Rτ₁ ⊔ Rτ₁ ⊗ᵣ T₂.Rτ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') := by
+      StrongRefinement.Terminating R R T₂.Rτ semₛ semₛ' semₜ →
+      StrongRefinement.Aborting R T₂.Rτ (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') := by
+    intro ref₁ ref₂ ref₃
+    rw [← Trace.sup_rmul_self (T := T₂)]
+    revert ref₁ ref₂ ref₃
     rintro ref₁ ref₂ ref₃ σₜ ε σₛ R_σₛ_σₜ (sem|⟨σₜ', ε₁, ε₂, sem₁, sem₂, rfl⟩)
     · obtain ⟨ε', ε'_scp_ε, sem'⟩ := ref₁ _ _ _ R_σₛ_σₜ sem
       exact ⟨ε', Trace.scPrefix_mono (λ _ _ ↦ Or.inl) ε'_scp_ε, Or.inl sem'⟩
@@ -592,36 +595,33 @@ namespace StrongRefinement
         exists σₛ', εₛ₁, εₛ₂
       · exact ⟨εₛ₁, Trace.scPrefix_mono (λ _ _ ↦ Or.inr) (Trace.scPrefix_rmul_left T₂.Rτ_total εₛ₁_scp_ε₁), Or.inl semₛ'_εₛ₁⟩
 
-  omit [Monoid εₜ] in
   /-- Horizontal composition. Same `scPrefix_rcomp` shape as `Terminating.Trans`. -/
-  protected theorem Aborting.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] {Rτ₂ : Rel εₘ εₜ}
+  protected theorem Aborting.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
     {semₛ' : Set (α × εₛ)} {semₜ' : Set (β × εₘ)} {semᵤ' : Set (γ × εₜ)} :
       StrongRefinement.Aborting R₁ T₁.Rτ semₛ' semₜ' →
-      StrongRefinement.Aborting R₂ Rτ₂ semₜ' semᵤ' →
-      StrongRefinement.Aborting (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ' semᵤ' := by
+      StrongRefinement.Aborting R₂ T₂.Rτ semₜ' semᵤ' →
+      StrongRefinement.Aborting (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ' semᵤ' := by
     rintro ref₁ ref₂ σᵤ ε σₛ ⟨σₜ, R₁_σₛ_σₜ, R₂_σₜ_σᵤ⟩ sem_σᵤ
     obtain ⟨εₘ', εₘ'_scp_ε, sem_σₜ⟩ := ref₂ σᵤ ε σₜ R₂_σₜ_σᵤ sem_σᵤ
     obtain ⟨εₛ', εₛ'_scp_εₘ', sem_σₛ⟩ := ref₁ σₜ εₘ' σₛ R₁_σₛ_σₜ sem_σₜ
     exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, sem_σₛ⟩
 
-  omit [Monoid εₜ] in
-  protected theorem Aborting.Mono {R} {Rτ : Rel εₛ εₜ}
+  protected theorem Aborting.Mono {R} [T : Trace εₛ εₜ]
     {semᵣ' semₛ' : Set (α × εₛ)} {semₜ' semᵤ' : Set (β × εₜ)}
     (hyp : semₛ' ≤ semᵣ') (concl : semᵤ' ≤ semₜ') :
-      StrongRefinement.Aborting R Rτ semₛ' semₜ' ≤ StrongRefinement.Aborting R Rτ semᵣ' semᵤ' := by
+      StrongRefinement.Aborting R T.Rτ semₛ' semₜ' ≤
+        StrongRefinement.Aborting R T.Rτ semᵣ' semᵤ' := by
     intros ref σᵤ' ε σᵣ' R_σᵣ'_σᵤ' sem_σᵤ'
     obtain ⟨ε', ε'_scp_ε, sem_σₛ'⟩ := ref _ _ _ R_σᵣ'_σᵤ' (Set.mem_of_subset_of_mem concl sem_σᵤ')
     exact ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp sem_σₛ'⟩
 
-  omit [Monoid εₜ] in
-  protected theorem Aborting.Empty {Rτ : Rel εₛ εₜ} {semₛ' : Set (α × εₛ)} :
-      StrongRefinement.Aborting R Rτ semₛ' ∅ := by
+  protected theorem Aborting.Empty [T : Trace εₛ εₜ] {semₛ' : Set (α × εₛ)} :
+      StrongRefinement.Aborting R T.Rτ semₛ' ∅ := by
     rintro _ _ _ _ (_|_)
 
-  omit [Monoid εₜ] in
-  protected theorem Aborting.sup {Rτ : Rel εₛ εₜ} {A : Set (Set (α × εₛ))} {B}
-    (sup : ∀ y ∈ B, ∃ x ∈ A, StrongRefinement.Aborting R Rτ x y) :
-      StrongRefinement.Aborting R Rτ (⋃₀ A) (⋃₀ B) := by
+  protected theorem Aborting.sup [T : Trace εₛ εₜ] {A : Set (Set (α × εₛ))} {B}
+    (sup : ∀ y ∈ B, ∃ x ∈ A, StrongRefinement.Aborting R T.Rτ x y) :
+      StrongRefinement.Aborting R T.Rτ (⋃₀ A) (⋃₀ B) := by
     intros σₜ ε σₛ R_σₛ_σₜ sem_σₜ
 
     rw [Set.mem_sUnion] at sem_σₜ
@@ -631,17 +631,16 @@ namespace StrongRefinement
     exists ε', ε'_scp_ε
     exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_A
 
-  omit [Monoid εₜ] in
   /-- Binary union on both sides, the `Diverging.union` shape at `Aborting`. Simplest of the three:
   `Aborting` carries no second source set, so there is nothing to share and nothing to choose —
   each disjunct is discharged by its own refinement, and the witness is injected back into the
   summand it came from. `Aborting.sup` is the `⋃₀` generalization, where every target summand picks
   its own source set instead; this is its two-element special case with positional pairing. -/
-  protected theorem Aborting.union {R} {Rτ : Rel εₛ εₜ}
+  protected theorem Aborting.union {R} [T : Trace εₛ εₜ]
       {Aₛ Bₛ : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
-      (h₁ : StrongRefinement.Aborting R Rτ Aₛ Aₜ)
-      (h₂ : StrongRefinement.Aborting R Rτ Bₛ Bₜ) :
-        StrongRefinement.Aborting R Rτ (Aₛ ∪ Bₛ) (Aₜ ∪ Bₜ) := by
+      (h₁ : StrongRefinement.Aborting R T.Rτ Aₛ Aₜ)
+      (h₂ : StrongRefinement.Aborting R T.Rτ Bₛ Bₜ) :
+        StrongRefinement.Aborting R T.Rτ (Aₛ ∪ Bₛ) (Aₜ ∪ Bₜ) := by
     rintro σₜ ε σₛ hR (hmem|hmem)
     · obtain ⟨ε', hscp, h⟩ := h₁ σₜ ε σₛ hR hmem
       exact ⟨ε', hscp, Or.inl h⟩
@@ -697,32 +696,30 @@ structure StrongRefinement {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] 
 namespace StrongRefinement
   variable {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R S : Rel α β)
 
-  /-- Vertical composition. `T₂` bundles the second operand's trace relation with its
-  left-totality law. `Terminating`'s natural result `Rτ₁ ⊗ᵣ T₂.Rτ` gets widened via
-  `Terminating.Rτ_mono` to match the union `Aborting`/`Diverging` produce — see their doc
-  comments for why the union is unavoidable there. -/
-  protected theorem Comp [T₂ : Trace εₛ εₜ] {Rτ₁ : Rel εₛ εₜ}
+  /-- Vertical composition, at the trace relation both operands already run at. Each component's
+  own `Comp` absorbs the `⊗ᵣ`/`⊔` its proof produces (`Trace.rmul_self`, `Trace.sup_rmul_self`), so
+  nothing is left for a caller to repair — composing a chain of refinements stays at `Rτ` however
+  long the chain is. -/
+  protected theorem Comp [T₂ : Trace εₛ εₜ]
     {semₛ semᵤ : Set (α × εₛ × α)} {semₛ' semₛ'' semᵤ' semᵤ'' : Set (α × εₛ)} {semₜ semᵥ : Set (β × εₜ × β)} {semₜ' semₜ'' semᵥ' semᵥ'' : Set (β × εₜ)} :
-      StrongRefinement R Rτ₁ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' →
+      StrongRefinement R T₂.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' →
       StrongRefinement R T₂.Rτ semᵤ semᵤ' semᵤ'' semᵥ semᵥ' semᵥ'' →
-      StrongRefinement R (Rτ₁ ⊔ Rτ₁ ⊗ᵣ T₂.Rτ) (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₜ ∘ᵣ₂ semᵥ) (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') := by
+      StrongRefinement R T₂.Rτ (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₜ ∘ᵣ₂ semᵥ) (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') := by
     rintro ⟨t₁, a₁, d₁⟩ ⟨t₂, a₂, d₂⟩
-    constructor
-    · exact Terminating.Mono le_rfl le_rfl (λ _ _ ↦ Or.inr) le_rfl (Terminating.Comp t₁ t₂)
-    · exact Aborting.Comp a₁ a₂ t₁
-    · exact Diverging.Comp d₁ d₂ t₁
+    exact ⟨Terminating.Comp t₁ t₂, Aborting.Comp a₁ a₂ t₁, Diverging.Comp d₁ d₂ t₁⟩
 
-  protected theorem ofNonDiverging {Rτ : Rel εₛ εₜ} {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' : Set (β × εₜ)}
-    (h₁ : StrongRefinement.Terminating R R Rτ semₛ semₛ' semₜ) (h₂ : StrongRefinement.Aborting R Rτ semₛ' semₜ') :
-      StrongRefinement R Rτ semₛ semₛ' semₛ'' semₜ semₜ' ∅ := by
+  protected theorem ofNonDiverging [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' : Set (β × εₜ)}
+    (h₁ : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ)
+    (h₂ : StrongRefinement.Aborting R T.Rτ semₛ' semₜ') :
+      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ semₜ' ∅ := by
     constructor
     · assumption
     · assumption
     · apply Diverging.Empty
 
-  protected theorem ofTerminating {Rτ : Rel εₛ εₜ} {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
-    (h : StrongRefinement.Terminating R R Rτ semₛ semₛ' semₜ) :
-      StrongRefinement R Rτ semₛ semₛ' semₛ'' semₜ ∅ ∅ := by
+  protected theorem ofTerminating [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
+    (h : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ) :
+      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ ∅ ∅ := by
     constructor
     · assumption
     · apply Aborting.Empty
@@ -731,26 +728,27 @@ namespace StrongRefinement
   /-- Horizontal composition. `T₁` bundles the first operand's trace relation with both its laws,
   needed by `Terminating.Trans`/`Aborting.Trans`/`Diverging.Trans` alike. No union needed here,
   unlike `Comp`: every execution genuinely passes through the intermediate language. -/
-  protected theorem Trans {γ} {εₘ : Type _} [Monoid εₘ] [T₁ : Trace εₛ εₘ] {R₁ R₂} {Rτ₂ : Rel εₘ εₜ}
+  protected theorem Trans {γ} {εₘ : Type _} [Monoid εₘ] [T₁ : Trace εₛ εₘ] {R₁ R₂} [T₂ : Trace εₘ εₜ]
     {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)}
     {semₜ : Set (β × εₘ × β)} {semₜ' semₜ'' : Set (β × εₘ)}
     {semᵤ : Set (γ × εₜ × γ)} {semᵤ' semᵤ'' : Set (γ × εₜ)} :
       StrongRefinement R₁ T₁.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' →
-      StrongRefinement R₂ Rτ₂ semₜ semₜ' semₜ'' semᵤ semᵤ' semᵤ'' →
-      StrongRefinement (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ Rτ₂) semₛ semₛ' semₛ'' semᵤ semᵤ' semᵤ'' := by
+      StrongRefinement R₂ T₂.Rτ semₜ semₜ' semₜ'' semᵤ semᵤ' semᵤ'' →
+      StrongRefinement (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ semₛ' semₛ'' semᵤ semᵤ' semᵤ'' := by
     rintro ⟨ref₁_red, ref₁_abort, ref₁_div⟩ ⟨ref₂_red, ref₂_abort, ref₂_div⟩
     constructor
     · exact Terminating.Trans ref₁_red ref₁_abort ref₂_red
     · exact Aborting.Trans ref₁_abort ref₂_abort
     · exact Diverging.Trans ref₁_div ref₁_abort ref₂_div
 
-  protected theorem Mono {R} {Rτ : Rel εₛ εₜ}
+  protected theorem Mono {R} [T : Trace εₛ εₜ]
     {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semᵣ'' semₛ' semₛ'' : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)} {semₜ' semₜ'' semᵤ' semᵤ'' : Set (β × εₜ)}
     (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (hyp₃ : semₛ'' ≤ semᵣ'') (concl₁ : semᵤ ≤ semₜ) (concl₂ : semᵤ' ≤ semₜ') (concl₃ : semᵤ'' ≤ semₜ'') :
-      StrongRefinement R Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' ≤ StrongRefinement R Rτ semᵣ semᵣ' semᵣ'' semᵤ semᵤ' semᵤ'' := by
+      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' ≤
+        StrongRefinement R T.Rτ semᵣ semᵣ' semᵣ'' semᵤ semᵤ' semᵤ'' := by
     rintro ⟨ref₁, ref₂, ref₃⟩
     constructor
-    · apply Terminating.Mono hyp₁ hyp₂ (λ _ _ ↦ id) concl₁ ref₁
+    · apply Terminating.Mono hyp₁ hyp₂ concl₁ ref₁
     · apply Aborting.Mono hyp₂ concl₂ ref₂
     · apply Diverging.Mono hyp₃ hyp₂ concl₃ ref₃
 

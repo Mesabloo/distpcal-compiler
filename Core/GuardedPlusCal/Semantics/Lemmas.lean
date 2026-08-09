@@ -754,6 +754,59 @@ implicit because it is what lets a statement-level refinement be discharged by
   · exact hd.elim
   · exact hd.elim
 
+/-! `Statement.listReducing'`/`.listAborting'`/`.listDiverging'` — the flat-encoding list forms, the
+twins of `NetworkPlusCal`'s. Item 7 relates a *list* of source guards to a target composite, so the
+source needs the same shape the target has. -/
+
+@[inherit_doc Statement.reducing']
+def Statement.listReducing' {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+    Set (LocalState' V × Trace V × LocalState' V) :=
+  Block.listReducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') A
+
+@[inherit_doc Statement.reducing']
+def Statement.listAborting' {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+    Set (LocalState' V × Trace V) :=
+  Block.listAborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+    (λ ⦃_⦄ ↦ Statement.reducing') A
+
+@[inherit_doc Statement.reducing']
+def Statement.listDiverging' {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+    Set (LocalState' V × Trace V) :=
+  Block.listAborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+    (λ ⦃_⦄ ↦ Statement.reducing') A
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listReducing'_nil {g : Bool} :
+    Statement.listReducing' (V := V) (g := g) [] = Relation.Idle := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listReducing'_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
+    {A : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listReducing' (V := V) (S :: A) =
+      Statement.reducing' S ∘ᵣ₂ Statement.listReducing' A := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listAborting'_nil {g : Bool} :
+    Statement.listAborting' (V := V) (g := g) [] = ∅ := rfl
+
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listAborting'_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
+    {A : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listAborting' (V := V) (S :: A) =
+      Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
+
+/-- No *list* of statements diverges either — `Statement.diverging'_eq_empty` propagated through the
+fold. What makes a block-level refinement's diverging component `StrongRefinement.Diverging.Empty`
+rather than an argument. -/
+@[simp] theorem Statement.listDiverging'_eq_empty {g : Bool}
+    {A : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listDiverging' (V := V) A = ∅ := by
+  induction A with
+  | nil => rfl
+  | cons S A IH =>
+    show Statement.diverging' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listDiverging' A = ∅
+    rw [Statement.diverging'_eq_empty, IH, Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
+
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableGuardedPlusCal.Statement b b') :
     Statement.reducing' (V := V) S =

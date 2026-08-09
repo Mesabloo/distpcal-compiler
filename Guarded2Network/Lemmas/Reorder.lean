@@ -339,6 +339,48 @@ theorem reorder_assigns_guard
       Relation.lcomp₂.assoc, reorder_assign_guard (fresh a List.mem_cons_self).substGuards,
       ← Relation.lcomp₂.assoc, substGuards_cons]
 
+/-- An `await` binds nothing, so nothing can clash with it. `GuardFresh`'s whole content is about a
+`with`'s binder; on the other guard constructor it holds outright. -/
+theorem GuardFresh.await {r : ComputableGuardedPlusCal.Ref} {rhs e : ComputablePlusCal.Expression} :
+    GuardFresh r rhs (.await e) := by
+  intro _ _ _ _ h
+  nomatch h
+
+/-- `reorder_assign_guard` in the flat encoding, where `relatesTo` lives. Content-free — the two
+statements are the same fact, `Statement.reducing'_lcomp₂_congr` carries it across. -/
+theorem reorder_assign_guard' {r : ComputableGuardedPlusCal.Ref}
+    {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : GuardFresh r rhs S) :
+    NetworkPlusCal.Statement.reducing' (V := V) (.assign r rhs) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing' S =
+      NetworkPlusCal.Statement.reducing' (substGuardStmt r rhs S) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing' (V := V) (.assign r rhs) :=
+  NetworkPlusCal.Statement.reducing'_lcomp₂_congr (reorder_assign_guard fresh)
+
+/-- `reorder_assigns_guard` in the flat encoding. The list induction is redone rather than
+transported: the unprimed-to-primed bridge is stated for a *composition of two statements*, and a
+list has no such shape at its `nil` end — `Relation.Idle` on `LocalState'` relates states carrying a
+label, which no image of an unprimed relation ever does. Each *step* of the induction does have the
+shape, which is why this proof is the unprimed one verbatim with `reorder_assign_guard'` swapped
+in. -/
+theorem reorder_assigns_guard'
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing' S =
+      NetworkPlusCal.Statement.reducing' (substGuards A S) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A) := by
+  induction A with
+  | nil =>
+    rw [consumptions_nil, NetworkPlusCal.Statement.listReducing'_nil, substGuards_nil,
+      Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
+  | cons a A IH =>
+    rw [consumptions_cons, NetworkPlusCal.Statement.listReducing'_cons,
+      ← Relation.lcomp₂.assoc, IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb),
+      Relation.lcomp₂.assoc, reorder_assign_guard' (fresh a List.mem_cons_self).substGuards,
+      ← Relation.lcomp₂.assoc, substGuards_cons]
+
 /-- **D5, aborting.** The same commutation for the runs that fail — and here only an inclusion. Every
 way the compiled order `guard[subst] ; assign` can abort is a way the source order `assign ; guard`
 can, but not conversely: a guard has a third outcome an assignment does not, since it can *block*. A
