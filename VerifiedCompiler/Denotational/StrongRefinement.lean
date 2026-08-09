@@ -305,46 +305,45 @@ namespace StrongRefinement
     subst hσts₀
 
     -- One index of the target, matched against a source state sitting over it.
-    set cont : ℕ → α → Prop :=
-      λ i σ ↦ ∃ p : α × εₛ, R p.1 (σts (i + 1)) ∧ T.Rτ p.2 (ets i) ∧ (σ, p.2, p.1) ∈ semₛ with hcont
+    let cont (i : ℕ) (σ : α) : Prop :=
+      ∃ p : α × εₛ, R p.1 (σts (i + 1)) ∧ T.Rτ p.2 (ets i) ∧ (σ, p.2, p.1) ∈ semₛ
 
     -- The greedy source run: continue where possible, and park on `σₛ` once it cannot.
-    set nextp : ℕ → α → α × εₛ := λ i σ ↦ if h : cont i σ then h.choose else (σₛ, 1) with hnextp
-    set σs : ℕ → α := λ n ↦ Nat.rec σₛ (λ i s ↦ (nextp i s).1) n with hσs
-    set es : ℕ → εₛ := λ i ↦ (nextp i (σs i)).2 with hes
+    let nextp (i : ℕ) (σ : α) : α × εₛ := if h : cont i σ then h.choose else (σₛ, 1)
+    let σs : ℕ → α := Nat.rec σₛ (λ i s ↦ (nextp i s).1)
+    let es (i : ℕ) : εₛ := (nextp i (σs i)).2
 
     have hσs₀ : σs 0 = σₛ := rfl
     have hstep_of : ∀ i, cont i (σs i) →
         R (σs (i + 1)) (σts (i + 1)) ∧ T.Rτ (es i) (ets i) ∧ (σs i, es i, σs (i + 1)) ∈ semₛ := by
       intro i h
-      have : σs (i + 1) = (nextp i (σs i)).1 := rfl
-      simp only [this, hes, hnextp, dif_pos h]
+      change R (nextp i (σs i)).1 (σts (i + 1)) ∧ T.Rτ (nextp i (σs i)).2 (ets i)
+             ∧ (σs i, (nextp i (σs i)).2, (nextp i (σs i)).1) ∈ semₛ
+      unfold nextp
+      repeat rw [dif_pos h]
       exact h.choose_spec
 
     by_cases! hall : ∀ i, cont i (σs i)
     · -- The source keeps up forever.
       left
       have hR : ∀ i, R (σs i) (σts i) := by
-        intro i
-        induction i with
-        | zero => exact R_σₛ_σₜ
-        | succ i ih => exact (hstep_of i (hall i)).1
+        rintro (_|i)
+        · exact R_σₛ_σₜ
+        · exact (hstep_of i (hall i)).1
       exact ⟨OmegaProd.ωProd es, Rτ_omega es ets (λ i ↦ (hstep_of i (hall i)).2.1),
         σs, es, hσs₀, λ i ↦ (hstep_of i (hall i)).2.2, rfl⟩
     · -- The source gets stuck; take the first index where it does.
       right
-      obtain ⟨n, hn⟩ := hall
-      have hex : ∃ i, ¬cont i (σs i) := ⟨n, hn⟩
       -- The first index at which it gets stuck, as an opaque natural: `Nat.find` itself does not
       -- support the inductions below.
-      obtain ⟨m, hm_spec, hm_min⟩ : ∃ m, ¬cont m (σs m) ∧ ∀ i, i < m → cont i (σs i) :=
-        ⟨Nat.find hex, Nat.find_spec hex, λ i hi ↦ not_not.mp (Nat.find_min hex hi)⟩
+      set m := Nat.find hall
+      have hm_spec : ¬cont m (σs m) := Nat.find_spec hall
+      have hm_min i (hi : i < m) := not_not.mp (Nat.find_min hall hi)
 
       have hR : ∀ i, i ≤ m → R (σs i) (σts i) := by
-        intro i
-        induction i with
-        | zero => exact λ _ ↦ R_σₛ_σₜ
-        | succ i ih => exact λ hi ↦ (hstep_of i (hm_min i (by omega))).1
+        rintro (_|i) h
+        · exact R_σₛ_σₜ
+        · exact (hstep_of i (hm_min i (by omega))).1
 
       -- At `m` the refinement cannot take its reducing branch, so it takes the aborting one.
       obtain ⟨σ', e', hR', hRτ', hsem'⟩|⟨ea, hea, hea_mem⟩ :=
@@ -359,31 +358,31 @@ namespace StrongRefinement
           induction k with
           | zero =>
             intro i hi
-            have him : i = m := by omega
-            rw [him]
-            simpa using hea_mem
+            obtain rfl : i = m := Nat.succ_inj.mp (congrArg Nat.succ hi)
+            simpa only [Monoid.partialProd_zero, one_mul]
           | succ k ih =>
             intro i hi
             have hfun : (λ j ↦ es (i + (j + 1))) = (λ j ↦ es (i + 1 + j)) := by
-              funext j; congr 1; omega
+              simp +arith
             have hsplit : Monoid.partialProd (λ j ↦ es (i + j)) (k + 1) * ea
                  = es i * (Monoid.partialProd (λ j ↦ es (i + 1 + j)) k * ea) := by
               simp only [Monoid.partialProd_succ' (λ j ↦ es (i + j)) k, mul_assoc, Nat.add_zero,
                 hfun]
             rw [hsplit]
             refine abs (Relation.lcomp₁.intro (b := σs (i + 1)) ?_ ?_)
-            · exact (hstep_of i (hm_min i (by omega))).2.2
-            · exact ih (i + 1) (by omega)
+            · refine (hstep_of i (hm_min i ?_)).2.2
+              simp +arith [← hi]
+            · apply ih (i + 1)
+              simp +arith [← hi]
 
         -- And its trace is a sequentially consistent prefix of the target's.
         have hpp : ∀ n, n ≤ m → T.Rτ (Monoid.partialProd es n) (Monoid.partialProd ets n) := by
-          intro n
+          intro n hn
           induction n with
-          | zero => exact λ _ ↦ T.Rτ_one
+          | zero => exact T.Rτ_one
           | succ n ih =>
-            intro hn
-            apply T.Rτ_closed _ _ _ _ (ih (by omega))
-            exact (hstep_of n (hm_min n (by omega))).2.1
+            apply T.Rτ_closed _ _ _ _ (ih (Nat.le_of_succ_le hn))
+            exact (hstep_of n (hm_min n (Nat.lt_of_lt_of_eq hn rfl))).2.1
         obtain ⟨r, hr⟩ := dvd ets (m + 1)
         refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
         · rw [hr, Monoid.partialProd_succ, mul_assoc]
@@ -391,9 +390,8 @@ namespace StrongRefinement
           apply Trace.scPrefix_rmul_right (hpp m le_rfl)
           apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
           apply Trace.scPrefix_rmul_left T.Rτ_total hea
-        · have h₀ := habort m 0 (by omega)
-          simp only [Nat.zero_add] at h₀
-          exact h₀
+        · -- NOTE: Lean style guidelines forbid this. Keep it.
+          simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
 
   /-- Divergence refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a divergence.
 
