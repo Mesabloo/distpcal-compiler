@@ -1,7 +1,9 @@
 module
 
 meta import CustomPrelude
+public import Guarded2Network.Lemmas.Monad
 public import Guarded2Network.Lemmas.Reorder
+import all Guarded2Network.PlusCal
 
 @[expose] public section
 
@@ -21,8 +23,12 @@ public import Guarded2Network.Lemmas.Reorder
   **Index versus substitution.** In the emitted ordering the k-th `receive`'s guard is
   `Len(inbox) > k`, because no assignment has run yet and the inbox still holds every pending
   message. In the adjacent ordering the k preceding pairs have already run, the inbox has been
-  tailed k times, and the guard is `Len(inbox) > 0`. The two say the same thing, and saying so is
-  what `lenGt_substGuards` below is for.
+  tailed k times, and the guard is `Len(inbox) > 0`. The two say the same thing, but no
+  *substitution* relates them — this pass emits no offset for `substGuards` to grow — so the bridge
+  is the semantic `reorder_consumption_lenGt` below instead.
+
+  The last section is the walk itself: `Walk`, the specification of what `processPrecondition`
+  leaves behind, and the `mvcgen` proof that the pass meets it.
 -/
 
 namespace Guarded2Network
@@ -466,12 +472,10 @@ theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : Type
   · obtain ⟨M, F, M', sv, t, v, v', vs, rpath, rfl, rfl, rfl, hsv, hseq, ht, hcoe, hrpath, hupd⟩ :=
       (consumption_pair_iff hne).mp hpair
     obtain ⟨rfl, rfl, hlen⟩ := (await_lenGt_iff (Finmap.lookup_insert _) ht).mp hguard
-    refine ⟨(M, F, .none), 1, 1, (await_lenGt_iff hsv hseq).mpr ⟨rfl, rfl, ?_⟩,
-      (consumption_pair_iff hne).mpr
-        ⟨M, F, M', sv, t, v, v', vs, rpath, rfl, rfl, rfl, hsv, hseq, ht, hcoe, hrpath, hupd⟩,
-      by simp⟩
-    rw [List.length_cons]
-    omega
+    refine ⟨_, _, _, (await_lenGt_iff hsv hseq).mpr ⟨rfl, rfl, ?_⟩, hpair, ?_⟩
+    · rw [List.length_cons]
+      omega
+    · rw [mul_one]
   · obtain ⟨M, F, M', sv, t, v, v', vs, rpath, rfl, rfl, rfl, hsv, hseq, ht, hcoe, hrpath, hupd⟩ :=
       (consumption_pair_iff hne).mp hpair
     -- the guard changes nothing, so it starts where the pair does
@@ -484,10 +488,150 @@ theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : Type
     obtain ⟨b, hb, -, hiff⟩ := eval_lenGt_inbox (τ := τ) (n := n + 1) hsv hseq
     obtain rfl := ExprSemantics.evalUnique hb htru
     have hlen := hiff.mp rfl
-    refine ⟨(M'.insert inbox t, Fa, .none), 1, 1, hpair,
-      (await_lenGt_iff (Finmap.lookup_insert _) ht).mpr ⟨rfl, rfl, ?_⟩, by simp⟩
-    rw [List.length_cons] at hlen
+    refine ⟨_, _, _, hpair, (await_lenGt_iff (Finmap.lookup_insert _) ht).mpr ⟨rfl, rfl, ?_⟩, ?_⟩
+    · rw [List.length_cons] at hlen
+      omega
+    · rw [mul_one]
+
+/-! ## The walk over a precondition block
+
+  `processPrecondition` maps `stepStatement` over the block's statements, threading a `ReceiveState`
+  through: how many `receive`s have been compiled, what they left pending, which channels were read.
+  `Walk` below is what a refinement proof reads back off that walk — which target statement each
+  source guard became, and what the accumulator held at the moment it did.
+
+  It is the walk's *specification*, not a second implementation of it: `mapM_stepStatement_walk` is
+  what ties it to the pass, and it says only what the semantic proof consumes. Reaching the pass's
+  own `stepStatement`/`processPrecondition` at all is what `import all` above is for — the pass
+  keeps them private, and this file is allowed past that rather than the pass widening its API.
+-/
+
+/-- What `processPrecondition`'s walk relates: the guards it read, the guards it emitted, and the
+accumulator before and after. Each constructor is one `stepStatement` case.
+
+Two things are worth reading off the shape. A `with`/`await` leaves the state alone but is rewritten
+by everything accumulated *so far* — `st.newInstrs`, not the final list, which is what makes the
+reorder lemmas apply one accumulated assignment at a time. A `receive` emits a guard indexed by
+`st.i`, the count of receives *before* it, and appends its own consumption pair for every later
+guard to be rewritten by. -/
+private inductive Walk (chans : Guarded2NetworkChans) (inbox : String) :
+    ReceiveState → List (ComputableGuardedPlusCal.Statement true false) →
+      List (ComputableNetworkPlusCal.Statement true false) → ReceiveState → Prop
+  | nil {st : ReceiveState} : Walk chans inbox st [] [] st
+  | «with» {st st' : ReceiveState} {Ss res} {x ann bound e} :
+      Walk chans inbox st Ss res st' →
+      Walk chans inbox st (.with x ann bound e :: Ss)
+        (substGuards st.newInstrs (.with x ann bound e) :: res) st'
+  | await {st st' : ReceiveState} {Ss res} {e} :
+      Walk chans inbox st Ss res st' →
+      Walk chans inbox st (.await e :: Ss) (substGuards st.newInstrs (.await e) :: res) st'
+  | receive {st st' : ReceiveState} {Ss res} {c r coe τ pos}
+      (hτ : chans.lookup c.name = .some τ) :
+      Walk chans inbox
+        { i := st.i + 1, newInstrs := st.newInstrs ++ receiveInstrs r coe inbox τ pos,
+          rxs := st.rxs.concat (c, τ) } Ss res st' →
+      Walk chans inbox st (.receive c r coe :: Ss)
+        (.await (lenGt τ (inboxVar inbox τ) st.i) :: res) st'
+
+/-- Walks compose end to end. `Walk` is built head-first, but the `mapM` spec below accumulates
+prefix-first, so every step of that spec extends a walk by one statement on the right — this is what
+lets it. -/
+private theorem Walk.append {chans : Guarded2NetworkChans} {inbox : String}
+    {st₁ st₂ st₃ : ReceiveState} {Ss₁ Ss₂ res₁ res₂}
+    (h₁ : Walk chans inbox st₁ Ss₁ res₁ st₂) (h₂ : Walk chans inbox st₂ Ss₂ res₂ st₃) :
+    Walk chans inbox st₁ (Ss₁ ++ Ss₂) (res₁ ++ res₂) st₃ := by
+  induction h₁ with
+  | nil => exact h₂
+  | «with» _ IH => exact .with (IH h₂)
+  | await _ IH => exact .await (IH h₂)
+  | receive hτ _ IH => exact .receive hτ (IH h₂)
+
+/-- One guard in, one guard out. This is what says the block the pass rebuilds out of
+`dropLast`/`getLast!` is non-empty, so that those two put it back together again. -/
+private theorem Walk.length_eq {chans : Guarded2NetworkChans} {inbox : String}
+    {st st' : ReceiveState} {Ss res} (h : Walk chans inbox st Ss res st') :
+    res.length = Ss.length := by
+  induction h with
+  | nil => rfl
+  | «with» _ IH | await _ IH | receive _ _ IH => rw [List.length_cons, List.length_cons, IH]
+
+open Std.Do in
+/-- One statement of the walk, as the Hoare triple `Spec.mapM_list`'s step obligation asks for:
+whatever `stepStatement` returns extends the walk so far by exactly one entry. -/
+private theorem stepStatement_walk {chans : Guarded2NetworkChans} {inbox : String}
+    (S : ComputableGuardedPlusCal.Statement true false) {st : ReceiveState}
+    {pref : List (ComputableGuardedPlusCal.Statement true false)}
+    {bs : List (ComputableNetworkPlusCal.Statement true false)} :
+    ⦃fun stf ↦ ⌜Walk chans inbox st pref bs stf⌝⦄
+      (stepStatement (m := G2NM) chans inbox S)
+    ⦃(fun T stf' ↦ ⌜Walk chans inbox st (pref ++ [S]) (bs ++ [T]) stf'⌝, ExceptConds.true)⦄ := by
+  cases S <;> simp only [stepStatement] <;> mvcgen
+  · rename_i hwalk
+    exact hwalk.append (.with .nil)
+  · rename_i hwalk
+    exact hwalk.append (.await .nil)
+  · rename_i hwalk _ hτ
+    exact hwalk.append (.receive hτ .nil)
+
+open Std.Do in
+/-- **The walk's specification.** A precondition block's guards, mapped through `stepStatement` in
+the pass's own monad, are exactly a `Walk` — which is what every later lemma about
+`processPrecondition` inducts on.
+
+`Spec.mapM_list` (`Extra/Do.lean`) is what makes this a loop-invariant proof rather than a manual
+induction through `ExceptT`/`StateT`: the invariant is "the prefix walked so far is a `Walk`", the
+one obligation per element is `stepStatement_walk`, and `G2NM.of_wp_run_eq` turns the resulting
+triple back into a fact about the run the compilation hypothesis actually mentions. -/
+private theorem mapM_stepStatement_walk {chans : Guarded2NetworkChans} {inbox : String}
+    {Ss : List (ComputableGuardedPlusCal.Statement true false)}
+    {results : List (ComputableNetworkPlusCal.Statement true false)}
+    {st st' : ReceiveState} {n n' : Nat}
+    (h : (((Ss.mapM (stepStatement (m := G2NM) chans inbox)).run st).run.run n) =
+      (.ok (results, st'), n')) :
+    Walk chans inbox st Ss results st' := by
+  refine G2NM.of_wp_run_eq h (Walk chans inbox st Ss) ?_
+  refine (λ _ ↦ Spec.mapM_list
+    (inv := ((λ p stf ↦ ⌜Walk chans inbox st p.1.prefix p.2 stf⌝, ExceptConds.true) :
+      Invariant Ss (List (ComputableNetworkPlusCal.Statement true false))
+        (.arg ReceiveState (.except G2NError (.arg Nat .pure)))))
+    (λ _ cur _ _ _ ↦ stepStatement_walk cur) st n Walk.nil)
+
+/-- A branch with no precondition compiles to no guards, no consumption assignments and no
+receives — and cannot fail doing it. -/
+private theorem processPrecondition_none {chans : Guarded2NetworkChans} {inbox : String}
+    {n : Nat} :
+    ((processPrecondition (m := G2NM) chans inbox .none).run.run n) = (.ok (.none, [], []), n) :=
+  rfl
+
+/-- **What `processPrecondition` leaves behind.** The rewritten precondition block is the walk's
+output, the assignments prepended to the action block are the walk's accumulator, and the channels
+reported are the walk's `rxs` — all three read off one `Walk`, from the initial state `{}`.
+
+The block is stated as `begin.concat last`, the same flattening the pass itself walks, because that
+is the form `Block.reducing` reduces to; putting `dropLast`/`getLast!` back together is
+`List.dropLast_concat_getLast!`, and `Walk.length_eq` is what earns its non-emptiness side
+condition. -/
+private theorem processPrecondition_walk {chans : Guarded2NetworkChans} {inbox : String}
+    {B : GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false}
+    {B' : GuardedPlusCal.Block (ComputableNetworkPlusCal.Statement true) false}
+    {assigns : List (ComputableNetworkPlusCal.Statement false false)}
+    {rxs : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ)} {n n' : Nat}
+    (h : ((processPrecondition (m := G2NM) chans inbox (.some B)).run.run n) =
+      (.ok (.some B', assigns, rxs), n')) :
+    ∃ st, Walk chans inbox {} (B.begin.concat B.last) (B'.begin.concat B'.last) st ∧
+      assigns = consumptions st.newInstrs ∧ rxs = st.rxs := by
+  obtain ⟨⟨results, st⟩, n₁, hrun, hpure⟩ := G2NM.run_bind_eq_ok h
+  have hwalk := mapM_stepStatement_walk hrun
+  have hp : ((Except.ok (Option.some { begin := results.dropLast, last := results.getLast! },
+        consumptions st.newInstrs, st.rxs) : Except G2NError _), n₁) =
+      (Except.ok (.some B', assigns, rxs), n') := hpure
+  simp only [Prod.mk.injEq, Except.ok.injEq, Option.some.injEq] at hp
+  obtain ⟨⟨rfl, rfl, rfl⟩, -⟩ := hp
+  have hne : results ≠ [] := by
+    rw [← List.length_pos_iff, hwalk.length_eq, List.length_concat]
     omega
+  refine ⟨st, ?_, rfl, rfl⟩
+  rwa [List.dropLast_concat_getLast! hne]
 
 end Guarded2Network
 

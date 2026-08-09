@@ -52,6 +52,10 @@ Vendored generic data-structure lemmas and instances.
 - `List.lean`, `AssocList.lean`, `Finmap.lean`, `HashMap.lean`, `AList.lean`, `Array.lean`,
   `Fin.lean`, `Finset.lean`, `Nat.lean`, `Option.lean`, `Prod.lean`, `Prop.lean`, `Rel.lean`,
   `Set.lean`, `String.lean`, `Substring.lean`, `Sum.lean`, `Monad.lean`.
+- `Do.lean` — `Std.Do` spec lemmas the toolchain does not ship. Currently one: `Spec.mapM_list`,
+  `List.mapM`'s loop-invariant spec, derived from `Spec.foldlM_list`. `Std`'s own set covers every
+  shape a `for` loop elaborates to and nothing else, so `mvcgen` walks straight past a pass written
+  with `mapM` — which every pass here is.
 - `AList.lean` is **orphaned** — nothing imports it since `Memory`/`FIFOs` became `Finmap`, so
   `lake build` no longer checks it. Delete-or-keep is an open owner call.
 - `Seq.lean` — `Stream'.Seq` as the trace monoid: `One`/`Mul`/`Monoid` instances (Mathlib proves
@@ -266,8 +270,11 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Errors.lean`, entry point `Guarded2Network.lean` — which imports `Lemmas.lean` too, so building
   the executable checks the proofs (see `INSTRUCTIONS.md` §Build & iterate). Consumers
   (`Driver/Pipeline.lean`) import this root module, never a submodule.
-- `Lemmas.lean` — proof support and the aggregator for the files below: the pinned monad `G2NM`,
-  its `MonadWriter`/`mvcgen` wiring, and the T1/T3 tactic validation examples.
+- `Lemmas.lean` — proof support and the aggregator for the files below: the `mvcgen` wiring and
+  the T1/T3 tactic validation examples.
+- `Lemmas/Monad.lean` — the monad a proof pins the pass to (`G2NM`), its `MonadWriter` instance,
+  and the two facts needed to read a *given* run backwards: `G2NM.of_wp_run_eq` (adequacy — `Std`
+  ships one per primitive stack and none for a composite) and `G2NM.run_bind_eq_ok`.
 - `Lemmas/Trace.lean` — this pass's `Rτ := Eq`, as a `scoped instance` (traces are preserved
   exactly, reception being unobservable).
 - `Lemmas/Seq.lean` — `SeqBuiltins`, the meaning of the `Head`/`Tail`/`Len(e) > n`/`<<>>`
@@ -287,7 +294,12 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   — all in the *adjacent* ordering. Plus the two step characterizations (`await_lenGt_iff`,
   `consumption_pair_iff`) and `reorder_consumption_lenGt`, the semantic reorder converting adjacent
   to emitted for the guards the *pass* invented; `Lemmas/Reorder.lean`'s substitution reorder covers
-  only the ones the source wrote. The block walk itself is not written yet.
+  only the ones the source wrote. Then the walk: `Walk`, the specification of what
+  `processPrecondition` leaves behind, `mapM_stepStatement_walk` (the `mvcgen` loop-invariant proof
+  that the pass meets it) and `processPrecondition_walk`/`_none`. The walk's lemmas are `private`
+  and reach the pass's own `private` `stepStatement`/`processPrecondition` through `import all` —
+  the pass keeps its API narrow, the proof is allowed past it. Files above this one in the proof
+  chain need `import all` of *this* file in turn.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

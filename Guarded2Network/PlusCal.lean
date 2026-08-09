@@ -139,7 +139,11 @@ variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty G2NError m]
 /-- `processPrecondition`'s per-statement accumulator, threaded through `stepStatement` via a
 local `StateT` layer (same "function-scoped `StateT`, `.run` at the end" shape
 `WellFormedness/Restrictions.lean`'s `checkRestrictions` uses for its own memoization state)
-rather than imperative `let mut` bindings. -/
+rather than imperative `let mut` bindings.
+
+Stays `private`, along with `stepStatement` and `processPrecondition` below: the refinement proof
+(`Guarded2Network/Lemmas/Precondition.lean`) states the walk's specification against the pass
+itself, but reaches these through `import all` rather than by widening the pass's API. -/
 private structure ReceiveState where
   i : Nat := 0
   /-- Each entry carries the span of the `receive` it was generated from, so the consumption

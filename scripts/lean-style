@@ -114,6 +114,32 @@ def _rwshow(code, raw):
             yield i, l.strip()
 
 
+@rule("have … := <bare name>", "`change` it at the hypothesis, or inline the global at its use")
+def _havebare(code, raw):
+    ident = r"[A-Za-z_][A-Za-z0-9_'!?ₐ-ₜ₀-₉\.]*"
+    for i, l in enumerate(code):
+        m = re.search(r'\bhave\s+' + ident + r'\s*:\s*.*:=\s*(' + ident + r')\s*$', l)
+        if m and m.group(1) not in ("by", "fun", "λ"):
+            yield i, l.strip()
+
+
+@rule("rw … at h then exact h", "`rwa [...] at h`")
+def _rwaexact(code, raw):
+    # Only the same-name `at` form is checked. `rw [...]` followed by a bare `exact foo` is the
+    # same smell, but `foo` there may name a global lemma, which `rwa`'s `assumption` cannot find —
+    # so that half stays a reader's rule in `LEAN_STYLE.md`.
+    for i, l in enumerate(code[:-1]):
+        m = re.search(r'\b(rw|erw|simp_rw)\s*\[[^\]]*\]\s*at\s+(\w+)\s*$', l)
+        if not m:
+            continue
+        for j in range(i + 1, len(code)):
+            if not code[j].strip():
+                continue
+            if re.fullmatch(r'\s*exact\s+' + re.escape(m.group(2)) + r'\s*', code[j]):
+                yield i, l.strip()
+            break
+
+
 FOCUSING = ("|", "·", "case ", "next ", "all_goals", "any_goals", "end", "where", "<;>")
 
 

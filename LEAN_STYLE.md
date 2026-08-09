@@ -58,6 +58,16 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `Guarded2Network/Lemmas/Statement.lean:537` (`omit [ExprSemantics V] in`, which must go *above*
   the doc comment — after it, the parser reports `unexpected token 'omit'`).
   `mvcgen`'s experimental banner is expected, not a warning to chase.
+- **`have x : Y := z` for a bare name `z` is never right.** Two cases, both with a better form.
+  `z` a hypothesis: retyping by defeq is `change Y at z` — the `have` leaves two names for one
+  thing and hides that nothing was proved. `z` a nullary global: inline it at its use site instead
+  of naming it, unless it is used several times or the name genuinely reads better than the term.
+  `Guarded2Network/Lemmas/Monad.lean:68`. `scripts/lean-style` checks the one-line form.
+- **`rw` then `exact <hypothesis>` is `rwa`.** Whenever the tactic after a rewrite is `exact h` for
+  a name already in context, the rewrite absorbs it: `rw [foo] at h; exact h` is `rwa [foo] at h`,
+  and `rw [foo]; exact h` is `rwa [foo]`. Same for `erw`/`erwa`. Applies whichever side the rewrite
+  targets — the pattern is "rewrite, then close by assumption", and `rwa` *is* that pattern.
+  `Guarded2Network/Lemmas/Monad.lean:56`
 - **Merge `rw [...]` into a following `simp only [...]`.** Rewrite lemmas go straight into the
   `simp only` set — two traversals become one, and the intermediate goal nobody looks at stops
   existing. `VerifiedCompiler/Denotational/StrongRefinement.lean:316`, `:368`
@@ -83,6 +93,19 @@ Citations illustrate the rule; this file is not a list of things to fix.
   neither side of the conclusion, so `refine` cannot infer it and reports "don't know how to
   synthesize implicit argument" — supply it as `(b := …)` rather than falling back to forward mode.
   The forward `have`s were pinning it down implicitly; the named argument says so out loud.
+
+  **And `_` the ones it does fix.** The mirror rule. A witness Lean can read off a *later*
+  component of the same `refine` carries no information at the point it is written, and spelling it
+  out buries the components that do. Write `_` there. Only spell a witness out when nothing else
+  pins it down — the previous paragraph's case — or when the reader needs to see the choice.
+  `Guarded2Network/Lemmas/Precondition.lean:475`, where
+  `refine ⟨(M, F, .none), 1, 1, (await_lenGt_iff hsv hseq).mpr ⟨rfl, rfl, ?_⟩, hpair, ?_⟩` became
+  `refine ⟨_, _, _, (await_lenGt_iff hsv hseq).mpr ⟨rfl, rfl, ?_⟩, hpair, ?_⟩` — the state and both
+  traces are determined by the two membership proofs that follow them.
+
+  Same test applies to a long explicit witness tuple: if a hypothesis already in context *is* the
+  component, pass it. The same `refine` re-spelled a 17-field `consumption_pair_iff` witness that
+  was exactly `hpair`, already in scope.
 
   **Exception: rewriting.** When the massaging targets a *hypothesis*, forward is the honest
   shape — `have h := lemma …` then `rwa [...] at h`. Aiming the same rewrite at the right

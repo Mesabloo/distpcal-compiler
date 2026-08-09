@@ -1864,6 +1864,24 @@ warning type is `Empty`, so `List Empty` has one inhabitant and the `MonadWriter
 `MonadDiagnostic` is trivially satisfiable. A `WP` instance for `DiagT` itself is the
 generalization to reach for if a pass that actually warns ever gets proved.
 
+**A proof reaches the pass's internals with `import all`, not by widening its API.**
+`stepStatement`/`processPrecondition`/`ReceiveState` stay `private` in `Guarded2Network/
+PlusCal.lean`; `Guarded2Network/Lemmas/Precondition.lean` says `import all Guarded2Network.PlusCal`.
+That also un-hides bodies, so the `@[expose]` a public definition would have needed is not needed
+either. The cost is that theorems mentioning private names are themselves private, and each proof
+file further up the chain needs `import all` of the one below. Only a definition the *statement of
+the deliverable* mentions has to be public — `substGuardStmt`/`convertActionStmt` are, and stay so.
+
+**`mvcgen` covers `for` loops, and every walk in this pass is a `mapM`.**
+`Std.Do.Triple.SpecLemmas` ships specs for `forIn`/`forIn'`/`foldlM` over lists, arrays, ranges and
+iterators — exactly the shapes `for` elaborates to — and none for `List.mapM`. `Extra/Do.lean`'s
+`Spec.mapM_list` closes that, derived from `Spec.foldlM_list` through
+`List.mapM_eq_reverse_foldlM_cons`, and registered `@[spec]` so `mvcgen` picks it up unprompted.
+Likewise `Std.Do.WP.Basic`'s `of_wp_run_eq` adequacy lemmas exist per *primitive* stack only, so the
+three-layer `G2NM` gets its own (`Guarded2Network/Lemmas/Monad.lean`) — together with
+`G2NM.run_bind_eq_ok`, since a pass whose result is *given* is read backwards through its binds and
+`mvcgen` only reasons forwards.
+
 `Thread.rx` is not special here: the paper defines its meaning to *be* that of the atomic block
 `rxₚ : receive(mailboxₚ, tmpₚ) ; inboxₚ := Append(inboxₚ, tmpₚ) ; goto rxₚ`, "although without the
 temporary variable `tmpₚ` assigned to". Draining the channel into `inboxₚ` is therefore one

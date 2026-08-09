@@ -422,6 +422,14 @@ namespace List
       simp_rw [List.cons.sizeOf_spec] at IH ⊢
       simp +arith [← IH]
 
+  /-- `dropLast_concat_getLast` at the panicking accessor. A pass that splits a list into "all but
+  the last" and "the last" reaches for `getLast!` rather than carry a non-emptiness proof through
+  its own code; a proof about that pass still has the proof, and this is what spends it. -/
+  theorem dropLast_concat_getLast! [Inhabited α] {xs : List α} (h : xs ≠ []) :
+      xs.dropLast.concat xs.getLast! = xs := by
+    rw [List.concat_eq_append, List.getLast!_eq_getLast?_getD, List.getLast?_eq_getLast h,
+      Option.getD_some, List.dropLast_concat_getLast]
+
   theorem forall₂_singleton {R : α → β → Prop} {x : α} {y : β} : List.Forall₂ R [x] [y] ↔ R x y := by
     simp
 
