@@ -1789,6 +1789,15 @@ extensionality is by `lookup`. A channel update is `insert`, not `AList.replace`
 establish `F.lookup k = some _` before write `k`, so the two agree wherever either reachable, and
 `insert` has the usable equation (`= some v`, not `v <$ lookup k F`).
 
+**The reorder pair is one equation and one inclusion, not two of either.** Commuting an assignment
+past a guard (D5, `Guarded2Network/Lemmas/Reorder.lean`) is an *equation* on `reducing` — both orders
+take the same two silent steps and reach the same state. On `aborting` it is only `≤`, compiled order
+inside source order: a guard has a third outcome an assignment does not, it can **block**. A state
+where the assignment aborts and the substituted guard blocks is a source abort with no target
+counterpart, so the sets differ. The asymmetry cuts the other way too — `assign` having no blocking
+outcome is exactly what makes the inclusion provable (`assign_aborts_or_steps`), and that step is
+classical twice over, `Eval` being a relation.
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

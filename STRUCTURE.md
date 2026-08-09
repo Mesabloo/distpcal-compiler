@@ -276,6 +276,9 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Statement.lean` — evaluation transfer across `relatesTo` (`eval_iff`), reference-argument
   resolution (`Ref.EvalArgs` and its congruence), `Memory.update_transfer`, and the
   `convertActionStmt` semantic equations.
+- `Lemmas/Reorder.lean` — D5: `substGuardStmt`'s semantic equations, `evalSubstRef`/`abortsSubstRef`
+  (the assignment-as-substitution transfer), `GuardFresh`, and the reorder pair
+  `reorder_assign_guard` (equation) / `reorder_assign_guard_abort` (inclusion).
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

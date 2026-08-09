@@ -80,6 +80,52 @@ theorem EvalStep.resolvesPath_iff {args : List (String ⊕ ComputablePlusCal.Exp
     | inl _ ih => exact .cons (.field _) ih
     | inr hv _ ih => exact .cons (.index hv) ih
 
+/-- A list of reference segments resolves exactly when each of its index expressions has a value.
+The list-level content of `Ref.not_pathAborts_iff` below, separate because the induction runs on the
+list while `Ref.pathAborts` is stated about a whole `Ref`. -/
+theorem EvalStep.exists_forall₂_iff {args : List (String ⊕ ComputablePlusCal.Expression)} :
+    (∃ path, List.Forall₂ (EvalStep M) args path) ↔ ∀ e, Sum.inr e ∈ args → ∃ v, M ⊢ e ⇒ v := by
+  induction args with
+  | nil =>
+    simp only [List.not_mem_nil, false_implies, implies_true, iff_true]
+    exact ⟨[], .nil⟩
+  | cons hd tl ih =>
+    iff_rintro ⟨path, hpath⟩ h
+    · intro e he
+      cases hpath with
+      | cons hhd htl =>
+        rcases List.mem_cons.mp he with rfl | he'
+        · cases hhd with
+          | index hv => exact ⟨_, hv⟩
+        · exact ih.mp ⟨_, htl⟩ e he'
+    · obtain ⟨path, hpath⟩ := ih.mpr λ e he ↦ h e (List.mem_cons_of_mem _ he)
+      cases hd with
+      | inl f => exact ⟨.inl f :: path, .cons (.field f) hpath⟩
+      | inr e =>
+        obtain ⟨v, hv⟩ := h e List.mem_cons_self
+        exact ⟨.inr v :: path, .cons (.index hv) hpath⟩
+
+/-- `Ref.pathAborts` with the `filterMap` gone: some index segment of the reference has no value.
+The definition filters the `.inr` segments out of `Ref.args` to say that; every consumer wants the
+membership back in terms of `Ref.args` itself, which is what `Ref.freeVars`'s own lemmas are stated
+against. -/
+theorem Ref.pathAborts_iff {r : ComputableGuardedPlusCal.Ref} :
+    Ref.pathAborts M r ↔ ∃ e, Sum.inr e ∈ r.args ∧ (M ⊢ e ↯) := by
+  unfold Ref.pathAborts
+  simp only [List.mem_filterMap, Sum.getRight?_eq_some_iff]
+  iff_rintro ⟨e, ⟨_, ha, rfl⟩, habort⟩ ⟨e, hmem, habort⟩
+  · exact ⟨e, ha, habort⟩
+  · exact ⟨e, ⟨.inr e, hmem, rfl⟩, habort⟩
+
+/-- The positive reading of "the path does not abort": every index segment has a value, so the whole
+`Ref.args` resolves. `Eval` being a relation is what makes this classical — "has no derivation" only
+yields a value by excluded middle — and it is what lets an `assign` be shown to *step* whenever it
+does not abort (`Guarded2Network/Lemmas/Reorder.lean`). -/
+theorem Ref.not_pathAborts_iff {r : ComputableGuardedPlusCal.Ref} :
+    ¬ Ref.pathAborts M r ↔ ∃ path, List.Forall₂ (EvalStep M) r.args path := by classical
+  simp only [EvalStep.exists_forall₂_iff, Ref.pathAborts_iff, not_exists, not_and,
+    ExprSemantics.Aborts, not_forall_not]
+
 end Resolution
 
 /-! # Constructor-intro lemmas

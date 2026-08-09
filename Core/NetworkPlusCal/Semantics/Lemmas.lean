@@ -204,6 +204,93 @@ theorem Statement.aborting.assign.elim {σ : LocalState V false} {ε : Trace V} 
           Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = 1} :=
   h
 
+/-- Which values a `with` may bind, as a predicate on the value instead of a match on `bound`:
+`true` (a `let`) admits the expression's own value, `false` (a nondeterministic pick) any member of
+it. Neither the memory nor the FIFOs enter that choice, and that is the whole content of the two
+`.iff` lemmas below. -/
+def Statement.BoundValue (bound : Bool) (u v : V) : Prop :=
+  match bound with
+  | true => u = v
+  | false => ExprSemantics.mem u v
+
+/-- `with`'s reducing case with the `bound` match pulled out into `BoundValue`: one existential over
+the value that lands in memory, no case split. `.elim` above mirrors the definition; this mirrors
+what consumers actually do with it. `Guarded2Network/Lemmas/Reorder.lean` moves this clause between
+two memories in both directions, and without the factoring that is four near-identical blocks. -/
+theorem Statement.reducing.with.iff {σ σ' : LocalState V false} {ε : Trace V} {name ann bound e} :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) ↔
+      ∃ M F v u, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ Statement.BoundValue bound u v ∧
+        σ = .running M F ∧ σ' = .running (M.insert name u) F ∧ ε = 1 := by
+  iff_rintro h ⟨M, F, v, u, hv, hname, hbv, rfl, rfl, rfl⟩
+  · obtain ⟨M, F, v, hv, hname, rfl, rfl, hb⟩ := Statement.reducing.with.elim h
+    cases bound with
+    | true => exact ⟨M, F, v, v, hv, hname, rfl, rfl, hb, rfl⟩
+    | false =>
+      obtain ⟨u, hmem, rfl⟩ := hb
+      exact ⟨M, F, v, u, hv, hname, hmem, rfl, rfl, rfl⟩
+  · refine Statement.reducing.with.intro ⟨M, F, v, hv, hname, rfl, rfl, ?_⟩
+    cases bound with
+    | true =>
+      obtain rfl : u = v := hbv
+      rfl
+    | false => exact ⟨u, hbv, rfl⟩
+
+/-- `with`'s aborting case, factored the same way: the state and trace are fixed by the statement,
+and what remains is either the guard expression having no value at all or — only under a
+nondeterministic pick — its value not being a set. `bound = true` cannot abort past evaluation,
+which the definition says with a `False` branch and this says by pinning `bound` to `false`. -/
+theorem Statement.aborting.with.iff {σ : LocalState V false} {ε : Trace V} {name ann bound e} :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) ↔
+      ∃ M F, σ = .running M F ∧ ε = 1 ∧
+        (M ⊢ e ↯ ∨ ∃ v, M ⊢ e ⇒ v ∧ bound = false ∧ ¬ ExprSemantics.isSet v) := by
+  iff_rintro h ⟨M, F, rfl, rfl, hd⟩
+  · rcases Statement.aborting.with.elim h with ⟨M, F, habort, rfl, rfl⟩ | ⟨M, F, v, hv, rfl, rfl, hb⟩
+    · exact ⟨M, F, rfl, rfl, .inl habort⟩
+    · cases bound with
+      | true => exact hb.elim
+      | false => exact ⟨M, F, rfl, rfl, .inr ⟨v, hv, rfl, hb⟩⟩
+  · rcases hd with habort | ⟨v, hv, rfl, hset⟩
+    · exact Statement.aborting.with.intro (.inl ⟨M, F, habort, rfl, rfl⟩)
+    · exact Statement.aborting.with.intro (.inr ⟨M, F, v, hv, rfl, rfl, hset⟩)
+
+/-- `await`'s aborting case with the state and trace matched once instead of once per union member,
+leaving a plain disjunction over what actually went wrong. -/
+theorem Statement.aborting.await.iff {σ : LocalState V false} {ε : Trace V} {e} :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e) ↔
+      ∃ M F, σ = .running M F ∧ ε = 1 ∧
+        ((M ⊢ e ↯) ∨ ∃ v, M ⊢ e ⇒ v ∧ ¬ ExprSemantics.isBool v) := by
+  iff_rintro h ⟨M, F, rfl, rfl, hd⟩
+  · rcases Statement.aborting.await.elim h with ⟨M, F, habort, rfl, rfl⟩ | ⟨M, F, v, hb, hv, rfl, rfl⟩
+    · exact ⟨M, F, rfl, rfl, .inl habort⟩
+    · exact ⟨M, F, rfl, rfl, .inr ⟨v, hv, hb⟩⟩
+  · rcases hd with habort | ⟨v, hv, hb⟩
+    · exact Statement.aborting.await.intro (.inl ⟨M, F, habort, rfl, rfl⟩)
+    · exact Statement.aborting.await.intro (.inr ⟨M, F, v, hb, hv, rfl, rfl⟩)
+
+/-- `assign`'s aborting case, same factoring: one state match, then the four ways an assignment can
+fail — the target name unbound, the right-hand side without a value, an index expression of the
+reference without a value, or the update itself rejected by `updatePath`. Four union members each
+repeating `σ = .running M F ∧ ε = 1` is what makes the raw form expensive to take apart. -/
+theorem Statement.aborting.assign.iff {σ : LocalState V false} {ε : Trace V} {r e} :
+    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e) ↔
+      ∃ M F, σ = .running M F ∧ ε = 1 ∧
+        (r.name ∉ M ∨ (M ⊢ e ↯) ∨ Ref.pathAborts M r ∨
+          ∃ v rpath, M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+            Memory.update M r.name rpath v = .none) := by
+  iff_rintro h ⟨M, F, rfl, rfl, hd⟩
+  · rcases Statement.aborting.assign.elim h with
+      ((⟨M, F, hn, rfl, rfl⟩ | ⟨M, F, ha, rfl, rfl⟩) | ⟨M, F, hp, rfl, rfl⟩) |
+        ⟨M, F, v, rpath, hv, hpath, hupd, rfl, rfl⟩
+    · exact ⟨M, F, rfl, rfl, .inl hn⟩
+    · exact ⟨M, F, rfl, rfl, .inr (.inl ha)⟩
+    · exact ⟨M, F, rfl, rfl, .inr (.inr (.inl hp))⟩
+    · exact ⟨M, F, rfl, rfl, .inr (.inr (.inr ⟨v, rpath, hv, hpath, hupd⟩))⟩
+  · rcases hd with hn | ha | hp | ⟨v, rpath, hv, hpath, hupd⟩
+    · exact Statement.aborting.assign.intro (.inl (.inl (.inl ⟨M, F, hn, rfl, rfl⟩)))
+    · exact Statement.aborting.assign.intro (.inl (.inl (.inr ⟨M, F, ha, rfl, rfl⟩)))
+    · exact Statement.aborting.assign.intro (.inl (.inr ⟨M, F, hp, rfl, rfl⟩))
+    · exact Statement.aborting.assign.intro (.inr ⟨M, F, v, rpath, hv, hpath, hupd, rfl, rfl⟩)
+
 end Elim
 
 -- Leaf discharge for `sem_side` (T1, see below).

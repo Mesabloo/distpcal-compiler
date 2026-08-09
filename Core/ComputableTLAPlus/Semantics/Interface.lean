@@ -176,6 +176,14 @@ def Aborts (M : Memory V) (e : Expression Typ) : Prop := ¬ ∃ v, M ⊢ e ⇒ v
 @[inherit_doc Aborts]
 notation:60 M:60 " ⊢ " e:0 " ↯" => ExprSemantics.Aborts M e
 
+/-- `Aborts` transported along an agreement between two evaluations. Every transfer lemma about
+`Eval` has an `Aborts` counterpart, and `Aborts` being a negated existential means each one is this
+same `not_congr (exists_congr …)` — stating it once keeps the definition's body out of the proofs
+that use it. -/
+theorem aborts_congr {M₁ M₂ : Memory V} {e₁ e₂ : Expression Typ}
+    (h : ∀ v, (M₁ ⊢ e₁ ⇒ v) ↔ (M₂ ⊢ e₂ ⇒ v)) : (M₁ ⊢ e₁ ↯) ↔ (M₂ ⊢ e₂ ↯) :=
+  not_congr (exists_congr h)
+
 end ExprSemantics
 
 /-- `Memory.update M x path v` — `M` with the position `path` inside `x`'s current value overwritten
@@ -226,6 +234,50 @@ theorem Memory.update_nil {V : Type} [ExprSemantics V] {M M' : Memory V} {x : St
   obtain ⟨_, new, _, hnew, hM'⟩ := Memory.update_eq_some_iff.mp h
   rw [ExprSemantics.updatePath_nil] at hnew
   rw [hM', Option.some.inj hnew]
+
+/-- An update and a binding of some *other* name commute: updating first and then binding `x`
+reaches the same memory as binding `x` first and then updating, and either order succeeds exactly
+when the other does. `Memory` being a `Finmap` is what makes this an equation rather than only a
+`lookup`-wise agreement — see that abbreviation's doc. Both readings are used, one per direction of
+`Guarded2Network/Lemmas/Reorder.lean`'s `with` case, where the binding is the `with`'s own. -/
+theorem Memory.update_insert_iff {V : Type} [ExprSemantics V] {M M₂ : Memory V} {x y : String}
+    {path : List (PathStep V)} {u v : V} (hne : x ≠ y) :
+    (∃ M', M.update y path v = some M' ∧ M₂ = M'.insert x u) ↔
+      Memory.update (M.insert x u) y path v = some M₂ := by
+  iff_rintro ⟨M', hM', rfl⟩ h
+  · obtain ⟨old, new, hold, hnew, rfl⟩ := Memory.update_eq_some_iff.mp hM'
+    refine Memory.update_eq_some_iff.mpr ⟨old, new, ?_, hnew, ?_⟩
+    · rwa [Finmap.lookup_insert_of_ne _ hne.symm]
+    · exact (Finmap.insert_insert_of_ne _ hne).symm
+  · obtain ⟨old, new, hold, hnew, rfl⟩ := Memory.update_eq_some_iff.mp h
+    rw [Finmap.lookup_insert_of_ne _ hne.symm] at hold
+    exact ⟨M.insert y new, Memory.update_eq_some_iff.mpr ⟨old, new, hold, hnew, rfl⟩,
+      Finmap.insert_insert_of_ne _ hne⟩
+
+/-- `evalSubst` lifted from a name to a *reference*: evaluating in the memory an assignment produced
+agrees with evaluating the reference-substituted expression in the memory it started from. This is
+the transfer the reorder lemmas run on (`Guarded2Network/Lemmas/Reorder.lean`), and it is derived —
+`evalSubst` covers a bare reference directly, while a compound one needs `evalVar` to name the value
+being updated and `evalExcept` to say the synthesized `EXCEPT` denotes exactly the `updatePath` the
+assignment ran. -/
+theorem ExprSemantics.evalSubstRef {V : Type} [ExprSemantics V] {M M' : Memory V}
+    {r : ElaboratedPlusCal.Ref Typ (Expression Typ)} {rhs e : Expression Typ} {v w : V}
+    {rpath : List (PathStep V)} (hrhs : M ⊢ rhs ⇒ v)
+    (hpath : ResolvesPath ExprSemantics.Eval M r.args rpath)
+    (hM' : Memory.update M r.name rpath v = some M') :
+    (M' ⊢ e ⇒ w) ↔ (M ⊢ Expression.substRef r rhs e ⇒ w) := by
+  obtain ⟨old, new, hold, hnew, rfl⟩ := Memory.update_eq_some_iff.mp hM'
+  by_cases hargs : r.args = []
+  · rw [hargs] at hpath
+    cases hpath
+    rw [ExprSemantics.updatePath_nil] at hnew
+    obtain rfl := Option.some.inj hnew
+    rw [Expression.substRef_of_args_nil hargs]
+    exact ExprSemantics.evalSubst hrhs
+  · rw [Expression.substRef_of_args_ne_nil hargs]
+    apply ExprSemantics.evalSubst
+    apply (ExprSemantics.evalExcept (ExprSemantics.evalVar.mpr hold) hpath hrhs).mpr
+    exact hnew
 
 end ComputableTLAPlus
 

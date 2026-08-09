@@ -100,6 +100,12 @@ def GuardedPlusCal.Ref.freeVars (r : ComputableGuardedPlusCal.Ref) : Finset Stri
   {r.name} ∪
     ((r.args.map λ seg ↦ match seg with | .inl _ => (∅ : Finset String) | .inr e => e.freeVars).foldl (· ∪ ·) ∅)
 
+/-- The base name is one of them — the `{r.name} ∪ …` above, named, so that a freshness hypothesis
+stated over a whole `Ref` yields the inequality against `r.name` that memory lemmas need. -/
+theorem GuardedPlusCal.Ref.name_mem_freeVars (r : ComputableGuardedPlusCal.Ref) :
+    r.name ∈ GuardedPlusCal.Ref.freeVars r :=
+  Finset.mem_union_left _ (Finset.mem_singleton_self _)
+
 /-- `set`'s recipients are read in the enclosing scope; `recipient` then binds inside `val`, same
 shape as `Expression.fn`/`.map'`. -/
 def GuardedPlusCal.Multicast.freeVars (m : ComputableGuardedPlusCal.Multicast) : Finset String :=

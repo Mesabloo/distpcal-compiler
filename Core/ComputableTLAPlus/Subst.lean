@@ -97,6 +97,26 @@ def Expression.substRef {α} (r : ElaboratedPlusCal.Ref α (Expression α)) (rhs
     Expression.subst r.name
       (.except (.var r.name r.baseType .binder @@ pos) r.baseType [(r.args, rhs)] @@ pos) e'
 
+/-! The two branches of `substRef`, named. Both readings get used — `ExprSemantics.evalSubstRef`
+(`Core/ComputableTLAPlus/Semantics/Interface.lean`) proves one case of its `↔` from each — and
+neither states the `@@` tags, which are definitionally transparent (`Common/Position.lean`) and only
+noise in a consumer's goal. -/
+
+/-- At a bare reference, `substRef` is plain substitution of the right-hand side. -/
+theorem Expression.substRef_of_args_nil {α} {r : ElaboratedPlusCal.Ref α (Expression α)}
+    (h : r.args = []) (rhs e' : Expression α) :
+    Expression.substRef r rhs e' = Expression.subst r.name rhs e' := by
+  simp only [Expression.substRef, h, List.isEmpty_nil, if_true]
+
+/-- At a compound reference, `substRef` substitutes the base variable by a one-entry `EXCEPT`
+rebuilding it along the reference's own path. -/
+theorem Expression.substRef_of_args_ne_nil {α} {r : ElaboratedPlusCal.Ref α (Expression α)}
+    (h : r.args ≠ []) (rhs e' : Expression α) :
+    Expression.substRef r rhs e' =
+      Expression.subst r.name
+        (.except (.var r.name r.baseType .binder) r.baseType [(r.args, rhs)]) e' := by
+  simp only [Expression.substRef, List.isEmpty_iff, h, if_false]
+
 end ComputableTLAPlus
 
 end

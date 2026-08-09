@@ -5,6 +5,7 @@ public import Guarded2Network.Lemmas.Seq
 public import Guarded2Network.Lemmas.Trace
 public import Guarded2Network.Lemmas.Relation
 public import Guarded2Network.Lemmas.Statement
+public import Guarded2Network.Lemmas.Reorder
 public import Core.NetworkPlusCal.Semantics.Lemmas
 public import VerifiedCompiler
 public import Std.Do.WP
