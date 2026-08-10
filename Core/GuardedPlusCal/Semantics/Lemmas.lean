@@ -629,6 +629,22 @@ theorem Statement.listAborting'_cons {g : Bool} {S : ComputableGuardedPlusCal.St
     Statement.listAborting' (V := V) (S :: A) =
       Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
 
+/-- A run splits wherever its list does. Named at this instantiation because that is how the
+walk meets it — one statement appended at a time — while the content is
+`Block.listReducing_append`. -/
+theorem Statement.listReducing'_append {g : Bool}
+    {A B : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listReducing' (V := V) (A ++ B) =
+      Statement.listReducing' A ∘ᵣ₂ Statement.listReducing' B :=
+  Block.listReducing_append _
+
+@[inherit_doc Statement.listReducing'_append]
+theorem Statement.listAborting'_append {g : Bool}
+    {A B : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listAborting' (V := V) (A ++ B) =
+      Statement.listAborting' A ∪ Statement.listReducing' A ∘ᵣ₁ Statement.listAborting' B :=
+  Block.listAborting_append _ _
+
 /-- No *list* of statements diverges either — `Statement.diverging'_eq_empty` propagated through the
 fold. What makes a block-level refinement's diverging component `StrongRefinement.Diverging.Empty`
 rather than an argument. -/
@@ -640,6 +656,16 @@ rather than an argument. -/
   | cons S A IH =>
     show Statement.diverging' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listDiverging' A = ∅
     rw [Statement.diverging'_eq_empty, IH, Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
+
+/-- No *block* diverges either — the same fact at block shape, which is how a branch-level
+refinement gets its diverging component as `∅` rather than as something to carry. -/
+@[simp] theorem Block.diverging'_eq_empty {g b : Bool}
+    {B : Block (ComputableGuardedPlusCal.Statement g) b} :
+    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+        (λ ⦃_⦄ ↦ Statement.reducing') B = ∅ := by
+  show Statement.listDiverging' B.begin ∪ _ ∘ᵣ₁ Statement.diverging' B.last = ∅
+  rw [Statement.listDiverging'_eq_empty, Statement.diverging'_eq_empty,
+    Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
 
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableGuardedPlusCal.Statement b b') :

@@ -24,8 +24,16 @@ public section
   `receive`/`send`/`assign`/`multicast`'s targets aren't required to resolve against any
   particular scope class here, matching `CorePlusCal.WellScoped`'s own choice not to re-derive
   "every reference resolves" (redundant with `Computable2Guarded`'s success, whose input already
-  passed `TypedPlusCal.Algorithm.checkWellScoped`) — this Prop is only about fresh/shadow-free
-  binder positions, not full reference resolution.
+  passed `TypedPlusCal.Algorithm.checkWellScoped`) — nothing here derives full reference
+  resolution.
+
+  Beyond binder positions it also carries the **two receive restrictions**
+  (`GuardedPlusCal.PreconditionReceives`): one channel per process, and no `receive` target
+  indexing its own channel. `WellFormedness/Restrictions.lean` checks both executably over
+  `TypedPlusCal`; they are restated here as `Prop`s because `Guarded2Network`'s refinement proof
+  needs them and has no other source for them (`PLAN.md` §5.2a says as much — the checks exist so
+  the proof can assume them). That is why the structures below are concrete over
+  `ComputableGuardedPlusCal` rather than generic in `Typ`/`Expr`: `Ref.freeVars` is.
 -/
 
 /-- Every name a `Declarations` value binds — the `GuardedPlusCal` counterpart of
@@ -67,14 +75,6 @@ theorem GuardedPlusCal.wellscoped_mono_of_subset {Typ Expr} {stmts : List (Guard
     | await _ => intro _ _ h ws; exact ih h ws
     | receive _ _ _ => intro _ _ h ws; exact ih h ws
 
-/-- The bound name of a precondition statement, `none` for `await`/`receive` (which bind
-nothing). -/
-def GuardedPlusCal.Statement.boundName? {Typ Expr b'} :
-    GuardedPlusCal.Statement Typ Expr true b' → Option String
-  | .with name _ _ _ => some name
-  | .await _ => none
-  | .receive _ _ _ => none
-
 /-- The other direction from `Expression.not_mem_of_fresh`, packaged over a whole flat guard
 list: every name a `with` in `stmts` binds avoids `e`'s free variables — the capture-avoidance
 side condition `Guarded2Network/PlusCal.lean`'s `substGuard` needs when it substitutes `e` (an
@@ -107,27 +107,54 @@ theorem GuardedPlusCal.fresh_of_wellscoped_of_not_mem {inScope : List String}
       | head => simp [GuardedPlusCal.Statement.boundName?] at heq
       | tail _ hmem' => exact ih sub ws s' hmem' name' heq
 
-/-- `Br`'s own precondition (if any) is well-scoped against `inScope` — the action block binds
-nothing, so there's nothing further to check there (same reasoning as `CorePlusCal.WellScoped`
-not inspecting `.assign`/`.send`/etc.'s expressions). -/
-def GuardedPlusCal.AtomicBranch.WellScopedIn {Typ Expr} (inScope : List String)
-    (Br : GuardedPlusCal.AtomicBranch Typ Expr) : Prop :=
+/-- The two receive restrictions `WellFormedness/Restrictions.lean` checks executably over
+`TypedPlusCal` (`checkOneReceive`, `checkRefRestrictions`), restated as a `Prop` over one
+precondition's flat guard list — the form `Guarded2Network`'s refinement proof consumes.
+
+Neither is stylistic (`PLAN.md` §5.2a): with two channels the consumption site `x := Head(inbox)`
+cannot tell which channel a message arrived on, and a `receive` whose target name indexes its own
+channel moves the `ChanKey` the refinement invariant pins out from under it. The executable checks
+exist so that this proof can assume them; this is the assumption they justify.
+
+Concrete rather than generic in `Typ`/`Expr`, because `Ref.freeVars` is. -/
+structure GuardedPlusCal.PreconditionReceives (c₀ : ComputableGuardedPlusCal.Ref)
+    (stmts : List (ComputableGuardedPlusCal.Statement true false)) : Prop where
+  /-- Every `receive` here names the same channel — the process's one mailbox. -/
+  one_channel : ∀ c r coe, GuardedPlusCal.Statement.receive c r coe ∈ stmts → c = c₀
+  /-- No `receive`'s target is a name its own channel is indexed by. -/
+  target_not_in_channel : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+    GuardedPlusCal.Statement.receive c r coe ∈ stmts → r.name ∉ GuardedPlusCal.Ref.freeVars c
+
+/-- `Br`'s own precondition (if any) is well-scoped against `inScope` and receives only from `c₀` —
+the action block binds nothing, so there's nothing further to check there (same reasoning as
+`CorePlusCal.WellScoped` not inspecting `.assign`/`.send`/etc.'s expressions). -/
+def GuardedPlusCal.AtomicBranch.WellScopedIn (inScope : List String)
+    (c₀ : ComputableGuardedPlusCal.Ref) (Br : ComputableGuardedPlusCal.AtomicBranch) : Prop :=
   match Br.precondition with
   | none => True
-  | some B => GuardedPlusCal.PreconditionWellScopedIn inScope (B.begin ++ [B.last])
+  | some B =>
+    GuardedPlusCal.PreconditionWellScopedIn inScope (B.begin ++ [B.last]) ∧
+      GuardedPlusCal.PreconditionReceives c₀ (B.begin ++ [B.last])
 
-/-- `p` has no duplicate name in any scope, and no name shadows an enclosing scope's — the
-`GuardedPlusCal` counterpart of `CorePlusCal.WellScoped`'s per-process conjunct. -/
-structure GuardedPlusCal.Process.WellScoped {Typ Expr} (p : GuardedPlusCal.Process Typ Expr)
+/-- `p` has no duplicate name in any scope, no name shadows an enclosing scope's, and every
+`receive` it makes is from the one channel it listens on — the `GuardedPlusCal` counterpart of
+`CorePlusCal.WellScoped`'s per-process conjunct.
+
+The mailbox is existential rather than a field: this is a `Prop`, and which channel it is does not
+matter to any consumer — only that one channel serves the whole process, which is what
+`Restrictions.lean`'s `checkOneReceive` establishes by installing the first `receive`'s channel and
+comparing the rest against it. -/
+structure GuardedPlusCal.Process.WellScoped (p : ComputableGuardedPlusCal.Process)
     (globalNames : List String) : Prop where
   locals_nodup : p.localState.names.Nodup
   locals_no_shadow : ∀ n ∈ p.localState.names, n ∉ globalNames
-  branches_ws : ∀ thread ∈ p.threads, ∀ blk ∈ thread, ∀ Br ∈ blk.branches,
-    GuardedPlusCal.AtomicBranch.WellScopedIn (globalNames ++ p.localState.names) Br
+  branches_ws : ∃ mailbox : ComputableGuardedPlusCal.Ref,
+    ∀ thread ∈ p.threads, ∀ blk ∈ thread, ∀ Br ∈ blk.branches,
+      GuardedPlusCal.AtomicBranch.WellScopedIn (globalNames ++ p.localState.names) mailbox Br
 
 /-- The `GuardedPlusCal` counterpart of `CorePlusCal.WellScoped` — `Guarded2Network`'s
 refinement proof precondition. -/
-structure GuardedPlusCal.Algorithm.WellScoped {Typ Expr} (algo : GuardedPlusCal.Algorithm Typ Expr) : Prop where
+structure GuardedPlusCal.Algorithm.WellScoped (algo : ComputableGuardedPlusCal.Algorithm) : Prop where
   global_nodup : algo.globalState.names.Nodup
   procs_ws : ∀ p ∈ algo.processes, GuardedPlusCal.Process.WellScoped p algo.globalState.names
 

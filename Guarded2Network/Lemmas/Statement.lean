@@ -237,14 +237,6 @@ def Statement.writtenName? {b b' : Bool} :
   | .with x _ _ _ => .some x
   | _ => .none
 
-/-- The one name a statement *binds*, if any. `Fresh`'s fourth clause below: a `with` that shadowed
-the pass's `inbox` would overwrite the very sequence the refinement invariant is about. The
-counterpart for writes is `Statement.writtenName?` above. -/
-def Statement.boundName? {b b' : Bool} :
-    ComputableGuardedPlusCal.Statement b b' → Option String
-  | .with x _ _ _ => .some x
-  | _ => .none
-
 /-- What a statement must avoid for the pass's `inbox` not to disturb it: it cannot read `inbox`,
 `inbox` cannot be `self` — `print`/`send` read `self` to tag the event they emit, which is a name the
 *semantics* reads on its own and so is invisible to a freshness condition stated over the statement's
@@ -259,7 +251,7 @@ def Fresh (mbox : Mailbox) {g b : Bool} (S : ComputableGuardedPlusCal.Statement 
   ∀ c inbox, mbox = .some (c, inbox) →
     inbox ∉ GuardedPlusCal.Statement.freeVars S ∧ inbox ≠ GuardedPlusCal.selfName ∧
       (∀ x, Statement.writtenName? S = .some x → x ∉ GuardedPlusCal.Ref.freeVars c) ∧
-      ∀ x, Statement.boundName? S = .some x → x ≠ inbox
+      ∀ x, GuardedPlusCal.Statement.boundName? S = .some x → x ≠ inbox
 
 /-- `assign` and `send` each read one reference and one expression, and `Statement.freeVars` is the
 union of the two halves' free variables. Every branch of the two simulation lemmas below splits

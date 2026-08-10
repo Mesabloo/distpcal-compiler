@@ -1895,6 +1895,30 @@ into `inboxₚ` — so it needs no name at all. Both are minted by `freshName` i
 the label inherits the same `$`-hygiene that keeps it distinct from every user-written
 `AtomicBlock.label`.
 
+**`GuardedPlusCal.Algorithm.WellScoped` now carries the two receive restrictions**, not only binder
+scoping: `GuardedPlusCal.PreconditionReceives` states "one channel per process" and "no `receive`
+target indexes its own channel" as `Prop`s, which is what §5.2a's executable checks exist to justify
+and what item 7 had no other source for. The structures are concrete over `ComputableGuardedPlusCal`
+because `Ref.freeVars` is. §2's preservation lemma
+(`CorePlusCal.WellScoped p → GuardedPlusCal.Algorithm.WellScoped …`) accordingly has to establish
+them too, so its antecedent grows by the same two conditions.
+
+The pass's *generated* `inbox` is deliberately not covered: no well-scopedness statement can say
+anything about a name that does not occur in the source. `freshName`'s `$` hygiene is argued
+lexically in `Common/Fresh.lean` and has no `Prop`, so inbox-freshness stays an explicit hypothesis
+of the block- and branch-level theorems, discharged where the name is minted (`Thread.toNetwork`).
+
+**A block's semantics is its statement list's, and is defined that way.** `Block.reducing f B` is
+`Block.listReducing f B.begin ∘ᵣ₂ f B.last`, and `.aborting`/`.diverging` likewise — one `foldr`
+underneath all of them, rather than a well-founded recursion per operator alongside a list form that
+computed the same thing. The two are not interchangeable (a block's `last` may be terminal, so
+`Block.reducing` is dependent in the guard index where the list form is homogeneous), but that
+difference costs one composition, not a second recursion. Prior art has no list form at all and
+folds inline; the duplication here was introduced by adding one without collapsing the other.
+
+`Block.diverging` *is* `Block.aborting` — same body — so its lemmas are transports rather than
+mirrored proofs.
+
 **Reordering a guard past the pending assignments is two proofs, not one.** The reducing half is an
 *equation* (`Walk.reorder`), the aborting half only an *inclusion* (`Walk.reorder_aborting`), in the
 direction `emitted ≤ adjacent` — which is the direction `StrongRefinement.Mono` wants, since it

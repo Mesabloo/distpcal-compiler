@@ -32,12 +32,12 @@ Registered `@[spec]`, so `mvcgen invariants ⟨…⟩` picks it up on a `mapM` e
 theorem Spec.mapM_list [Monad m] [LawfulMonad m] [WPMonad m ps] {α β : Type u}
     {xs : List α} {f : α → m β} (inv : Invariant xs (List β) ps)
     (step : ∀ pref cur suff (h : xs = pref ++ cur :: suff) bs,
-      Triple
-        (f cur)
-        (inv.1 (⟨pref, cur :: suff, h.symm⟩, bs))
-        (λ b ↦ inv.1 (⟨pref ++ [cur], suff, by simp [h]⟩, bs ++ [b]), inv.2)) :
-    Triple (xs.mapM f) (inv.1 (⟨[], xs, rfl⟩, []))
-      (λ bs ↦ inv.1 (⟨xs, [], by simp⟩, bs), inv.2) := by
+      ⦃inv.1 (⟨pref, cur :: suff, h.symm⟩, bs)⦄
+        f cur
+      ⦃(λ b ↦ inv.1 (⟨pref ++ [cur], suff, by simp [h]⟩, bs ++ [b]), inv.2)⦄) :
+    ⦃inv.1 (⟨[], xs, rfl⟩, [])⦄
+      xs.mapM f
+    ⦃(λ bs ↦ inv.1 (⟨xs, [], by simp⟩, bs), inv.2)⦄ := by
   rw [List.mapM_eq_reverse_foldlM_cons]
   apply Spec.map'
   apply Spec.foldlM_list

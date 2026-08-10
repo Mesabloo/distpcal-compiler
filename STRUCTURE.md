@@ -306,8 +306,17 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   chain need `import all` of *this* file in turn. Plus `ConsumptionPairs`/`reorder_pairs_lenGt`,
   the whole pending accumulator moved past one compiled guard; `Adjacent`, the adjacent ordering as
   a relation (a relation and not a statement list, since it interleaves guard- and action-class
-  statements); and `Walk.reorder`, the equation saying the emitted and adjacent orderings *are* the
-  same relation — which is what keeps any refinement from ever being stated about a mid-walk state.
+  statements); `Walk.reorder`, the equation saying the emitted and adjacent orderings *are* the
+  same relation — which is what keeps any refinement from ever being stated about a mid-walk state
+  — and `Walk.reorder_aborting`, its inclusion counterpart for the failing runs. Then the two
+  halves joined: `processPrecondition_refines`, over `Block.reducing`/`.aborting` rather than the
+  flattened list, with `PairsFresh`/`Walk.newInstrs_mem` carrying the reorder's freshness condition
+  in source terms, and `rfresh_of_wellFormed` splitting `rfresh` into its well-formedness half and
+  its generated-`inbox` half.
+- `Lemmas/AtomicBranch.lean` — one branch. `actionBlock_refines` lifts `Lemmas/Statement.lean`'s
+  per-statement `action_refines` over a whole action block (one `StrongRefinement.Comp` per
+  statement; nothing is reordered, the action language being unchanged by this pass), to be composed
+  with `Lemmas/Precondition.lean`'s half.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

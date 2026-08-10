@@ -124,6 +124,16 @@ inductive Statement (Typ Expr : Type) : Bool → Bool → Type
   | goto (label : String) : Statement Typ Expr false true
   deriving Repr
 
+/-- The one name a statement *binds*, if any — `with`'s binder, and nothing else. Lives here rather
+than beside either of its users because both `WellFormedness.WellScoped.GuardedPlusCal` (where a
+binder must be fresh against the enclosing scope) and `Guarded2Network`'s `Fresh` (where a binder
+must not shadow the pass's generated `inbox`) need exactly this, and stating it twice is how the two
+drift. Stated for every guard class, since only `Guarded2Network` needs the action one and the
+answer there is always `none`. -/
+def Statement.boundName? {Typ Expr b b'} : Statement Typ Expr b b' → Option String
+  | .with name _ _ _ => some name
+  | _ => none
+
 instance {Typ Expr} : Inhabited (Statement Typ Expr false true) where
   default := .goto default
 
