@@ -12,10 +12,15 @@
     scripts/facts doctor                check the database against the sources
     scripts/facts refresh               re-extract and reindex
 
-Two layers. `.claude/facts/lemmas.jsonl` is *derived* — theorems, Prop-valued class fields and
-locally defined tactics, written by `scripts/DumpFacts.lean` and never hand-edited.
+Two layers. `.claude/facts/lemmas.jsonl` is *derived* — theorems, definitions, Prop-valued class
+fields and locally defined tactics, written by `scripts/DumpFacts.lean` and never hand-edited.
 `.claude/facts/notes.jsonl` is *curated*: the things no extractor can know, added with `add` and
-removed with `rm`. Both feed one index, so a single `q` surfaces all three kinds.
+removed with `rm`. Both feed one index, so a single `q` surfaces all of them.
+
+A result shown with `⊢` is a theorem and the text is its conclusion; one shown with `:` is a
+definition — a `def`, `abbrev`, `inductive` or `structure` — and the text is its signature.
+`private` declarations are indexed under the name the source gives them and tagged `[private]`:
+usable, but only from a file that `import all`s the one declaring them.
 
 Mathlib is deliberately not indexed. That is what lean-lsp's Loogle and `lean_local_search` are
 for; this database answers "what has *this project* already proved".
@@ -214,7 +219,8 @@ def one_line(row, with_file: bool = True) -> str:
     if nhyp:
         tags += f" {nhyp}h"
     body_text = doc if kind == "tac" and doc else concl
-    lead = " — " if kind == "tac" else " ⊢ "
+    # A definition has no conclusion to state; what it has is a signature, and `:` says so.
+    lead = " — " if kind == "tac" else " : " if kind == "def" else " ⊢ "
     where = f"{file}:{line}" if with_file else ""
     fixed = len(name) + len(tags) + len(where) + len(lead) + 4
     body = f"{name}{tags}{lead}{clip(body_text, max(WIDTH - fixed, 12))}"
@@ -363,6 +369,8 @@ def cmd_s(db, args: list[str], limit: int) -> None:
     print()
     if kind == "tac":
         print("  syntax     " + typ)
+    elif kind == "def":
+        print("  signature  " + typ)
     else:
         print("  statement  " + typ)
         print("  concludes  " + concl)
@@ -510,7 +518,15 @@ def walk_lean() -> list[str]:
 
 
 def cmd_refresh(db, args: list[str], limit: int) -> None:
-    """Re-extract from the built project, then rebuild the index."""
+    """Re-extract from the built project, then rebuild the index.
+
+    The build comes first and is not optional. The extractor reads declaration *lines* from the
+    compiled environment and the surrounding *text* from the working tree, so a stale `.olean`
+    silently drops every declaration below the first edit — the windows land on the wrong lines,
+    the name check fails, and the result is a smaller database rather than an error."""
+    print("$ lake build", flush=True)
+    if subprocess.run(["lake", "build"], cwd=ROOT).returncode:
+        die("build failed — the extract would be read off a stale environment")
     print(f"$ lake env lean --run {EXTRACTOR}", flush=True)
     if subprocess.run(["lake", "env", "lean", "--run", EXTRACTOR], cwd=ROOT).returncode:
         die("extraction failed — is the project built? try: lake build")

@@ -37,7 +37,8 @@ checker only cover rules with unambiguous textual form.
 scripts/facts q <words>
 ```
 
-Index 370 theorem, 23 class field, 15 project-defined tactic, plus curated note. Also:
+Index 474 theorem, 1216 definition, 27 class field, 15 project-defined tactic, plus curated note.
+`private` declaration indexed too, tagged `[private]` — reachable only via `import all`. Also:
 `c <const>,<const>` (lemma whose *conclusion* mention all these), `m <file>` (one file lemma, source
 order), `t` (project tactic — `sem_red`, `sem_side`, `erwa`, `iff_rintro`, `refines_match`, …),
 `s <name>` (full record plus note about it), `n` (note). Grep for `theorem`/`lemma` blocked by hook —

@@ -8,7 +8,7 @@ Run it from the project root, against an already-built project:
 `OUT` defaults to `.claude/facts/lemmas.jsonl`. One JSON object per line:
 
     n  fully qualified name          K  conclusion key heads (the primary search key)
-    k  "thm" | "field"               c  every constant in the conclusion
+    k  "thm" | "def" | "field"       c  every constant in the conclusion
     m  module name                   h  every constant in the hypotheses
     f  project-relative source path  a  attributes, as written
     l  line of the declared name     d  docstring, whitespace-collapsed
@@ -53,9 +53,16 @@ def modPath (m : Name) : String :=
 
 /-! ## Filtering noise out of the constant table -/
 
+/-- The name as the source spells it. A `private` declaration is stored under a mangled name
+(`_private.Guarded2Network.Lemmas.Precondition.0.Guarded2Network.Walk.reorder`), which every
+consumer here would otherwise either reject as compiler-generated or record verbatim. -/
+def userName (n : Name) : Name :=
+  privateToUserName? n |>.getD n
+
 /-- Compiler-generated names, whatever their shape. Most auto-generated constants are already
 excluded by having no declaration range at all; this catches the rest. -/
 def isInternal (n : Name) : Bool :=
+  let n := userName n
   n.isInternal || n.hasMacroScopes ||
     n.components.any λ c ↦
       let s := c.toString
@@ -66,7 +73,7 @@ def isInternal (n : Name) : Bool :=
 /-- Instance and coercion plumbing (`Set.instHasSubset`, `MulOneClass.toMulOne`, …). Real constants,
 but indexing a lemma under them buries the one head symbol a reader would actually search for. -/
 def isPlumbing (n : Name) : Bool :=
-  n.components.any λ c ↦
+  (userName n).components.any λ c ↦
     let s := c.toString
     s.startsWith "inst" || s.startsWith "to"
 
@@ -97,6 +104,8 @@ returns `none` for every imported module in this setup, even with `loadExts := t
 structure SrcInfo where
   /-- A `theorem` or `lemma` keyword appears in the window. -/
   isTheorem : Bool
+  /-- A `def`/`abbrev`/`inductive`/`structure`/`class` keyword appears in the window. -/
+  isDefinition : Bool
   /-- The window's last line binds the constant's own name — a `structure`/`class` field. -/
   isField : Bool
   /-- Attributes as written, one entry per comma-separated item. -/
@@ -134,11 +143,29 @@ def parseAttrs (line : String) : Array String := Id.run do
   let final := current.trimAscii.toString
   return if final.isEmpty then out else out.push final
 
+/-- A source line with its leading attribute block and any declaration modifiers removed, so that
+the declaration keyword — if there is one — is the first word.
+
+Stripping beats enumerating: the modifiers combine freely (`public private theorem`,
+`public noncomputable def`), and spelling out every combination is how a real declaration ends up
+missing from the database. -/
+partial def stripModifiers (line : String) : String :=
+  let line := line.trimAsciiStart.toString
+  let line := if line.startsWith "@[" then (line.splitOn "] ").getD 1 "" else line
+  match ["private ", "protected ", "public ", "noncomputable ", "partial ", "unsafe ", "nonrec ",
+      "scoped ", "local "].find? (λ modifier ↦ line.startsWith modifier) with
+  | some modifier => stripModifiers (line.drop modifier.length).toString
+  | none => line
+
+/-- Keywords that introduce a definition worth indexing. `instance` is deliberately absent:
+instances are found by synthesis, not by search, and `isPlumbing` filters their names anyway. -/
+def definitionKeywords : List String :=
+  ["def ", "abbrev ", "inductive ", "structure ", "class "]
+
 /-- Scan the source window `[declStart, nameLine]` of a declaration in `file`. -/
 def scanSource (file : String) (declStart nameLine : Nat) (leafName : String) : IO SrcInfo := do
-  if !(← System.FilePath.pathExists file) then return ⟨false, false, #[], none⟩
+  if !(← System.FilePath.pathExists file) then return ⟨false, false, false, #[], none⟩
   let src ← IO.FS.lines file
-  let mut isTheorem := false
   let mut attrs := #[]
   let mut docLines := #[]
   let mut inDoc := false
@@ -160,20 +187,21 @@ def scanSource (file : String) (declStart nameLine : Nat) (leafName : String) : 
         docLines := docLines.push body
     else if line.startsWith "@[" then
       attrs := attrs ++ parseAttrs line
-    for keyword in ["theorem ", "lemma "] do
-      if line.startsWith keyword
-          || ["private ", "protected ", "public ", "public private "].any
-               (λ modifier ↦ line.startsWith (modifier ++ keyword))
-          || (line.splitOn "] " |>.getD 1 "" |>.startsWith keyword) then
-        isTheorem := true
+  -- The keyword is read off the name line alone, never the rest of the window: a `structure`'s
+  -- projections have declaration ranges that start at the `structure` keyword, so a window-wide
+  -- scan reports every field as a definition of its own.
+  let keywordLine := stripModifiers (src[nameLine - 1]?.getD "")
+  let isTheorem := ["theorem ", "lemma "].any (λ keyword ↦ keywordLine.startsWith keyword)
+  let isDefinition := definitionKeywords.any (λ keyword ↦ keywordLine.startsWith keyword)
   -- The line the selection range points at must actually spell the constant's own name.
   -- Attribute-generated companions inherit their source theorem's range, so `@[ext] theorem
   -- Block.ext_iff` otherwise contributes a phantom `Block.ext_iff_iff` sitting on the same line.
   let namesItself :=
     (src[nameLine - 1]?.map λ l ↦ decide ((l.splitOn leafName).length > 1)).getD false
   let declaresTheorem := isTheorem && namesItself
+  let declaresDefinition := isDefinition && namesItself
   -- A class field is named by the window's own last line, with no keyword in front of it.
-  let isField := !declaresTheorem &&
+  let isField := !declaresTheorem && !declaresDefinition &&
     ((src[nameLine - 1]?.map λ l ↦
       let t := l.trimAsciiStart.toString
       t.startsWith (leafName ++ " ") || t.startsWith (leafName ++ ":")
@@ -181,7 +209,7 @@ def scanSource (file : String) (declStart nameLine : Nat) (leafName : String) : 
   let doc :=
     if docLines.isEmpty then none
     else some (" ".intercalate (docLines.toList.filter (!·.isEmpty)))
-  return ⟨declaresTheorem, isField, attrs, doc⟩
+  return ⟨declaresTheorem, declaresDefinition, isField, attrs, doc⟩
 
 /-- Attributes applied by a standalone `attribute [...] name₁ name₂ …` command, keyed by the name
 each was applied to.
@@ -225,6 +253,22 @@ def scanAttributeCommands (file : String) : IO (Array (String × String)) := do
 /-- Collapse the pretty-printer's line breaks and indentation into single spaces. -/
 def oneLine (s : String) : String :=
   " ".intercalate ((s.replace "\n" " ").splitOn " " |>.filter (!·.isEmpty))
+
+/-- Everything after the module counter in one mangled private name: the components up to and
+including the first purely numeric one are the `_private.<module>.<n>.` prefix. -/
+def dropPrivatePrefix (s : String) : String :=
+  let rec go : List String → List String
+    | [] => []
+    | c :: cs => if !c.isEmpty && c.all Char.isDigit then cs else go cs
+  ".".intercalate (go (s.splitOn "."))
+
+/-- Undo the mangling `pp.privateNames` prints. That option is on because the alternative is worse:
+without it the delaborator renders a private constant as `Walk✝`, which is neither searchable nor
+copy-pasteable, and two private constants sharing a leaf name become `Walk✝` and `Walk✝¹`. -/
+def demanglePrivateNames (s : String) : String :=
+  match s.splitOn "_private." with
+  | [] => s
+  | head :: rest => head ++ String.join (rest.map dropPrivatePrefix)
 
 /-! ## Locally defined tactics
 
@@ -316,9 +360,11 @@ def TacticFact.toJson (t : TacticFact) : Json :=
 
 /-- One row of the database. Field names match the JSON keys the CLI reads. -/
 structure Fact where
-  /-- Fully qualified constant name. -/
+  /-- Fully qualified constant name, as the source spells it: a `private` declaration is recorded
+  under its user-facing name, with `private` among its attributes. -/
   name : Name
-  /-- `"thm"` for a source theorem, `"field"` for a Prop-valued class field. -/
+  /-- `"thm"` for a source theorem, `"def"` for a definition or inductive predicate, `"field"` for
+  a Prop-valued class field. -/
   kind : String
   /-- Declaring module. -/
   module : Name
@@ -346,7 +392,7 @@ structure Fact where
 
 /-- Constants worth indexing, in first-seen order and without duplicates. -/
 def informative (ns : Array Name) : Array Name :=
-  ns.filter λ n ↦ !isInternal n && !isPlumbing n
+  (ns.filter λ n ↦ !isInternal n && !isPlumbing n).map userName
 
 /-- The head symbols a reader would search a conclusion under.
 
@@ -367,8 +413,9 @@ def conclusionKeys (body : Expr) : Array Name := Id.run do
 /-- Build a fact from a constant, given what its source window says. -/
 def mkFact (n : Name) (ci : ConstantInfo) (m : Name) (line : Nat)
     (src : SrcInfo) : MetaM Fact := do
-  let pp (e : Expr) : MetaM String := withOptions (λ o ↦ o.setBool `pp.unicode.fun true) do
-    return oneLine ((← ppExpr e).pretty (width := 1000))
+  let pp (e : Expr) : MetaM String :=
+    withOptions (λ o ↦ (o.setBool `pp.unicode.fun true).setBool `pp.privateNames true) do
+      return demanglePrivateNames (oneLine ((← ppExpr e).pretty (width := 1000)))
   let (hyps, concl, keys, concise, hypCount) ← forallTelescope ci.type λ binders body ↦ do
     let hyps ← binders.foldlM (init := (∅ : NameSet)) λ acc binder ↦ do
       return (← inferType binder).getUsedConstants.foldl NameSet.insert acc
@@ -378,15 +425,20 @@ def mkFact (n : Name) (ci : ConstantInfo) (m : Name) (line : Nat)
     return (hyps, concl, conclusionKeys body, ← pp body, hypCount)
   let type ← pp ci.type
   return {
-    name := n
-    kind := if src.isTheorem then "thm" else "field"
+    name := userName n
+    kind := if src.isTheorem then "thm" else if src.isDefinition then "def" else "field"
     module := m
     file := modPath m
-    line, type, concise, hypCount
-    keys := informative keys
+    line, type, hypCount
+    -- A definition's conclusion is its result type, which for a predicate is the word `Prop`. Its
+    -- signature is what a reader wants, and its own name is the key they will search under.
+    concise := if src.isDefinition then type else concise
+    keys := if src.isDefinition then #[userName n] else informative keys
     concl := informative concl.toArray
     hyps := informative hyps.toArray
-    attrs := src.attrs
+    -- Whether a fact is reachable from another file is part of what it is: a `private` lemma is
+    -- only usable through `import all`, and finding one without being told that wastes a search.
+    attrs := if isPrivateName n then src.attrs.push "private" else src.attrs
     doc := src.doc.map oneLine
   }
 
@@ -432,7 +484,7 @@ def collectTactics (roots : NameSet) : IO (Array TacticFact) := do
 def collect (env : Environment) (roots : NameSet) : MetaM (Array Fact) := do
   let mut facts := #[]
   for (n, ci) in env.constants.toList do
-    unless ci matches .thmInfo _ do continue
+    unless ci matches .thmInfo _ | .defnInfo _ | .inductInfo _ | .opaqueInfo _ do continue
     if isInternal n then continue
     let some idx := env.getModuleIdxFor? n | continue
     let some m := env.header.moduleNames[idx.toNat]? | continue
@@ -440,8 +492,11 @@ def collect (env : Environment) (roots : NameSet) : MetaM (Array Fact) := do
     -- Auto-generated constants carry no declaration range, which is most of the filtering.
     let some range ← findDeclarationRanges? n | continue
     let nameLine := range.selectionRange.pos.line
-    let src ← scanSource (modPath m) range.range.pos.line nameLine n.getString!
-    if src.isTheorem || src.isField then
+    let src ← scanSource (modPath m) range.range.pos.line nameLine (userName n).getString!
+    -- A field is a projection, which is a theorem exactly when the field is `Prop`-valued; the
+    -- non-`Prop` projections a `structure` also generates are not facts and stay out.
+    let keep := if ci matches .thmInfo _ then src.isTheorem || src.isField else src.isDefinition
+    if keep then
       facts := facts.push (← mkFact n ci m nameLine src)
   let tagged ← applyAttributeCommands facts
   return tagged.qsort λ a b ↦
@@ -465,9 +520,11 @@ unsafe def main (args : List String) : IO Unit := do
     (facts.toList.map (λ f ↦ f.toJson.compress ++ "\n")
       ++ tactics.toList.map (λ t ↦ t.toJson.compress ++ "\n")))
   let theorems := facts.filter (·.kind == "thm") |>.size
-  let fields := facts.size - theorems
+  let definitions := facts.filter (·.kind == "def") |>.size
+  let fields := facts.size - theorems - definitions
   let files := facts.foldl (init := (∅ : NameSet)) (λ s f ↦ s.insert (Name.mkSimple f.file))
   let documented := (facts.filter (·.doc.isSome)).size + (tactics.filter (·.doc.isSome)).size
   let total := facts.size + tactics.size
-  IO.println s!"{total} facts ({theorems} theorems, {fields} class fields, \
-    {tactics.size} tactics) from {files.size} files, {documented} documented -> {out}"
+  IO.println s!"{total} facts ({theorems} theorems, {definitions} definitions, \
+    {fields} class fields, {tactics.size} tactics) from {files.size} files, \
+    {documented} documented -> {out}"
