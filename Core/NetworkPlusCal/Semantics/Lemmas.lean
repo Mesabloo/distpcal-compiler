@@ -387,6 +387,32 @@ theorem Statement.listAborting'_cons {g : Bool} {S : ComputableNetworkPlusCal.St
     Statement.listAborting' (V := V) (S :: A) =
       Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
 
+/-- A statement run's aborts split wherever its list does: either the prefix aborts, or it runs and
+then the suffix does. `Statement.listReducing'_append`'s twin, and needed for the same reason —
+`Guarded2Network`'s consumption assignments accumulate by `++`. -/
+theorem Statement.listAborting'_append {g : Bool}
+    {A B : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listAborting' (V := V) (A ++ B) =
+      Statement.listAborting' A ∪ Statement.listReducing' A ∘ᵣ₁ Statement.listAborting' B := by
+  induction A with
+  | nil =>
+    rw [List.nil_append, Statement.listAborting'_nil, Statement.listReducing'_nil,
+      Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | cons S A IH =>
+    rw [List.cons_append, Statement.listAborting'_cons, Statement.listAborting'_cons,
+      Statement.listReducing'_cons, IH, Relation.lcomp₁.union_lcomp₂]
+
+/-- An `await` that fires changes nothing and emits nothing, so its step relation sits inside
+`Relation.Idle`. What lets a guard be dropped off the front of a run that fails after it. -/
+theorem Statement.reducing'_await_le_idle {e : ComputablePlusCal.Expression} :
+    Statement.reducing' (V := V) (.await e) ≤ Relation.Idle := by
+  rintro ⟨⟨M, F, l⟩, ε, ⟨M', F', l'⟩⟩ ⟨_, rfl, hred, rfl, rfl⟩
+  obtain ⟨M₀, F₀, hM, hM', -, rfl⟩ := Statement.reducing.await.elim hred
+  injection hM with hM hF
+  injection hM' with hM'' hF''
+  subst hM; subst hF; subst hM''; subst hF''
+  exact ⟨rfl, rfl⟩
+
 omit [ExprSemantics V] in
 /-- No statement diverges — see `GuardedPlusCal.Statement.diverging'_eq_empty`. -/
 @[simp] theorem Statement.diverging'_eq_empty {b b' : Bool}
@@ -466,6 +492,28 @@ theorem Statement.reducing'_lcomp₂_congr {g₁ g₂ g₃ g₄ : Bool}
   rw [Statement.reducing'_eq_map, Statement.reducing'_eq_map, Statement.reducing'_eq_map,
     Statement.reducing'_eq_map, ← Relation.lcomp₂.image (LocalState.toLocalState'_inj (b := false)),
     ← Relation.lcomp₂.image (LocalState.toLocalState'_inj (b := false)), h]
+
+/-- The aborting counterpart of `Statement.reducing'_lcomp₂_congr`, over the shape a two-step run's
+aborts have: either the first statement aborts, or it runs and the second does.
+
+An *inclusion* rather than an equation, because that is what the reorder lemmas prove — a guard can
+block where an assignment cannot, so the two sides are ordered and not equal. Injectivity is still
+what carries it, `Set.image_mono` doing the rest. -/
+theorem Statement.aborting'_lcomp₁_congr {g₁ g₂ g₃ g₄ : Bool}
+    {S₁ : ComputableNetworkPlusCal.Statement g₁ false}
+    {S₂ : ComputableNetworkPlusCal.Statement g₂ false}
+    {T₁ : ComputableNetworkPlusCal.Statement g₃ false}
+    {T₂ : ComputableNetworkPlusCal.Statement g₄ false}
+    (h : Statement.aborting (V := V) S₁ ∪ Statement.reducing S₁ ∘ᵣ₁ Statement.aborting S₂ ≤
+      Statement.aborting T₁ ∪ Statement.reducing T₁ ∘ᵣ₁ Statement.aborting T₂) :
+    Statement.aborting' (V := V) S₁ ∪ Statement.reducing' S₁ ∘ᵣ₁ Statement.aborting' S₂ ≤
+      Statement.aborting' T₁ ∪ Statement.reducing' T₁ ∘ᵣ₁ Statement.aborting' T₂ := by
+  rw [Statement.aborting'_eq_map, Statement.aborting'_eq_map, Statement.aborting'_eq_map,
+    Statement.aborting'_eq_map, Statement.reducing'_eq_map, Statement.reducing'_eq_map,
+    ← Relation.lcomp₁.image (LocalState.toLocalState'_inj (b := false)),
+    ← Relation.lcomp₁.image (LocalState.toLocalState'_inj (b := false)),
+    ← Set.image_union, ← Set.image_union]
+  exact Set.image_mono h
 
 theorem Block.reducing'_eq_map {g b : Bool}
     {B : Block (ComputableNetworkPlusCal.Statement g) b} :

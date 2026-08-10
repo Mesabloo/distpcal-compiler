@@ -123,6 +123,17 @@ def _havebare(code, raw):
             yield i, l.strip()
 
 
+@rule("rename_i / expose_names", "`next x y => …`, or name it where it is bound")
+def _renamei(code, raw):
+    # A syntax quotation is the sanctioned use: `CustomPrelude`'s `split … using` and
+    # `injections with` build `rename_i` into themselves so that no proof has to write it.
+    for i, l in enumerate(code):
+        if "`(" in l:
+            continue
+        if re.search(r'\b(rename_i|expose_names)\b', l):
+            yield i, l.strip()
+
+
 @rule("rw … at h then exact h", "`rwa [...] at h`")
 def _rwaexact(code, raw):
     # Only the same-name `at` form is checked. `rw [...]` followed by a bare `exact foo` is the

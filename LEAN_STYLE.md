@@ -224,6 +224,27 @@ Citations illustrate the rule; this file is not a list of things to fix.
   Checking a deletion needs a forced rebuild — delete the `.olean` first, else `lake build` replays
   the cache and reports success over the unchanged source. The one this repo had was
   `haveI : Nonempty α := ⟨σ⟩` in front of a `choose!`, which does not need it.
+- **Never `rename_i`, never `expose_names`.** Both reach for a hypothesis by *position* in the
+  context — the one thing that changes under every edit to the tactic above them, silently and
+  without a type error. The replacements, in order:
+
+  **`next x y => tac`.** Selects the next goal *and* names its trailing inaccessibles, so the names
+  arrive attached to the branch that has them rather than as a separate line. This is what a
+  `· rename_i h` bullet always meant. `Guarded2Network/Lemmas/Precondition.lean:718`, three
+  post-`mvcgen` goals whose loop invariant has no other name.
+
+  **Or name it where it is bound** — an `rintro`/`obtain` pattern, or a `case`/`with` alternative.
+  A hypothesis is inaccessible because something upstream declined to name it; naming it there is
+  strictly better than renaming it here.
+
+  **Or do not need the name.** A binder inaccessible in an induction case usually means the proof
+  should not be mentioning it. `Walk.reorder_aborting`'s `receive` case wanted `st.i` for a
+  `← Nat.zero_add st.i`; `st` was inaccessible, and `simpa only [Nat.zero_add] using …` under a
+  `refine`'s `?_` says the same thing without naming anything.
+
+  The escape hatch is a syntax quotation: `CustomPrelude.lean:78`, `:82` build `rename_i` *into*
+  `split … using` and `injections with`, which exist so that no proof has to write it.
+  `scripts/lean-style` checks for it outside quotations.
 - **`by classical` on one line.** Not `by`, then `classical` next line.
 - **`contradiction`, not `Option.noConfusion`.** `noConfusion` need its implicits line up, fail
   `Application type mismatch` when they don't.
@@ -378,7 +399,6 @@ hand-rolling the equivalent.
 |---|---|
 | Find the lemma that closes goal | `exact?` / `apply?` / `rw?` — use while developing, paste the found term |
 | Is this step leaning on defeq? | `#defeq_abuse in <tac>` — runs `tac` at both `backward.isDefEq.respectTransparency` settings, names the `isDefEq` checks that only pass at the loose one. Needs `import Mathlib.Tactic.DefEqAbuse`. Experimental; tactic still runs, so the proof stays valid while debugging. Use before deleting a `rw`/`change` that looks redundant — e.g. `rw [Set.mem_sUnion] at h` before an `obtain h` |
-| Inaccessible hypothesis `h✝` after `rintro`/`cases` | `expose_names`, rather than hand-fixing with `rename_i` |
 | Case-split following a function's own equations | `fun_cases` — non-recursive twin of `fun_induction` |
 | Rewrite under `≤`/`⊆` rather than `=` | `grw` / `grewrite` — fits `Extra/Rel.lean`'s vocabulary |
 | Rewrite only the *n*th occurrence | `nth_rw` / `nth_rewrite` |

@@ -210,6 +210,21 @@ theorem Relation.lcomp₂.image {α β γ : Type _} [Monoid β] {g : γ → α} 
     obtain rfl : b₂ = b₁ := g_inj hb
     exact ⟨⟨a, e₁ * e₂, c⟩, ⟨b₂, e₁, e₂, hR₁, hR₂, rfl⟩, rfl⟩
 
+@[inherit_doc Relation.lcomp₂.image]
+theorem Relation.lcomp₁.image {α β γ : Type _} [Monoid β] {g : γ → α} (g_inj : Function.Injective g)
+    {R : Set (γ × β × γ)} {W : Set (γ × β)} :
+    Prod.map g id '' (R ∘ᵣ₁ W) =
+      (Prod.map₃ g id g '' R) ∘ᵣ₁ (Prod.map g id '' W) := by
+  ext ⟨a', e⟩
+  iff_rintro ⟨⟨a, _⟩, ⟨b, e₁, e₂, hR, hW, rfl⟩, _|_⟩
+    ⟨b', _, _, ⟨⟨a, e₁, b₁⟩, hR, h₁⟩, ⟨⟨b₂, e₂⟩, hW, h₂⟩, rfl⟩
+  · exact ⟨g b, e₁, e₂, ⟨⟨a, e₁, b⟩, hR, rfl⟩, ⟨⟨b, e₂⟩, hW, rfl⟩, rfl⟩
+  · simp only [Prod.map₃, Prod.map, Prod.mk.injEq] at h₁ h₂
+    obtain ⟨rfl, rfl, rfl⟩ := h₁
+    obtain ⟨hb, rfl⟩ := h₂
+    obtain rfl : b₂ = b₁ := g_inj hb
+    exact ⟨⟨a, e₁ * e₂⟩, ⟨b₂, e₁, e₂, hR, hW, rfl⟩, rfl⟩
+
 theorem Relation.lcomp₁.left_lcomp₂_eq {α β γ δ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {R₂ : Set (γ × β × δ)} {R₃ : Set (δ × β)} : (R₁ ∘ᵣ₂ R₂) ∘ᵣ₁ R₃ = R₁ ∘ᵣ₁ (R₂ ∘ᵣ₁ R₃) := by
   ext ⟨a, e⟩
   iff_rintro ⟨c, _, e₃, ⟨b, e₁, e₂, _, _, rfl⟩, _, rfl⟩ ⟨b, e₁, e₂, _, ⟨c, e₂, e₃, _, _, rfl⟩, rfl⟩
@@ -221,6 +236,45 @@ theorem Relation.lcomp₁.left_lcomp₂_eq {α β γ δ : Type _} [Monoid β] {R
     exists c, e₁ * e₂, e₃
     and_intros <;> try trivial
     exists b, e₁, e₂
+
+/-- Refolding a two-step run's aborting set: the abort that happens after both steps can be attached
+to the second step alone. Read left to right it is how a `cons` of aborting semantics is taken apart;
+read right to left it is how the tail of an induction is put back together. -/
+theorem Relation.lcomp₁.union_lcomp₂ {α β γ δ : Type _} [Monoid β] {R : Set (α × β × γ)}
+    {S : Set (γ × β × δ)} {A : Set (α × β)} {X : Set (γ × β)} {Y : Set (δ × β)} :
+    (A ∪ R ∘ᵣ₁ X) ∪ (R ∘ᵣ₂ S) ∘ᵣ₁ Y = A ∪ R ∘ᵣ₁ (X ∪ S ∘ᵣ₁ Y) := by
+  rw [Relation.lcomp₁.left_lcomp₂_eq, Relation.lcomp₁.right_union_eq_union, Set.union_assoc]
+
+/-- A step that changes nothing can be dropped off the front of a run that fails after it. -/
+theorem Relation.lcomp₁.le_of_left_le_idle {α β : Type _} [Monoid β] {R : Set (α × β × α)}
+    {X : Set (α × β)} (h : R ≤ Relation.Idle) : R ∘ᵣ₁ X ≤ X :=
+  calc R ∘ᵣ₁ X ≤ Relation.Idle ∘ᵣ₁ X := by gcongr
+    _ = X := Relation.lcomp₁.left_id_eq
+
+/-- **One step of an "aborting commutes past" induction.** `Q` is the statement being moved leftwards
+and `R` what it is moved past; `Qa`/`Ra` are their aborting sets, `Q'`/`Qa'` what `Q` becomes on the
+far side.
+
+The three hypotheses are the three things such a step ever needs: that the *reducing* relations
+commute (`hcomm`), that `Q`'s own aborts are covered once it has crossed `R` (`hhead`), and that the
+rest of the run is covered (`htail`). `hmid` absorbs a preceding inclusion — the induction hypothesis,
+where there is one, and `le_rfl` where the run is already in this shape.
+
+Stated on bare relations because every user is the same algebra over different statements: a guard
+substituted into, a guard whose index was bumped, and a whole walk. -/
+theorem Relation.lcomp₁.commute_step {α β : Type _} [Monoid β] {Q Q' R : Set (α × β × α)}
+    {Qa Qa' Ra Xa Ya Z : Set (α × β)} (hcomm : Q ∘ᵣ₂ R = R ∘ᵣ₂ Q')
+    (hhead : Qa ∪ Q ∘ᵣ₁ Ra ≤ Ra ∪ R ∘ᵣ₁ Qa') (hmid : Z ≤ Ra ∪ R ∘ᵣ₁ Xa)
+    (htail : Qa' ∪ Q' ∘ᵣ₁ Xa ≤ Ya) :
+    Qa ∪ Q ∘ᵣ₁ Z ≤ Ra ∪ R ∘ᵣ₁ Ya :=
+  calc Qa ∪ Q ∘ᵣ₁ Z
+      ≤ Qa ∪ Q ∘ᵣ₁ (Ra ∪ R ∘ᵣ₁ Xa) := by gcongr
+    _ = (Qa ∪ Q ∘ᵣ₁ Ra) ∪ (Q ∘ᵣ₂ R) ∘ᵣ₁ Xa := Relation.lcomp₁.union_lcomp₂.symm
+    _ ≤ (Ra ∪ R ∘ᵣ₁ Qa') ∪ (R ∘ᵣ₂ Q') ∘ᵣ₁ Xa := by
+        rw [hcomm]
+        exact Set.union_le_union hhead le_rfl
+    _ = Ra ∪ R ∘ᵣ₁ (Qa' ∪ Q' ∘ᵣ₁ Xa) := Relation.lcomp₁.union_lcomp₂
+    _ ≤ Ra ∪ R ∘ᵣ₁ Ya := by gcongr
 
 
 

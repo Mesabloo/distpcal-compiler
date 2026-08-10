@@ -1895,6 +1895,24 @@ into `inboxₚ` — so it needs no name at all. Both are minted by `freshName` i
 the label inherits the same `$`-hygiene that keeps it distinct from every user-written
 `AtomicBlock.label`.
 
+**Reordering a guard past the pending assignments is two proofs, not one.** The reducing half is an
+*equation* (`Walk.reorder`), the aborting half only an *inclusion* (`Walk.reorder_aborting`), in the
+direction `emitted ≤ adjacent` — which is the direction `StrongRefinement.Mono` wants, since it
+shrinks a target. Equality is false: a guard can block where an assignment cannot, so a state where
+the assignment aborts and the substituted guard blocks is a source abort and not a target one.
+
+The aborting half needs no second semantic argument about the pass's *compiled* guards. A
+`Len(inbox) > n` is a no-op on the runs where it fires, and on the runs where it aborts its own
+consumption pair aborts too — `Len` has a value whenever the inbox holds a sequence, so aborting
+means it does not, and then `Head(inbox)` has none either. The far side's index is never reached, so
+the `n + 1 → n` bookkeeping that dominates the reducing proof does not recur. What is left is one
+algebraic step, `Relation.lcomp₁.commute_step`, shared by all four inductions that need it.
+
+Note the shape that argument does *not* take: `SeqBuiltins` characterizes only *evaluation* of the
+sequence builtins, never their aborting, so nothing there says `Len` aborting forces `Head` to. The
+proof goes through `assign`'s own totality instead — an assignment aborts or steps, with no third
+outcome — which is why no abort law had to be added to the class.
+
 **These definitions are deliberately stronger than the paper's**, which leaves several failure modes
 to well-formedness conditions it assumes rather than states: `⟦receive(c,r)⟧⊥ = ∅` outright, and
 `await` on a non-boolean, `with x ∈ e` on a non-set, an assignment to an unbound target, and a

@@ -497,6 +497,62 @@ theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : Type
       omega
     · rw [mul_one]
 
+/-- **A compiled guard can only abort where its own consumption pair already does.** `Len(inbox) > n`
+has a value whenever `inbox` holds a sequence (`eval_lenGt_inbox`), so for it to abort the inbox must
+not be readable as one — and then `Head(inbox)` has no value either (`SeqBuiltins.evalHead`), which
+is one of the four ways `assign` fails.
+
+This is what spares the aborting reorder a second semantic argument: whatever a guard could have done
+before the pair ran is already covered by the pair's own first step, so the guard is simply dropped.
+
+The pair's element type `τ` and the guard's `τ'` stay independent here for the reason they do in
+`reorder_consumption_lenGt`: `evalVar` ignores the annotation, so both expressions read the same
+memory cell. -/
+theorem await_lenGt_aborting_le {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
+    {inbox : String} {τ τ' : ComputableTLAPlus.Typ} {n : Nat} :
+    NetworkPlusCal.Statement.aborting' (V := V) (.await (lenGt τ' (inboxVar inbox τ') n)) ≤
+      NetworkPlusCal.Statement.aborting' (V := V)
+        (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) := by
+  rintro ⟨⟨M, F, l⟩, ε⟩ ⟨rfl, hguard⟩
+  obtain ⟨M₀, F₀, hM, rfl, hd⟩ := NetworkPlusCal.Statement.aborting.await.iff.mp hguard
+  injection hM with hM hF
+  subst hM; subst hF
+  refine ⟨rfl, NetworkPlusCal.Statement.aborting.assign.iff.mpr
+    ⟨_, _, rfl, rfl, .inr (.inl ?_)⟩⟩
+  rintro ⟨v', hv'⟩
+  obtain ⟨v, hv, -⟩ := ExprSemantics.evalCoerce.mp hv'
+  obtain ⟨s, vs, hs, hseq⟩ := SeqBuiltins.evalHead.mp hv
+  obtain ⟨b, hb, hbool, -⟩ :=
+    eval_lenGt_inbox (τ := τ') (n := n) (ExprSemantics.evalVar.mp hs) hseq
+  rcases hd with habort | ⟨w, hw, hnb⟩
+  · exact habort ⟨b, hb⟩
+  · obtain rfl := ExprSemantics.evalUnique hw hb
+    exact hnb hbool
+
+/-- **One consumption pair past a compiled guard, for the runs that fail.**
+`reorder_consumption_lenGt`'s aborting twin, and — unlike it — not an equation and not an argument
+about indices at all. The guard is a no-op on the runs where it fires, so every failing run of
+`guard ; pair` is a failing run of `pair` alone; that the guard's own index drops from `n + 1` to `n`
+on the far side is then free, because the far side is never reached. -/
+theorem reorder_consumption_lenGt_abort {r : ComputableGuardedPlusCal.Ref}
+    {coe : TypedTLAPlus.Coercion} {inbox : String} {τ τ' : ComputableTLAPlus.Typ} {n : Nat} :
+    NetworkPlusCal.Statement.aborting' (V := V) (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∪
+        NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting'
+            [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+              .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ≤
+      NetworkPlusCal.Statement.listAborting' (V := V)
+          [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+            .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ∪
+        NetworkPlusCal.Statement.listReducing'
+            [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
+              .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting' (.await (lenGt τ' (inboxVar inbox τ') n)) := by
+  refine le_trans (Set.union_subset ?_ ?_) Set.subset_union_left
+  · rw [NetworkPlusCal.Statement.listAborting'_cons]
+    exact le_trans await_lenGt_aborting_le Set.subset_union_left
+  · exact Relation.lcomp₁.le_of_left_le_idle NetworkPlusCal.Statement.reducing'_await_le_idle
+
 /-! ## Every pending assignment moved past a compiled guard at once
 
   `reorder_consumption_lenGt` moves one pair. What the walk actually meets is the whole accumulator:
@@ -555,6 +611,35 @@ theorem reorder_pairs_lenGt {inbox : String} {τ' : ComputableTLAPlus.Typ} {k : 
       Relation.lcomp₂.right_id_eq, ← Relation.lcomp₂.assoc,
       reorder_consumption_lenGt hne, Relation.lcomp₂.assoc, IH, ← Relation.lcomp₂.assoc,
       Nat.add_assoc, Nat.add_comm 1]
+
+/-- **The whole accumulator past one compiled guard, for the runs that fail.**
+`reorder_pairs_lenGt`'s aborting twin, and the same induction — `Relation.lcomp₁.commute_step` takes
+the reducing equation the other half already proved, the induction hypothesis one pair further in,
+and `reorder_consumption_lenGt_abort` for the pair itself, and does the algebra once.
+
+The index bookkeeping is the same too: the guard arrives asking for `n + (k + 1)` and the step hands
+its successor `n + 1`, which is why `n` is generalized. -/
+theorem reorder_pairs_lenGt_abort {inbox : String} {τ' : ComputableTLAPlus.Typ} {k : Nat}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    (h : ConsumptionPairs inbox k A) {n : Nat} :
+    NetworkPlusCal.Statement.aborting' (V := V)
+          (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∪
+        NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting' (consumptions A) ≤
+      NetworkPlusCal.Statement.listAborting' (V := V) (consumptions A) ∪
+        NetworkPlusCal.Statement.listReducing' (consumptions A) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting' (.await (lenGt τ' (inboxVar inbox τ') n)) := by
+  induction h generalizing n with
+  | nil =>
+    rw [consumptions_nil, NetworkPlusCal.Statement.listAborting'_nil,
+      NetworkPlusCal.Statement.listReducing'_nil, Relation.lcomp₁.right_empty_eq_empty,
+      Relation.lcomp₁.left_id_eq, Set.union_empty, Set.empty_union, Nat.add_zero]
+  | snoc pairs _ IH =>
+    rw [consumptions_append, NetworkPlusCal.Statement.listAborting'_append,
+      NetworkPlusCal.Statement.listReducing'_append, Relation.lcomp₁.union_lcomp₂,
+      consumptions_receiveInstrs, ← Nat.add_assoc, Nat.add_right_comm]
+    exact Relation.lcomp₁.commute_step (reorder_pairs_lenGt pairs).symm IH le_rfl
+      reorder_consumption_lenGt_abort
 
 /-! ## The walk over a precondition block
 
@@ -628,13 +713,11 @@ private theorem stepStatement_walk {chans : Guarded2NetworkChans} {inbox : Strin
     ⦃fun stf ↦ ⌜Walk chans inbox st pref bs stf⌝⦄
       (stepStatement (m := G2NM) chans inbox S)
     ⦃(fun T stf' ↦ ⌜Walk chans inbox st (pref ++ [S]) (bs ++ [T]) stf'⌝, ExceptConds.true)⦄ := by
+  -- `mvcgen` leaves the invariant inaccessible; `next` is what names it without a `rename_i`
   cases S <;> simp only [stepStatement] <;> mvcgen
-  · rename_i hwalk
-    exact hwalk.append (.with .nil)
-  · rename_i hwalk
-    exact hwalk.append (.await .nil)
-  · rename_i hwalk _ hτ
-    exact hwalk.append (.receive hτ .nil)
+  next hwalk => exact hwalk.append (.with .nil)
+  next hwalk => exact hwalk.append (.await .nil)
+  next hwalk _ hτ => exact hwalk.append (.receive hτ .nil)
 
 open Std.Do in
 /-- **The walk's specification.** A precondition block's guards, mapped through `stepStatement` in
@@ -710,6 +793,7 @@ private theorem processPrecondition_walk {chans : Guarded2NetworkChans} {inbox :
   pairs, which is `st.i`, which is what `ConsumptionPairs` is carried along to know.
 -/
 
+omit [SeqBuiltins V] in
 /-- The pending accumulator moved past one source-written guard, with the rest of the block along
 for the ride. `reorder_assigns_guard'` with its two operands re-associated, which is all the walk's
 `with`/`await` case is. -/
@@ -807,6 +891,7 @@ inductive Adjacent (chans : Guarded2NetworkChans) (inbox : String) :
         (receiveGroup (V := V) r coe inbox τ ∘ᵣ₂ adj)
         (receiveGroupAborting (V := V) r coe inbox τ ∪ receiveGroup r coe inbox τ ∘ᵣ₁ adj')
 
+omit [SeqBuiltins V] in
 /-- Every walk has an adjacent ordering: the walk is what certifies each `receive`'s channel
 resolves, which is the only thing `Adjacent` cannot supply for itself. -/
 private theorem Walk.adjacent {chans : Guarded2NetworkChans} {inbox : String}
@@ -888,6 +973,79 @@ private theorem Walk.reorder {chans : Guarded2NetworkChans} {inbox : String}
           (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
           (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h)),
         NetworkPlusCal.Statement.listReducing'_cons, Relation.lcomp₂.assoc]
+
+/-- **And the failing runs are ordered.** `Walk.reorder`'s aborting counterpart: the emitted target
+— every compiled guard, then every consumption assignment — can only abort where the adjacent
+ordering with the same accumulator pending in front of it can.
+
+An inclusion, and only this direction is wanted. `StrongRefinement.Mono` *shrinks* a target, so a
+target that aborts in fewer states is one the same source still refines; the reverse inclusion is
+false anyway, since a guard can block where an assignment cannot.
+
+The shape of the induction is `Walk.reorder`'s, with `Relation.lcomp₁.commute_step` where that one
+had a chain of associativity rewrites. Every constructor supplies the same three things: the reducing
+equation the other half already proved, its aborting counterpart, and the induction hypothesis. The
+hypotheses are `Walk.reorder`'s, unchanged and needed for the same reasons. -/
+private theorem Walk.reorder_aborting {chans : Guarded2NetworkChans} {inbox : String}
+    {st st' : ReceiveState} {Ss res} {adj : Set (LocalState' V × Trace V × LocalState' V)}
+    {adj' : Set (LocalState' V × Trace V)}
+    (walk : Walk chans inbox st Ss res st') (adjacent : Adjacent chans inbox Ss adj adj')
+    (pairs : ConsumptionPairs inbox st.i st.newInstrs)
+    (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ Ss → r.name ≠ inbox)
+    (gfresh : ∀ a ∈ st'.newInstrs, ∀ x ann bound e,
+      GuardedPlusCal.Statement.with x ann bound e ∈ Ss →
+        x ∉ GuardedPlusCal.Ref.freeVars a.1 ∧ Expression.FreshIn x a.2.1) :
+    NetworkPlusCal.Statement.listAborting' (V := V) res ∪
+        NetworkPlusCal.Statement.listReducing' res ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting' (consumptions st'.newInstrs) ≤
+      NetworkPlusCal.Statement.listAborting' (V := V) (consumptions st.newInstrs) ∪
+        NetworkPlusCal.Statement.listReducing' (consumptions st.newInstrs) ∘ᵣ₁ adj' := by
+  induction walk generalizing adj adj' with
+  | nil =>
+    cases adjacent
+    rw [NetworkPlusCal.Statement.listAborting'_nil, NetworkPlusCal.Statement.listReducing'_nil,
+      Relation.lcomp₁.left_id_eq, Relation.lcomp₁.right_empty_eq_empty, Set.empty_union,
+      Set.union_empty]
+  | «with» walk IH =>
+    cases adjacent with
+    | «with» adjacent =>
+      rw [NetworkPlusCal.Statement.listAborting'_cons,
+        NetworkPlusCal.Statement.listReducing'_cons, Relation.lcomp₁.union_lcomp₂]
+      refine Relation.lcomp₁.commute_step (reorder_assigns_guard' ?fresh).symm
+        (reorder_assigns_guard_abort' ?fresh)
+        (IH adjacent pairs (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+          (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h))) le_rfl
+      case fresh =>
+        intro a ha _ _ _ _ hS
+        cases hS
+        exact gfresh a (walk.newInstrs_prefix.subset ha) _ _ _ _ List.mem_cons_self
+  | await _ IH =>
+    cases adjacent with
+    | await adjacent =>
+      rw [NetworkPlusCal.Statement.listAborting'_cons,
+        NetworkPlusCal.Statement.listReducing'_cons, Relation.lcomp₁.union_lcomp₂]
+      exact Relation.lcomp₁.commute_step (reorder_assigns_guard' (λ _ _ ↦ GuardFresh.await)).symm
+        (reorder_assigns_guard_abort' (λ _ _ ↦ GuardFresh.await))
+        (IH adjacent pairs (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+          (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h))) le_rfl
+  | receive hτ _ IH =>
+    cases adjacent with
+    | receive hτ' adjacent =>
+      obtain rfl := Option.some.inj (hτ'.symm.trans hτ)
+      have hmid := IH adjacent (pairs.snoc (rfresh _ _ _ List.mem_cons_self))
+        (λ c r coe h ↦ rfresh c r coe (List.mem_cons_of_mem _ h))
+        (λ a ha x ann bound e h ↦ gfresh a ha x ann bound e (List.mem_cons_of_mem _ h))
+      rw [consumptions_append, consumptions_receiveInstrs,
+        NetworkPlusCal.Statement.listAborting'_append,
+        NetworkPlusCal.Statement.listReducing'_append, Relation.lcomp₁.union_lcomp₂] at hmid
+      rw [NetworkPlusCal.Statement.listAborting'_cons,
+        NetworkPlusCal.Statement.listReducing'_cons, Relation.lcomp₁.union_lcomp₂, receiveGroup,
+        receiveGroupAborting, Relation.lcomp₁.union_lcomp₂]
+      -- the walk emits this guard at `k`; both reorder lemmas state that index as `0 + k`
+      refine Relation.lcomp₁.commute_step ?_ ?_ hmid le_rfl
+      · simpa only [Nat.zero_add] using (reorder_pairs_lenGt pairs (n := 0)).symm
+      · simpa only [Nat.zero_add] using reorder_pairs_lenGt_abort pairs (n := 0)
 
 /-- **The adjacent ordering refines the source block.** One `StrongRefinement.Comp` per source
 guard: `receiveGroup_refines` where the source received, and the two languages' `with`/`await`

@@ -436,6 +436,50 @@ theorem reorder_assign_guard_abort {r : ComputableGuardedPlusCal.Ref}
       rw [one_mul]
       exact .inl habort
 
+/-- `reorder_assign_guard_abort` in the flat encoding. Content-free —
+`Statement.aborting'_lcomp₁_congr` carries it across, exactly as `reducing'_lcomp₂_congr` does for
+the reducing half. -/
+theorem reorder_assign_guard_abort' {r : ComputableGuardedPlusCal.Ref}
+    {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : GuardFresh r rhs S) :
+    NetworkPlusCal.Statement.aborting' (V := V) (substGuardStmt r rhs S) ∪
+        NetworkPlusCal.Statement.reducing' (substGuardStmt r rhs S) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting' (V := V) (.assign r rhs) ≤
+      NetworkPlusCal.Statement.aborting' (V := V) (.assign r rhs) ∪
+        NetworkPlusCal.Statement.reducing' (V := V) (.assign r rhs) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting' S :=
+  NetworkPlusCal.Statement.aborting'_lcomp₁_congr (reorder_assign_guard_abort fresh)
+
+/-- **The whole accumulator past one source-written guard, for the runs that fail.**
+`reorder_assigns_guard'`'s aborting twin, and an inclusion for the same reason the one-assignment
+case is: the compiled order can only abort where the source order can.
+
+The induction is `reorder_assigns_guard'`'s, with `Relation.lcomp₁.commute_step` in place of the
+`rw` chain — the algebra of moving an abort set past a composition is the same at every step, and
+saying it once is what keeps the two orderings' bookkeeping out of this proof. -/
+theorem reorder_assigns_guard_abort'
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    NetworkPlusCal.Statement.aborting' (V := V) (substGuards A S) ∪
+        NetworkPlusCal.Statement.reducing' (substGuards A S) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting' (consumptions A) ≤
+      NetworkPlusCal.Statement.listAborting' (V := V) (consumptions A) ∪
+        NetworkPlusCal.Statement.listReducing' (consumptions A) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting' S := by
+  induction A with
+  | nil =>
+    rw [consumptions_nil, substGuards_nil, NetworkPlusCal.Statement.listAborting'_nil,
+      NetworkPlusCal.Statement.listReducing'_nil, Relation.lcomp₁.right_empty_eq_empty,
+      Relation.lcomp₁.left_id_eq, Set.union_empty, Set.empty_union]
+  | cons a A IH =>
+    rw [consumptions_cons, substGuards_cons, NetworkPlusCal.Statement.listAborting'_cons,
+      NetworkPlusCal.Statement.listReducing'_cons, Relation.lcomp₁.union_lcomp₂]
+    refine Relation.lcomp₁.commute_step
+      (reorder_assign_guard' (fresh a List.mem_cons_self).substGuards).symm
+      (reorder_assign_guard_abort' (fresh a List.mem_cons_self).substGuards) le_rfl ?_
+    exact IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)
+
 end Guarded2Network
 
 end
