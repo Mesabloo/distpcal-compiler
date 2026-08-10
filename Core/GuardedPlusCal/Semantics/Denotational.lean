@@ -268,30 +268,16 @@ def Statement.diverging : {b b' : Bool} → ComputableGuardedPlusCal.Statement b
   `NetworkPlusCal`.
 -/
 
-def Block.reducing {α β : Bool → Type} {γ : Type} [Monoid γ] {b : Bool}
-    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (B : Block α b) : Set (β false × γ × β b) :=
-  match _h : B.begin with
-  | [] => f B.last
-  | x :: xs => f x ∘ᵣ₂ Block.reducing f {B with begin := xs}
-termination_by B.begin
-decreasing_by
-  · rw [_h]; decreasing_trivial
+/-- A possibly-empty *list* of statements as a relation. The one recursion in this section: a block
+is this fold over its `begin`, composed with its `last`, and every equation about a block is a list
+equation underneath.
 
-def Block.aborting {α β : Bool → Type} {γ : Type} [Monoid γ] {b : Bool}
-    (f : ⦃b : Bool⦄ → α b → Set (β false × γ)) (g : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
-    (B : Block α b) : Set (β false × γ) :=
-  match _h : B.begin with
-  | [] => f B.last
-  | x :: xs => f x ∪ g x ∘ᵣ₁ Block.aborting f g {B with begin := xs}
-termination_by B.begin
-decreasing_by
-  · rw [_h]; decreasing_trivial
+A `Block` is non-empty by construction while a pass can hand back an empty run of statements
+(`Guarded2Network`'s consumption assignments, for a branch that receives nothing), so the list form
+has to exist in its own right — and being homogeneous in the guard index, it cannot express a block's
+possibly-terminal `last`. That is the whole difference between the two.
 
-/-- A possibly-empty *list* of statements as a relation — `Block.reducing` minus the non-emptiness.
-A `Block` is a non-empty list by construction, while a pass can hand back an empty run of statements
-(`Guarded2Network`'s consumption assignments, for a branch that receives nothing), so both shapes
-have to exist. `foldr`, not the `foldl` `Block.reducing_left_append` produces: every proof about one
-of these is an induction on the list, and the `foldl` form has to be re-associated first. -/
+`foldr`, not `foldl`: every proof about one of these is an induction on the list. -/
 def Block.listReducing {α β : Bool → Type} {γ : Type} [Monoid γ]
     (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (A : List (α false)) :
     Set (β false × γ × β false) :=
@@ -306,15 +292,25 @@ def Block.listAborting {α β : Bool → Type} {γ : Type} [Monoid γ]
     Set (β false × γ) :=
   A.foldr (λ S sem ↦ g S ∪ f S ∘ᵣ₁ sem) ∅
 
+/-- A block's `begin` run as a list, then its `last`. Not a recursion of its own: `Block.reducing`
+and `Block.listReducing` computed the same fold before, differing only in that a block's last
+statement may be terminal, and keeping two recursions meant every equation had to be proved twice
+and bridged. -/
+def Block.reducing {α β : Bool → Type} {γ : Type} [Monoid γ] {b : Bool}
+    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (B : Block α b) : Set (β false × γ × β b) :=
+  Block.listReducing f B.begin ∘ᵣ₂ f B.last
+
+@[inherit_doc Block.reducing]
+def Block.aborting {α β : Bool → Type} {γ : Type} [Monoid γ] {b : Bool}
+    (f : ⦃b : Bool⦄ → α b → Set (β false × γ)) (g : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
+    (B : Block α b) : Set (β false × γ) :=
+  Block.listAborting f g B.begin ∪ Block.listReducing g B.begin ∘ᵣ₁ f B.last
+
+@[inherit_doc Block.reducing]
 def Block.diverging {α β : Bool → Type} {γ : Type} [Monoid γ] {b : Bool}
     (f : ⦃b : Bool⦄ → α b → Set (β false × γ)) (g : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
     (B : Block α b) : Set (β false × γ) :=
-  match _h : B.begin with
-  | [] => f B.last
-  | x :: xs => f x ∪ g x ∘ᵣ₁ Block.diverging f g {B with begin := xs}
-termination_by B.begin
-decreasing_by
-  · rw [_h]; decreasing_trivial
+  Block.listAborting f g B.begin ∪ Block.listReducing g B.begin ∘ᵣ₁ f B.last
 
 /-- A block of Guarded PlusCal statements, all of guard class `g`. -/
 def Statement.blockReducing {g b : Bool} (B : Block (ComputableGuardedPlusCal.Statement g) b) :

@@ -366,16 +366,13 @@ theorem Statement.listReducing'_cons {g : Bool} {S : ComputableNetworkPlusCal.St
 
 /-- A statement run splits wherever its list does. `Guarded2Network`'s consumption assignments
 accumulate by `++` — one `receive` appends its pair to what earlier ones left — so every proof about
-them meets this shape rather than a `cons`. -/
+them meets this shape rather than a `cons`. Named at this instantiation because that is how it is
+used; the content is `Block.listReducing_append`. -/
 theorem Statement.listReducing'_append {g : Bool}
     {A B : List (ComputableNetworkPlusCal.Statement g false)} :
     Statement.listReducing' (V := V) (A ++ B) =
-      Statement.listReducing' A ∘ᵣ₂ Statement.listReducing' B := by
-  induction A with
-  | nil => rw [List.nil_append, Statement.listReducing'_nil, Relation.lcomp₂.left_id_eq]
-  | cons S A IH =>
-    rw [List.cons_append, Statement.listReducing'_cons, Statement.listReducing'_cons, IH,
-      Relation.lcomp₂.assoc]
+      Statement.listReducing' A ∘ᵣ₂ Statement.listReducing' B :=
+  Block.listReducing_append _
 
 @[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listAborting'_nil {g : Bool} :
@@ -387,20 +384,12 @@ theorem Statement.listAborting'_cons {g : Bool} {S : ComputableNetworkPlusCal.St
     Statement.listAborting' (V := V) (S :: A) =
       Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
 
-/-- A statement run's aborts split wherever its list does: either the prefix aborts, or it runs and
-then the suffix does. `Statement.listReducing'_append`'s twin, and needed for the same reason —
-`Guarded2Network`'s consumption assignments accumulate by `++`. -/
+@[inherit_doc Statement.listReducing'_append]
 theorem Statement.listAborting'_append {g : Bool}
     {A B : List (ComputableNetworkPlusCal.Statement g false)} :
     Statement.listAborting' (V := V) (A ++ B) =
-      Statement.listAborting' A ∪ Statement.listReducing' A ∘ᵣ₁ Statement.listAborting' B := by
-  induction A with
-  | nil =>
-    rw [List.nil_append, Statement.listAborting'_nil, Statement.listReducing'_nil,
-      Relation.lcomp₁.left_id_eq, Set.empty_union]
-  | cons S A IH =>
-    rw [List.cons_append, Statement.listAborting'_cons, Statement.listAborting'_cons,
-      Statement.listReducing'_cons, IH, Relation.lcomp₁.union_lcomp₂]
+      Statement.listAborting' A ∪ Statement.listReducing' A ∘ᵣ₁ Statement.listAborting' B :=
+  Block.listAborting_append _ _
 
 /-- An `await` that fires changes nothing and emits nothing, so its step relation sits inside
 `Relation.Idle`. What lets a guard be dropped off the front of a run that fails after it. -/

@@ -192,14 +192,14 @@ theorem Relation.lcomp₂.assoc {α β γ δ ε : Type _} [Monoid β] {R₁ : Se
 
 /-- Relabelling the state type commutes with composition, provided the relabelling is injective.
 
-Injectivity is the whole content: without it two distinct middle states could be identified, and the
-composite would gain a step neither relation had. This is the same fact `Block.reducing_map` proves
-inline for a whole block — hoisted here so a bare composition can use it too, which is what carries
-an equation between unprimed semantics over to the flat encoding. -/
-theorem Relation.lcomp₂.image {α β γ : Type _} [Monoid β] {g : γ → α} (g_inj : Function.Injective g)
-    {R₁ R₂ : Set (γ × β × γ)} :
-    Prod.map₃ g id g '' (R₁ ∘ᵣ₂ R₂) =
-      (Prod.map₃ g id g '' R₁) ∘ᵣ₂ (Prod.map₃ g id g '' R₂) := by
+Injectivity is the whole content, and only the *middle* type needs it: without it two distinct middle
+states could be identified and the composite would gain a step neither relation had, while the two
+ends are only carried along. Hence the second map `k`, which a block's semantics needs — its last
+statement may be terminal, so the state type it lands in is not the one it starts from. -/
+theorem Relation.lcomp₂.image {α β γ δ ζ : Type _} [Monoid β] {g : γ → α} {k : δ → ζ}
+    (g_inj : Function.Injective g) {R₁ : Set (γ × β × γ)} {R₂ : Set (γ × β × δ)} :
+    Prod.map₃ g id k '' (R₁ ∘ᵣ₂ R₂) =
+      (Prod.map₃ g id g '' R₁) ∘ᵣ₂ (Prod.map₃ g id k '' R₂) := by
   ext ⟨a', e, c'⟩
   iff_rintro ⟨⟨a, _, c⟩, ⟨b, e₁, e₂, hR₁, hR₂, rfl⟩, _|_⟩
     ⟨b', _, _, ⟨⟨a, e₁, b₁⟩, hR₁, h₁⟩, ⟨⟨b₂, e₂, c⟩, hR₂, h₂⟩, rfl⟩
