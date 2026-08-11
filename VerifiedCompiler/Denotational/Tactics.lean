@@ -66,7 +66,7 @@ so a related pair is a prefix pair (`Trace.scPrefix_of`). -/
 macro "trace_pfx" : tactic =>
   `(tactic| first
     | exact Trace.scPrefix_of rfl
-    | exact Trace.scPrefix_of (by assumption)
+    | exact Trace.scPrefix_of ‹_›
     | apply Trace.scPrefix_of)
 
 /-! ## Validation

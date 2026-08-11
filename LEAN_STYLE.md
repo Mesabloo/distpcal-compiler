@@ -51,6 +51,21 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `on_goal 3 => tac`, and ranges/unions on top of that — `1,3-5,9-12: tac`. Works in `conv` too.
   Use it; the stdlib spellings are longer and cover less. Needs `meta import CustomPrelude` — add
   the import rather than fall back to `all_goals`.
+- **No `by assumption` as a term argument.** Write `‹_›`, or `‹T›` when the type is short enough to
+  read. `f (by assumption)` opens a tactic block to do what a term already says, and hides which
+  hypothesis is meant. `VerifiedCompiler/Denotational/Tactics.lean:69`,
+  `Guarded2Network/Lemmas/AtomicBranch.lean:186`
+- **`mvcgen`'s `invariants` and `with` go on their own lines, and their `|` alternatives are not
+  indented** — same shape as a `match`. The alternatives are siblings of the keyword, not arguments
+  to it, and indenting them reads as if they were.
+  ```
+  mvcgen [stepBlock, stepBranch_spec]
+  invariants
+  | inv1 => ⇓? ⟨cur, res⟩ st => ⌜…⌝
+  with
+  | vc4 | vc6 | vc5 | vc7 => intro _ _ _; assumption
+  ```
+  `Guarded2Network/Lemmas/AtomicBlock.lean:80`
 - **Grouping a tactic sequence: `{ … }` when it must close the goal, `( … )` when it need not.**
   `{ … }` errors if anything is left open, so it is the one to reach for wherever the block is
   supposed to finish the goal — it turns a silent leftover into a failure. `( … )` only groups.

@@ -407,6 +407,16 @@ theorem Monoid.partialProd_succ' {ε : Type _} [Monoid ε] (e : ℕ → ε) (n :
   | zero => simp
   | succ n ih => rw [Monoid.partialProd_succ, ih, Monoid.partialProd_succ, mul_assoc]
 
+/-- A product splits wherever its index does. What lets the trace of two runs concatenated be read
+as the two runs' traces multiplied. -/
+theorem Monoid.partialProd_add {ε : Type _} [Monoid ε] (e : ℕ → ε) (n₁ n₂ : ℕ) :
+    Monoid.partialProd e (n₁ + n₂) =
+      Monoid.partialProd e n₁ * Monoid.partialProd (λ i ↦ e (n₁ + i)) n₂ := by
+  induction n₂ with
+  | zero => simp
+  | succ n₂ ih => rw [← Nat.add_assoc, Monoid.partialProd_succ, ih, Monoid.partialProd_succ,
+      mul_assoc]
+
 /-- A monoid in which an infinite sequence of factors has a product.
 
 A mixin over `Monoid` rather than an extension of it, so that the existing `[Monoid ε]` binders
@@ -520,5 +530,48 @@ theorem Relation.star.le_lcomp₁ {α ε : Type _} [Monoid ε] {R : Set (α × �
   rintro ⟨σ, e⟩ hy
   rw [← one_mul e]
   apply Relation.lcomp₁.intro (Relation.star.refl σ) hy
+
+/-- One step is a run. -/
+theorem Relation.star.single {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} :
+    R ≤ Relation.star R := by
+  rintro ⟨a, e, b⟩ h
+  rw [← mul_one e]
+  exact Relation.star.head h (Relation.star.refl b)
+
+/-- Two runs end to end. Proved by peeling the first step of the left-hand run rather than by
+concatenating the two index-wise: `Relation.star.head` already knows how to put a step in front, so
+the induction only has to keep the trace's factors in the same order — which is
+`Monoid.partialProd_succ'`. -/
+theorem Relation.star.trans {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} {a b c : α} {e₁ e₂ : ε}
+    (h₁ : (a, e₁, b) ∈ Relation.star R) (h₂ : (b, e₂, c) ∈ Relation.star R) :
+    (a, e₁ * e₂, c) ∈ Relation.star R := by
+  obtain ⟨n, σs, es, hz, hn, hst, rfl⟩ := h₁
+  dsimp only at hz hn ⊢
+  induction n generalizing a σs es with
+  | zero =>
+    obtain rfl : a = b := hz.symm.trans hn
+    rw [Monoid.partialProd_zero, one_mul]
+    exact h₂
+  | succ n ih =>
+    rw [Monoid.partialProd_succ', mul_assoc]
+    exact Relation.star.head (hz ▸ hst 0 (by omega))
+      (ih (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) (λ i hi ↦ hst (i + 1) (by omega)) rfl hn)
+
+/-- Runs of runs are runs. What lets a refinement whose *source* side already absorbs a whole run
+per target step be lifted to the whole iteration: instantiating `StrongRefinement.Terminating.star`
+at `Relation.star R` produces `R**` on the source, and this collapses it back. -/
+theorem Relation.star.star_eq {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)} :
+    Relation.star (Relation.star R) = Relation.star R := by
+  refine le_antisymm ?_ Relation.star.single
+  rintro ⟨a, e, b⟩ ⟨n, σs, es, hz, hn, hst, rfl⟩
+  dsimp only at hz hn ⊢
+  induction n generalizing a σs es with
+  | zero =>
+    obtain rfl : a = b := hz.symm.trans hn
+    exact Relation.star.refl _
+  | succ n ih =>
+    rw [Monoid.partialProd_succ']
+    exact Relation.star.trans (hz ▸ hst 0 (by omega))
+      (ih (σs 1) (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) (λ i hi ↦ hst (i + 1) (by omega)) rfl hn)
 
 end

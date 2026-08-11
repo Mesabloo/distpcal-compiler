@@ -319,8 +319,22 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   file in turn.
 - `Lemmas/AtomicBranch.lean` — one branch. `actionBlock_refines` lifts `Lemmas/Statement.lean`'s
   per-statement `action_refines` over a whole action block (one `StrongRefinement.Comp` per
-  statement; nothing is reordered, the action language being unchanged by this pass), to be composed
-  with `Lemmas/Precondition.lean`'s half.
+  statement; nothing is reordered, the action language being unchanged by this pass); `branch_refines`
+  composes that with `Lemmas/Precondition.lean`'s half, which is where the hoisted consumption
+  assignments move from the precondition's right edge to the action block's left edge
+  (`Block.prepend`, and `Block.reducing_prepend'`/`aborting_prepend` to say those are the same
+  relation). `BranchRefines` is the pair of things a compiled branch owes its source — the
+  refinement and the surviving terminal `goto` — as a `Prop` structure, so the block level can
+  quantify over it. `stepBranch_spec` is the triple, and `RxThreads` (every accumulated thread is an
+  `.rx` on this call's `inbox`) is established here because `stepBranch` is the only place one is
+  appended.
+- `Lemmas/AtomicBlock.lean` — one block: `stepBranch_spec` under `Spec.mapM_list`, invariant
+  supplied through `mvcgen … invariants`. Postcondition is the label unchanged, the branches
+  pairwise `BranchRefines`, and `RxThreads` threaded through — label plus per-branch `goto` being
+  what "the gotos agree" means. No block-to-block `StrongRefinement`: `AtomicBlock.reducing` exists
+  only on the Network side, so pairwise-over-branches is the strongest statable thing, and it is
+  what the process level wants anyway. `BranchesFresh` bundles the five per-branch freshness
+  hypotheses that travel up from here.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

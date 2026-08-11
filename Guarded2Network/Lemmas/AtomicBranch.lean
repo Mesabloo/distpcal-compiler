@@ -142,6 +142,20 @@ makes that sound is that each is a receive loop rather than arbitrary code. -/
 private def RxThreads (inbox : String) (st : ThreadState) : Prop :=
   ∀ T ∈ st.rxThreads, ∃ chan label τ, T = .rx chan label τ inbox
 
+/-- What one compiled branch owes its source: the refinement, and agreement on where the branch
+goes next. Named because the block level quantifies over it — a compiled block's branches are
+pairwise this, `List.Forall₂`-style — and a bare `StrongRefinement` conjunction cannot be the
+argument of a relation combinator. -/
+structure BranchRefines (mbox : Mailbox) (Br : ComputableGuardedPlusCal.AtomicBranch)
+    (Br' : ComputableNetworkPlusCal.AtomicBranch) : Prop where
+  /-- The branch refines its source, precondition and action block together. -/
+  refines : StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+    (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
+    (NetworkPlusCal.AtomicBranch.reducing' Br') (NetworkPlusCal.AtomicBranch.aborting' Br') ∅
+  /-- And it leaves for the same place: `Block.prepend` does not touch `last`, and
+  `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
+  last_eq : Br'.action.last = convertActionStmt Br.action.last
+
 open Std.Do in
 /-- **One branch, compiled.** The two halves composed: `processPrecondition_spec` for the
 precondition, `actionBlock_refines` for the action block, and one `StrongRefinement.Comp` joining
@@ -167,13 +181,10 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans}
     (alast : Fresh (.some (c₀, inbox)) Br.action.last) :
     ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
     stepBranch (m := G2NM) chans inbox Br
-    ⦃⇓? Br' st' => ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
-        (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
-        (NetworkPlusCal.AtomicBranch.reducing' Br') (NetworkPlusCal.AtomicBranch.aborting' Br') ∅ ∧
-      Br'.action.last = convertActionStmt Br.action.last ∧ RxThreads inbox st'⌝⦄ := by
+    ⦃⇓? Br' st' => ⌜BranchRefines (V := V) (.some (c₀, inbox)) Br Br' ∧ RxThreads inbox st'⌝⦄ := by
   mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
   with {
-    and_intros
+    refine ⟨⟨?_, ?_⟩, ?_⟩
     · exact branch_refines ‹_› afresh alast
     · rfl
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; the branch that
