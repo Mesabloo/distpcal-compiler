@@ -249,7 +249,7 @@ private def stepBranch (chans : Guarded2NetworkChans) (inboxName : String)
         pure (st.rxThreads.concat (.rx chan rxLabel τ inboxName))
     set ({ newLocals := newLocals, rxThreads := rxThreads } : ThreadState)
 
-  return { precondition := precond, action := { action with begin := newInstrStmts ++ action.begin } }
+  return { precondition := precond, action := action.prepend newInstrStmts }
 
 private def stepBlock (chans : Guarded2NetworkChans) (inboxName : String)
     (block : ComputableGuardedPlusCal.AtomicBlock) : StateT ThreadState m ComputableNetworkPlusCal.AtomicBlock := do

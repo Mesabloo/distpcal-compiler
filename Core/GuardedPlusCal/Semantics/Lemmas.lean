@@ -792,6 +792,91 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
 attribute [aesop norm simp (rule_sets := [sem])]
   LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue
 
+/-! # `AtomicBranch`, flat
+
+  Mirrors `AtomicBranch.reducing`/`.aborting`/`.diverging` (`Semantics/Denotational.lean`) at the
+  flat encoding, built from the primed leaf functions above rather than proved equal to an image of
+  the indexed version after the fact — the indexed ones are already exactly "precondition, then
+  action" by definition, so there is nothing to transport.
+
+  No `AtomicBlock` layer here, for the reason `Core/NetworkPlusCal/Semantics/Denotational.lean`'s
+  module doc gives: a source block is only ever existentially quantified, never required to match a
+  target's type.
+-/
+
+/-- `AtomicBranch.reducing` in the flat encoding. -/
+def AtomicBranch.reducing' (B : ComputableGuardedPlusCal.AtomicBranch) :
+    Set (LocalState' V × Trace V × LocalState' V) :=
+  B.precondition.elim Relation.Idle
+    (Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₂
+    Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+@[inherit_doc AtomicBranch.reducing']
+def AtomicBranch.aborting' (B : ComputableGuardedPlusCal.AtomicBranch) :
+    Set (LocalState' V × Trace V) :=
+  match B.precondition with
+  | .none => Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+      (λ ⦃_⦄ ↦ Statement.reducing') B.action
+  | .some B' =>
+    Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+        (λ ⦃_⦄ ↦ Statement.reducing') B' ∪
+      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
+        Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+          (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+@[inherit_doc AtomicBranch.reducing']
+def AtomicBranch.diverging' (B : ComputableGuardedPlusCal.AtomicBranch) :
+    Set (LocalState' V × Trace V) :=
+  match B.precondition with
+  | .none => Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+      (λ ⦃_⦄ ↦ Statement.reducing') B.action
+  | .some B' =>
+    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+        (λ ⦃_⦄ ↦ Statement.reducing') B' ∪
+      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
+        Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+          (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+/-- The `match` on the precondition, discharged: `.none` composes with the identity relation and
+contributes no aborting runs of its own, which is exactly what `Option.elim` says. The uniform form
+is what a `StrongRefinement.Comp` of the two halves produces, so this is the bridge between the
+definition above and every proof about it. -/
+theorem AtomicBranch.aborting'_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
+    AtomicBranch.aborting' (V := V) B =
+      B.precondition.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ Statement.aborting') (λ ⦃_⦄ ↦ Statement.reducing')) ∪
+        B.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+            (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₁
+          Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+            (λ ⦃_⦄ ↦ Statement.reducing') B.action := by
+  rw [AtomicBranch.aborting']
+  cases B.precondition with
+  | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | some => rfl
+
+@[inherit_doc AtomicBranch.aborting'_eq]
+theorem AtomicBranch.diverging'_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
+    AtomicBranch.diverging' (V := V) B =
+      B.precondition.elim ∅ (Block.diverging (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ Statement.diverging') (λ ⦃_⦄ ↦ Statement.reducing')) ∪
+        B.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+            (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₁
+          Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+            (λ ⦃_⦄ ↦ Statement.reducing') B.action := by
+  rw [AtomicBranch.diverging']
+  cases B.precondition with
+  | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | some => rfl
+
+/-- No `GuardedPlusCal` statement diverges, so no branch does either. -/
+@[simp] theorem AtomicBranch.diverging'_eq_empty (B : ComputableGuardedPlusCal.AtomicBranch) :
+    AtomicBranch.diverging' (V := V) B = ∅ := by
+  rw [AtomicBranch.diverging'_eq, Block.diverging'_eq_empty, Relation.lcomp₁.right_empty_eq_empty,
+    Set.union_empty]
+  cases B.precondition with
+  | none => rfl
+  | some => exact Block.diverging'_eq_empty
+
 end Flat
 
 end GuardedPlusCal

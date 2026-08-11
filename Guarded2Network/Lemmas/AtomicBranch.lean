@@ -87,6 +87,100 @@ theorem actionBlock_refines {mbox : Mailbox} {b : Bool}
     exact StrongRefinement.Comp _ (action_refines S (fresh S List.mem_cons_self))
       (IH (λ S' hS' ↦ fresh S' (List.mem_cons_of_mem _ hS')) freshLast)
 
+/-- **The two halves of a branch, joined.** The precondition's refinement (as
+`processPrecondition_spec` leaves it, with the hoisted assignments on its right edge) composed with
+the action block's, against the branch the pass actually builds — which carries those assignments on
+the action block's *left* edge instead.
+
+`Block.reducing_prepend'`/`Block.aborting_prepend` are what say those are the same relation; after
+them the join is one `StrongRefinement.Comp` and an associativity step. Stated separately from the
+triple below because it is the whole mathematical content of that triple: everything else there is
+`mvcgen` walking the pass's state bookkeeping, which no refinement depends on. -/
+private theorem branch_refines {mbox : Mailbox} {Br : ComputableGuardedPlusCal.AtomicBranch}
+    {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
+    {assigns : List (ComputableNetworkPlusCal.Statement false false)}
+    (hpre : StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+      (Br.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
+      (Br.precondition.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting')
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
+      ∅
+      (pre'.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing' assigns)
+      (pre'.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting')
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∪
+        pre'.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting' assigns)
+      ∅)
+    (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S) (alast : Fresh mbox Br.action.last) :
+    StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
+      (NetworkPlusCal.AtomicBranch.reducing' ⟨pre',
+        Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
+      (NetworkPlusCal.AtomicBranch.aborting' ⟨pre',
+        Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
+      ∅ := by
+  have hcomp := StrongRefinement.Comp _ hpre (actionBlock_refines (V := V) afresh alast)
+  -- `union_lcomp₂` normalizes `Comp`'s output, not the goal: the goal is already in its right-hand
+  -- form once `Block.aborting_prepend` has split the prepended assignments off
+  simp only [GuardedPlusCal.Block.diverging'_eq_empty, NetworkPlusCal.Block.diverging'_eq_empty,
+    Relation.lcomp₁.right_empty_eq_empty, Set.union_self, Set.empty_union,
+    Relation.lcomp₁.union_lcomp₂] at hcomp
+  simp only [GuardedPlusCal.AtomicBranch.reducing', GuardedPlusCal.AtomicBranch.aborting'_eq,
+    NetworkPlusCal.AtomicBranch.reducing', NetworkPlusCal.AtomicBranch.aborting'_eq,
+    Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
+  exact hcomp
+
+/-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's `inbox`. `stepBranch` is
+the only place one is ever appended, so this is where the fact has to be established; the thread
+level is where it is needed, since `Thread.toNetwork` hands `rxThreads` back as threads and what
+makes that sound is that each is a receive loop rather than arbitrary code. -/
+private def RxThreads (inbox : String) (st : ThreadState) : Prop :=
+  ∀ T ∈ st.rxThreads, ∃ chan label τ, T = .rx chan label τ inbox
+
+open Std.Do in
+/-- **One branch, compiled.** The two halves composed: `processPrecondition_spec` for the
+precondition, `actionBlock_refines` for the action block, and one `StrongRefinement.Comp` joining
+them.
+
+The composition is where the consumption assignments change hands. `processPrecondition_spec`
+leaves them on the *precondition's* right edge, which is where the reorder lemmas put them; the pass
+puts them on the *action block's* left edge (`Block.prepend`). `Block.reducing_prepend'` is what
+says those are the same relation, and after it the join is associativity.
+
+`Br'.action.last` is reported alongside: `Block.prepend` does not touch `last` and
+`convertActionBlock` maps it pointwise, so a branch's terminal `goto` survives compilation
+unchanged. That is what the block level needs to know its branches still agree on where they go. -/
+private theorem stepBranch_spec {chans : Guarded2NetworkChans}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {Br : ComputableGuardedPlusCal.AtomicBranch}
+    (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
+        c = c₀ ∧ ReceiveFresh c r inbox)
+    (gfresh : ∀ S ∈ preconditionList Br.precondition, Fresh (.some (c₀, inbox)) S)
+    (pfresh : PairsFresh inbox (preconditionList Br.precondition))
+    (afresh : ∀ S ∈ Br.action.begin, Fresh (.some (c₀, inbox)) S)
+    (alast : Fresh (.some (c₀, inbox)) Br.action.last) :
+    ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
+    stepBranch (m := G2NM) chans inbox Br
+    ⦃⇓? Br' st' => ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+        (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
+        (NetworkPlusCal.AtomicBranch.reducing' Br') (NetworkPlusCal.AtomicBranch.aborting' Br') ∅ ∧
+      Br'.action.last = convertActionStmt Br.action.last ∧ RxThreads inbox st'⌝⦄ := by
+  mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
+  with {
+    and_intros
+    · exact branch_refines ‹_› afresh alast
+    · rfl
+    -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; the branch that
+    -- registers a new channel is the only one where the two halves differ
+    · simp_all [RxThreads, or_imp, forall_and]
+  }
+
 /-! ## Owed: `stepBranch_spec`
 
   Written against `GuardedPlusCal.Thread.toNetwork_spec₁` in the prior development, which is the

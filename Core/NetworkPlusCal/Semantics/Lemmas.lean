@@ -422,6 +422,16 @@ omit [ExprSemantics V] in
     show Statement.diverging' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listDiverging' A = ∅
     rw [Statement.diverging'_eq_empty, IH, Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
 
+/-- No *block* diverges either — the same fact at block shape, which is how a branch-level
+refinement gets its target diverging component as `∅` rather than as something to carry. -/
+@[simp] theorem Block.diverging'_eq_empty {g b : Bool}
+    {B : Block (ComputableNetworkPlusCal.Statement g) b} :
+    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+        (λ ⦃_⦄ ↦ Statement.reducing') B = ∅ := by
+  show Statement.listDiverging' B.begin ∪ _ ∘ᵣ₁ Statement.diverging' B.last = ∅
+  rw [Statement.listDiverging'_eq_empty, Statement.diverging'_eq_empty,
+    Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
+
 private theorem Statement.reducing'_eq_map {b b' : Bool}
     (S : ComputableNetworkPlusCal.Statement b b') :
     Statement.reducing' (V := V) S =
@@ -622,6 +632,46 @@ def AtomicBranch.diverging' (B : ComputableNetworkPlusCal.AtomicBranch) :
       Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
         Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
           (λ ⦃_⦄ ↦ Statement.reducing') B.action
+
+/-- The `match` on the precondition, discharged: `.none` composes with the identity relation and
+contributes no aborting runs of its own, which is exactly what `Option.elim` says. The uniform form
+is what a `StrongRefinement.Comp` of a precondition half and an action half produces, so this is the
+bridge between the definition above and every proof about it. -/
+theorem AtomicBranch.aborting'_eq (B : ComputableNetworkPlusCal.AtomicBranch) :
+    AtomicBranch.aborting' (V := V) B =
+      B.precondition.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ Statement.aborting') (λ ⦃_⦄ ↦ Statement.reducing')) ∪
+        B.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+            (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₁
+          Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
+            (λ ⦃_⦄ ↦ Statement.reducing') B.action := by
+  rw [AtomicBranch.aborting']
+  cases B.precondition with
+  | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | some => rfl
+
+@[inherit_doc AtomicBranch.aborting'_eq]
+theorem AtomicBranch.diverging'_eq (B : ComputableNetworkPlusCal.AtomicBranch) :
+    AtomicBranch.diverging' (V := V) B =
+      B.precondition.elim ∅ (Block.diverging (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ Statement.diverging') (λ ⦃_⦄ ↦ Statement.reducing')) ∪
+        B.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
+            (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₁
+          Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
+            (λ ⦃_⦄ ↦ Statement.reducing') B.action := by
+  rw [AtomicBranch.diverging']
+  cases B.precondition with
+  | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | some => rfl
+
+/-- No `NetworkPlusCal` statement diverges, so no branch does either. -/
+@[simp] theorem AtomicBranch.diverging'_eq_empty (B : ComputableNetworkPlusCal.AtomicBranch) :
+    AtomicBranch.diverging' (V := V) B = ∅ := by
+  rw [AtomicBranch.diverging'_eq, Block.diverging'_eq_empty, Relation.lcomp₁.right_empty_eq_empty,
+    Set.union_empty]
+  cases B.precondition with
+  | none => rfl
+  | some => exact Block.diverging'_eq_empty
 
 /-- Every name in a flat `Block.reducing` membership's endpoints is `none` — the label field only
 ever changes at the `AtomicBranch`-composition boundary (`sem_glue₁`/`₂`'s job), never inside a

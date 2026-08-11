@@ -41,11 +41,25 @@ Citations illustrate the rule; this file is not a list of things to fix.
 - **Bullet every subgoal.** A tactic that split the goal is followed by one `·` per branch, always —
   never one bullet and then the next branch's tactics written unindented at the bullet's own column.
   Unbulleted, nothing marks where one branch ends and the next begins, and a later edit to the first
-  branch silently changes which goal the rest applies to. Only a combinator (`<;>`, `all_goals`)
+  branch silently changes which goal the rest applies to. Only a combinator (`<;>`, `all:`)
   is exempt, being explicit about applying to every goal.
   `Guarded2Network/Lemmas/Statement.lean:193` (a two-hole `refine`),
   `VerifiedCompiler/Denotational/StrongRefinement.lean:349` (an `obtain` whose second branch runs to
   the end of the proof — bulleted anyway)
+- **Goal selectors are Rocq-style, not `all_goals`/`on_goal`.** `CustomPrelude.lean` defines a
+  `tac_selector` syntax: `all: tac` instead of `all_goals tac`, `3: tac` instead of
+  `on_goal 3 => tac`, and ranges/unions on top of that — `1,3-5,9-12: tac`. Works in `conv` too.
+  Use it; the stdlib spellings are longer and cover less. Needs `meta import CustomPrelude` — add
+  the import rather than fall back to `all_goals`.
+- **Grouping a tactic sequence: `{ … }` when it must close the goal, `( … )` when it need not.**
+  `{ … }` errors if anything is left open, so it is the one to reach for wherever the block is
+  supposed to finish the goal — it turns a silent leftover into a failure. `( … )` only groups.
+  A block that spans lines keeps its opening brace/paren on the line that opens it, puts the first
+  tactic on the next line indented under it, and closes with `}`/`)` alone on the last line dedented
+  back to that line's column. One-liners stay one-liners — `(tac₁; tac₂)` is fine. Where this comes
+  up: a tactic taking a *single* tactic argument (`mvcgen … with`) whose argument is really a
+  sequence — `Guarded2Network/Lemmas/AtomicBranch.lean:174`. Ungrouped, the sequence silently
+  truncates to its first tactic and the rest applies to whatever goal happens to be first.
 - **No `rw [show … by …]`.** Inline `show`-by-tactic inside a rewrite hide a real proof step in a
   rewrite argument. State it as a `have` and rewrite with that.
   `Extra/Seq.lean:125` — `have hm : m = 0 := by omega`, then `rwa [hm] at h`

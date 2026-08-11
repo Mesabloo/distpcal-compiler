@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Core.ComputableTLAPlus.Syntax
 public import Core.TypedPlusCal.Syntax
 
@@ -61,8 +62,8 @@ def Expression.subst {α} (x : String) (e : Expression α) (target : Expression 
   | .false, pos => .false @@ pos
 termination_by sizeOf target
 decreasing_by
-  all_goals simp_wf
-  all_goals first
+  all: simp_wf
+  all: first
     | omega
     | (have h := List.sizeOf_lt_of_mem _hes
        try simp only [Prod.mk.sizeOf_spec] at h

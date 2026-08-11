@@ -1,5 +1,6 @@
 module
 
+meta import CustomPrelude
 public import Core.ComputableTLAPlus.Syntax
 public import Core.GuardedPlusCal.Syntax
 public import Mathlib.Data.Finset.Basic
@@ -52,8 +53,8 @@ def Expression.freeVars {α} (target : Expression α) : Finset String := match t
   | .false => ∅
 termination_by sizeOf target
 decreasing_by
-  all_goals simp_wf
-  all_goals first
+  all: simp_wf
+  all: first
     | omega
     | (have h := List.sizeOf_lt_of_mem _hes
        try simp only [Prod.mk.sizeOf_spec] at h
