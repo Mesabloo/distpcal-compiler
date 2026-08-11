@@ -1877,10 +1877,13 @@ the deliverable* mentions has to be public — `substGuardStmt`/`convertActionSt
 iterators — exactly the shapes `for` elaborates to — and none for `List.mapM`. `Extra/Do.lean`'s
 `Spec.mapM_list` closes that, derived from `Spec.foldlM_list` through
 `List.mapM_eq_reverse_foldlM_cons`, and registered `@[spec]` so `mvcgen` picks it up unprompted.
-Likewise `Std.Do.WP.Basic`'s `of_wp_run_eq` adequacy lemmas exist per *primitive* stack only, so the
-three-layer `G2NM` gets its own (`Guarded2Network/Lemmas/Monad.lean`) — together with
-`G2NM.run_bind_eq_ok`, since a pass whose result is *given* is read backwards through its binds and
-`mvcgen` only reasons forwards.
+**Every theorem about the pass is a Hoare triple, never an equation about a `.run`.** A run
+equation (`(pass …).run.run n = (.ok r, n')` as a hypothesis) forces reading the pass *backwards*
+through its binds, which `mvcgen` cannot do and which needs a per-stack adequacy lemma plus a
+bind-inversion lemma to prop it up. Both were written and both are gone: the refinement is carried
+forward in the loop invariant instead, so nothing ever has to invert a run. `Std.Do.WP.Basic`'s
+`of_wp_run_eq` exists per *primitive* stack only, so if the top-level deliverable ever does need
+adequacy for the three-layer `G2NM`, it gets written then — not kept warm on speculation.
 
 `Thread.rx` is not special here: the paper defines its meaning to *be* that of the atomic block
 `rxₚ : receive(mailboxₚ, tmpₚ) ; inboxₚ := Append(inboxₚ, tmpₚ) ; goto rxₚ`, "although without the
@@ -1920,10 +1923,16 @@ folds inline; the duplication here was introduced by adding one without collapsi
 mirrored proofs.
 
 **Reordering a guard past the pending assignments is two proofs, not one.** The reducing half is an
-*equation* (`Walk.reorder`), the aborting half only an *inclusion* (`Walk.reorder_aborting`), in the
-direction `emitted ≤ adjacent` — which is the direction `StrongRefinement.Mono` wants, since it
-shrinks a target. Equality is false: a guard can block where an assignment cannot, so a state where
-the assignment aborts and the substituted guard blocks is a source abort and not a target one.
+*equation* (`reorder_assigns_guard'`, `reorder_pairs_lenGt`), the aborting half only an *inclusion*
+(`reorder_assigns_guard_abort'`, `reorder_pairs_lenGt_abort`), in the direction
+`emitted ≤ adjacent` — which is the direction `StrongRefinement.Mono` wants, since it shrinks a
+target. Equality is false: a guard can block where an assignment cannot, so a state where the
+assignment aborts and the substituted guard blocks is a source abort and not a target one.
+
+Both are applied *per step*, inside `stepStatement_spec`, not to a whole block: the pair a `receive`
+contributes is moved past each following guard by the very step that compiles that guard. An earlier
+attempt related two orderings of a whole block (`Walk`/`Adjacent`, two inductives and five lemmas);
+carrying the refinement in the loop invariant instead deleted all of it.
 
 The aborting half needs no second semantic argument about the pass's *compiled* guards. A
 `Len(inbox) > n` is a no-op on the runs where it fires, and on the runs where it aborts its own

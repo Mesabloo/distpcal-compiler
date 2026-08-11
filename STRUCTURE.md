@@ -274,9 +274,10 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   (`Driver/Pipeline.lean`) import this root module, never a submodule.
 - `Lemmas.lean` — proof support and the aggregator for the files below: the `mvcgen` wiring and
   the T1/T3 tactic validation examples.
-- `Lemmas/Monad.lean` — the monad a proof pins the pass to (`G2NM`), its `MonadWriter` instance,
-  and the two facts needed to read a *given* run backwards: `G2NM.of_wp_run_eq` (adequacy — `Std`
-  ships one per primitive stack and none for a composite) and `G2NM.run_bind_eq_ok`.
+- `Lemmas/Monad.lean` — the monad a proof pins the pass to (`G2NM`) and its `MonadWriter` instance.
+  Nothing else: every theorem about the pass is a Hoare triple over this stack, so no lemma for
+  reading a *given* run backwards is needed. When the top-level deliverable does need one (adequacy
+  for a composite stack — `Std` ships one per primitive stack only), it comes back here.
 - `Lemmas/Trace.lean` — this pass's `Rτ := Eq`, as a `scoped instance` (traces are preserved
   exactly, reception being unobservable).
 - `Lemmas/Seq.lean` — `SeqBuiltins`, the meaning of the `Head`/`Tail`/`Len(e) > n`/`<<>>`
@@ -298,21 +299,21 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   — all in the *adjacent* ordering. Plus the two step characterizations (`await_lenGt_iff`,
   `consumption_pair_iff`) and `reorder_consumption_lenGt`, the semantic reorder converting adjacent
   to emitted for the guards the *pass* invented; `Lemmas/Reorder.lean`'s substitution reorder covers
-  only the ones the source wrote. Then the walk: `Walk`, the specification of what
-  `processPrecondition` leaves behind, `mapM_stepStatement_walk` (the `mvcgen` loop-invariant proof
-  that the pass meets it) and `processPrecondition_walk`/`_none`. The walk's lemmas are `private`
-  and reach the pass's own `private` `stepStatement`/`processPrecondition` through `import all` —
-  the pass keeps its API narrow, the proof is allowed past it. Files above this one in the proof
-  chain need `import all` of *this* file in turn. Plus `ConsumptionPairs`/`reorder_pairs_lenGt`,
-  the whole pending accumulator moved past one compiled guard; `Adjacent`, the adjacent ordering as
-  a relation (a relation and not a statement list, since it interleaves guard- and action-class
-  statements); `Walk.reorder`, the equation saying the emitted and adjacent orderings *are* the
-  same relation — which is what keeps any refinement from ever being stated about a mid-walk state
-  — and `Walk.reorder_aborting`, its inclusion counterpart for the failing runs. Then the two
-  halves joined: `processPrecondition_refines`, over `Block.reducing`/`.aborting` rather than the
-  flattened list, with `PairsFresh`/`Walk.newInstrs_mem` carrying the reorder's freshness condition
-  in source terms, and `rfresh_of_wellFormed` splitting `rfresh` into its well-formedness half and
-  its generated-`inbox` half.
+  only the ones the source wrote. Plus `ConsumptionPairs`/`reorder_pairs_lenGt`, the whole pending
+  accumulator moved past one compiled guard. Then the walk, as a chain of Hoare triples:
+  `WalkInv`, the loop invariant — the refinement proved *so far*, carried in the `ReceiveState`
+  alongside `ConsumptionPairs` and the accumulated-pair freshness `AccFresh` — then
+  `stepStatement_spec` (one triple per source statement, which is where each consumption pair is
+  moved past the guards that follow it), `mapM_stepStatement_refines` (`Spec.mapM_list` at that
+  invariant), its `@[spec]` run-form corollary, and `processPrecondition_spec`, which reads the
+  block back off the result over `Block.reducing`/`.aborting` rather than the flattened list. No
+  ordering of a whole block is ever related to another: reordering happens one step at a time,
+  inside the invariant. `PairsFresh` carries the reorder's freshness condition in source terms and
+  `rfresh_of_wellFormed` splits `rfresh` into its well-formedness half and its generated-`inbox`
+  half. The walk's lemmas are `private` and reach the pass's own `private`
+  `stepStatement`/`processPrecondition` through `import all` — the pass keeps its API narrow, the
+  proof is allowed past it. Files above this one in the proof chain need `import all` of *this*
+  file in turn.
 - `Lemmas/AtomicBranch.lean` — one branch. `actionBlock_refines` lifts `Lemmas/Statement.lean`'s
   per-statement `action_refines` over a whole action block (one `StrongRefinement.Comp` per
   statement; nothing is reordered, the action language being unchanged by this pass), to be composed

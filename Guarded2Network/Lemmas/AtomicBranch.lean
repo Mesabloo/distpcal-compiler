@@ -18,9 +18,9 @@ import all Guarded2Network.PlusCal
   So this file is two lemmas and their composition. `actionBlock_refines` lifts
   `Lemmas/Statement.lean`'s per-statement `action_refines` over a whole block, which is one
   `StrongRefinement.Comp` per statement and nothing more — the action language is unchanged by this
-  pass, so no reordering is involved. `Lemmas/Precondition.lean`'s `processPrecondition_refines`
-  covers the other half. Composing them is where the assignments move from the precondition's right
-  edge (where the precondition lemma leaves them) to the action block's left edge (where the pass
+  pass, so no reordering is involved. `Lemmas/Precondition.lean`'s `processPrecondition_spec` covers
+  the other half. Composing them is where the assignments move from the precondition's right edge
+  (where the precondition triple leaves them) to the action block's left edge (where the pass
   actually puts them), which is one associativity step.
 
   Freshness stays a hypothesis here, as it does at every level of this proof: these are syntactic
@@ -87,67 +87,6 @@ theorem actionBlock_refines {mbox : Mailbox} {b : Bool}
     exact StrongRefinement.Comp _ (action_refines S (fresh S List.mem_cons_self))
       (IH (λ S' hS' ↦ fresh S' (List.mem_cons_of_mem _ hS')) freshLast)
 
-/-- The statements of a branch's precondition, `[]` when it has none. What every freshness
-hypothesis below quantifies over — `Block.toList` cannot, an `Option` having no `toList` of the
-right shape. -/
-def preconditionList
-    (pre : Option (Block (ComputableGuardedPlusCal.Statement true) false)) :
-    List (ComputableGuardedPlusCal.Statement true false) :=
-  pre.elim [] Block.toList
-
-/-- **A branch's precondition refines, present or absent.** `processPrecondition_refines` with the
-`none` case filled in, so that the branch-level composition below is a single `Comp` rather than a
-case split repeated on both halves.
-
-The absent case is not degenerate-by-convention: a branch with no precondition compiles to no
-guards, no assignments and no receives (`processPrecondition_none`), so both sides are
-`Relation.Idle` and the refinement is `Terminating.Id`. That is also why `AtomicBranch.reducing`
-composes the missing precondition with the identity relation rather than with `∅`. -/
-private theorem precondition_refines {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
-    {pre : Option (Block (ComputableGuardedPlusCal.Statement true) false)}
-    {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
-    {assigns : List (ComputableNetworkPlusCal.Statement false false)}
-    {rxs : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ)} {n n' : Nat}
-    (h : ((processPrecondition (m := G2NM) chans inbox pre).run.run n) =
-      (.ok (pre', assigns, rxs), n'))
-    (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
-      GuardedPlusCal.Statement.receive c r coe ∈ preconditionList pre →
-        c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : ∀ S ∈ preconditionList pre, Fresh (.some (c₀, inbox)) S)
-    (pfresh : PairsFresh inbox (preconditionList pre)) :
-    StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
-      (pre.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
-      (pre.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting')
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
-      ∅
-      (pre'.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing' assigns)
-      (pre'.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting')
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∪
-        pre'.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting' assigns)
-      ∅ := by
-  cases pre with
-  | none =>
-    rw [processPrecondition_none] at h
-    injections
-    subst_vars
-    rw [Option.elim, Option.elim, Option.elim, Option.elim,
-      NetworkPlusCal.Statement.listReducing'_nil, NetworkPlusCal.Statement.listAborting'_nil,
-      Relation.lcomp₂.left_id_eq, Relation.lcomp₁.right_empty_eq_empty, Set.empty_union]
-    exact StrongRefinement.ofNonDiverging _ (StrongRefinement.Terminating.Id _)
-      (StrongRefinement.Aborting.Empty _)
-  | some B =>
-    obtain ⟨B', rfl⟩ := processPrecondition_isSome h
-    have hrefines := processPrecondition_refines (V := V) h rfresh gfresh pfresh
-    rwa [GuardedPlusCal.Block.diverging'_eq_empty] at hrefines
-
 /-! ## Owed: `stepBranch_spec`
 
   Written against `GuardedPlusCal.Thread.toNetwork_spec₁` in the prior development, which is the
@@ -160,11 +99,8 @@ private theorem precondition_refines {chans : Guarded2NetworkChans}
   precondition paired with the converted action block carrying the hoisted assignments on its left
   edge.
 
-  Two mechanical facts established while flailing at this, worth not rediscovering:
-  `processPrecondition` must stay opaque to `mvcgen` (unfolding it exposes
-  `wp⟦List.mapM (stepStatement …) … { }⟧`, the mapM with `StateT.run` already applied, which
-  `Spec.mapM_list` cannot match — it sees the mapM *before* the run); and `⇓` is `PostCond.noThrow`,
-  so under `G2NM`'s `except` shape a postcondition needs `(·, ExceptConds.true)` instead.
+  One mechanical fact worth not rediscovering: `⇓` is `PostCond.noThrow`, so under `G2NM`'s `except`
+  shape every postcondition here is a `⇓?`.
 -/
 
 end Guarded2Network
