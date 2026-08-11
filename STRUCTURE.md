@@ -306,7 +306,10 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   `stepStatement_spec` (one triple per source statement, which is where each consumption pair is
   moved past the guards that follow it), `mapM_stepStatement_refines` (`Spec.mapM_list` at that
   invariant), its `@[spec]` run-form corollary, and `processPrecondition_spec`, which reads the
-  block back off the result over `Block.reducing`/`.aborting` rather than the flattened list. No
+  block back off the result over `Block.reducing`/`.aborting` rather than the flattened list —
+  stated over the `Option` the pass takes, so an absent precondition (`Relation.Idle` on both sides)
+  needs no separate lemma, with `preconditionList` the statement list its freshness hypotheses
+  quantify over. No
   ordering of a whole block is ever related to another: reordering happens one step at a time,
   inside the invariant. `PairsFresh` carries the reorder's freshness condition in source terms and
   `rfresh_of_wellFormed` splits `rfresh` into its well-formedness half and its generated-`inbox`

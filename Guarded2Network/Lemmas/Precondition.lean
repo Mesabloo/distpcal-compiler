@@ -945,49 +945,80 @@ theorem rfresh_of_wellFormed {c₀ : ComputableGuardedPlusCal.Ref} {inbox : Stri
     ⟨recv.one_channel c r coe hmem, (hinbox c r coe hmem).1, (hinbox c r coe hmem).2,
       recv.target_not_in_channel c r coe hmem⟩
 
+/-- The statements of a branch's precondition, `[]` when it has none. What the freshness hypotheses
+below quantify over — `Block.toList` cannot, an `Option` having no `toList` of the right shape. -/
+def preconditionList
+    (pre : Option (GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false)) :
+    List (ComputableGuardedPlusCal.Statement true false) :=
+  pre.elim [] GuardedPlusCal.Block.toList
+
 open Std.Do in
+/-- **A compiled precondition refines the source one, present or absent.** The pass's two outputs
+read together: the rewritten block, and the consumption assignments it hoisted out to be run after
+it.
+
+Stated over the `Option` the pass actually takes, so that a branch with no precondition needs no
+separate lemma. That case is not degenerate-by-convention: no precondition compiles to no guards, no
+assignments and no receives, so both sides are `Relation.Idle` and the refinement is
+`Terminating.Id` — which is also why `AtomicBranch.reducing` composes a missing precondition with
+the identity relation rather than with `∅`.
+
+Divergence is `∅` on both sides rather than `Block.diverging`, the form every composition site wants:
+no statement of either language diverges (`Block.diverging'_eq_empty`). -/
 private theorem processPrecondition_spec {chans : Guarded2NetworkChans}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
-    {B : GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false}
+    {pre : Option (GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false)}
     {n : Nat}
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
-      GuardedPlusCal.Statement.receive c r coe ∈ B.toList → c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : ∀ S ∈ B.toList, Fresh (.some (c₀, inbox)) S)
-    (pfresh : PairsFresh inbox B.toList) :
+      GuardedPlusCal.Statement.receive c r coe ∈ preconditionList pre →
+        c = c₀ ∧ ReceiveFresh c r inbox)
+    (gfresh : ∀ S ∈ preconditionList pre, Fresh (.some (c₀, inbox)) S)
+    (pfresh : PairsFresh inbox (preconditionList pre)) :
     ⦃λ n₀ ↦ ⌜n₀ = n⌝⦄
-    processPrecondition (m := G2NM) chans inbox (.some B)
-    ⦃⇓? (B', assigns, _) _ => match B' with
-      | .none => ⌜False⌝
-      | .some B' => ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
-        (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') B)
-        (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
+    processPrecondition (m := G2NM) chans inbox pre
+    ⦃⇓? (pre', assigns, _) _ =>
+      ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+        (pre.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
+          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
+        (pre.elim ∅ (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
           (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting')
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') B)
-        (GuardedPlusCal.Block.diverging (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.diverging')
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') B)
-        (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing') B' ∘ᵣ₂
+          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
+        ∅
+        (pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₂
           NetworkPlusCal.Statement.listReducing' assigns)
-        (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
+        (pre'.elim ∅ (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
             (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting')
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing') B' ∪
-          GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
-              (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing') B' ∘ᵣ₁
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∪
+          pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
+              (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₁
             NetworkPlusCal.Statement.listAborting' assigns)
         ∅⌝⦄ := by
     mvcgen [processPrecondition, -StateT.run]
+    with | rfresh | gfresh | pfresh => subst pre; assumption
 
-    case post.success r n' hinv =>
+    case h_1 =>
+      simp only [Option.elim, NetworkPlusCal.Statement.listReducing'_nil,
+        NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₂.left_id_eq,
+        Relation.lcomp₁.right_empty_eq_empty, Set.empty_union]
+      exact StrongRefinement.ofNonDiverging _ (StrongRefinement.Terminating.Id _)
+        (StrongRefinement.Aborting.Empty _)
+      /- apply StrongRefinement.ofNonDiverging
+       - · dsimp
+       -   convert StrongRefinement.Terminating.Id _
+       -   · rw [instTrace_Rτ]
+       -   · simp [NetworkPlusCal.Statement.listReducing'_nil, Relation.lcomp₂.left_id_eq]
+       - · convert StrongRefinement.Aborting.Empty _
+       -   simp [NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₁.right_empty_eq_empty] -/
+
+    case post.success r _ hinv =>
       obtain ⟨⟨pairs, hlen, ref⟩, -⟩ := hinv
       -- `dropLast`/`getLast!` put the block back together only because the walk emitted one
       -- statement per source statement, and a `Block` is non-empty by construction
       have hne : r.1 ≠ [] := by
         simp +arith [← List.length_pos_iff, hlen]
-      simpa only [GuardedPlusCal.Block.reducing_eq_listReducing,
-        GuardedPlusCal.Block.aborting_eq_listAborting,
-        GuardedPlusCal.Block.diverging'_eq_empty, GuardedPlusCal.Block.toList,
+      simpa only [Option.elim, GuardedPlusCal.Block.reducing_eq_listReducing,
+        GuardedPlusCal.Block.aborting_eq_listAborting, GuardedPlusCal.Block.toList,
         List.dropLast_concat_getLast! hne]
 
 end Guarded2Network
