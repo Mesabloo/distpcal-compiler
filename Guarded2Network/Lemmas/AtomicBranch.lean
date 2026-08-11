@@ -31,7 +31,7 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open GuardedPlusCal (Block LocalState' Trace)
+open GuardedPlusCal (Block ChanKey LocalState' Trace)
 
 variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
 
@@ -56,10 +56,10 @@ is in the precondition, which is why that half needed a whole file and this one 
 
 Divergence is `∅` throughout, as everywhere else in this development — no statement of either
 language diverges. -/
-theorem actionBlock_refines {mbox : Mailbox} {b : Bool}
+theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
     {A : Block (ComputableGuardedPlusCal.Statement false) b}
     (fresh : ∀ S ∈ A.begin, Fresh mbox S) (freshLast : Fresh mbox A.last) :
-    StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+    StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
       (Block.reducing (β := λ _ ↦ LocalState' V)
         (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') A)
       (Block.aborting (β := λ _ ↦ LocalState' V)
@@ -96,10 +96,11 @@ the action block's *left* edge instead.
 them the join is one `StrongRefinement.Comp` and an associativity step. Stated separately from the
 triple below because it is the whole mathematical content of that triple: everything else there is
 `mvcgen` walking the pass's state bookkeeping, which no refinement depends on. -/
-private theorem branch_refines {mbox : Mailbox} {Br : ComputableGuardedPlusCal.AtomicBranch}
+private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
+    {Br : ComputableGuardedPlusCal.AtomicBranch}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
-    (hpre : StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+    (hpre : StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
       (Br.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
         (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
       (Br.precondition.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
@@ -117,7 +118,7 @@ private theorem branch_refines {mbox : Mailbox} {Br : ComputableGuardedPlusCal.A
           NetworkPlusCal.Statement.listAborting' assigns)
       ∅)
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S) (alast : Fresh mbox Br.action.last) :
-    StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+    StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
       (NetworkPlusCal.AtomicBranch.reducing' ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
@@ -146,10 +147,11 @@ private def RxThreads (inbox : String) (st : ThreadState) : Prop :=
 goes next. Named because the block level quantifies over it — a compiled block's branches are
 pairwise this, `List.Forall₂`-style — and a bare `StrongRefinement` conjunction cannot be the
 argument of a relation combinator. -/
-structure BranchRefines (mbox : Mailbox) (Br : ComputableGuardedPlusCal.AtomicBranch)
+structure BranchRefines (mbox : Mailbox) (pref : ChanKey V → List V)
+    (Br : ComputableGuardedPlusCal.AtomicBranch)
     (Br' : ComputableNetworkPlusCal.AtomicBranch) : Prop where
   /-- The branch refines its source, precondition and action block together. -/
-  refines : StrongRefinement (relatesTo (V := V) mbox) (instTrace (V := V)).Rτ
+  refines : StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
     (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
     (NetworkPlusCal.AtomicBranch.reducing' Br') (NetworkPlusCal.AtomicBranch.aborting' Br') ∅
   /-- And it leaves for the same place: `Block.prepend` does not touch `last`, and
@@ -170,7 +172,7 @@ says those are the same relation, and after it the join is associativity.
 `convertActionBlock` maps it pointwise, so a branch's terminal `goto` survives compilation
 unchanged. That is what the block level needs to know its branches still agree on where they go. -/
 private theorem stepBranch_spec {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
@@ -181,7 +183,8 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans}
     (alast : Fresh (.some (c₀, inbox)) Br.action.last) :
     ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
     stepBranch (m := G2NM) chans inbox Br
-    ⦃⇓? Br' st' => ⌜BranchRefines (V := V) (.some (c₀, inbox)) Br Br' ∧ RxThreads inbox st'⌝⦄ := by
+    ⦃⇓? Br' st' =>
+      ⌜BranchRefines (V := V) (.some (c₀, inbox)) pref Br Br' ∧ RxThreads inbox st'⌝⦄ := by
   mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
   with {
     refine ⟨⟨?_, ?_⟩, ?_⟩

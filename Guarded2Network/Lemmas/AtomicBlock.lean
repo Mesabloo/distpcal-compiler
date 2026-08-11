@@ -31,7 +31,7 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open GuardedPlusCal (Block LocalState' Trace)
+open GuardedPlusCal (Block ChanKey LocalState' Trace)
 
 variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
 
@@ -66,17 +66,19 @@ place.
 The invariant is supplied to `mvcgen` rather than proved after it: `Spec.mapM_list` is `@[spec]`, so
 `mvcgen` finds the loop on its own and only wants the invariant. -/
 private theorem stepBlock_spec {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {blk : ComputableGuardedPlusCal.AtomicBlock}
     (fresh : ∀ Br ∈ blk.branches, BranchesFresh c₀ inbox Br) :
     ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
     stepBlock (m := G2NM) chans inbox blk
     ⦃⇓? blk' st' => ⌜blk'.label = blk.label ∧
-      List.Forall₂ (BranchRefines (V := V) (.some (c₀, inbox))) blk.branches blk'.branches ∧
+      List.Forall₂ (BranchRefines (V := V) (.some (c₀, inbox)) pref) blk.branches blk'.branches ∧
       RxThreads inbox st'⌝⦄ := by
   mvcgen [stepBlock, stepBranch_spec]
   invariants
-  | inv1 => ⇓? ⟨cur, res⟩ st => ⌜List.Forall₂ (BranchRefines (V := V) (.some (c₀, inbox))) cur.prefix res ∧ RxThreads inbox st⌝
+  | inv1 => ⇓? ⟨cur, res⟩ st =>
+    ⌜List.Forall₂ (BranchRefines (V := V) (.some (c₀, inbox)) pref) cur.prefix res ∧
+      RxThreads inbox st⌝
   with
   -- `stepBranch_spec`'s implicits. `mvcgen` abstracts them over the loop's context — nothing in the
   -- *program* says what the value type is or which channel a branch's receives read — and wraps
@@ -90,10 +92,10 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans}
     intro _ _ hbr hrx
     exact ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hbr), hrx⟩
 
-  case vc13.pre => exact ⟨.nil, ‹_›⟩
+  case vc14.pre => exact ⟨.nil, ‹_›⟩
   -- one `BranchesFresh` field each, at whichever branch the walk is currently on
   case vc8 _ _ _ _ cur _ hsplit _ | vc9 _ _ _ _ cur _ hsplit _ | vc10 _ _ _ _ cur _ hsplit _
-     | vc11 _ _ _ _ cur _ hsplit _ | vc12 _ _ _ _ cur _ hsplit _ =>
+     | vc11 _ _ _ _ cur _ hsplit _ | vc12 _ _ _ _ cur _ hsplit _ | vc13 _ _ _ _ cur _ hsplit _ =>
     intro _ _ _
     rw [hsplit] at fresh
     obtain ⟨_, _, _, _, _⟩ := fresh cur (List.mem_append_right _ List.mem_cons_self)

@@ -28,7 +28,7 @@ public import Guarded2Network.Lemmas.Statement
 namespace Guarded2Network
 
 open ComputableTLAPlus (ExprSemantics Memory PathStep)
-open GuardedPlusCal (ChanKey EvalStep FIFOs LocalState Trace)
+open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState ProcState Trace)
 
 variable {V : Type} [ExprSemantics V]
 
@@ -111,6 +111,126 @@ theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox label : 
   subst hM; subst hF
   rw [Set.insert_sdiff_self_of_mem hlabel]
   exact ⟨v, rfl, ⟨hlabels, hdisj, hmem', hinbox', hkey⟩, hoff, hsplit'⟩
+
+/-- **And at the algorithm level: the source does not move at all.** One instance takes a receiving
+thread's step; every other instance and every other FIFO key is untouched, so the whole
+`algRelatesTo` witness survives with one instance's `InboxState` extended by the value that moved.
+
+This is the rx half of the per-step obligation the algorithm-level refinement discharges. It is
+answered with *zero* source steps — `Relation.star.refl` — which is why the source side of that
+refinement has to be `Relation.star Aₛ.step` rather than `Aₛ.step`: `GuardedPlusCal.Algebra.reducing`
+is defined as that star, so this is the goal's own shape rather than a weakening of it. -/
+theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} {rx : ι → Set String}
+    {Ps Qs Qs' : Set (ι × ProcState V)} {F₁ F₂ F₂' : FIFOs V}
+    {p : ι} {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
+    {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
+    (hmb : mb p = .some (c, inbox))
+    (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
+    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs, F₂⟩)
+    -- an instance holds one state at a time, on both sides: the step replaces exactly one pair, so
+    -- a second state for `p` would be left behind relating to the *old* inbox
+    (hS : (⟨p, ⟨M₁, L₁⟩⟩ : ι × ProcState V) ∈ Ps)
+    (huniqS : ∀ σ, (⟨p, σ⟩ : ι × ProcState V) ∈ Ps → σ = ⟨M₁, L₁⟩)
+    (huniqT : ∀ σ, (⟨p, σ⟩ : ι × ProcState V) ∈ Qs → σ = ⟨M₂, L₂⟩)
+    (hin : (⟨p, ⟨M₂, L₂⟩⟩ : ι × ProcState V) ∈ Qs)
+    (hlabel : label ∈ L₂)
+    (hstep : (⟨.running M₂ F₂, ε, .done M₂' F₂' label⟩ :
+      LocalState V false × Trace V × LocalState V true) ∈
+        NetworkPlusCal.Thread.rxBranch c label inbox)
+    (hQs : Qs' = insert (⟨p, ⟨M₂', insert label (L₂ \ {label})⟩⟩ : ι × ProcState V)
+      (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :
+    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ := by
+  obtain ⟨ib, pref, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩ := h
+  obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
+  obtain rfl := huniqS σ₁ hσ₁
+  -- the instance receives, so it has an inbox to account for
+  obtain ⟨ibp, hibp⟩ : ∃ ibp, ib p = .some ibp := by
+    match hib : ib p with
+    | .some ibp => exact ⟨ibp, rfl⟩
+    | .none =>
+      rw [hmb, hib] at hproc
+      nomatch hproc.2.2
+  rw [hibp] at hproc
+  have hsplitp : F₁.lookup ibp.key = (ibp.contents ++ ·) <$> F₂.lookup ibp.key := by
+    rw [hfifo ibp.key, hkey p ibp hibp]
+  obtain ⟨v, rfl, hproc', hoff', hsplit'⟩ :=
+    procRelatesTo.rx_step hfresh (hmb ▸ hproc) hsplitp hlabel hstep
+  subst hQs
+  -- the update changes what `p` accounts for, never *which key* it accounts for, so every clause
+  -- phrased in terms of keys transfers from the old witness unchanged
+  have key_of : ∀ q x, Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩) q = .some x →
+      ∃ x₀, ib q = .some x₀ ∧ x₀.key = x.key := by
+    intro q x hx
+    by_cases hqp : q = p
+    · subst hqp
+      rw [Function.update_self] at hx
+      exact ⟨ibp, hibp, by rw [← Option.some.inj hx]⟩
+    · rw [Function.update_of_ne hqp] at hx
+      exact ⟨x, hx, rfl⟩
+  refine ⟨rfl, Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩),
+    Function.update pref ibp.key (ibp.contents ++ [v]), ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro q σ hq
+    by_cases hqp : q = p
+    · subst hqp
+      obtain rfl := huniqS σ hq
+      refine ⟨_, Set.mem_insert _ _, ?_⟩
+      rw [Function.update_self, hmb]
+      exact hproc'
+    · obtain ⟨σ', hσ', hrel⟩ := hfwd q σ hq
+      refine ⟨σ', Set.mem_insert_of_mem _ ⟨hσ', ?_⟩, ?_⟩
+      · simp only [Set.mem_singleton_iff, Prod.mk.injEq, not_and]
+        exact λ h ↦ absurd h hqp
+      · rwa [Function.update_of_ne hqp]
+  · intro q σ' hq
+    simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hq
+    rcases hq with ⟨rfl, rfl⟩ | ⟨hmem, hne⟩
+    · refine ⟨⟨M₁, L₁⟩, hS, ?_⟩
+      rw [Function.update_self, hmb]
+      exact hproc'
+    · obtain ⟨σ, hσ, hrel⟩ := hbwd q σ' hmem
+      by_cases hqp : q = p
+      · -- the stepped instance's old pair is exactly what was removed, so this case is empty
+        subst hqp
+        absurd hne
+        exact ⟨rfl, huniqT σ' hmem⟩
+      · exact ⟨σ, hσ, by rwa [Function.update_of_ne hqp]⟩
+  · intro q hq
+    by_cases hqp : q = p
+    · subst hqp
+      exact (hq _ hS).elim
+    · rw [Function.update_of_ne hqp]
+      exact habsent q hq
+  · intro q r x y hx hy hkey
+    obtain ⟨x₀, hx₀, hxk⟩ := key_of q x hx
+    obtain ⟨y₀, hy₀, hyk⟩ := key_of r y hy
+    exact hinj q r x₀ y₀ hx₀ hy₀ (hxk.trans (hkey.trans hyk.symm))
+  · intro q x hx
+    by_cases hqp : q = p
+    · subst hqp
+      rw [Function.update_self] at hx
+      obtain rfl := Option.some.inj hx
+      exact Function.update_self ..
+    · rw [Function.update_of_ne hqp] at hx
+      have hne : x.key ≠ ibp.key := λ heq ↦ hqp (hinj q p x ibp hx hibp heq)
+      rw [Function.update_of_ne hne]
+      exact hkey q x hx
+  · intro k hk
+    have hkp : ibp.key ≠ k := hk p ⟨ibp.key, ibp.contents ++ [v]⟩ (Function.update_self ..)
+    rw [Function.update_of_ne (Ne.symm hkp)]
+    refine hoff k (λ q x₀ hx₀ ↦ ?_)
+    by_cases hqp : q = p
+    · subst hqp
+      rw [hibp] at hx₀
+      exact Option.some.inj hx₀ ▸ hkp
+    · apply hk q x₀
+      rwa [Function.update_of_ne hqp]
+  · intro k
+    by_cases hkp : k = ibp.key
+    · subst hkp
+      rw [Function.update_self]
+      exact hsplit'
+    · rw [Function.update_of_ne hkp, hoff' k hkp]
+      exact hfifo k
 
 end Guarded2Network
 

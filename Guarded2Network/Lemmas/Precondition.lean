@@ -177,16 +177,16 @@ path and the head value from `relatesTo`'s split `F₁[c] = inbox ++ F₂[c]`, t
 update transferred across the `inbox`-difference by `Ref.EvalArgs.congr_of_fresh` and
 `Memory.update_transfer`. -/
 theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
-    {inbox : String} {τ : ComputableTLAPlus.Typ}
+    {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
     (fresh : ReceiveFresh c r inbox) {σₛ σₜ σₜ' : LocalState' V} {ε : Trace V}
-    (sim : σₛ ∼[.some (c, inbox)] σₜ)
+    (sim : σₛ ∼[.some (c, inbox), pref] σₜ)
     (step : (⟨σₜ, ε, σₜ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
       NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
       NetworkPlusCal.Statement.reducing'
         (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
       NetworkPlusCal.Statement.reducing' (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))) :
     ε = 1 ∧
-      ((∃ σₛ', σₛ' ∼[.some (c, inbox)] σₜ' ∧
+      ((∃ σₛ', σₛ' ∼[.some (c, inbox), pref] σₜ' ∧
         (⟨σₛ, 1, σₛ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
           GuardedPlusCal.Statement.reducing' (.receive c r coe)) ∨
       (⟨σₛ, 1⟩ : LocalState' V × Trace V) ∈
@@ -246,8 +246,16 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
     have hlk₁ : F₁.lookup ((c.name, cpath) : ChanKey V) = .some (v :: (vs' ++ ws)) := by
       rw [hsplit, hlk]
       rfl
-    obtain ⟨M₁', hupd₁, hagree₁⟩ :=
-      Memory.update_transfer (λ y hy ↦ (hagree y hy).symm) hrname hupd
+    obtain ⟨M₁', hupd₁, hx⟩ := Memory.update_transfer (hagree r.name hrname).symm hupd
+    -- the same write in both memories: at the name written they agree by `hx`, elsewhere neither
+    -- memory moved
+    have hagree₁ : ∀ y ≠ inbox, M₁'.lookup y = M₃.lookup y := by
+      intro y hy
+      by_cases hyr : y = r.name
+      · subst hyr
+        exact hx.symm
+      · rw [Memory.lookup_update_ne hupd₁ hyr, Memory.lookup_update_ne hupd hyr]
+        exact hagree y hy
     refine .inl ⟨⟨M₁', F₁.insert (c.name, cpath) (vs' ++ ws), .none⟩,
       relatesTo.chan_intro (cpath := cpath) rfl ?_ ?_ (Finmap.lookup_insert _) ht' ?_ ?_,
       ⟨.running M₁' (F₁.insert (c.name, cpath) (vs' ++ ws)), hlabel,
@@ -259,7 +267,7 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
     · intro y hy
       simp only [LocalState'.mem_mk]
       rw [Finmap.lookup_insert_of_ne _ hy]
-      exact (hagree₁ y hy).symm
+      exact hagree₁ y hy
     · exact (Ref.EvalArgs.congr_of_fresh
         (λ y hy ↦ (Memory.lookup_update_ne hupd₁ hy).symm) hfw).mp hpath
     · intro k hk
@@ -281,9 +289,9 @@ value (`isSeq_tail`), the reference has no index path to resolve, and an empty-p
 fail. What is left is the first assignment's four clauses, which map onto four of the `receive`'s
 six. -/
 theorem receive_aborting_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
-    {inbox : String} {τ : ComputableTLAPlus.Typ}
+    {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
     (fresh : ReceiveFresh c r inbox) {σₛ σₜ : LocalState' V} {ε : Trace V}
-    (sim : σₛ ∼[.some (c, inbox)] σₜ)
+    (sim : σₛ ∼[.some (c, inbox), pref] σₜ)
     (step : (⟨σₜ, ε⟩ : LocalState' V × Trace V) ∈
       NetworkPlusCal.Statement.aborting' (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
       NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
@@ -412,8 +420,9 @@ obligation trivial (an abort emits nothing, and the empty trace is a prefix of e
 `diverging` is vacuous: no statement diverges, so the target composite is empty and the framework
 supplies that component itself. -/
 theorem receive_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
-    {inbox : String} {τ : ComputableTLAPlus.Typ} (fresh : ReceiveFresh c r inbox) :
-    StrongRefinement (relatesTo (V := V) (.some (c, inbox))) (instTrace (V := V)).Rτ
+    {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
+    (fresh : ReceiveFresh c r inbox) :
+    StrongRefinement (relatesTo (V := V) (.some (c, inbox)) pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.Statement.reducing' (.receive c r coe))
       (GuardedPlusCal.Statement.aborting' (.receive c r coe))
       (GuardedPlusCal.Statement.diverging' (.receive c r coe))
@@ -669,8 +678,9 @@ def receiveGroupAborting (r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.
 /-- `receive_refines` at the two named groups, with the trailing `Relation.Idle`/`∅` the list forms
 carry discharged. Nothing new — the same theorem, in the shape the walk's invariant states. -/
 theorem receiveGroup_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
-    {inbox : String} {τ : ComputableTLAPlus.Typ} (fresh : ReceiveFresh c r inbox) :
-    StrongRefinement (relatesTo (V := V) (.some (c, inbox))) (instTrace (V := V)).Rτ
+    {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
+    (fresh : ReceiveFresh c r inbox) :
+    StrongRefinement (relatesTo (V := V) (.some (c, inbox)) pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.Statement.reducing' (.receive c r coe))
       (GuardedPlusCal.Statement.aborting' (.receive c r coe))
       (GuardedPlusCal.Statement.diverging' (.receive c r coe))
@@ -718,21 +728,22 @@ private def AccFresh (inbox : String) (st : ReceiveState)
     GuardedPlusCal.Statement.with x ann bound e ∈ suff →
       x ∉ GuardedPlusCal.Ref.freeVars a.1 ∧ Expression.FreshIn x a.2.1
 
-/-- **The walk's loop invariant.** What holds of `stepStatement`'s state once the prefix `pref` of a
-precondition has been compiled to `results`: the accumulator is exactly `st.i` consumption pairs, and
-`pref` already refines the emitted guards followed by those pending pairs.
+/-- **The walk's loop invariant.** What holds of `stepStatement`'s state once the `walked` prefix of
+a precondition has been compiled to `results`: the accumulator is exactly `st.i` consumption pairs,
+and `walked` already refines the emitted guards followed by those pending pairs.
 
 Carrying the refinement *here* is the whole design. Each pair is moved past the guards that follow it
 by the very step that produces it, so no two orderings of a whole block ever have to be related — the
 `Head`/`Tail` bookkeeping stays local to one step. -/
 private def WalkInv (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
-    (pref : List (ComputableGuardedPlusCal.Statement true false))
+    (pref : ChanKey V → List V)
+    (walked : List (ComputableGuardedPlusCal.Statement true false))
     (results : List (ComputableNetworkPlusCal.Statement true false))
     (st : ReceiveState) : Prop :=
-  ConsumptionPairs inbox st.i st.newInstrs ∧ results.length = pref.length ∧
-    StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Statement.listReducing' pref)
-      (GuardedPlusCal.Statement.listAborting' pref)
+  ConsumptionPairs inbox st.i st.newInstrs ∧ results.length = walked.length ∧
+    StrongRefinement (relatesTo (V := V) (.some (c₀, inbox)) pref) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Statement.listReducing' walked)
+      (GuardedPlusCal.Statement.listAborting' walked)
       ∅
       (NetworkPlusCal.Statement.listReducing' results ∘ᵣ₂
         NetworkPlusCal.Statement.listReducing' (consumptions st.newInstrs))
@@ -742,8 +753,9 @@ private def WalkInv (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
       ∅
 
 /-- The invariant holds at the start: nothing walked, nothing emitted, nothing pending. -/
-private theorem WalkInv.nil {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} :
-    WalkInv (V := V) c₀ inbox [] [] {} := by
+private theorem WalkInv.nil {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {pref : ChanKey V → List V} :
+    WalkInv (V := V) c₀ inbox pref [] [] {} := by
   refine ⟨.nil, rfl, ?_⟩
   -- `simp only`, not `rw`: `({} : ReceiveState).newInstrs` is a projection out of a structure
   -- literal, and `rw`'s syntactic match never gets past it to `consumptions_nil`
@@ -765,15 +777,16 @@ well-scopedness through its own loop invariant instead of assuming it up front. 
 private theorem stepStatement_spec {chans : Guarded2NetworkChans}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
     (S : ComputableGuardedPlusCal.Statement true false)
-    {pref : List (ComputableGuardedPlusCal.Statement true false)}
+    {pref : ChanKey V → List V}
+    {walked : List (ComputableGuardedPlusCal.Statement true false)}
     {results : List (ComputableNetworkPlusCal.Statement true false)}
     {suff : List (ComputableGuardedPlusCal.Statement true false)}
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       S = GuardedPlusCal.Statement.receive c r coe → c = c₀ ∧ ReceiveFresh c r inbox)
     (gfresh : Fresh (.some (c₀, inbox)) S) (pfresh : PairsFresh inbox (S :: suff)) :
-    ⦃λ st ↦ ⌜WalkInv (V := V) c₀ inbox pref results st ∧ AccFresh inbox st (S :: suff)⌝⦄
+    ⦃λ st ↦ ⌜WalkInv (V := V) c₀ inbox pref walked results st ∧ AccFresh inbox st (S :: suff)⌝⦄
       (stepStatement (m := G2NM) chans inbox S)
-    ⦃⇓? T st' => ⌜WalkInv (V := V) c₀ inbox (pref ++ [S]) (results ++ [T]) st' ∧
+    ⦃⇓? T st' => ⌜WalkInv (V := V) c₀ inbox pref (walked ++ [S]) (results ++ [T]) st' ∧
       AccFresh inbox st' suff⌝⦄ := by
   -- one line, and every `wp` is gone: three goals, one per guard constructor, each a plain
   -- `WalkInv` obligation with the incoming invariant in context
@@ -887,20 +900,20 @@ Both conjuncts are needed and neither can be dropped — the refinement is the p
 is what the next step's precondition asks for. It shrinks with the suffix on a guard and is
 re-established from `PairsFresh` when a `receive` grows the accumulator. -/
 private theorem mapM_stepStatement_refines {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {Ss : List (ComputableGuardedPlusCal.Statement true false)}
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ Ss → c = c₀ ∧ ReceiveFresh c r inbox)
     (gfresh : ∀ S ∈ Ss, Fresh (.some (c₀, inbox)) S) (pfresh : PairsFresh inbox Ss) :
-    ⦃λ stf ↦ ⌜WalkInv (V := V) c₀ inbox [] [] stf ∧ AccFresh inbox stf Ss⌝⦄
+    ⦃λ stf ↦ ⌜WalkInv (V := V) c₀ inbox pref [] [] stf ∧ AccFresh inbox stf Ss⌝⦄
       Ss.mapM (stepStatement (m := G2NM) chans inbox)
-    ⦃⇓? bs stf' => ⌜WalkInv (V := V) c₀ inbox Ss bs stf' ∧ AccFresh inbox stf' []⌝⦄ :=
+    ⦃⇓? bs stf' => ⌜WalkInv (V := V) c₀ inbox pref Ss bs stf' ∧ AccFresh inbox stf' []⌝⦄ :=
   Spec.mapM_list
-    (inv := ((λ q stf ↦ ⌜WalkInv (V := V) c₀ inbox q.1.prefix q.2 stf ∧
+    (inv := ((λ q stf ↦ ⌜WalkInv (V := V) c₀ inbox pref q.1.prefix q.2 stf ∧
         AccFresh inbox stf q.1.suffix⌝, ExceptConds.true) :
       Invariant Ss (List (ComputableNetworkPlusCal.Statement true false))
         (.arg ReceiveState (.except G2NError (.arg Nat .pure)))))
-    (λ pref cur suff h bs ↦
+    (λ _ cur suff h bs ↦
       stepStatement_spec (V := V) (c₀ := c₀) cur
         (λ c r coe heq ↦ rfresh c r coe (heq ▸ h ▸ List.mem_append_right _ List.mem_cons_self))
         (gfresh cur (h ▸ List.mem_append_right _ List.mem_cons_self))
@@ -913,14 +926,14 @@ toolchain's `[spec] StateT.run` never fires and `mvcgen` cannot descend on its o
 
 Registered `@[spec]` so the block-level proof never has to look inside the walk. -/
 @[spec] private theorem mapM_stepStatement_refines_run {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {Ss : List (ComputableGuardedPlusCal.Statement true false)}
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ Ss → c = c₀ ∧ ReceiveFresh c r inbox)
     (gfresh : ∀ S ∈ Ss, Fresh (.some (c₀, inbox)) S) (pfresh : PairsFresh inbox Ss) :
     ⦃⌜True⌝⦄
       ((Ss.mapM (stepStatement (m := G2NM) chans inbox)).run {})
-    ⦃⇓? p n' => ⌜WalkInv (V := V) c₀ inbox Ss p.1 p.2 ∧ AccFresh inbox p.2 []⌝⦄ :=
+    ⦃⇓? p n' => ⌜WalkInv (V := V) c₀ inbox pref Ss p.1 p.2 ∧ AccFresh inbox p.2 []⌝⦄ :=
   λ n _ ↦ mapM_stepStatement_refines (V := V) rfresh gfresh pfresh {} n
     ⟨WalkInv.nil, λ _ ha ↦ nomatch ha⟩
 
@@ -966,7 +979,7 @@ the identity relation rather than with `∅`.
 Divergence is `∅` on both sides rather than `Block.diverging`, the form every composition site wants:
 no statement of either language diverges (`Block.diverging'_eq_empty`). -/
 private theorem processPrecondition_spec {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {pre : Option (GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false)}
     {n : Nat}
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
@@ -977,7 +990,7 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans}
     ⦃λ n₀ ↦ ⌜n₀ = n⌝⦄
     processPrecondition (m := G2NM) chans inbox pre
     ⦃⇓? (pre', assigns, _) _ =>
-      ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox))) (instTrace (V := V)).Rτ
+      ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox)) pref) (instTrace (V := V)).Rτ
         (pre.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
           (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
         (pre.elim ∅ (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)

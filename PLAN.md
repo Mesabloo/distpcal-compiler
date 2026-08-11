@@ -1808,6 +1808,20 @@ endpoints are `relatesTo`, the drained prefix `vs` being existential inside it. 
 even an apparent exception: it moves a value from `F₂[c]` to `inbox`, growing `vs` exactly as
 `F₂[c]` shrinks, so `F₁[c] = vs ++ F₂[c]` is untouched.
 
+**Two prefix roles, and why one is a parameter (landed, item 7).** `relatesTo` take
+`pref : ChanKey V → List V` beside `mbox`. Keys *other* than this process's channel carry `pref k` —
+other instances' inboxes, which this process cannot observe. It is a **parameter**, not an
+existential: the algorithm level must know those keys come back unchanged after a block runs, and
+"the same `pref` on both sides" is the only way to state that. Existential would let
+`Terminating R R` re-witness on the right, leaving the constancy true but unstatable —
+`R σₛ' σₜ'` cannot mention the pre-witness. This process's *own* channel keeps its existential `vs`,
+per the paragraph above, precisely because it is the one prefix the process changes; keeping it out
+of `pref` is what leaves `relatesTo` closed under `receive`, so branch and block stay single-relation
+`StrongRefinement`s. The earlier revision asserted plain equality off the own channel — `pref k = []`
+— which is false as soon as a second instance receives, and is what kept the block layer from being
+invocable from the algorithm layer at all. `.claude/plans/item7-refinement-proof.md` has the
+alternative that was weighed (existential `pref` plus a frame lemma on the source block).
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns
