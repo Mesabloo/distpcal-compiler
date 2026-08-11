@@ -628,6 +628,30 @@ namespace List
     rw [← Forall₂.flip_iff, forall₂_singleton_right_iff]
     rfl
 
+  /-- A member of the right list has a related member of the left one. `Forall₂` is positional, so
+  this is the projection that forgets the position — what a proof reaches for when it holds one
+  element of one list and wants *some* related element of the other, with no interest in where. -/
+  theorem Forall₂.exists_left {R : α → β → Prop} {xs ys} (h : List.Forall₂ R xs ys) {y}
+      (hy : y ∈ ys) : ∃ x ∈ xs, R x y := by
+    induction h with
+    | nil => exact nomatch hy
+    | cons hxy _ ih =>
+      rcases mem_cons.mp hy with rfl | hy'
+      · exact ⟨_, mem_cons_self, hxy⟩
+      · obtain ⟨x, hx, hxy'⟩ := ih hy'
+        exact ⟨x, mem_cons_of_mem _ hx, hxy'⟩
+
+  @[inherit_doc Forall₂.exists_left]
+  theorem Forall₂.exists_right {R : α → β → Prop} {xs ys} (h : List.Forall₂ R xs ys) {x}
+      (hx : x ∈ xs) : ∃ y ∈ ys, R x y := by
+    induction h with
+    | nil => exact nomatch hx
+    | cons hxy _ ih =>
+      rcases mem_cons.mp hx with rfl | hx'
+      · exact ⟨_, mem_cons_self, hxy⟩
+      · obtain ⟨y, hy, hxy'⟩ := ih hx'
+        exact ⟨y, mem_cons_of_mem _ hy, hxy'⟩
+
   theorem attach_eq_cons {xs ys} {y : {x : α // x ∈ xs}} (h : xs.attach = y :: ys) :
       ∃ x xs', ∃ (h' : xs = x :: xs'), x = ↑y ∧ ys = xs'.attach.map (λ ⟨y, h⟩ => ⟨y, h' ▸ mem_cons_of_mem x h⟩) := by
     cases xs <;> try contradiction

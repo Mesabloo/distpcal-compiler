@@ -7,10 +7,12 @@ public import Guarded2Network.Lemmas.Trace
 public import Guarded2Network.Lemmas.Relation
 public import Guarded2Network.Lemmas.Rx
 public import Guarded2Network.Lemmas.Statement
+public import Guarded2Network.Lemmas.Locality
 public import Guarded2Network.Lemmas.Reorder
 public import Guarded2Network.Lemmas.Precondition
 public import Guarded2Network.Lemmas.AtomicBranch
 public import Guarded2Network.Lemmas.AtomicBlock
+public import Guarded2Network.Lemmas.Process
 public import Core.NetworkPlusCal.Semantics.Lemmas
 public import VerifiedCompiler
 public import Std.Do.WP

@@ -877,6 +877,71 @@ theorem AtomicBranch.diverging'_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
   | none => rfl
   | some => exact Block.diverging'_eq_empty
 
+/-! The same membership-level corollaries one level up, at `AtomicBranch` rather than `Block`.
+Twins of `NetworkPlusCal`'s `sem_glue₃`/`abort_glue₂` and needed for the same reason: the process
+layer states a step against the *indexed* `AtomicBranch.reducing`, while every refinement lemma is
+stated against the flat `reducing'`.
+
+The extra work over the `Block`-level glue is the composition boundary. A branch is its precondition
+composed with its action, and the intermediate state is a `.running` constructor on the indexed side
+against a flat triple on the other — whose label field has to be known to be `none` before the two
+can be matched up. `LocalState'.sem_label_eq` is what supplies that. -/
+
+/-- Every flat `Block.reducing` membership has `none` in both endpoints' label fields: that field
+changes only at the `AtomicBranch`-composition boundary, never inside a `Block` built from
+`Statement.reducing'`. -/
+theorem LocalState'.sem_label_eq {g : Bool} {B : Block (ComputableGuardedPlusCal.Statement g) false}
+    {σ σ' : LocalState' V} {ε : Trace V}
+    (h : ⟨σ, ε, σ'⟩ ∈ Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B) :
+    σ.2.2 = none ∧ σ'.2.2 = none := by
+  rw [Block.reducing'_eq_map, Set.mem_image] at h
+  obtain ⟨⟨⟨_, _⟩, _, ⟨_, _⟩⟩, _, rfl, rfl⟩ := h
+  exact ⟨rfl, rfl⟩
+
+theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
+    {ε : Trace V} {Br : ComputableGuardedPlusCal.AtomicBranch} :
+    ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈ AtomicBranch.reducing Br ↔
+      ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈ AtomicBranch.reducing' (V := V) Br := by
+  unfold AtomicBranch.reducing AtomicBranch.reducing' Statement.blockReducing
+  cases hpre : Br.precondition with
+  | none =>
+    simp only [Option.elim]
+    rw [Relation.lcomp₂.left_id_eq, Relation.lcomp₂.left_id_eq]
+    exact LocalState.sem_glue₁
+  | some B' =>
+    simp only [Option.elim]
+    iff_rintro ⟨⟨M', F'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
+      ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
+    · exact ⟨(M', F', none), ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mp red_pre,
+        (LocalState.sem_glue₁ (B := Br.action)).mp red_act, rfl⟩
+    · obtain rfl : l' = none :=
+        (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+          (σ' := (M', F', l')) red_pre).2
+      exact ⟨LocalState.running M' F', ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mpr red_pre,
+        (LocalState.sem_glue₁ (B := Br.action)).mpr red_act, rfl⟩
+
+@[inherit_doc LocalState.sem_glue₃]
+theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
+    {Br : ComputableGuardedPlusCal.AtomicBranch} :
+    ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.aborting Br ↔
+      ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.aborting' (V := V) Br := by
+  unfold AtomicBranch.aborting AtomicBranch.aborting' Statement.blockReducing
+    Statement.blockAborting
+  cases hpre : Br.precondition with
+  | none => exact LocalState.abort_glue
+  | some B' =>
+    iff_rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
+      (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
+    · exact .inl ((LocalState.abort_glue (B := B')).mp h)
+    · exact .inr ⟨(M', F', none), ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mp red_pre,
+        (LocalState.abort_glue (B := Br.action)).mp abort_act, rfl⟩
+    · exact .inl ((LocalState.abort_glue (B := B')).mpr h)
+    · obtain rfl : l' = none :=
+        (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
+          (σ' := (M', F', l')) red_pre).2
+      exact .inr ⟨LocalState.running M' F', ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mpr red_pre,
+        (LocalState.abort_glue (B := Br.action)).mpr abort_act, rfl⟩
+
 end Flat
 
 end GuardedPlusCal

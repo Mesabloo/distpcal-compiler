@@ -117,18 +117,20 @@ theorem Ref.freeVars_of_mem_args {r : ComputableGuardedPlusCal.Ref}
       · exact ih _ hmem'
   exact Finset.mem_union_right _ (enters r.args ∅ hmem)
 
-/-- Memories agreeing away from `inbox` resolve a reference's path identically, provided the
-reference does not read `inbox`. This is D2's point: the `List.Forall₂` nesting is discharged once,
-here, and no later proof sees it. -/
-theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref}
-    {inbox : String} {path : List (PathStep V)}
-    (agree : ∀ x ≠ inbox, M₁.lookup x = M₂.lookup x)
-    (fresh : inbox ∉ GuardedPlusCal.Ref.freeVars r) :
+/-- Memories agreeing on everything a reference *reads* resolve its path identically. This is D2's
+point: the `List.Forall₂` nesting is discharged once, here, and no later proof sees it.
+
+Stated over the names read rather than over a single excepted name, because that is the form a
+*block* needs — a block writes one name per statement, so "all but one" is never the shape on offer
+past the first step. `congr_of_fresh` below is the one-name case. -/
+theorem Ref.EvalArgs.congr_of_agree {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref}
+    {path : List (PathStep V)}
+    (agree : ∀ y ∈ GuardedPlusCal.Ref.freeVars r, M₁.lookup y = M₂.lookup y) :
     Ref.EvalArgs M₁ r path ↔ Ref.EvalArgs M₂ r path := by
   unfold Ref.EvalArgs
   have step : ∀ (args : List (String ⊕ ComputablePlusCal.Expression))
       (path : List (PathStep V)),
-      (∀ e, Sum.inr e ∈ args → Expression.FreshIn inbox e) →
+      (∀ e, Sum.inr e ∈ args → ∀ y ∈ e.freeVars, M₁.lookup y = M₂.lookup y) →
       (List.Forall₂ (EvalStep M₁) args path ↔ List.Forall₂ (EvalStep M₂) args path) := by
     intro args
     induction args with
@@ -136,16 +138,14 @@ theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuarde
       intro path _
       rw [List.forall₂_nil_left_iff, List.forall₂_nil_left_iff]
     | cons hd tl ih =>
-      intro path hfresh
+      intro path hagree
       -- the head segment's own agreement, needed in both directions
       have hhead : ∀ (e : ComputablePlusCal.Expression), hd = Sum.inr e →
           ∀ y ∈ e.freeVars, M₁.lookup y = M₂.lookup y := by
         rintro e rfl y hy
-        apply agree y
-        rintro rfl
-        exact hfresh _ (List.mem_cons_self ..) hy
-      have htail : ∀ e, Sum.inr e ∈ tl → Expression.FreshIn inbox e :=
-        λ e he ↦ hfresh e (List.mem_cons_of_mem _ he)
+        exact hagree _ (List.mem_cons_self ..) y hy
+      have htail : ∀ e, Sum.inr e ∈ tl → ∀ y ∈ e.freeVars, M₁.lookup y = M₂.lookup y :=
+        λ e he ↦ hagree e (List.mem_cons_of_mem _ he)
       iff_intro h h
       · cases h with
         | cons hstep hrest =>
@@ -163,7 +163,18 @@ theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuarde
           | index hv =>
             apply EvalStep.index
             exact (ExprSemantics.evalLocal (hhead _ rfl)).mpr hv
-  exact step r.args path (λ e he hx ↦ fresh (Ref.freeVars_of_mem_args he hx))
+  exact step r.args path (λ e he y hy ↦ agree y (Ref.freeVars_of_mem_args he hy))
+
+/-- The one-name case of `congr_of_agree`: memories agreeing away from `inbox` resolve a reference's
+path identically, provided the reference does not read `inbox`. -/
+theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref}
+    {inbox : String} {path : List (PathStep V)}
+    (agree : ∀ x ≠ inbox, M₁.lookup x = M₂.lookup x)
+    (fresh : inbox ∉ GuardedPlusCal.Ref.freeVars r) :
+    Ref.EvalArgs M₁ r path ↔ Ref.EvalArgs M₂ r path := by
+  refine Ref.EvalArgs.congr_of_agree (λ y hy ↦ agree y ?_)
+  rintro rfl
+  exact fresh hy
 
 /-- `Ref.EvalArgs.congr_of_fresh` at related states, with the freshness hypothesis in the guarded
 shape — vacuous when the process has no mailbox, where the memories agree outright. The `EvalArgs`
