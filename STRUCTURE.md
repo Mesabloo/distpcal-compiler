@@ -338,8 +338,13 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Thread.lean` — one thread: `stepBlock_spec` under `Spec.mapM_list`, then the same at
   `.run {}` so `mvcgen` can descend into `Thread.toNetwork`'s body (needs `-StateT.run` at the call
   site, or the toolchain's own `StateT.run` spec wins). `ThreadRefines` is "a `.code` thread whose
-  blocks are pairwise `BlockRefines`"; `RxOnly` is `RxThreads` on a bare list, which is the form
-  every rung above sees.
+  blocks are pairwise `BlockRefines`"; `RxOnly` is `RxThreads` on a bare list, plus each `.rx` label
+  being `Generated` — the form every rung above sees.
+- `Lemmas/Process.lean` — two subjects, split by a section header. The semantic bridge above; then
+  the pass's process rung — `ProcessFresh` (freshness quantified over the name the pass will invent),
+  `ProcessRefines` (the `rxs ++ codes` thread split, and `name_eq`, which `Algorithm.algebra`'s
+  by-name lookup makes load-bearing), and `Process.toNetwork_spec`. `Generated`/`freshName_spec`
+  themselves live in `Lemmas/Monad.lean`.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

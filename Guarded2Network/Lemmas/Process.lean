@@ -2,8 +2,10 @@ module
 
 meta import CustomPrelude
 public import Guarded2Network.Lemmas.AtomicBlock
+public import Guarded2Network.Lemmas.Thread
 public import Guarded2Network.Lemmas.Locality
 import all Guarded2Network.Lemmas.AtomicBlock
+import all Guarded2Network.PlusCal
 
 @[expose] public section
 
@@ -428,6 +430,125 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
         rw [hpref_on y hy]
         exact honk y hy
   · exact .inr ⟨ε', hpfx, Br, hBr, habort⟩
+
+/-! # The pass at this level: one process, compiled
+
+  The other half of the process layer, and the next rung of D8's ladder after
+  `Lemmas/Thread.lean`. Everything above is about a process *step*; everything below is about
+  `Process.toNetwork` — what a compiled process owes its source syntactically, so that the algorithm
+  level can read `AlgebraRefines` off it.
+
+  This is the rung where `freshName` first matters. `Thread.toNetwork` is *handed* its `inbox`;
+  `Process.toNetwork` invents it, one per process and shared by every thread. So a freshness
+  hypothesis can no longer be stated at the name — there is no name until the pass has run — and is
+  instead quantified over every name the pass could have produced (`ProcessFresh`). `Generated` is
+  what makes that dischargeable: the front end knows no source identifier contains `$`, so it proves
+  the implication for every counter value at once.
+-/
+
+/-- **The source-side half of D8's contract at this level.** Every branch of the process is fresh for
+*any* name the pass could generate as its `inbox`.
+
+Quantified over the generated name rather than stated at one, because `Process.toNetwork` invents it
+— see the section note above. `c₀`, the process's single channel, stays a parameter: it is a fact
+about the source program, which `BranchesFresh.rfresh` pins and well-formedness discharges. -/
+def ProcessFresh (c₀ : ComputableGuardedPlusCal.Ref) (p : ComputableGuardedPlusCal.Process) : Prop :=
+  ∀ inbox, Generated "inbox" inbox →
+    ∀ T ∈ p.threads, ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh c₀ inbox Br
+
+/-- **What one compiled process owes its source.**
+
+`threads` is the refinement: a compiled process's threads are the receiving loops the pass
+registered, followed by the compiled code threads, and those refine the source's pairwise. The split
+is what `AlgebraRefines.labels` dispatches on, and `RxOnly`'s `Generated` conjunct is what keeps the
+two groups' labels apart.
+
+`name_eq` is load-bearing rather than bookkeeping. `Algorithm.algebra` resolves both `owned` and
+`table` by looking the process up under its *name*, so a compiled process found under a different
+name would own no labels at all. `self` needs nothing from here — it is `Prod.snd` on both sides.
+
+`id_eq`/`idShape_eq` are owed to `Algorithm.init` rather than to `AlgebraRefines`: they are what say
+the compiled algorithm has the same instances. The rest of what `init` wants — the entry labels a
+receiving thread adds, and the `inbox` local the pass declares — is not here, and is the initial-state
+obligation's own business. -/
+structure ProcessRefines (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+  (pref : ChanKey V → List V) (p : ComputableGuardedPlusCal.Process)
+  (p' : ComputableNetworkPlusCal.Process) : Prop where
+    /-- The registered receive loops, then the compiled code threads. -/
+    threads : ∃ rxs codes, p'.threads = rxs ++ codes ∧ RxOnly inbox rxs ∧
+      List.Forall₂ (ThreadRefines (V := V) (.some (c₀, inbox)) pref) p.threads codes
+    /-- The mailbox this is all stated against is a name the pass generated. -/
+    inbox_generated : Generated "inbox" inbox
+    /-- And the compiled process answers to the same name, `id`, and instance shape. -/
+    name_eq : p'.name = p.name
+    id_eq : p'.id = p.id
+    idShape_eq : p'.«=|∈» = p.«=|∈»
+
+open Std.Do in
+/-- **The walk over a process's threads.** `Thread.toNetwork_spec` iterated by `Spec.mapM_list`, at
+the invariant "the code threads compiled so far refine pairwise, and every receiving thread
+registered so far is an `.rx` on this `inbox`".
+
+Stated at a fixed `inbox` — the *caller* is what generates one. That is what keeps this a plain
+`mapM` lemma and leaves `Process.toNetwork_spec` below with nothing to do but read the accumulator
+apart. -/
+private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2NetworkChans}
+  {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
+  {Ts : List ComputableGuardedPlusCal.Thread}
+  (fresh : ∀ T ∈ Ts, ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh c₀ inbox Br) :
+    ⦃⌜True⌝⦄
+    Ts.mapM (ComputableGuardedPlusCal.Thread.toNetwork (m := G2NM) chans inbox)
+    ⦃⇓? rs _ =>
+      ⌜List.Forall₂ (ThreadRefines (V := V) (.some (c₀, inbox)) pref) Ts (rs.map (·.2.2)) ∧
+        RxOnly inbox (rs.flatMap (·.2.1))⌝⦄ := by
+  mvcgen [Thread.toNetwork_spec]
+  invariants
+  | inv1 => ⇓? ⟨cur, res⟩ _ =>
+    ⌜List.Forall₂ (ThreadRefines (V := V) (.some (c₀, inbox)) pref) cur.prefix (res.map (·.2.2)) ∧
+      RxOnly inbox (res.flatMap (·.2.1))⌝
+  with
+  -- `Thread.toNetwork_spec`'s implicits, abstracted over the loop's context and wrapped in `id`
+  | vc5 | vc6 | vc7 | vc8 | vc9 => intro _ _; assumption
+
+  case vc1.pre => exact ⟨.nil, nofun⟩
+  case vc2.post.success => intro hthr hrx; exact ⟨hthr, hrx⟩
+
+  case vc3.post.success _ _ _ _ _ _ _ hinv _ =>
+    intro _ hthr hrx
+    rw [List.map_append, List.flatMap_append, List.flatMap_singleton]
+    refine ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hthr), ?_⟩
+    exact List.forall_mem_append.mpr ⟨hinv.2, hrx⟩
+
+  -- the freshness hypothesis at whichever thread the walk is currently on
+  case vc10 _ _ cur _ hsplit _ =>
+    intro _ _
+    rw [hsplit] at fresh
+    exact fresh cur (List.mem_append_right _ List.mem_cons_self)
+
+open Std.Do in
+/-- **One process, compiled.** The `inbox` generated, the walk over the threads, and the compiled
+process read off the accumulator.
+
+The `inbox` is existential in the conclusion for the reason `Generated` exists: a postcondition
+cannot name the counter the program started at, and nothing above needs the number — only that there
+is a single name, shared by every thread of this process, that no source identifier can equal. -/
+theorem Process.toNetwork_spec [SeqBuiltins V] {globalChans : Guarded2NetworkChans}
+  {c₀ : ComputableGuardedPlusCal.Ref} {pref : ChanKey V → List V}
+  {p : ComputableGuardedPlusCal.Process} (fresh : ProcessFresh c₀ p) :
+    ⦃⌜True⌝⦄
+    ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans p
+    ⦃⇓? p' _ => ⌜∃ inbox, ProcessRefines (V := V) c₀ inbox pref p p'⌝⦄ := by
+  -- `-Spec.mapM_list`, or the generic loop spec matches the walk before `mapM_threadToNetwork_spec`
+  -- does and `mvcgen` asks for an invariant that was already supplied one level down
+  mvcgen [ComputableGuardedPlusCal.Process.toNetwork, freshName_spec, mapM_threadToNetwork_spec,
+    -Std.Do.Spec.mapM_list]
+
+  -- the walk's freshness hypothesis, at the name `freshName` just generated
+  case vc6.fresh => exact fresh _ ‹_›
+
+  case vc7.post.success.post.success _ _ _ _ hgen _ _ _ _ _ hinv =>
+    refine ⟨_, ?_, hgen, rfl, rfl, rfl⟩
+    exact ⟨_, _, rfl, hinv.2, hinv.1⟩
 
 end Guarded2Network
 

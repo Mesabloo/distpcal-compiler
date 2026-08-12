@@ -1902,6 +1902,20 @@ for `BranchesFresh` and `inbox_ne_self`, each `.rx` label distinct from every so
 `not_rx`/`exits` — first arise at the *process* rung, `Thread.toNetwork` being handed its `inbox`
 rather than choosing it. That is the first part of D8 that is not plumbing.
 
+**Freshness is two-sided and meets at `Generated` (landed, item 7).** `Process.toNetwork` invents its
+`inbox`, so a hypothesis about that name cannot be *stated* at it — there is no name until the pass
+has run. `Guarded2Network/Lemmas/Monad.lean`'s `Generated namePrefix s` (`∃ n, s = s!"{prefix}${n}"`)
+is what both sides meet at. The pass proves it — `freshName_spec`, and `RxOnly` carries it per `.rx`
+label, established at `stepBranch` because that is the only place one is created. The front end
+consumes it, its obligations stated as `¬ Generated "rx" l` over source labels, which the lexer
+discharges for every counter value at once, `$` not being an identifier character. Hypotheses about
+generated names are then quantified over the name (`ProcessFresh`) rather than fixed at one, and no
+proof here computes on characters.
+
+`Algebra.self` is `Prod.snd` on both sides, so `AlgebraRefines.self_eq` is `rfl`. What a compiled
+process does owe is `name_eq`: `Algorithm.algebra` resolves both `owned` and `table` by looking the
+process up under its name, so one compiled under a different name would own no labels at all.
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

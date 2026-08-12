@@ -136,11 +136,16 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
   exact hcomp
 
-/-- Every thread of a list is a receive loop on this `inbox`, rather than arbitrary code. Stated on
-the bare list rather than on `ThreadState` because `Thread.toNetwork` hands the accumulator's
-`rxThreads` back as a plain list, and the levels above it never see the state again. -/
+/-- Every thread of a list is a receive loop on this `inbox`, under a label the pass generated.
+Stated on the bare list rather than on `ThreadState` because `Thread.toNetwork` hands the
+accumulator's `rxThreads` back as a plain list, and the levels above it never see the state again.
+
+The `Generated` conjunct rides along for the same reason the rest does: `stepBranch` is the only
+place a receiving thread is ever appended, so it is the only place that fact can be established. The
+process level is what spends it — a receiving thread's label must not be one of the source's, or a
+code thread could be scheduled at it. -/
 def RxOnly (inbox : String) (Ts : List ComputableNetworkPlusCal.Thread) : Prop :=
-  ∀ T ∈ Ts, ∃ chan label τ, T = .rx chan label τ inbox
+  ∀ T ∈ Ts, ∃ chan label τ, T = .rx chan label τ inbox ∧ Generated "rx" label
 
 /-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's `inbox`. `stepBranch` is
 the only place one is ever appended, so this is where the fact has to be established; the thread
@@ -199,6 +204,9 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans}
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; the branch that
     -- registers a new channel is the only one where the two halves differ
     · simp_all [RxThreads, RxOnly, or_imp, forall_and]
+      -- the one branch that registers a channel, at the label `freshName` just handed it — the
+      -- branches that register none are already closed, hence `all`
+      all : exact ⟨_, rfl⟩
   }
 
 /-! ## Owed: `stepBranch_spec`
