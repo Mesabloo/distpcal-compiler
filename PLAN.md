@@ -1891,6 +1891,17 @@ facts about `Thread.toNetwork`, and belong to D8. Same shape as the key-stabilit
 (§9-adjacent, `Guarded2Network/Lemmas/Locality.lean`): the algorithm-level invariant is *false*, not
 merely unprovable, if a code thread could be scheduled at an `.rx` label.
 
+**D8 climbs one rung per syntactic level, and the top two rungs are where the content is (item 7, in
+progress).** Branch, block and thread have landed — `BranchRefines`, `BlockRefines`,
+`ThreadRefines`/`RxOnly` (`Guarded2Network/Lemmas/Thread.lean`) — and each is the one below it under
+`Spec.mapM_list`, so all three are plumbing. Two things do not lift that way. `pref` stays a theorem
+binder at every rung and gets its `∀` only at the top, where a `run = ok algo'` hypothesis pins the
+output independently of it; pushing `∀ pref` down into the monadic specs leaves `mvcgen` with a VC of
+type `ChanKey V → List V` that has no right answer. And the `freshName` obligations — `inbox` fresh
+for `BranchesFresh` and `inbox_ne_self`, each `.rx` label distinct from every source block label for
+`not_rx`/`exits` — first arise at the *process* rung, `Thread.toNetwork` being handed its `inbox`
+rather than choosing it. That is the first part of D8 that is not plumbing.
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

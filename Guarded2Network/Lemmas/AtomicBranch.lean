@@ -136,12 +136,18 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
   exact hcomp
 
+/-- Every thread of a list is a receive loop on this `inbox`, rather than arbitrary code. Stated on
+the bare list rather than on `ThreadState` because `Thread.toNetwork` hands the accumulator's
+`rxThreads` back as a plain list, and the levels above it never see the state again. -/
+def RxOnly (inbox : String) (Ts : List ComputableNetworkPlusCal.Thread) : Prop :=
+  ∀ T ∈ Ts, ∃ chan label τ, T = .rx chan label τ inbox
+
 /-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's `inbox`. `stepBranch` is
 the only place one is ever appended, so this is where the fact has to be established; the thread
 level is where it is needed, since `Thread.toNetwork` hands `rxThreads` back as threads and what
 makes that sound is that each is a receive loop rather than arbitrary code. -/
 private def RxThreads (inbox : String) (st : ThreadState) : Prop :=
-  ∀ T ∈ st.rxThreads, ∃ chan label τ, T = .rx chan label τ inbox
+  RxOnly inbox st.rxThreads
 
 /-- What one compiled branch owes its source: the refinement, and agreement on where the branch
 goes next. Named because the block level quantifies over it — a compiled block's branches are
@@ -192,7 +198,7 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans}
     · rfl
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; the branch that
     -- registers a new channel is the only one where the two halves differ
-    · simp_all [RxThreads, or_imp, forall_and]
+    · simp_all [RxThreads, RxOnly, or_imp, forall_and]
   }
 
 /-! ## Owed: `stepBranch_spec`

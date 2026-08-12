@@ -335,6 +335,11 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   only on the Network side, so pairwise-over-branches is the strongest statable thing, and it is
   what the process level wants anyway. `BranchesFresh` bundles the five per-branch freshness
   hypotheses that travel up from here.
+- `Lemmas/Thread.lean` — one thread: `stepBlock_spec` under `Spec.mapM_list`, then the same at
+  `.run {}` so `mvcgen` can descend into `Thread.toNetwork`'s body (needs `-StateT.run` at the call
+  site, or the toolchain's own `StateT.run` spec wins). `ThreadRefines` is "a `.code` thread whose
+  blocks are pairwise `BlockRefines`"; `RxOnly` is `RxThreads` on a bare list, which is the form
+  every rung above sees.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

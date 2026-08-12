@@ -54,6 +54,21 @@ structure BranchesFresh (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
   /-- Including the terminal one. -/
   alast : Fresh (.some (c₀, inbox)) Br.action.last
 
+/-- What one compiled block owes its source: the same label, and branches pairwise `BranchRefines`.
+
+The thread level quantifies over it — a compiled `.code` thread's blocks are pairwise this,
+`List.Forall₂`-style — for the same reason `BranchRefines` exists one level down: a conjunction
+cannot be the argument of a relation combinator.
+
+A `def` rather than a `structure` on purpose. `stepBlock_spec` below is a `mvcgen` proof whose
+postcondition is assembled automatically from the loop invariant, and that assembly sees through a
+`reducible` conjunction where it would have to be taught a constructor. -/
+@[reducible] def BlockRefines (mbox : Mailbox) (pref : ChanKey V → List V)
+    (blk : ComputableGuardedPlusCal.AtomicBlock)
+    (blk' : ComputableNetworkPlusCal.AtomicBlock) : Prop :=
+  blk'.label = blk.label ∧
+    List.Forall₂ (BranchRefines (V := V) mbox pref) blk.branches blk'.branches
+
 open Std.Do in
 /-- **One block, compiled.** `stepBranch_spec` iterated over the branches by `Spec.mapM_list`, at
 the invariant "the branches compiled so far are pairwise `BranchRefines`, and `RxThreads` still
@@ -71,9 +86,8 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans}
     (fresh : ∀ Br ∈ blk.branches, BranchesFresh c₀ inbox Br) :
     ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
     stepBlock (m := G2NM) chans inbox blk
-    ⦃⇓? blk' st' => ⌜blk'.label = blk.label ∧
-      List.Forall₂ (BranchRefines (V := V) (.some (c₀, inbox)) pref) blk.branches blk'.branches ∧
-      RxThreads inbox st'⌝⦄ := by
+    ⦃⇓? blk' st' =>
+      ⌜BlockRefines (V := V) (.some (c₀, inbox)) pref blk blk' ∧ RxThreads inbox st'⌝⦄ := by
   mvcgen [stepBlock, stepBranch_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ st =>
@@ -85,6 +99,10 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans}
   -- each in `id`, so a goal mentioning one reads `id ?vc6 s n h` rather than `c₀`. Discharged here,
   -- before any case that would have to unify against that
   | vc4 | vc6 | vc5 | vc7 => intro _ _ _; assumption
+
+  -- the label is `rfl`; re-associating the rest is all that separates the loop's invariant from
+  -- `BlockRefines`
+  case vc15.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
 
   case vc1.step.pre h => exact h.2
 
