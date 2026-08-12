@@ -1832,6 +1832,35 @@ clause of it already *is* an invariant and §6.1's operator laws propagate it fo
 `Instances.Functional.replace` is what each per-step lemma re-establishes it with. This replaced two
 per-lemma `huniq` hypotheses that had been assuming the same thing without proving it.
 
+**Divergence needs a measure, not a `star` collapse (landed, item 7).** `Terminating` and
+`Aborting` both lifted by instantiating the framework law at `semₛ := Relation.star stepₛ` and
+collapsing `R**` with `Relation.star.star_eq`. Divergence has no such collapse:
+`Relation.omega (Relation.star R) ≤ Relation.omega R` is **false**, an infinite sequence of *empty*
+runs being a witness of the former and of nothing in the latter. The shape that works is CompCert's
+— per target step the source takes one step, or none with a well-founded measure decreasing, or
+aborts — which is `algRelatesTo.step_or_stutter`, now the substantive lemma of `Lemmas/Algorithm.lean`
+with `terminating` derived from it. The measure is `GuardedPlusCal.FIFOs.size`: a relay moves a
+message out of a channel, and only a `send` puts one back, which is a code step and does move the
+source. `StrongRefinement.Diverging.omegaStutter` is the framework law at that shape, and
+`algRelatesTo.refines` now assembles all three components at the closed forms.
+
+The stutter branch requires the *target's* trace to be `1` there, which is what keeps the reindexing
+one-sided: `Rτ_omega` then applies pointwise at the original indices and only the source's run is
+compressed. That compression is `Relation.omega.of_idle` (idle steps drop out of an infinite run once
+the moves are cofinal) over `Stream'.Seq.ωProduct_comp_of_ones` (factors that are `1` drop out of an
+infinite product). No fairness condition was needed: the drain measure rules out infinite `.rx` runs
+outright. Silent divergence through code steps (`l: goto l`) is why the trace side cannot instead
+assume infinitely many non-`1` factors.
+
+**An instance's channel must exist (landed, item 7).** The third clause of `algRelatesTo` that is
+there for soundness rather than convenience. The target's receiving thread *aborts* on a channel
+resolving to no FIFO, and the source has no receiving thread to answer with — so at a state where an
+instance's key is absent, `Aborting` is false. The other three cases of `Thread.rxBranchAborting`
+are already excluded by clauses `procRelatesTo` carries (the resolved `cpath`, `inbox` bound, and
+`inbox` holding a sequence via `seqAppend_isSeq`); only channel presence had no home. Nothing ever
+removes a key — `send` writes only at a key it has just read — so it rides along
+(`NetworkPlusCal.AtomicBranch.reducing'_fifos_mem`); establishing it initially is `Algorithm.init`'s.
+
 **A stuttering source needs `Terminating.starStutter`, not `sequentialOmega` (landed, item 7).**
 `sequentialOmega`'s terminating hypothesis answers one target step with one *source step*; this pass
 cannot, an `.rx` thread's step having no source counterpart at all and being answered with the empty

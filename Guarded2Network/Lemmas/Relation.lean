@@ -340,6 +340,12 @@ receives it is empty. That is what makes picking a process hand `relatesTo` its 
 with no bridge: `relatesTo` reads `pref` at every key *but* the picked process's own, where it uses
 its own `inbox` instead — which is exactly the clause `ib` already pins.
 
+**A key an instance receives on names a channel that exists**, and that is not bookkeeping either.
+The target's receiving thread *aborts* on a channel resolving to no FIFO, and the source has no such
+thread to abort with — so at a state where an instance's key is absent the aborting half of the
+refinement is false. Nothing removes a key (`NetworkPlusCal.AtomicBranch.reducing'_fifos_mem`), so
+this rides along; establishing it initially is `Algorithm.init`'s business.
+
 **Both sides are `Instances.Functional`**, and that is not bookkeeping. `ib` gives one `InboxState`
 per instance, so an algorithm state holding two states for one instance would account both against
 one inbox; the instance's step then updates that accounting while the second state, which did not
@@ -366,6 +372,8 @@ def algRelatesTo {ι : Type} (mb : ι → Mailbox) (rx : ι → Set String) :
       (∀ p x, ib p = .some x → pref x.key = x.contents) ∧
       -- a key nobody receives on carries nothing
       (∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = []) ∧
+      -- and a key someone receives on is a channel that exists
+      (∀ p x, ib p = .some x → F₂.lookup x.key ≠ .none) ∧
       -- and that accounts for the whole FIFO map, in one equation
       (∀ k : ChanKey V, F₁.lookup k = (pref k ++ ·) <$> F₂.lookup k)
 
@@ -378,14 +386,14 @@ variable {ι : Type} {mb : ι → Mailbox} {rx : ι → Set String} {Sₛ Sₜ :
 
 /-- Each side holds one state per instance. -/
 theorem functional (h : Sₛ ≋[mb, rx] Sₜ) : Sₛ.1.Functional ∧ Sₜ.1.Functional := by
-  obtain ⟨-, -, hfs, hft, -, -, -, -, -, -, -⟩ := h
+  obtain ⟨-, -, hfs, hft, -, -, -, -, -, -, -, -⟩ := h
   exact ⟨hfs, hft⟩
 
 /-- Every source instance has a related target instance. -/
 theorem forward (h : Sₛ ≋[mb, rx] Sₜ) :
     ∃ ib : ι → Option (InboxState V), ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 →
       ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
-  obtain ⟨ib, -, -, -, hfwd, -, -, -, -, -, -⟩ := h
+  obtain ⟨ib, -, -, -, hfwd, -, -, -, -, -, -, -⟩ := h
   exact ⟨ib, hfwd⟩
 
 /-- Every target instance has a related source instance — the direction that rules out the target
@@ -393,7 +401,7 @@ inventing an instance the source never had. -/
 theorem backward (h : Sₛ ≋[mb, rx] Sₜ) :
     ∃ ib : ι → Option (InboxState V), ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 →
       ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
-  obtain ⟨ib, -, -, -, -, hbwd, -, -, -, -, -⟩ := h
+  obtain ⟨ib, -, -, -, -, hbwd, -, -, -, -, -, -⟩ := h
   exact ⟨ib, hbwd⟩
 
 /-- The whole FIFO map, in one statement: every key is the target's queue with `pref` in front, and
@@ -406,8 +414,17 @@ theorem fifos (h : Sₛ ≋[mb, rx] Sₜ) :
       (∀ p x, ib p = .some x → pref x.key = x.contents) ∧
       (∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = []) ∧
       (∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) := by
-  obtain ⟨ib, pref, -, -, -, -, -, hinj, hkey, hoff, hfifo⟩ := h
+  obtain ⟨ib, pref, -, -, -, -, -, hinj, hkey, hoff, -, hfifo⟩ := h
   exact ⟨ib, pref, hinj, hkey, hoff, hfifo⟩
+
+/-- Every key an instance receives on is a channel that exists. Separate from `fifos` because it is
+consumed on its own: it is what says the target's receiving thread cannot abort. -/
+theorem chan_exists (h : Sₛ ≋[mb, rx] Sₜ) :
+    ∃ ib : ι → Option (InboxState V), (∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 →
+        ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
+      ∀ p x, ib p = .some x → Sₜ.2.lookup x.key ≠ .none := by
+  obtain ⟨ib, -, -, -, -, hbwd, -, -, -, -, hpresent, -⟩ := h
+  exact ⟨ib, hbwd, hpresent⟩
 
 /-- The introduction form: one hypothesis per clause, against a single choice of witnesses. -/
 theorem intro {ib : ι → Option (InboxState V)} {pref : ChanKey V → List V}
@@ -418,9 +435,10 @@ theorem intro {ib : ι → Option (InboxState V)} {pref : ChanKey V → List V}
     (hinj : ∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q)
     (hkey : ∀ p x, ib p = .some x → pref x.key = x.contents)
     (hoff : ∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = [])
+    (hpresent : ∀ p x, ib p = .some x → Sₜ.2.lookup x.key ≠ .none)
     (hfifo : ∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) :
     Sₛ ≋[mb, rx] Sₜ :=
-  ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩
+  ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩
 
 /-- An instance whose process contains no `receive` has no inbox to account for — so the mailbox
 being `none` (a syntactic fact about the compiled process) forces the witness to be `none` too, and

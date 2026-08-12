@@ -197,6 +197,41 @@ theorem blockRefines_step_indexed {mbox : Mailbox} {pref : ChanKey V → List V}
     exact .inl ⟨M₁', F₁', ε', hrel, hτ, Br, hBr, GuardedPlusCal.LocalState.sem_glue₃.mpr hstep⟩
   · exact .inr ⟨ε', hpfx, Br, hBr, GuardedPlusCal.LocalState.abort_glue₂.mpr habort⟩
 
+/-- **And where a compiled block goes wrong, the source block does too.** `blockRefines_step`'s
+twin, and simpler for the same reason `Aborting` is simpler than `Terminating`: an abort has no
+post-state, so there is nothing to relate afterwards and no witness to rebuild. -/
+theorem blockRefines_abort {mbox : Mailbox} {pref : ChanKey V → List V}
+    {brs : List ComputableGuardedPlusCal.AtomicBranch}
+    {brs' : List ComputableNetworkPlusCal.AtomicBranch}
+    (h : List.Forall₂ (BranchRefines (V := V) mbox pref) brs brs')
+    {σₛ σₜ : LocalState' V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
+    {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
+    (habort : (⟨σₜ, ε⟩ : LocalState' V × Trace V) ∈ NetworkPlusCal.AtomicBranch.aborting' Br') :
+    ∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
+      ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState' V × Trace V) ∈
+        GuardedPlusCal.AtomicBranch.aborting' Br := by
+  obtain ⟨Br, hBr, href⟩ := h.exists_left hmem
+  obtain ⟨ε', hpfx, hsabort⟩ := href.refines.aborting σₜ ε σₛ sim habort
+  exact ⟨ε', hpfx, Br, hBr, hsabort⟩
+
+/-- `blockRefines_abort` at the *indexed* encoding, exactly as `blockRefines_step_indexed` is for
+`blockRefines_step`. -/
+theorem blockRefines_abort_indexed {mbox : Mailbox} {pref : ChanKey V → List V}
+    {brs : List ComputableGuardedPlusCal.AtomicBranch}
+    {brs' : List ComputableNetworkPlusCal.AtomicBranch}
+    (h : List.Forall₂ (BranchRefines (V := V) mbox pref) brs brs')
+    {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V}
+    (sim : (⟨M₁, F₁, none⟩ : LocalState' V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
+    {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
+    (habort : (⟨.running M₂ F₂, ε⟩ : LocalState V false × Trace V) ∈
+      NetworkPlusCal.AtomicBranch.aborting Br') :
+    ∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
+      ∃ Br ∈ brs, (⟨.running M₁ F₁, ε'⟩ : LocalState V false × Trace V) ∈
+        GuardedPlusCal.AtomicBranch.aborting Br := by
+  obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ :=
+    blockRefines_abort h sim hmem (NetworkPlusCal.LocalState.abort_glue₂.mp habort)
+  exact ⟨ε', hpfx, Br, hBr, GuardedPlusCal.LocalState.abort_glue₂.mpr hsabort⟩
+
 /-- **The block half of the algorithm-level per-step obligation.** One instance takes a step of a
 compiled *code* thread's block; the source instance answers with a step of the block it was compiled
 from, and the whole `algRelatesTo` witness is rebuilt around it.
@@ -243,7 +278,7 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
         ∃ Br ∈ brs, (⟨.running M₁ F₁, ε'⟩ : LocalState V false × Trace V) ∈
           GuardedPlusCal.AtomicBranch.aborting Br) := by
-  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩ := h
+  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
   obtain rfl := hfs p σ₁ ⟨M₁, L₁⟩ hσ₁ hS
   rcases blockRefines_step_indexed (href pref)
@@ -323,7 +358,7 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
           exact Function.update_of_ne (Ne.symm (hk y rfl)) ..
     refine .inl ⟨M₁', F₁', ε', ?_, hτ, Br, hBr, hsstep⟩
     refine algRelatesTo.intro (ib := Function.update ib p ib'p) (pref := pref')
-      (hfs.replace hS _) (hft.replace hin _) ?_ ?_ ?_ ?_ ?_ ?_ ?_
+      (hfs.replace hS _) (hft.replace hin _) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_
     · intro q σ hq
       simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hq
       rcases hq with ⟨rfl, rfl⟩ | ⟨hmemP, hne⟩
@@ -380,6 +415,11 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
       · rwa [Function.update_self]
       · obtain ⟨x, hx, hxk⟩ := key_of' q x₀ hx₀
         exact hk q x hx (hxk.trans heq)
+    · -- a step never removes a channel, and every new key is an old one
+      intro q x hx
+      obtain ⟨x₀, hx₀, hxk⟩ := key_of q x hx
+      refine hxk ▸ NetworkPlusCal.AtomicBranch.reducing'_fifos_mem
+        (NetworkPlusCal.LocalState.sem_glue₃.mp hstep) (hpresent q x₀ hx₀)
     · intro k
       by_cases! hk : ∀ y, ib'p = .some y → y.key ≠ k
       · rw [hpref_off k hk]

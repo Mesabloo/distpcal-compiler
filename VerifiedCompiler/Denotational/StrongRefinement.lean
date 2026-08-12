@@ -409,6 +409,174 @@ namespace StrongRefinement
         · -- NOTE: Lean style guidelines forbid this. Keep it.
           simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
 
+  /-- **Divergence refinement for a source that stutters.** The companion of
+  `Terminating.starStutter`/`Aborting.starStutter`, and the one that is *not* a two-line
+  instantiation: `Relation.omega (Relation.star stepₛ) ≤ Relation.omega stepₛ` is false — standing
+  still forever witnesses the left and nothing on the right — so there is no `star_eq` to collapse.
+
+  The shape that works instead is the familiar one from stuttering simulations: per target step the
+  source takes **one** step, or **none** with a well-founded measure `μ` strictly decreasing, or
+  aborts. The measure is what forbids an infinite idle tail, and so what makes the source's moves
+  cofinal; `Relation.omega.of_idle` then deletes the idle steps.
+
+  The stuttering branch requires the target's own trace to be `1` there. That is not a technicality
+  to be relaxed: a target step the source does not answer must be unobservable, or the two traces
+  could not agree. With it, `Rτ_omega` applies pointwise at the *original* indices — the source
+  emits `1` exactly where the target does — so nothing has to be reindexed on the target side.
+
+  `ωProd_comp` is the source side's reindexing, assumed because `OmegaProd` says nothing about how
+  products behave; `Stream'.Seq.ωProduct_comp_of_ones` discharges it. `abs` and `dvd` play exactly
+  the roles they do in `Diverging.omega`. -/
+  protected theorem Diverging.omegaStutter {R : Rel α β} [OmegaProd εₛ] [OmegaProd εₜ]
+      [T : Trace εₛ εₜ] {stepₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {μ : β → ℕ}
+      (Rτ_omega : ∀ (e' : ℕ → εₛ) (e : ℕ → εₜ), (∀ i, T.Rτ (e' i) (e i)) →
+        T.Rτ (OmegaProd.ωProd e') (OmegaProd.ωProd e))
+      (ωProd_comp : ∀ (e : ℕ → εₛ) (n : ℕ → ℕ), StrictMono n →
+        (∀ i, (∀ j, n j ≠ i) → e i = 1) → OmegaProd.ωProd e = OmegaProd.ωProd (e ∘ n))
+      (dvd : OmegaProd.HasPartialProdDvd εₜ)
+      (abs : stepₛ ∘ᵣ₁ semₛ' ≤ semₛ')
+      (ref : ∀ (σₜ σₜ' : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε, σₜ') ∈ stepₜ →
+        (∃ (σₛ' : α) (ε' : εₛ), R σₛ' σₜ' ∧ T.Rτ ε' ε ∧ (σₛ, ε', σₛ') ∈ stepₛ) ∨
+        (R σₛ σₜ' ∧ ε = 1 ∧ μ σₜ' < μ σₜ) ∨
+        (∃ ε' : εₛ, ε' ≼[T.Rτ] ε ∧ (σₛ, ε') ∈ semₛ')) :
+        StrongRefinement.Diverging R T.Rτ (Relation.omega stepₛ) semₛ'
+          (Relation.omega stepₜ) := by classical
+    rintro σₜ ε σₛ R_σₛ_σₜ ⟨σts, ets, hσts₀, hstep, rfl⟩
+    subst hσts₀
+
+    -- A real source step over this target index, when one is available at all.
+    let moved (i : ℕ) (σ : α) : Prop :=
+      ∃ p : α × εₛ, R p.1 (σts (i + 1)) ∧ T.Rτ p.2 (ets i) ∧ (σ, p.2, p.1) ∈ stepₛ
+    -- Stepping is preferred; standing still is the fallback, and only ever legitimate because the
+    -- measure drops when it happens.
+    let cont (i : ℕ) (σ : α) : Prop :=
+      moved i σ ∨ (R σ (σts (i + 1)) ∧ ets i = 1 ∧ μ (σts (i + 1)) < μ (σts i))
+    let nextp (i : ℕ) (σ : α) : α × εₛ := if h : moved i σ then h.choose else (σ, 1)
+    let σs : ℕ → α := Nat.rec σₛ (λ i s ↦ (nextp i s).1)
+    let es (i : ℕ) : εₛ := (nextp i (σs i)).2
+
+    have hσs₀ : σs 0 = σₛ := rfl
+    have hstep_of : ∀ i, cont i (σs i) →
+        R (σs (i + 1)) (σts (i + 1)) ∧ T.Rτ (es i) (ets i) ∧
+          ((σs i, es i, σs (i + 1)) ∈ stepₛ ∨ (σs (i + 1) = σs i ∧ es i = 1)) := by
+      intro i h
+      by_cases hm : moved i (σs i)
+      · have hnext : nextp i (σs i) = hm.choose := dif_pos hm
+        change R (nextp i (σs i)).1 (σts (i + 1)) ∧ T.Rτ (nextp i (σs i)).2 (ets i) ∧
+          ((σs i, (nextp i (σs i)).2, (nextp i (σs i)).1) ∈ stepₛ ∨
+            ((nextp i (σs i)).1 = σs i ∧ (nextp i (σs i)).2 = 1))
+        rw [hnext]
+        exact ⟨hm.choose_spec.1, hm.choose_spec.2.1, .inl hm.choose_spec.2.2⟩
+      · have hnext : nextp i (σs i) = (σs i, 1) := dif_neg hm
+        change R (nextp i (σs i)).1 (σts (i + 1)) ∧ T.Rτ (nextp i (σs i)).2 (ets i) ∧
+          ((σs i, (nextp i (σs i)).2, (nextp i (σs i)).1) ∈ stepₛ ∨
+            ((nextp i (σs i)).1 = σs i ∧ (nextp i (σs i)).2 = 1))
+        rw [hnext]
+        obtain hm' | ⟨hR, hone, -⟩ := h
+        · absurd hm
+          exact hm'
+        · rw [hone]
+          exact ⟨hR, T.Rτ_one, .inr ⟨rfl, rfl⟩⟩
+
+    by_cases! hall : ∀ i, cont i (σs i)
+    · -- The source keeps up forever, stepping or standing still.
+      left
+      have hR : ∀ i, R (σs i) (σts i) := by
+        rintro (_ | i)
+        · exact R_σₛ_σₜ
+        · exact (hstep_of i (hall i)).1
+      -- and it cannot stand still forever: each idle index drops `μ`, and `ℕ` is well-founded
+      have hinf : ∀ N, ∃ i, N ≤ i ∧ (σs i, es i, σs (i + 1)) ∈ stepₛ := by
+        by_contra! hno
+        obtain ⟨N, hN⟩ := hno
+        have hdrop : ∀ i, N ≤ i → μ (σts (i + 1)) < μ (σts i) := by
+          intro i hi
+          obtain hm | ⟨-, -, hμ⟩ := hall i
+          · absurd hN i hi
+            have hnext : nextp i (σs i) = hm.choose := dif_pos hm
+            change (σs i, (nextp i (σs i)).2, (nextp i (σs i)).1) ∈ stepₛ
+            rw [hnext]
+            exact hm.choose_spec.2.2
+          · exact hμ
+        have hbound : ∀ k, μ (σts (N + k)) + k ≤ μ (σts N) := by
+          intro k
+          induction k with
+          | zero => exact Nat.le_refl _
+          | succ k ih =>
+            have hd := hdrop (N + k) (Nat.le_add_right N k)
+            have heq : N + (k + 1) = N + k + 1 := by omega
+            rw [heq]
+            omega
+        have := hbound (μ (σts N) + 1)
+        omega
+      exact ⟨OmegaProd.ωProd es, Rτ_omega es ets (λ i ↦ (hstep_of i (hall i)).2.1),
+        hσs₀ ▸ Relation.omega.of_idle ωProd_comp (λ i ↦ (hstep_of i (hall i)).2.2) hinf⟩
+    · -- The source gets stuck; take the first index where it does.
+      right
+      set m := Nat.find hall
+      have hm_spec : ¬cont m (σs m) := Nat.find_spec hall
+      have hm_min i (hi : i < m) := not_not.mp (Nat.find_min hall hi)
+
+      have hR : ∀ i, i ≤ m → R (σs i) (σts i) := by
+        rintro (_ | i) h
+        · exact R_σₛ_σₜ
+        · exact (hstep_of i (hm_min i h)).1
+
+      -- At `m` neither of `cont`'s disjuncts can be taken, so `ref` reports an abort.
+      obtain ⟨σ', e', hR', hRτ', hsem'⟩ | ⟨hR', hone, hμ⟩ | ⟨ea, hea, hea_mem⟩ :=
+        ref (σts m) (σts (m + 1)) (ets m) (σs m) (hR m le_rfl) (hstep m)
+      · absurd hm_spec
+        exact .inl ⟨(σ', e'), hR', hRτ', hsem'⟩
+      · absurd hm_spec
+        exact .inr ⟨hR', hone, hμ⟩
+
+      -- The abort is reached after `m` indices; `abs` walks it back, and an idle index costs
+      -- nothing to walk back since neither the state nor the trace moved there.
+      · have habort : ∀ k i, i + k = m →
+            (σs i, Monoid.partialProd (λ j ↦ es (i + j)) k * ea) ∈ semₛ' := by
+          intro k
+          induction k with
+          | zero =>
+            intro i hi
+            obtain rfl : i = m := hi
+            simpa only [Monoid.partialProd_zero, one_mul]
+          | succ k ih =>
+            intro i hi
+            have hi' : i < m := by omega
+            have hfun : (λ j ↦ es (i + (j + 1))) = (λ j ↦ es (i + 1 + j)) := by
+              simp +arith
+            have hsplit : Monoid.partialProd (λ j ↦ es (i + j)) (k + 1) * ea
+                 = es i * (Monoid.partialProd (λ j ↦ es (i + 1 + j)) k * ea) := by
+              simp only [Monoid.partialProd_succ' (λ j ↦ es (i + j)) k, mul_assoc, Nat.add_zero,
+                hfun]
+            have htail : (σs (i + 1), Monoid.partialProd (λ j ↦ es (i + 1 + j)) k * ea) ∈ semₛ' := by
+              apply ih (i + 1)
+              omega
+            rw [hsplit]
+            obtain hs | ⟨hfix, hone⟩ := (hstep_of i (hm_min i hi')).2.2
+            · exact abs (Relation.lcomp₁.intro (b := σs (i + 1)) hs htail)
+            · rw [hone, one_mul, ← hfix]
+              exact htail
+
+        -- And its trace is a sequentially consistent prefix of the target's.
+        have hpp : ∀ n, n ≤ m → T.Rτ (Monoid.partialProd es n) (Monoid.partialProd ets n) := by
+          intro n hn
+          induction n with
+          | zero => exact T.Rτ_one
+          | succ n ih =>
+            apply T.Rτ_closed _ _ _ _ (ih (Nat.le_of_succ_le hn))
+            exact (hstep_of n (hm_min n hn)).2.1
+        obtain ⟨r, hr⟩ := dvd ets (m + 1)
+        refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
+        · rw [hr, Monoid.partialProd_succ, mul_assoc]
+          apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+          apply Trace.scPrefix_rmul_right (hpp m le_rfl)
+          apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
+          apply Trace.scPrefix_rmul_left T.Rτ_total hea
+        · -- NOTE: Lean style guidelines forbid this. Keep it.
+          simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
+
   /-- Divergence refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a divergence.
 
   The other half of the closed form. A diverging semantics given as `gfp (λ x, Y ∪ X ∘ᵣ₁ x)` denotes
@@ -686,6 +854,27 @@ namespace StrongRefinement
     StrongRefinement.Diverging.toAborting <|
       StrongRefinement.Diverging.star Relation.star.lcomp₁_absorb ref
         (refY.toDiverging Relation.star.le_lcomp₁)
+
+  /-- **`Aborting.star` for a source that stutters**, the companion of `Terminating.starStutter` and
+  needed for the same reason: a pass whose target takes steps the source cannot match answers one
+  target step with a whole source run, so the step-level refinement it can supply is stated at
+  `Relation.star stepₛ`.
+
+  As there, nothing new is proved — `Aborting.star` at `semₛ := Relation.star stepₛ`, with
+  `Relation.star.star_eq` collapsing the `R**` on both sides of the sandwich. -/
+  protected theorem Aborting.starStutter {R : Rel α β} [T : Trace εₛ εₜ]
+      {stepₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
+      (ref : StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ)
+        (Relation.star stepₛ ∘ᵣ₁ Yₛ) stepₜ)
+      (refY : StrongRefinement.Aborting R T.Rτ Yₛ Yₜ) :
+        StrongRefinement.Aborting R T.Rτ (Relation.star stepₛ ∘ᵣ₁ Yₛ)
+          (Relation.star stepₜ ∘ᵣ₁ Yₜ) := by
+    have ref' : StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ)
+        (Relation.star (Relation.star stepₛ) ∘ᵣ₁ Yₛ) stepₜ := by
+      rwa [Relation.star.star_eq]
+    have h := Aborting.star ref' refY
+    rwa [Relation.star.star_eq] at h
 
 end StrongRefinement
 

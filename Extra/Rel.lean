@@ -9,6 +9,8 @@ public import Mathlib.Order.OmegaCompletePartialOrder
 public import Extra.AesopRuleSets
 public import Extra.Prod
 import Extra.Set
+import Mathlib.Data.Nat.Find
+import Mathlib.Order.Monotone.Basic
 
 public section
 
@@ -417,6 +419,28 @@ theorem Monoid.partialProd_add {ε : Type _} [Monoid ε] (e : ℕ → ε) (n₁ 
   | succ n₂ ih => rw [← Nat.add_assoc, Monoid.partialProd_succ, ih, Monoid.partialProd_succ,
       mul_assoc]
 
+/-- A product of ones is one. -/
+theorem Monoid.partialProd_eq_one {ε : Type _} [Monoid ε] {e : ℕ → ε} {n : ℕ}
+    (h : ∀ i < n, e i = 1) : Monoid.partialProd e n = 1 := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    rw [Monoid.partialProd_succ, ih (λ i hi ↦ h i (Nat.lt_succ_of_lt hi)),
+      h n (Nat.lt_succ_self n), mul_one]
+
+/-- **Skipping a stretch of ones.** Extending a product past factors that are all `1` does not
+change it — the gap-splitting fact a reindexed product needs, since deleting `1`s from a sequence is
+exactly refusing to extend across them. `partialProd_add` does the splitting; this says the second
+factor is trivial. -/
+theorem Monoid.partialProd_eq_of_ones {ε : Type _} [Monoid ε] {e : ℕ → ε} {a b : ℕ} (hab : a ≤ b)
+    (h : ∀ i, a ≤ i → i < b → e i = 1) :
+    Monoid.partialProd e b = Monoid.partialProd e a := by
+  obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hab
+  have hones : Monoid.partialProd (λ i ↦ e (a + i)) d = 1 := by
+    refine Monoid.partialProd_eq_one (λ i hi ↦ ?_)
+    exact h (a + i) (Nat.le_add_right _ _) (Nat.add_lt_add_left hi a)
+  rw [Monoid.partialProd_add, hones, mul_one]
+
 /-- A monoid in which an infinite sequence of factors has a product.
 
 A mixin over `Monoid` rather than an extension of it, so that the existing `[Monoid ε]` binders
@@ -441,6 +465,94 @@ theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [OmegaProd ε] {R S : S
     (h : R ≤ S) : Relation.omega R ≤ Relation.omega S := by
   rintro ⟨σ, ε⟩ ⟨σs, es, h₀, hstep, hε⟩
   exact ⟨σs, es, h₀, λ i ↦ h (hstep i), hε⟩
+
+open Classical in
+/-- **Deleting idle steps from an infinite run.** A run in which every index either steps or stands
+still — emitting `1` when it stands still — is a run of the stepping relation alone, provided it
+steps *cofinally often*.
+
+This is what a stuttering simulation needs and cannot get from `Relation.omega.mono`:
+`Relation.omega (R ∪ Idle) ≤ Relation.omega R` is false outright, since standing still forever is a
+witness of the left and of nothing on the right. Cofinality is exactly the missing side condition,
+and a caller supplies it from whatever well-founded measure forbids an infinite idle tail.
+
+`ωProd_comp` is the trace half, assumed rather than proved because `OmegaProd` says nothing about
+how products behave: the compressed run is indexed by the *moving* indices, so its product is the
+original's with the idle factors deleted. `Stream'.Seq.ωProduct_comp_of_ones` discharges it. -/
+theorem Relation.omega.of_idle {α ε : Type _} [Monoid ε] [OmegaProd ε] {R : Set (α × ε × α)}
+    (ωProd_comp : ∀ (e : ℕ → ε) (n : ℕ → ℕ), StrictMono n →
+      (∀ i, (∀ j, n j ≠ i) → e i = 1) → OmegaProd.ωProd e = OmegaProd.ωProd (e ∘ n))
+    {σs : ℕ → α} {es : ℕ → ε}
+    (hstep : ∀ i, (σs i, es i, σs (i + 1)) ∈ R ∨ (σs (i + 1) = σs i ∧ es i = 1))
+    (hinf : ∀ N, ∃ i, N ≤ i ∧ (σs i, es i, σs (i + 1)) ∈ R) :
+    (σs 0, OmegaProd.ωProd es) ∈ Relation.omega R := by
+  -- the moving indices, enumerated in order: the least one, then the least one after each
+  let Moves (i : ℕ) : Prop := (σs i, es i, σs (i + 1)) ∈ R
+  have hex (N : ℕ) : ∃ i, N ≤ i ∧ Moves i := hinf N
+  let n : ℕ → ℕ := Nat.rec (Nat.find (hex 0)) (λ j m ↦ Nat.find (hex (m + 1)))
+  have hn_zero : Moves (n 0) := (Nat.find_spec (hex 0)).2
+  have hn_succ : ∀ j, n j + 1 ≤ n (j + 1) ∧ Moves (n (j + 1)) := λ j ↦ Nat.find_spec (hex (n j + 1))
+  have hmono : StrictMono n := strictMono_nat_of_lt_succ (λ j ↦ (hn_succ j).1)
+  have hmoves : ∀ j, Moves (n j) := by
+    rintro (_ | j)
+    · exact hn_zero
+    · exact (hn_succ j).2
+  -- every moving index is enumerated: below `n 0` nothing moves, and nothing moves strictly between
+  -- consecutive values either, both by the minimality `Nat.find` gives
+  have hrange : ∀ j i, i < n j → Moves i → ∃ j', j' < j ∧ n j' = i := by
+    intro j
+    induction j with
+    | zero =>
+      intro i hi hm
+      absurd Nat.find_min (hex 0) hi
+      exact ⟨Nat.zero_le i, hm⟩
+    | succ j ih =>
+      intro i hi hm
+      rcases Nat.lt_trichotomy i (n j) with h | h | h
+      · obtain ⟨j', hj', hnj'⟩ := ih i h hm
+        exact ⟨j', Nat.lt_succ_of_lt hj', hnj'⟩
+      · exact ⟨j, Nat.lt_succ_self j, h.symm⟩
+      · absurd Nat.find_min (hex (n j + 1)) hi
+        exact ⟨h, hm⟩
+  have hidle : ∀ i, (∀ j, n j ≠ i) → σs (i + 1) = σs i ∧ es i = 1 := by
+    intro i hi
+    rcases hstep i with hm | hidle
+    · obtain ⟨j', -, hnj'⟩ := hrange (i + 1) i (Nat.lt_of_lt_of_le (Nat.lt_succ_self i)
+        hmono.le_apply) hm
+      absurd hi j'
+      exact hnj'
+    · exact hidle
+  -- an idle stretch leaves the state where it was
+  have hfix : ∀ a b, a ≤ b → (∀ i, a ≤ i → i < b → (∀ j, n j ≠ i)) → σs b = σs a := by
+    intro a b hab
+    induction b with
+    | zero =>
+      intro _
+      obtain rfl : a = 0 := Nat.le_zero.mp hab
+      rfl
+    | succ b ih =>
+      intro hoff
+      rcases Nat.lt_or_ge a (b + 1) with h | h
+      · have hb : σs b = σs a := ih (Nat.le_of_lt_succ h) (λ i hi hib ↦ hoff i hi
+          (Nat.lt_succ_of_lt hib))
+        rw [(hidle b (hoff b (Nat.le_of_lt_succ h) (Nat.lt_succ_self b))).1, hb]
+      · obtain rfl : a = b + 1 := Nat.le_antisymm hab h
+        rfl
+  refine ⟨λ j ↦ σs (n j), λ j ↦ es (n j), ?_, ?_, ?_⟩
+  · refine hfix 0 (n 0) (Nat.zero_le _) (λ i _ hi j hj ↦ ?_)
+    absurd Nat.not_lt.mpr (hmono.monotone (Nat.zero_le j))
+    exact hj ▸ hi
+  · intro j
+    have hgap : σs (n (j + 1)) = σs (n j + 1) := by
+      refine hfix (n j + 1) (n (j + 1)) (hn_succ j).1 (λ i hi hlt j' hj' ↦ ?_)
+      subst hj'
+      have h₁ : j < j' := hmono.lt_iff_lt.mp hi
+      have h₂ : j' < j + 1 := hmono.lt_iff_lt.mp hlt
+      omega
+    show (σs (n j), es (n j), σs (n (j + 1))) ∈ R
+    rw [hgap]
+    exact hmoves j
+  · exact ωProd_comp es n hmono (λ i hi ↦ (hidle i hi).2)
 
 /-- Dropping the first step of an infinite run leaves an infinite run. Every proof that
 destructures a `Relation.omega` membership and then has to put the tail back together needs this,

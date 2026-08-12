@@ -411,6 +411,53 @@ namespace Stream'.Seq
           contradiction
         · exact Option.eq_none_iff_forall_ne_some.mpr (λ b hb ↦ h ⟨b, hb⟩)
 
+  /-- **Deleting factors that are `1` does not change the infinite product.**
+
+  The fact a stuttering divergence refinement turns on. There the source moves only at a sparse set
+  of the target's indices, so its trace sequence is the target's *reindexed* — while `Trace.Rτ_omega`
+  relates two sequences pointwise, at the same index. This says the two products agree anyway,
+  provided every index the reindexing skips carries `1`.
+
+  Not a corollary of `ωProduct_eq_of_forall_dvd`: that one assumes infinitely many non-`1` factors,
+  and a silently diverging source has none at all.
+
+  The whole content is `partialProd e (n j) = partialProd (e ∘ n) j`, by induction on `j` over
+  `Monoid.partialProd_eq_of_ones`; the products then agree index by index because `n` is cofinal
+  (`j ≤ n j`) and partial products only grow. -/
+  theorem ωProduct_comp_of_ones {e : ℕ → Seq α} {n : ℕ → ℕ} (hmono : StrictMono n)
+      (hone : ∀ i, (∀ j, n j ≠ i) → e i = 1) : ωProduct e = ωProduct (e ∘ n) := by
+    -- the skipped stretch before `n j`, and between `n j` and `n (j + 1)`, is all ones
+    have key : ∀ j, Monoid.partialProd e (n j) = Monoid.partialProd (e ∘ n) j := by
+      intro j
+      induction j with
+      | zero =>
+        refine Monoid.partialProd_eq_one (λ i hi ↦ hone i (λ j hj ↦ ?_))
+        absurd Nat.not_lt.mpr (hmono.monotone (Nat.zero_le j))
+        exact hj ▸ hi
+      | succ j ih =>
+        have hgap : Monoid.partialProd e (n (j + 1)) = Monoid.partialProd e (n j + 1) := by
+          refine Monoid.partialProd_eq_of_ones (hmono (Nat.lt_succ_self j)) (λ i hi hlt ↦ ?_)
+          refine hone i (λ j' hj' ↦ ?_)
+          -- `n` is strictly monotone, so no index of it lands strictly between `n j` and `n (j+1)`
+          subst hj'
+          have h₁ : j < j' := hmono.lt_iff_lt.mp hi
+          have h₂ : j' < j + 1 := hmono.lt_iff_lt.mp hlt
+          omega
+        rw [hgap, Monoid.partialProd_succ, ih, Monoid.partialProd_succ]
+        rfl
+    apply Seq.ext
+    intro k
+    apply Option.ext
+    intro a
+    iff_intro hk hk
+    · obtain ⟨m, hm⟩ := get?_ωProduct.mp hk
+      refine get?_ωProduct.mpr ⟨m, ?_⟩
+      rw [← key m]
+      exact get?_partialProd_of_le hmono.le_apply hm
+    · obtain ⟨j, hj⟩ := get?_ωProduct.mp hk
+      rw [← key j] at hj
+      exact get?_ωProduct.mpr ⟨n j, hj⟩
+
   /-- A `Seq` having every partial product as a left factor is the product, once the factors keep
   coming. Predicate-free for the same reason as `exists_mul_ωProduct`. -/
   theorem ωProduct_eq_of_forall_dvd {e : ℕ → Seq α} {x : Seq α}

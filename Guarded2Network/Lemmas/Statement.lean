@@ -117,6 +117,23 @@ theorem Ref.freeVars_of_mem_args {r : ComputableGuardedPlusCal.Ref}
       · exact ih _ hmem'
   exact Finset.mem_union_right _ (enters r.args ∅ hmem)
 
+/-- **A reference whose path resolves has no aborting index.** `Ref.pathAborts` and `Ref.EvalArgs`
+are the two halves of one question — does the access path have a value — so they cannot both hold,
+and every place a refinement invariant says the mailbox channel resolves is a place the target's
+"index expression has no value" abort is unreachable. -/
+theorem Ref.EvalArgs.not_pathAborts {M : Memory V} {r : ComputableGuardedPlusCal.Ref}
+    {path : List (PathStep V)} (h : Ref.EvalArgs M r path) :
+    ¬ GuardedPlusCal.Ref.pathAborts M r := by
+  rintro ⟨e, he, hab⟩
+  rw [List.mem_filterMap] at he
+  obtain ⟨seg, hseg, hget⟩ := he
+  match seg, hget with
+  | .inr e', hget =>
+    obtain rfl : e' = e := Option.some.inj hget
+    obtain ⟨_, _, hstep⟩ := List.Forall₂.exists_right h hseg
+    cases hstep with
+    | index hv => exact hab ⟨_, hv⟩
+
 /-- Memories agreeing on everything a reference *reads* resolve its path identically. This is D2's
 point: the `List.Forall₂` nesting is discharged once, here, and no later proof sees it.
 

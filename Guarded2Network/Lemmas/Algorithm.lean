@@ -64,6 +64,9 @@ structure CodeLabelRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx 
   /-- A target step at this label is a step of one compiled branch. -/
   target_le : ∀ x ∈ (Aₜ.table p).reducing l,
     ∃ Br' ∈ brs', x ∈ NetworkPlusCal.AtomicBranch.reducing Br'
+  /-- And a target abort at this label is one compiled branch going wrong. -/
+  target_abort_le : ∀ x ∈ (Aₜ.table p).aborting l,
+    ∃ Br' ∈ brs', x ∈ NetworkPlusCal.AtomicBranch.aborting Br'
   /-- A step of any source branch is a step at this label. -/
   source_reducing : ∀ Br ∈ brs, GuardedPlusCal.AtomicBranch.reducing Br ⊆ (Aₛ.table p).reducing l
   /-- And likewise where it goes wrong. -/
@@ -82,6 +85,9 @@ structure RxLabelRefines (Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : ι �
   chan_fresh : inbox ∉ GuardedPlusCal.Ref.freeVars chan
   /-- And the block behind the label is the relay. -/
   target_le : (Aₜ.table p).reducing l ⊆ NetworkPlusCal.Thread.rxBranch chan l inbox
+  /-- Including where it goes wrong — which the invariant then rules out entirely, the source having
+  no receiving thread to answer with. -/
+  target_abort_le : (Aₜ.table p).aborting l ⊆ NetworkPlusCal.Thread.rxBranchAborting chan inbox
 
 /-- **What a compiled algebra owes.** One clause per owned target label — code or receiving — plus
 the two facts that hold of every instance at once.
@@ -103,8 +109,16 @@ structure AlgebraRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : 
 /-! # The per-step obligation, and the whole reducing semantics -/
 
 omit [SeqBuiltins V] in
-/-- **One target step, answered.** The algorithm-level `Terminating`, with the source allowed to
-take a whole run — one step when a code thread moved, none when a receiving thread did.
+/-- **One target step, answered — and never answered by nothing forever.** The per-step obligation
+in the three-way form a stuttering simulation needs: the source takes *one* step, or it takes none
+and the target's queued-message count strictly drops, or it aborts.
+
+The middle disjunct is what a divergence argument needs and `Terminating` cannot express. A
+receiving thread's step is answered with no source step at all, so an infinite target run could in
+principle be answered by a source that never moves — except that a relay moves a message *out* of a
+channel, and `FIFOs.size` counts exactly those. Only a `send` puts one back, and a `send` is a code
+thread's step, which does move the source. So the target cannot relay forever without the source
+keeping pace.
 
 The proof is dispatch and plumbing: read the target step apart into an instance and a label, ask
 `AlgebraRefines` which kind of label it is, and hand the pieces to whichever per-step lemma applies.
@@ -115,11 +129,19 @@ Reassembling the *source's* step is the only thing here that is not dispatch. `A
 scheduled, and the memory to bind `selfName`. The first comes from `CodeLabelRefines` together with
 `procRelatesTo`'s `L₂ = L₁ ∪ rx p`; the second from memory agreement away from the generated
 `inbox`, which is not `self`. -/
-theorem algRelatesTo.terminating [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement.Terminating (algRelatesTo (V := V) mb rx) (algRelatesTo (V := V) mb rx)
-      (instTrace (V := V)).Rτ (Relation.star Aₛ.step) Aₛ.aborting Aₜ.step := by
-  rintro ⟨Qs, F₂⟩ ⟨Qs', F₂'⟩ ε ⟨Ps, F₁⟩ hrel hstep
+theorem algRelatesTo.step_or_stutter [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
+    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx)
+    {Sₜ Sₜ' Sₛ : AlgState ι V} {ε : Trace V} (hrel : Sₛ ≋[mb, rx] Sₜ)
+    (hstep : (⟨Sₜ, ε, Sₜ'⟩ : AlgState ι V × Trace V × AlgState ι V) ∈ Aₜ.step) :
+    (∃ Sₛ' ε', Sₛ' ≋[mb, rx] Sₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
+        (⟨Sₛ, ε', Sₛ'⟩ : AlgState ι V × Trace V × AlgState ι V) ∈ Aₛ.step) ∨
+      (Sₛ ≋[mb, rx] Sₜ' ∧ ε = 1 ∧
+        GuardedPlusCal.FIFOs.size Sₜ'.2 < GuardedPlusCal.FIFOs.size Sₜ.2) ∨
+      (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧ (⟨Sₛ, ε'⟩ : AlgState ι V × Trace V) ∈
+        Aₛ.aborting) := by
+  obtain ⟨Qs, F₂⟩ := Sₜ
+  obtain ⟨Qs', F₂'⟩ := Sₜ'
+  obtain ⟨Ps, F₁⟩ := Sₛ
   obtain ⟨p, ⟨M₂, L₂⟩, hin, ⟨M₂', L₂'⟩, hproc, hQs⟩ := hstep
   obtain ⟨l, hl, l', hred, hself, rfl⟩ := hproc
   obtain ⟨ib, hbwd⟩ := hrel.backward
@@ -140,18 +162,111 @@ theorem algRelatesTo.terminating [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb
     rcases algRelatesTo.block_step hcode.refines hcode.fresh hrel hS hin hlabel
         (hcode.exits _ _ _ _ _ _ hred) hBr' hstep' hQs with
       ⟨M₁', F₁', ε', hrel', hτ, Br, hBr, hsstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
-    · refine .inl ⟨_, ε', hrel', hτ, Relation.star.single ?_⟩
+    · refine .inl ⟨_, ε', hrel', hτ, ?_⟩
       exact ⟨p, ⟨M₁, L₁⟩, hS, ⟨M₁', insert l' (L₁ \ {l})⟩,
         ⟨l, ⟨hlabel, hcode.owned⟩, l', hcode.source_reducing Br hBr hsstep, hself', rfl⟩, rfl⟩
-    · refine .inr ⟨ε', hpfx, Relation.star.le_lcomp₁ ?_⟩
+    · refine .inr (.inr ⟨ε', hpfx, Relation.star.le_lcomp₁ ?_⟩)
       exact ⟨p, ⟨M₁, L₁⟩, hS, l, ⟨hlabel, hcode.owned⟩,
         hcode.source_aborting Br hBr habort, hself'⟩
   · -- a receiving thread moved, and the source does not move at all
     obtain rfl := NetworkPlusCal.Thread.rxBranch_label (hrx.target_le hred)
-    obtain ⟨rfl, hrel'⟩ := algRelatesTo.rx_step hrx.mailbox hrx.chan_fresh hrel hS hin hl.1
+    obtain ⟨rfl, hrel', hsize⟩ := algRelatesTo.rx_step hrx.mailbox hrx.chan_fresh hrel hS hin hl.1
       (hrx.target_le hred) hQs
-    refine .inl ⟨_, 1, hrel', ?_, Relation.star.refl _⟩
+    refine .inr (.inl ⟨hrel', rfl, ?_⟩)
+    show GuardedPlusCal.FIFOs.size F₂' < GuardedPlusCal.FIFOs.size F₂
+    omega
+
+omit [SeqBuiltins V] in
+/-- **The algorithm-level `Terminating`**, read off `step_or_stutter`: a source step is a one-step
+run, a stutter is the empty one, and the abort disjunct passes through unchanged. The measure is
+dropped here — `Terminating` has nowhere to put it, which is exactly why the divergence half needs
+`step_or_stutter` directly. -/
+theorem algRelatesTo.terminating [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
+    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
+    StrongRefinement.Terminating (algRelatesTo (V := V) mb rx) (algRelatesTo (V := V) mb rx)
+      (instTrace (V := V)).Rτ (Relation.star Aₛ.step) Aₛ.aborting Aₜ.step := by
+  intro Sₜ Sₜ' ε Sₛ hrel hstep
+  rcases algRelatesTo.step_or_stutter href hrel hstep with
+    ⟨Sₛ', ε', hrel', hτ, hsstep⟩ | ⟨hrel', rfl, _⟩ | habort
+  · exact .inl ⟨Sₛ', ε', hrel', hτ, Relation.star.single hsstep⟩
+  · refine .inl ⟨Sₛ, 1, hrel', ?_, Relation.star.refl _⟩
     trace_rel
+  · exact .inr habort
+
+omit [SeqBuiltins V] in
+/-- **A receiving thread cannot go wrong at a related state**, and it has to be so: the source has no
+receiving thread, so a relay abort with no source counterpart would make the aborting refinement
+false outright.
+
+All four of `rxBranchAborting`'s cases are excluded, and by four different clauses. The channel's
+path failing to resolve contradicts `procRelatesTo`'s own resolved `cpath`; the channel resolving to
+no FIFO contradicts `algRelatesTo`'s presence clause — the one that exists for this; `inbox` unbound
+contradicts the inbox clause; and appending to `inbox` failing contradicts `seqAppend_isSeq`, since
+that clause says `inbox` really holds a sequence. -/
+theorem rxBranch_not_aborting {c : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {rx : Set String} {ib : InboxState V} {M₁ M₂ : Memory V} {F₂ : FIFOs V}
+    {L₁ L₂ : Set String} {ε : Trace V}
+    (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
+    (h : procRelatesTo (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
+    (hpresent : F₂.lookup ib.key ≠ .none) :
+    (⟨.running M₂ F₂, ε⟩ : LocalState V false × Trace V) ∉
+      NetworkPlusCal.Thread.rxBranchAborting c inbox := by
+  obtain ⟨_, _, hmem, hinbox, cpath, hpath, hibkey⟩ := h
+  have hpath₂ : Ref.EvalArgs M₂ c cpath := (Ref.EvalArgs.congr_of_fresh hmem hfresh).mp hpath
+  obtain ⟨sv, hsv, hseq⟩ := hinbox
+  rintro (((⟨M, F, hpa, hrun, _⟩ | ⟨M, F, cpath', hpath', hlk, hrun, _⟩) |
+    ⟨M, F, hnone, hrun, _⟩) | ⟨M, F, cpath', v, _, old, hpath', _, hold, happ, hrun, _⟩) <;>
+    injection hrun with hM hF <;> subst hM <;> subst hF
+  · exact Ref.EvalArgs.not_pathAborts hpath₂ hpa
+  · obtain rfl := Ref.EvalArgs.inj hpath' hpath₂
+    exact hpresent (hibkey ▸ hlk)
+  · rw [hsv] at hnone
+    contradiction
+  · rw [hsv] at hold
+    obtain rfl := Option.some.inj hold
+    obtain ⟨_, happ', _⟩ := ExprSemantics.seqAppend_isSeq (v := v) hseq
+    rw [happ] at happ'
+    contradiction
+
+omit [SeqBuiltins V] in
+/-- **Where the target goes wrong, so does the source.** The aborting counterpart of
+`algRelatesTo.terminating`, and the same dispatch — except that only one branch of it produces
+anything. A code thread's abort is answered by the source block's, through `blockRefines_abort`; a
+receiving thread's abort cannot happen at all (`rxBranch_not_aborting`).
+
+Simpler than the terminating case throughout, because an abort has no post-state: no `algRelatesTo`
+witness is rebuilt, so none of the key bookkeeping appears. -/
+theorem algRelatesTo.immediateAbort [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
+    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
+    StrongRefinement.Aborting (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
+      Aₛ.immediateAbort Aₜ.immediateAbort := by
+  rintro ⟨Qs, F₂⟩ ε ⟨Ps, F₁⟩ hrel ⟨p, ⟨M₂, L₂⟩, hin, l, hl, habort, hself⟩
+  obtain ⟨ib, pref, _, _, _, hbwd, _, _, hkey, _, hpresent, hfifo⟩ := hrel
+  obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
+  have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some (Aₛ.self p) := by
+    rw [href.self_eq p,
+      hproc.mem_agree' _ (λ c inbox hmb ↦ (href.inbox_ne_self p c inbox hmb).symm)]
+    exact hself
+  rcases href.labels p l hl.2 with ⟨brs, brs', hcode⟩ | ⟨c, inbox, hrx⟩
+  · have hlabel : l ∈ L₁ := by
+      rcases (hproc.1 ▸ hl.1 : l ∈ L₁ ∪ rx p) with hmem | hmem
+      · exact hmem
+      · exact (hcode.not_rx hmem).elim
+    obtain ⟨Br', hBr', habort'⟩ := hcode.target_abort_le _ habort
+    obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ :=
+      blockRefines_abort_indexed (hcode.refines pref)
+        (relatesTo_of_procRelatesTo hproc (hkey p) hfifo .none) hBr' habort'
+    exact ⟨ε', hpfx, p, ⟨M₁, L₁⟩, hS, l, ⟨hlabel, hcode.owned⟩,
+      hcode.source_aborting Br hBr hsabort, hself'⟩
+  · -- the instance receives, so it has an inbox, and then the relay cannot go wrong
+    obtain ⟨ibp, hibp⟩ : ∃ ibp, ib p = .some ibp := by
+      refine Option.ne_none_iff_exists'.mp ?_
+      intro hnn
+      rw [hrx.mailbox, hnn] at hproc
+      nomatch hproc.2.2
+    rw [hrx.mailbox, hibp] at hproc
+    absurd rxBranch_not_aborting (ε := ε) hrx.chan_fresh hproc (hpresent p ibp hibp)
+    exact hrx.target_abort_le habort
 
 omit [SeqBuiltins V] in
 /-- **And the whole reducing semantics.** `Algebra.reducing` is `step*` by definition and
@@ -168,6 +283,52 @@ theorem algRelatesTo.terminating_reducing [DecidableEq ι] {Aₛ Aₜ : Algebra 
       (instTrace (V := V)).Rτ Aₛ.reducing Aₛ.aborting Aₜ.reducing :=
   StrongRefinement.Terminating.starStutter Relation.star.star_lcomp₁_absorb
     (algRelatesTo.terminating href)
+
+omit [SeqBuiltins V] in
+/-- **And the whole diverging semantics.** `Algebra.diverging` is `step^∞` by definition, so this is
+`Diverging.omegaStutter` at `step_or_stutter` — the same three-way obligation the other two halves
+are built from, here with its measure disjunct finally load-bearing.
+
+`FIFOs.size` is the measure: a receiving thread's relay moves one message out of a channel, and only
+a `send` puts one back — and a `send` is a code thread's step, which *does* move the source. So the
+target cannot relay forever while the source stands still, the source's steps are cofinal in the
+target's, and deleting the idle indices leaves a genuine infinite source run. -/
+theorem algRelatesTo.diverging [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
+    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
+    StrongRefinement.Diverging (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
+      Aₛ.diverging Aₛ.aborting Aₜ.diverging :=
+  StrongRefinement.Diverging.omegaStutter (μ := λ S ↦ GuardedPlusCal.FIFOs.size S.2)
+    rτ_omega ωProd_comp Stream'.Seq.hasPartialProdDvd Relation.star.lcomp₁_absorb
+    (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter href hrel hstep)
+
+omit [SeqBuiltins V] in
+/-- **And the whole aborting semantics.** `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort` by
+definition, so this is `Aborting.starStutter` at that — the immediate half above, lifted over the run
+that precedes it by the same per-step `Terminating` the reducing half uses.
+
+Two of `StrongRefinement`'s three components are now in hand; `Diverging` is the one left. -/
+theorem algRelatesTo.aborting [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
+    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
+    StrongRefinement.Aborting (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
+      Aₛ.aborting Aₜ.aborting :=
+  StrongRefinement.Aborting.starStutter (algRelatesTo.terminating href)
+    (algRelatesTo.immediateAbort href)
+
+omit [SeqBuiltins V] in
+/-- **The algorithm-level refinement, whole.** All three components at the closed forms
+`Algebra.reducing`/`.aborting`/`.diverging`, against one state relation.
+
+What remains for item 7 is on the other side of this statement: `AlgebraRefines` has to be
+*established* from a compiled algorithm (D8, `Thread.toNetwork`), and `Algorithm.init` has to
+establish `algRelatesTo` at the initial states. Nothing further is owed by the refinement argument
+itself. -/
+theorem algRelatesTo.refines [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
+    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
+    StrongRefinement (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
+      Aₛ.reducing Aₛ.aborting Aₛ.diverging Aₜ.reducing Aₜ.aborting Aₜ.diverging where
+  terminating := algRelatesTo.terminating_reducing href
+  aborting := algRelatesTo.aborting href
+  diverging := algRelatesTo.diverging href
 
 end Guarded2Network
 

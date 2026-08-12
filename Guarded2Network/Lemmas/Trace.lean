@@ -43,6 +43,28 @@ theorem one_scPrefix {V : Type} (ε : GuardedPlusCal.Trace V) :
     (1 : GuardedPlusCal.Trace V) ≼[(instTrace (V := V)).Rτ] ε :=
   ⟨ε, one_mul ε⟩
 
+/-! ## The two ω-product obligations the divergence laws take as parameters
+
+  `OmegaProd` fixes no laws, so the framework's divergence lemmas take what they need about infinite
+  products as hypotheses. Both are trivial at this pass's choice and are discharged once here rather
+  than at each call site.
+-/
+
+/-- `Rτ_omega`: two sequences related pointwise by *equality* are the same sequence, so their
+products agree. -/
+theorem rτ_omega {V : Type} (e' e : ℕ → GuardedPlusCal.Trace V)
+    (h : ∀ i, (instTrace (V := V)).Rτ (e' i) (e i)) :
+    (instTrace (V := V)).Rτ (OmegaProd.ωProd e') (OmegaProd.ωProd e) :=
+  congrArg OmegaProd.ωProd (funext h)
+
+/-- Deleting factors that are `1`, at this pass's trace type — `Stream'.Seq.ωProduct_comp_of_ones`,
+which is where the work is. What a stuttering divergence refinement needs, since the source's run is
+indexed by the target indices at which it actually moved. -/
+theorem ωProd_comp {V : Type} (e : ℕ → GuardedPlusCal.Trace V) (n : ℕ → ℕ) (hmono : StrictMono n)
+    (hone : ∀ i, (∀ j, n j ≠ i) → e i = 1) :
+    OmegaProd.ωProd e = OmegaProd.ωProd (e ∘ n) :=
+  Stream'.Seq.ωProduct_comp_of_ones hmono hone
+
 end Guarded2Network
 
 end

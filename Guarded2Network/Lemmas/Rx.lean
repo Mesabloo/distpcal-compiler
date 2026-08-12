@@ -57,7 +57,9 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
       (∀ x ≠ inbox, M₁.lookup x = M₂'.lookup x) ∧
       (∃ sv, M₂'.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv (ib.contents ++ [v])) ∧
       (∀ k ≠ ib.key, F₂'.lookup k = F₂.lookup k) ∧
-      F₁.lookup ib.key = ((ib.contents ++ [v]) ++ ·) <$> F₂'.lookup ib.key := by
+      F₁.lookup ib.key = ((ib.contents ++ [v]) ++ ·) <$> F₂'.lookup ib.key ∧
+      F₂'.lookup ib.key ≠ .none ∧
+      GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
   obtain ⟨M, F, cpath, v, vs, old, new, hpath, hfifo, hold, happ, hrun, hdone, rfl⟩ := step
   injection hrun with hM hF
   subst hM; subst hF
@@ -68,7 +70,7 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
     Ref.EvalArgs.inj hpath₁ ((Ref.EvalArgs.congr_of_fresh hmem hfresh).mpr hpath)
   obtain ⟨sv, hsv, hseq⟩ := hinbox
   obtain rfl : sv = old := Option.some.inj (hsv.symm.trans hold)
-  refine ⟨v, _, _, rfl, hdone, ?_, ?_, ?_, ?_⟩
+  refine ⟨v, _, _, rfl, hdone, ?_, ?_, ?_, ?_, ?_, GuardedPlusCal.FIFOs.size_insert_tail hfifo⟩
   · intro x hx
     rw [Finmap.lookup_insert_of_ne _ hx]
     exact hmem x hx
@@ -77,6 +79,8 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
     exact Finmap.lookup_insert_of_ne _ (hibkey ▸ hk)
   · rw [hibkey] at hsplit ⊢
     simp [Finmap.lookup_insert, hsplit, hfifo]
+  · rw [hibkey, Finmap.lookup_insert]
+    exact Option.some_ne_none _
 
 /-- **The same step, at the process level.** `rxBranch_step` with `procRelatesTo`'s clauses assembled
 around it, which is the form the algorithm level meets: a receiving thread's step is one whole
@@ -103,14 +107,16 @@ theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox label : 
       procRelatesTo (.some (c, inbox)) rx (.some ⟨ib.key, ib.contents ++ [v]⟩)
         ⟨M₁, L₁⟩ ⟨M₂', insert label (L₂ \ {label})⟩ ∧
       (∀ k ≠ ib.key, F₂'.lookup k = F₂.lookup k) ∧
-      F₁.lookup ib.key = ((ib.contents ++ [v]) ++ ·) <$> F₂'.lookup ib.key := by
+      F₁.lookup ib.key = ((ib.contents ++ [v]) ++ ·) <$> F₂'.lookup ib.key ∧
+      F₂'.lookup ib.key ≠ .none ∧
+      GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
   obtain ⟨hlabels, hdisj, hmem, hinbox, hkey⟩ := h
-  obtain ⟨v, M₂'', F₂'', rfl, hdone, hmem', hinbox', hoff, hsplit'⟩ :=
+  obtain ⟨v, M₂'', F₂'', rfl, hdone, hmem', hinbox', hoff, hsplit', hkeep, hsize⟩ :=
     rxBranch_step hfresh hmem hinbox hkey hsplit step
   injection hdone with hM hF _
   subst hM; subst hF
   rw [Set.insert_sdiff_self_of_mem hlabel]
-  exact ⟨v, rfl, ⟨hlabels, hdisj, hmem', hinbox', hkey⟩, hoff, hsplit'⟩
+  exact ⟨v, rfl, ⟨hlabels, hdisj, hmem', hinbox', hkey⟩, hoff, hsplit', hkeep, hsize⟩
 
 /-- **And at the algorithm level: the source does not move at all.** One instance takes a receiving
 thread's step; every other instance and every other FIFO key is untouched, so the whole
@@ -135,8 +141,9 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
         NetworkPlusCal.Thread.rxBranch c label inbox)
     (hQs : Qs' = insert (⟨p, ⟨M₂', insert label (L₂ \ {label})⟩⟩ : ι × ProcState V)
       (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :
-    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ := by
-  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩ := h
+    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
+      GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
+  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
   -- an instance holds one state at a time, on both sides: the step replaces exactly one pair, so a
   -- second state for `p` would be left behind relating to the *old* inbox
@@ -151,7 +158,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
   rw [hibp] at hproc
   have hsplitp : F₁.lookup ibp.key = (ibp.contents ++ ·) <$> F₂.lookup ibp.key := by
     rw [hfifo ibp.key, hkey p ibp hibp]
-  obtain ⟨v, rfl, hproc', hoff', hsplit'⟩ :=
+  obtain ⟨v, rfl, hproc', hoff', hsplit', hkeep, hsize⟩ :=
     procRelatesTo.rx_step hfresh (hmb ▸ hproc) hsplitp hlabel hstep
   subst hQs
   -- the update changes what `p` accounts for, never *which key* it accounts for, so every clause
@@ -165,9 +172,10 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
       exact ⟨ibp, hibp, by rw [← Option.some.inj hx]⟩
     · rw [Function.update_of_ne hqp] at hx
       exact ⟨x, hx, rfl⟩
-  refine ⟨rfl, Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩),
+  refine ⟨rfl, ?_, hsize⟩
+  refine ⟨Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩),
     Function.update pref ibp.key (ibp.contents ++ [v]), hfs, hft.replace hin _,
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro q σ hq
     by_cases hqp : q = p
     · subst hqp
@@ -223,6 +231,17 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
       exact Option.some.inj hx₀ ▸ hkp
     · apply hk q x₀
       rwa [Function.update_of_ne hqp]
+  · -- the relay wrote back at its own key, and left every other one alone
+    intro q x hx
+    by_cases hqp : q = p
+    · subst hqp
+      rw [Function.update_self] at hx
+      obtain rfl := Option.some.inj hx
+      exact hkeep
+    · rw [Function.update_of_ne hqp] at hx
+      have hne : x.key ≠ ibp.key := λ heq ↦ hqp (hinj q p x ibp hx hibp heq)
+      rw [hoff' x.key hne]
+      exact hpresent q x hx
   · intro k
     by_cases hkp : k = ibp.key
     · subst hkp

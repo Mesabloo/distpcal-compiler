@@ -3,6 +3,7 @@ module
 meta import CustomPrelude
 public import Core.GuardedPlusCal.Semantics.Denotational
 public import Core.GuardedPlusCal.Syntax.Lemmas
+public import Mathlib.Algebra.BigOperators.Group.Finset.Basic
 
 @[expose] public section
 
@@ -27,6 +28,45 @@ public import Core.GuardedPlusCal.Syntax.Lemmas
 namespace GuardedPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics)
+
+/-! # How much is queued
+
+  The measure a divergence argument needs. A receiving thread's relay moves one message out of a
+  channel and into a process's `inbox`, so it strictly decreases the total; only a `send` increases
+  it. A target run that relays forever without ever sending is therefore impossible — which is what
+  says a target cannot diverge on `.rx` steps alone, and so what lets a source answering those steps
+  with no step of its own still be said to diverge (`Guarded2Network`, item 7).
+-/
+
+/-- How many messages are queued, across every channel at once. -/
+def FIFOs.size {V : Type} [ExprSemantics V] (F : FIFOs V) : ℕ :=
+  ∑ k ∈ F.keys, ((F.lookup k).getD []).length
+
+/-- **Popping the head of one queue drops the count by exactly one.** The relay's effect on the
+measure, and the only fact about `FIFOs.size` anything needs. -/
+theorem FIFOs.size_insert_tail {V : Type} [ExprSemantics V] {F : FIFOs V} {k : ChanKey V} {v : V}
+    {vs : List V} (h : F.lookup k = .some (v :: vs)) :
+    FIFOs.size (F.insert k vs) + 1 = FIFOs.size F := by
+  have hmem : k ∈ F := Finmap.mem_of_lookup_eq_some h
+  have hkeys : (F.insert k vs).keys = F.keys := by
+    ext k'
+    simp only [Finmap.mem_keys, Finmap.mem_insert]
+    iff_rintro (rfl | h') h'
+    · exact hmem
+    · exact h'
+    · exact .inr h'
+  -- the two sums agree away from `k`, and at `k` one queue is the other's tail
+  have hoff : ∀ k' ∈ F.keys.erase k,
+      (((F.insert k vs).lookup k').getD []).length = ((F.lookup k').getD []).length := by
+    intro k' hk'
+    rw [Finmap.lookup_insert_of_ne _ (Finset.ne_of_mem_erase hk')]
+  unfold FIFOs.size
+  rw [hkeys,
+    ← Finset.add_sum_erase _ _ (Finmap.mem_keys.mpr hmem),
+    ← Finset.add_sum_erase _ _ (Finmap.mem_keys.mpr hmem),
+    Finset.sum_congr rfl hoff, Finmap.lookup_insert, h]
+  simp only [Option.getD_some, List.length_cons]
+  omega
 
 /-! # Path resolution is deterministic
 

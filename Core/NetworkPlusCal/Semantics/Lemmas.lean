@@ -753,6 +753,137 @@ theorem LocalState.div_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
   · exact ⟨Br, Br_in, LocalState.div_glue₃.mp h⟩
   · exact ⟨Br, Br_in, LocalState.div_glue₃.mpr h⟩
 
+/-! ## What a step leaves in the channel map
+
+  Only `send` writes a channel, and it writes at a key it has just *read*, so a step changes what a
+  queue holds but never which keys exist. Stated one level at a time, statement to branch, the same
+  shape as `Guarded2Network/Lemmas/Locality.lean`'s argument about the written name.
+
+  The presence half is what a refinement invariant needs: `Guarded2Network`'s receiving thread aborts
+  on a channel that resolves to no FIFO at all, and the source has no such thread to abort with — so
+  ruling that state out is what makes the aborting half of that pass's refinement true rather than
+  merely hard.
+-/
+
+/-- **A statement never removes a channel.** `send` is the only constructor that writes the map, and
+it writes at a key it has just read, so its `insert` only ever overwrites. -/
+theorem Statement.reducing'_fifos_mem {b b' : Bool}
+    {S : ComputableNetworkPlusCal.Statement b b'} {σ σ' : LocalState' V} {ε : Trace V}
+    (step : (⟨σ, ε, σ'⟩ : LocalState' V × Trace V × LocalState' V) ∈ Statement.reducing' S)
+    {k : GuardedPlusCal.ChanKey V} (h : σ.fifos.lookup k ≠ .none) :
+    σ'.fifos.lookup k ≠ .none := by
+  obtain ⟨M₁, F₁, l₁⟩ := σ
+  obtain ⟨M₂, F₂, l₂⟩ := σ'
+  cases S with
+  | «with» x ann bound e =>
+    obtain ⟨_, _, ⟨M, F, v, _, _, hM, _, hb⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF
+    cases bound with
+    | true =>
+      subst hb
+      injection hpost with _ hF'
+      subst hF'
+      exact h
+    | false =>
+      obtain ⟨_, _, rfl⟩ := hb
+      injection hpost with _ hF'
+      subst hF'
+      exact h
+  | await e =>
+    obtain ⟨_, _, ⟨M, F, hM, hσ', _, _⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF; subst hσ'
+    injection hpost with _ hF'
+    subst hF'
+    exact h
+  | skip =>
+    obtain ⟨_, _, ⟨M, F, hM, hσ', _⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF; subst hσ'
+    injection hpost with _ hF'
+    subst hF'
+    exact h
+  | goto label =>
+    obtain ⟨_, _, ⟨M, F, hM, hσ', _⟩, _, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF
+    rw [hσ'] at hpost
+    injection hpost with _ hF'
+    subst hF'
+    exact h
+  | print e =>
+    obtain ⟨_, _, ⟨M, F, _, _, hM, hσ', _, _, _⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF; subst hσ'
+    injection hpost with _ hF'
+    subst hF'
+    exact h
+  | assert e =>
+    obtain ⟨_, _, ⟨M, F, hM, hσ', _, _⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF; subst hσ'
+    injection hpost with _ hF'
+    subst hF'
+    exact h
+  | multicast c filter =>
+    obtain ⟨_, -, hmem, -⟩ := step
+    exact hmem.elim
+  | assign r e =>
+    obtain ⟨_, _, ⟨M, F, _, _, _, _, _, _, hM, hσ', _⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF; subst hσ'
+    injection hpost with _ hF'
+    subst hF'
+    exact h
+  | send c e =>
+    obtain ⟨_, _, ⟨M, F, _, cpath, vs, _, _, _, hlk, _, hM, hσ', _⟩, hpost, _⟩ := step
+    injection hM with _ hF
+    subst hF; subst hσ'
+    injection hpost with _ hF'
+    subst hF'
+    simp only [LocalState'.fifos_mk] at h ⊢
+    by_cases hk : k = ⟨c.name, cpath⟩
+    · subst hk
+      rw [Finmap.lookup_insert]
+      exact Option.some_ne_none _
+    · rwa [Finmap.lookup_insert_of_ne _ hk]
+
+/-- **Nor does a block.** One `Statement.reducing'_fifos_mem` per step of the same left-to-right
+induction the locality argument runs. -/
+theorem Block.reducing'_fifos_mem {b b' : Bool}
+    {B : Block (ComputableNetworkPlusCal.Statement b) b'} {σ σ' : LocalState' V} {ε : Trace V}
+    (step : (⟨σ, ε, σ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
+      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B)
+    {k : GuardedPlusCal.ChanKey V} (h : σ.fifos.lookup k ≠ .none) :
+    σ'.fifos.lookup k ≠ .none := by
+  induction B using Block.cons_end_induct generalizing σ σ' ε with
+  | «end» S =>
+    rw [Block.reducing_end] at step
+    exact Statement.reducing'_fifos_mem step h
+  | cons S B IH =>
+    rw [Block.reducing_cons] at step
+    obtain ⟨σ'', ε₁, ε₂, hhead, htail, rfl⟩ := step
+    exact IH htail (Statement.reducing'_fifos_mem hhead h)
+
+/-- **Nor a branch**, precondition and action together — a missing precondition being
+`Relation.Idle`, which writes nothing. -/
+theorem AtomicBranch.reducing'_fifos_mem {Br : ComputableNetworkPlusCal.AtomicBranch}
+    {σ σ' : LocalState' V} {ε : Trace V}
+    (step : (⟨σ, ε, σ'⟩ : LocalState' V × Trace V × LocalState' V) ∈ AtomicBranch.reducing' Br)
+    {k : GuardedPlusCal.ChanKey V} (h : σ.fifos.lookup k ≠ .none) :
+    σ'.fifos.lookup k ≠ .none := by
+  obtain ⟨σ'', ε₁, ε₂, hpres, hact, rfl⟩ := step
+  refine Block.reducing'_fifos_mem hact ?_
+  match hp : Br.precondition with
+  | .none =>
+    rw [hp] at hpres
+    obtain ⟨rfl, -⟩ := hpres
+    exact h
+  | .some B' =>
+    rw [hp] at hpres
+    exact Block.reducing'_fifos_mem hpres h
+
 -- Leaf discharge for `sem_side` (T1).
 attribute [aesop norm simp (rule_sets := [sem])]
   LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue

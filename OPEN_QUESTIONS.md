@@ -463,3 +463,25 @@ instead grow an actual enumeration field (bigger surface, but avoids `Nodup`-as-
 "this is really a set" and the resulting order-nondeterminism in `reducing`'s outcome set).
 Blocks P3, and P6/D4 (whose generic action-statement lemma quantifies over every action
 constructor, `multicast` included) until resolved.
+
+### 9.28 Why `partialProd`/`ωProduct` rather than Mathlib's `∏` notation?
+Owner's question, item 7, raised while writing the stuttering divergence law.
+
+`Extra/Rel.lean` define `Monoid.partialProd (e : ℕ → ε) : ℕ → ε` by hand (`0 ↦ 1`,
+`n+1 ↦ partialProd e n * e n`), plus `partialProd_zero`/`_succ`/`_succ'`/`_add`/`_eq_one`/
+`_eq_of_ones`. Mathlib's `∏ i ∈ Finset.range n, e i` is the same thing on a `CommMonoid`, with a
+large existing API (`Finset.prod_range_succ`, `prod_range_add`, `prod_eq_one`, …).
+
+Two candidate reasons, neither checked:
+- **Non-commutativity.** The traces here are `Stream'.Seq α` under concatenation, a `Monoid` and
+  *not* commutative. `Finset.prod` want `CommMonoid`; the ordered product over `range n` is
+  `List.prod ((List.range n).map e)` instead, whose API is thinner. Whether that is enough
+  reason to hand-roll is exactly the question.
+- **`ωProduct` has no Mathlib counterpart** regardless — an infinite product of `Seq`s is a
+  corecursive concatenation, characterized here by `get?` (`ωFun`). So *something* bespoke is
+  needed at the ω level, and `partialProd` may have been written to match it rather than on its
+  own merits.
+
+Resolving it means checking whether `List.prod ∘ List.map e ∘ List.range` carries the five
+`partialProd` facts for free, and whether `Extra/Seq.lean`'s `get?_partialProd_of_le` /
+`get?_ωProduct` survive the change. Cosmetic if so; not blocking anything.
