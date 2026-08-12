@@ -13,6 +13,7 @@ public import Guarded2Network.Lemmas.Precondition
 public import Guarded2Network.Lemmas.AtomicBranch
 public import Guarded2Network.Lemmas.AtomicBlock
 public import Guarded2Network.Lemmas.Process
+public import Guarded2Network.Lemmas.Algorithm
 public import Core.NetworkPlusCal.Semantics.Lemmas
 public import VerifiedCompiler
 public import Std.Do.WP

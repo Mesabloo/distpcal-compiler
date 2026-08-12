@@ -1822,6 +1822,46 @@ of `pref` is what leaves `relatesTo` closed under `receive`, so branch and block
 invocable from the algorithm layer at all. `.claude/plans/item7-refinement-proof.md` has the
 alternative that was weighed (existential `pref` plus a frame lemma on the source block).
 
+**One state per instance is part of the invariant (landed, item 7).** `algRelatesTo` carries
+`Instances.Functional` on both sides. Not bookkeeping: the relation gives one `InboxState` per
+instance, so a state holding two states for one instance accounts both against one inbox, and that
+instance's step then updates the accounting while the second state — which did not move — is left
+related against the old one. The per-step obligation is *false* there. Carried as a clause rather
+than as a reachability side condition, because `algRelatesTo` is both pre- and post-relation, so a
+clause of it already *is* an invariant and §6.1's operator laws propagate it for free;
+`Instances.Functional.replace` is what each per-step lemma re-establishes it with. This replaced two
+per-lemma `huniq` hypotheses that had been assuming the same thing without proving it.
+
+**A stuttering source needs `Terminating.starStutter`, not `sequentialOmega` (landed, item 7).**
+`sequentialOmega`'s terminating hypothesis answers one target step with one *source step*; this pass
+cannot, an `.rx` thread's step having no source counterpart at all and being answered with the empty
+run. The instantiation `semₛ := Relation.star stepₛ` is what `Terminating.star` was already stated
+for, and `starStutter` is that instantiation with `Relation.star.star_eq` collapsing the `R**` it
+leaves behind — so the conclusion stays at `star stepₛ`. Its absorption side condition arrives
+starred too, which is `Relation.star.star_lcomp₁_absorb`. The `Aborting`/`Diverging` halves of
+`sequentialOmega` still want the same treatment; divergence is unattempted (§6.3).
+
+**The algorithm level's dispatch interface is D8's specification (landed, item 7).**
+`Guarded2Network/Lemmas/Algorithm.lean`'s `AlgebraRefines` says what a compiled algebra owes: per
+instance and per owned *target* label, either a code label (its block compiled from the source block
+at the same label, branches pairwise `BranchRefines` at every `pref`) or an `.rx` label (its block is
+`Thread.rxBranch` on the instance's own channel), plus `self_eq` and `inbox_ne_self` across all
+instances. `algRelatesTo.terminating` is then dispatch: which of the two per-step lemmas applies. It
+was written top-down from what those two already need, so establishing it is a question about
+`Thread.toNetwork` rather than about the proof — which is the point, D8 not being built.
+
+`inbox_ne_self` is load-bearing rather than hygiene: `CodeTable.procReducing` requires the memory to
+bind `selfName`, and the source's agrees with the target's only away from the generated `inbox`.
+
+**Label agreement is a hypothesis, not a derivation (landed, item 7).** A target process's label set
+is the source's plus its `.rx` threads' — `procRelatesTo` carry `L₂ = L₁ ∪ rx` and `Disjoint L₁ rx`.
+That survive a block step only given two syntactic facts about the *compiled* process, which the
+algorithm level cannot see and so takes as hypotheses (`algRelatesTo.block_step`): the scheduled
+label is a source label, and the branch's terminal `goto` targets a source label. Both are `freshName`
+facts about `Thread.toNetwork`, and belong to D8. Same shape as the key-stability obligation
+(§9-adjacent, `Guarded2Network/Lemmas/Locality.lean`): the algorithm-level invariant is *false*, not
+merely unprovable, if a code thread could be scheduled at an `.rx` label.
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

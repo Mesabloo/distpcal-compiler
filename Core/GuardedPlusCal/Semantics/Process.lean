@@ -81,9 +81,44 @@ def CodeTable.procDiverging (_Ξ : CodeTable V) (_owned : Set String) (_self : V
 
 /-! # Algorithms -/
 
+/-- Every process instance paired with its own state. Named apart from `AlgState` so that the
+well-formedness condition below — and the refinement invariants that have to carry it — can be
+stated about the instances alone; the channels are shared and have nothing to do with it. -/
+abbrev Instances (ι V : Type) : Type := Set (ι × ProcState V)
+
+/-- **At most one state per instance.** `Instances` is a set of pairs, so nothing in the type says
+so: `Algorithm.init` produces one pair per declared instance, and `Algebra.step` *replaces* the pair
+an instance had rather than adding one, so every reachable state satisfies it.
+
+Named because a refinement invariant over an algorithm state generally cannot be stated without it.
+An invariant that accounts for anything *per instance* — `Guarded2Network`'s per-instance inbox, and
+the FIFO prefix it is accounted against — is outright false at a state holding two states for one
+instance: that instance's step updates the accounting, and the second state, which did not move, is
+left related against the old one. So it is carried as a clause of the invariant rather than derived
+from reachability, which would put a reachability hypothesis on every lemma below it. -/
+def Instances.Functional (Ps : Instances ι V) : Prop :=
+  ∀ p σ σ', (⟨p, σ⟩ : ι × ProcState V) ∈ Ps → (⟨p, σ'⟩ : ι × ProcState V) ∈ Ps → σ = σ'
+
+/-- Replacing one instance's state keeps it — which is what an algorithm step does, and so what
+every per-step lemma has to re-establish for its own post-state. -/
+theorem Instances.Functional.replace {Ps : Instances ι V} (h : Ps.Functional) {p : ι}
+    {σ : ProcState V} (hmem : (⟨p, σ⟩ : ι × ProcState V) ∈ Ps) (σ' : ProcState V) :
+    Instances.Functional (insert (⟨p, σ'⟩ : ι × ProcState V) (Ps \ {⟨p, σ⟩})) := by
+  intro q τ τ' hτ hτ'
+  simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hτ hτ'
+  rcases hτ with ⟨rfl, rfl⟩ | ⟨hτ, hne⟩
+  · rcases hτ' with ⟨-, rfl⟩ | ⟨hτ', hne'⟩
+    · rfl
+    · absurd hne'
+      exact ⟨rfl, h q τ' σ hτ' hmem⟩
+  · rcases hτ' with ⟨rfl, rfl⟩ | ⟨hτ', -⟩
+    · absurd hne
+      exact ⟨rfl, h q τ σ hτ hmem⟩
+    · exact h q τ τ' hτ hτ'
+
 /-- An algorithm state: every process instance paired with its own state, plus the shared channels.
 -/
-abbrev AlgState (ι V : Type) : Type := Set (ι × ProcState V) × FIFOs V
+abbrev AlgState (ι V : Type) : Type := Instances ι V × FIFOs V
 
 /-- Everything the algorithm layer needs to know about its processes: which labels each owns, what
 the block at each label does, and each instance's identity. -/

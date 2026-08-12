@@ -158,11 +158,8 @@ namespace StrongRefinement
   **The source side is `Relation.star semₛ`, matched against a single target step in the
   hypothesis.** A pass whose target takes steps with no source counterpart — Guarded→Network's `.rx`
   thread — cannot instantiate `semₛ := stepₛ`, since no source step matches an `.rx` step. It
-  instantiates `semₛ := Relation.star stepₛ` instead, letting the source stutter, and then needs
-  `Relation.star (Relation.star X) ≤ Relation.star X` with `Terminating.Mono` to bring the
-  conclusion back to `Relation.star stepₛ`. That lemma is not proved here: it wants a run
-  concatenation lemma, and it is worth proving against the pass that consumes it rather than
-  speculatively. -/
+  instantiates `semₛ := Relation.star stepₛ` instead, letting the source stutter, and
+  `Terminating.starStutter` below is that instantiation with the resulting `R**` collapsed. -/
   protected theorem Terminating.star {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
       (abs : semₛ ∘ᵣ₁ semₛ' ≤ semₛ')
@@ -195,6 +192,25 @@ namespace StrongRefinement
         rw [Monoid.partialProd_succ' ets n]
         apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
         apply Trace.scPrefix_rmul_left T.Rτ_total hea
+
+  /-- **`Terminating.star` for a source that stutters.** The shape a pass whose target takes steps
+  the source cannot match needs: the hypothesis answers one target step with a whole source *run*
+  — possibly empty — and the conclusion is still stated at `Relation.star stepₛ`, not at `R**`.
+
+  Nothing new is proved here. `Terminating.star` at `semₛ := Relation.star stepₛ` produces
+  `Relation.star (Relation.star stepₛ)` on the source, and `Relation.star.star_eq` collapses it;
+  the point of the lemma is that no caller has to notice.
+
+  `abs` is the same absorption side condition, already at the starred shape. At a closed-form
+  aborting semantics `Relation.star stepₛ ∘ᵣ₁ immₛ` it is `Relation.star.star_lcomp₁_absorb`. -/
+  protected theorem Terminating.starStutter {R : Rel α β} [T : Trace εₛ εₜ]
+      {stepₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {stepₜ : Set (β × εₜ × β)}
+      (abs : Relation.star stepₛ ∘ᵣ₁ semₛ' ≤ semₛ')
+      (ref : StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ) semₛ' stepₜ) :
+        StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ) semₛ'
+          (Relation.star stepₜ) := by
+    have h := Terminating.star abs ref
+    rwa [Relation.star.star_eq] at h
 
   /--
     Behavior refinement in the diverging case.

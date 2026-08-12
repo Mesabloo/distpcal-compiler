@@ -574,4 +574,16 @@ theorem Relation.star.star_eq {α ε : Type _} [Monoid ε] {R : Set (α × ε ×
     exact Relation.star.trans (hz ▸ hst 0 (by omega))
       (ih (σs 1) (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) (λ i hi ↦ hst (i + 1) (by omega)) rfl hn)
 
+/-- A whole **run** in front of a run-then-`Y` is again a run-then-`Y`. The absorption law at the
+shape a refinement whose *source* absorbs a run per target step produces
+(`StrongRefinement.Terminating.starStutter`): there the side condition arrives with `Relation.star R`
+where `lcomp₁_absorb` has `R`.
+
+`lcomp₁_absorb` at `R := Relation.star R`, with `star_eq` collapsing the `R**` it leaves behind. -/
+theorem Relation.star.star_lcomp₁_absorb {α ε : Type _} [Monoid ε] {R : Set (α × ε × α)}
+    {Y : Set (α × ε)} :
+    Relation.star R ∘ᵣ₁ (Relation.star R ∘ᵣ₁ Y) ≤ Relation.star R ∘ᵣ₁ Y := by
+  have h := Relation.star.lcomp₁_absorb (R := Relation.star R) (Y := Y)
+  rwa [Relation.star.star_eq] at h
+
 end

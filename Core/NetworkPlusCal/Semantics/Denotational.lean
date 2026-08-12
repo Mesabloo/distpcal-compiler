@@ -241,6 +241,16 @@ def Thread.rxBranch (chan : ComputableNetworkPlusCal.Ref) (label inbox : String)
     ε = 1
   }
 
+/-- **A relay jumps back to its own label.** That is what makes a receiving thread a loop, and it is
+read off the branch's shape — so a caller wanting it need not take the branch apart, which is the
+only reason this is a lemma rather than a remark. -/
+theorem Thread.rxBranch_label {chan : ComputableNetworkPlusCal.Ref}
+    {label inbox l : String} {M M' : Memory V} {F F' : FIFOs V} {ε : Trace V}
+    (h : (⟨.running M F, ε, .done M' F' l⟩ : LocalState V false × Trace V × LocalState V true) ∈
+      Thread.rxBranch chan label inbox) : l = label := by
+  obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hdone, _⟩ := h
+  injection hdone
+
 /-- Where `Thread.rxBranch` goes wrong. An *empty* channel is not an abort — it blocks, which is
 precisely a receiving thread waiting for a message. -/
 def Thread.rxBranchAborting (chan : ComputableNetworkPlusCal.Ref) (inbox : String) :

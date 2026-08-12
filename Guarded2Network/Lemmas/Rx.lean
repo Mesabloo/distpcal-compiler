@@ -127,11 +127,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     (hmb : mb p = .some (c, inbox))
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
     (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs, F₂⟩)
-    -- an instance holds one state at a time, on both sides: the step replaces exactly one pair, so
-    -- a second state for `p` would be left behind relating to the *old* inbox
     (hS : (⟨p, ⟨M₁, L₁⟩⟩ : ι × ProcState V) ∈ Ps)
-    (huniqS : ∀ σ, (⟨p, σ⟩ : ι × ProcState V) ∈ Ps → σ = ⟨M₁, L₁⟩)
-    (huniqT : ∀ σ, (⟨p, σ⟩ : ι × ProcState V) ∈ Qs → σ = ⟨M₂, L₂⟩)
     (hin : (⟨p, ⟨M₂, L₂⟩⟩ : ι × ProcState V) ∈ Qs)
     (hlabel : label ∈ L₂)
     (hstep : (⟨.running M₂ F₂, ε, .done M₂' F₂' label⟩ :
@@ -140,9 +136,11 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     (hQs : Qs' = insert (⟨p, ⟨M₂', insert label (L₂ \ {label})⟩⟩ : ι × ProcState V)
       (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :
     ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ := by
-  obtain ⟨ib, pref, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩ := h
+  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩ := h
   obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
-  obtain rfl := huniqS σ₁ hσ₁
+  -- an instance holds one state at a time, on both sides: the step replaces exactly one pair, so a
+  -- second state for `p` would be left behind relating to the *old* inbox
+  obtain rfl := hfs p σ₁ ⟨M₁, L₁⟩ hσ₁ hS
   -- the instance receives, so it has an inbox to account for
   obtain ⟨ibp, hibp⟩ : ∃ ibp, ib p = .some ibp := by
     match hib : ib p with
@@ -168,11 +166,12 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     · rw [Function.update_of_ne hqp] at hx
       exact ⟨x, hx, rfl⟩
   refine ⟨rfl, Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩),
-    Function.update pref ibp.key (ibp.contents ++ [v]), ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    Function.update pref ibp.key (ibp.contents ++ [v]), hfs, hft.replace hin _,
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro q σ hq
     by_cases hqp : q = p
     · subst hqp
-      obtain rfl := huniqS σ hq
+      obtain rfl := hfs _ σ ⟨M₁, L₁⟩ hq hS
       refine ⟨_, Set.mem_insert _ _, ?_⟩
       rw [Function.update_self, hmb]
       exact hproc'
@@ -192,7 +191,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
       · -- the stepped instance's old pair is exactly what was removed, so this case is empty
         subst hqp
         absurd hne
-        exact ⟨rfl, huniqT σ' hmem⟩
+        exact ⟨rfl, hft _ σ' ⟨M₂, L₂⟩ hmem hin⟩
       · exact ⟨σ, hσ, by rwa [Function.update_of_ne hqp]⟩
   · intro q hq
     by_cases hqp : q = p

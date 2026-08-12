@@ -314,6 +314,23 @@ def procRelatesTo (mb : Mailbox) (rx : Set String) (ib : Option (InboxState V)) 
       (∃ cpath, List.Forall₂ (EvalStep M₁) c.args cpath ∧ ib.key = ⟨c.name, cpath⟩)
     | _, _ => False
 
+/-- Memory agreement at one instance, in both cases of the mailbox at once — `relatesTo.mem_agree'`
+one level up, and stated the same way so that a caller need not know whether the process receives.
+
+What the algorithm level reads through it is `selfName`: a process only steps in a memory binding its
+own identity (`CodeTable.procReducing`), the target's does, and the source's agrees with it there
+because the pass's generated `inbox` is not `self`. -/
+theorem procRelatesTo.mem_agree' {mb : Mailbox} {rx : Set String} {ib : Option (InboxState V)}
+    {M₁ M₂ : Memory V} {L₁ L₂ : Set String}
+    (h : procRelatesTo mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩) :
+    ∀ x, (∀ c inbox, mb = .some (c, inbox) → x ≠ inbox) → M₁.lookup x = M₂.lookup x := by
+  obtain ⟨-, -, hmatch⟩ := h
+  match mb, ib with
+  | .none, .none => exact λ x _ ↦ by rw [hmatch]
+  | .some (c, inbox), .some _ => exact λ x hx ↦ hmatch.1 x (hx c inbox rfl)
+  | .none, .some _ => exact hmatch.elim
+  | .some _, .none => exact hmatch.elim
+
 /-- The algorithm-level lift of `relatesTo`: same instances, each instance's state related, and one
 FIFO map split per key.
 
@@ -321,11 +338,21 @@ The split is carried by a `pref` function — the same one `relatesTo` takes —
 it to `ib`: at a key some instance receives on it is that instance's inbox, and where nobody
 receives it is empty. That is what makes picking a process hand `relatesTo` its `pref` directly,
 with no bridge: `relatesTo` reads `pref` at every key *but* the picked process's own, where it uses
-its own `inbox` instead — which is exactly the clause `ib` already pins. -/
+its own `inbox` instead — which is exactly the clause `ib` already pins.
+
+**Both sides are `Instances.Functional`**, and that is not bookkeeping. `ib` gives one `InboxState`
+per instance, so an algorithm state holding two states for one instance would account both against
+one inbox; the instance's step then updates that accounting while the second state, which did not
+move, is left related against the old one. The per-step obligation is *false* at such a state, not
+merely unprovable. Carried here rather than as a reachability side condition, so that the framework's
+own `Terminating`/`star` laws propagate it with everything else — `relatesTo` being both pre- and
+post-relation, a clause of it is exactly an invariant. -/
 def algRelatesTo {ι : Type} (mb : ι → Mailbox) (rx : ι → Set String) :
     Rel (AlgState ι V) (AlgState ι V) :=
   λ ⟨Ps, F₁⟩ ⟨Qs, F₂⟩ ↦
     ∃ (ib : ι → Option (InboxState V)) (pref : ChanKey V → List V),
+      -- one state per instance, on both sides
+      Ps.Functional ∧ Qs.Functional ∧
       -- the same instances on both sides, pairwise related
       (∀ p σ, ⟨p, σ⟩ ∈ Ps → ∃ σ', ⟨p, σ'⟩ ∈ Qs ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
       (∀ p σ', ⟨p, σ'⟩ ∈ Qs → ∃ σ, ⟨p, σ⟩ ∈ Ps ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
@@ -349,11 +376,16 @@ namespace algRelatesTo
 
 variable {ι : Type} {mb : ι → Mailbox} {rx : ι → Set String} {Sₛ Sₜ : AlgState ι V}
 
+/-- Each side holds one state per instance. -/
+theorem functional (h : Sₛ ≋[mb, rx] Sₜ) : Sₛ.1.Functional ∧ Sₜ.1.Functional := by
+  obtain ⟨-, -, hfs, hft, -, -, -, -, -, -, -⟩ := h
+  exact ⟨hfs, hft⟩
+
 /-- Every source instance has a related target instance. -/
 theorem forward (h : Sₛ ≋[mb, rx] Sₜ) :
     ∃ ib : ι → Option (InboxState V), ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 →
       ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
-  obtain ⟨ib, -, hfwd, -, -, -, -, -⟩ := h
+  obtain ⟨ib, -, -, -, hfwd, -, -, -, -, -, -⟩ := h
   exact ⟨ib, hfwd⟩
 
 /-- Every target instance has a related source instance — the direction that rules out the target
@@ -361,7 +393,7 @@ inventing an instance the source never had. -/
 theorem backward (h : Sₛ ≋[mb, rx] Sₜ) :
     ∃ ib : ι → Option (InboxState V), ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 →
       ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
-  obtain ⟨ib, -, -, hbwd, -, -, -, -⟩ := h
+  obtain ⟨ib, -, -, -, -, hbwd, -, -, -, -, -⟩ := h
   exact ⟨ib, hbwd⟩
 
 /-- The whole FIFO map, in one statement: every key is the target's queue with `pref` in front, and
@@ -374,11 +406,12 @@ theorem fifos (h : Sₛ ≋[mb, rx] Sₜ) :
       (∀ p x, ib p = .some x → pref x.key = x.contents) ∧
       (∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = []) ∧
       (∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) := by
-  obtain ⟨ib, pref, -, -, -, hinj, hkey, hoff, hfifo⟩ := h
+  obtain ⟨ib, pref, -, -, -, -, -, hinj, hkey, hoff, hfifo⟩ := h
   exact ⟨ib, pref, hinj, hkey, hoff, hfifo⟩
 
 /-- The introduction form: one hypothesis per clause, against a single choice of witnesses. -/
 theorem intro {ib : ι → Option (InboxState V)} {pref : ChanKey V → List V}
+    (hfs : Sₛ.1.Functional) (hft : Sₜ.1.Functional)
     (hfwd : ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 → ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
     (hbwd : ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 → ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
     (habsent : ∀ p, (∀ σ, ⟨p, σ⟩ ∉ Sₛ.1) → ib p = .none)
@@ -387,7 +420,7 @@ theorem intro {ib : ι → Option (InboxState V)} {pref : ChanKey V → List V}
     (hoff : ∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = [])
     (hfifo : ∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) :
     Sₛ ≋[mb, rx] Sₜ :=
-  ⟨ib, pref, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩
+  ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hfifo⟩
 
 /-- An instance whose process contains no `receive` has no inbox to account for — so the mailbox
 being `none` (a syntactic fact about the compiled process) forces the witness to be `none` too, and
