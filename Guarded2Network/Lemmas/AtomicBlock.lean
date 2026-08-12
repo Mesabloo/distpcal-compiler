@@ -36,23 +36,53 @@ open GuardedPlusCal (Block ChanKey LocalState' Trace)
 variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
 
 /-- Every freshness hypothesis `stepBranch_spec` takes, at every branch of a block. Bundled because
-all five travel together from here up: they are conditions on the source program and on the pass's
-generated `inbox`, discharged by the passes before this one. -/
-structure BranchesFresh (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+all six travel together from here up: they are conditions on the source program and on the pass's
+generated `inbox`, discharged by the passes before this one.
+
+`mbox` is a parameter and `mbox_some` is what makes it one. A process with no `receive` is compiled
+without an `inbox` local and has to be related at `.none` (`Mailbox`'s own doc); every other field
+here holds at either mailbox, and `receive` is the only construct that forces the `.some` one. -/
+structure BranchesFresh (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
     (Br : ComputableGuardedPlusCal.AtomicBranch) : Prop where
+  /-- A branch that receives at all is a branch of a process with a mailbox. -/
+  mbox_some : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+    GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
+      mbox = .some (c₀, inbox)
   /-- Every `receive` in the precondition reads the process's one channel, and neither its channel
   nor its target mentions the generated `inbox`. -/
   rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
     GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
       c = c₀ ∧ ReceiveFresh c r inbox
   /-- No precondition statement mentions the mailbox. -/
-  gfresh : ∀ S ∈ preconditionList Br.precondition, Fresh (.some (c₀, inbox)) S
+  gfresh : ∀ S ∈ preconditionList Br.precondition, Fresh mbox S
   /-- No `with` in the precondition binds a name a consumption pair reads. -/
   pfresh : PairsFresh inbox (preconditionList Br.precondition)
   /-- Nor does any action statement mention the mailbox. -/
-  afresh : ∀ S ∈ Br.action.begin, Fresh (.some (c₀, inbox)) S
+  afresh : ∀ S ∈ Br.action.begin, Fresh mbox S
   /-- Including the terminal one. -/
-  alast : Fresh (.some (c₀, inbox)) Br.action.last
+  alast : Fresh mbox Br.action.last
+
+/-- **A branch that never receives is fresh at `.none` for nothing.** Every field above is a
+condition on the generated `inbox`, and at `.none` there is no `inbox` to condition on: `Fresh .none`
+is vacuous by definition, and `mbox_some`/`rfresh`/`pfresh` all quantify over the branch's
+`receive`s, of which there are none.
+
+This is what makes the `.none` mailbox *reachable* rather than merely statable, and so it is the
+whole point of `mbox` being a parameter. A process with no `receive` is compiled without an `inbox`
+local, so `relatesTo (.some (c, inbox))` — which requires the target's memory to bind `inbox` — is
+false of it at `Algorithm.init`. `.none` is the only mailbox such a process can have, and this is how
+it gets one. -/
+theorem BranchesFresh.none_of_no_receive {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+  {Br : ComputableGuardedPlusCal.AtomicBranch}
+  (norecv : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+    GuardedPlusCal.Statement.receive c r coe ∉ preconditionList Br.precondition) :
+    BranchesFresh .none c₀ inbox Br where
+  mbox_some c r coe h := (norecv c r coe h).elim
+  rfresh c r coe h := (norecv c r coe h).elim
+  gfresh _ _ := nofun
+  pfresh _ _ _ _ _ c r coe h := (norecv c r coe h).elim
+  afresh _ _ := nofun
+  alast := nofun
 
 /-- What one compiled block owes its source: the same label, and branches pairwise `BranchRefines`.
 
@@ -80,29 +110,30 @@ place.
 
 The invariant is supplied to `mvcgen` rather than proved after it: `Spec.mapM_list` is `@[spec]`, so
 `mvcgen` finds the loop on its own and only wants the invariant. -/
-private theorem stepBlock_spec {chans : Guarded2NetworkChans}
+private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {blk : ComputableGuardedPlusCal.AtomicBlock}
-    (fresh : ∀ Br ∈ blk.branches, BranchesFresh c₀ inbox Br) :
-    ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
+    (fresh : ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
+    ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st⌝⦄
     stepBlock (m := G2NM) chans inbox blk
     ⦃⇓? blk' st' =>
-      ⌜BlockRefines (V := V) (.some (c₀, inbox)) pref blk blk' ∧ RxThreads inbox st'⌝⦄ := by
+      ⌜BlockRefines (V := V) mbox pref blk blk' ∧ RxThreads mbox c₀ inbox st'⌝⦄ := by
   mvcgen [stepBlock, stepBranch_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ st =>
-    ⌜List.Forall₂ (BranchRefines (V := V) (.some (c₀, inbox)) pref) cur.prefix res ∧
-      RxThreads inbox st⌝
+    ⌜List.Forall₂ (BranchRefines (V := V) mbox pref) cur.prefix res ∧
+      RxThreads mbox c₀ inbox st⌝
   with
-  -- `stepBranch_spec`'s implicits. `mvcgen` abstracts them over the loop's context — nothing in the
-  -- *program* says what the value type is or which channel a branch's receives read — and wraps
-  -- each in `id`, so a goal mentioning one reads `id ?vc6 s n h` rather than `c₀`. Discharged here,
-  -- before any case that would have to unify against that
-  | vc4 | vc6 | vc5 | vc7 => intro _ _ _; assumption
+  -- `stepBranch_spec`'s remaining implicits. `mvcgen` abstracts over the loop's context whatever the
+  -- *program* does not say — the value type, and the prefix function — and wraps each in `id`, so a
+  -- goal mentioning one reads `id ?vc7 s n h` rather than `pref`. Discharged here, before any case
+  -- that would have to unify against that. (`c₀` is no longer among them: `RxThreads` names it, so
+  -- the loop invariant pins it.)
+  | vc4 | vc6 | vc7 | vc8 => intro _ _ _; assumption
 
   -- the label is `rfl`; re-associating the rest is all that separates the loop's invariant from
   -- `BlockRefines`
-  case vc15.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
+  case vc17.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
 
   case vc1.step.pre h => exact h.2
 
@@ -110,13 +141,14 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans}
     intro _ _ hbr hrx
     exact ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hbr), hrx⟩
 
-  case vc14.pre => exact ⟨.nil, ‹_›⟩
+  case vc16.pre => exact ⟨.nil, ‹_›⟩
   -- one `BranchesFresh` field each, at whichever branch the walk is currently on
-  case vc8 _ _ _ _ cur _ hsplit _ | vc9 _ _ _ _ cur _ hsplit _ | vc10 _ _ _ _ cur _ hsplit _
-     | vc11 _ _ _ _ cur _ hsplit _ | vc12 _ _ _ _ cur _ hsplit _ | vc13 _ _ _ _ cur _ hsplit _ =>
+  case vc9 _ _ _ _ cur _ hsplit _ | vc10 _ _ _ _ cur _ hsplit _ | vc11 _ _ _ _ cur _ hsplit _
+     | vc12 _ _ _ _ cur _ hsplit _ | vc13 _ _ _ _ cur _ hsplit _ | vc14 _ _ _ _ cur _ hsplit _
+     | vc15 _ _ _ _ cur _ hsplit _ =>
     intro _ _ _
     rw [hsplit] at fresh
-    obtain ⟨_, _, _, _, _⟩ := fresh cur (List.mem_append_right _ List.mem_cons_self)
+    obtain ⟨_, _, _, _, _, _⟩ := fresh cur (List.mem_append_right _ List.mem_cons_self)
     solve | assumption | intro _; assumption
 
 end Guarded2Network

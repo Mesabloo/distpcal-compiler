@@ -333,8 +333,9 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   pairwise `BranchRefines`, and `RxThreads` threaded through — label plus per-branch `goto` being
   what "the gotos agree" means. No block-to-block `StrongRefinement`: `AtomicBlock.reducing` exists
   only on the Network side, so pairwise-over-branches is the strongest statable thing, and it is
-  what the process level wants anyway. `BranchesFresh` bundles the five per-branch freshness
-  hypotheses that travel up from here.
+  what the process level wants anyway. `BranchesFresh` bundles the six per-branch freshness
+  hypotheses that travel up from here — including `mbox_some`, the one construct (a `receive`) that
+  forces the mailbox to be `.some`; `BranchesFresh.none_of_no_receive` is the receive-free case.
 - `Lemmas/Thread.lean` — one thread: `stepBlock_spec` under `Spec.mapM_list`, then the same at
   `.run {}` so `mvcgen` can descend into `Thread.toNetwork`'s body (needs `-StateT.run` at the call
   site, or the toolchain's own `StateT.run` spec wins). `ThreadRefines` is "a `.code` thread whose
@@ -343,8 +344,17 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
 - `Lemmas/Process.lean` — two subjects, split by a section header. The semantic bridge above; then
   the pass's process rung — `ProcessFresh` (freshness quantified over the name the pass will invent),
   `ProcessRefines` (the `rxs ++ codes` thread split, and `name_eq`, which `Algorithm.algebra`'s
-  by-name lookup makes load-bearing), and `Process.toNetwork_spec`. `Generated`/`freshName_spec`
-  themselves live in `Lemmas/Monad.lean`.
+  by-name lookup makes load-bearing), and `Process.toNetwork_spec`. Then label disjointness:
+  `LabelsHygienic` (the front end's side), `rxLabels`, and `rx_disjoint`/`exit_not_rx` over
+  `rxLabels_generated` (the pass's side), then `ownedLabels_eq` and `label_cases` — the exhaustive
+  and exclusive halves of `AlgebraRefines.labels`' dispatch. Then the branches at a label
+  (`srcBranchesAt`/`tgtBranchesAt`, concatenations because nothing enforces unique labels) and five
+  of `CodeLabelRefines`' fields as standalone lemmas. `Generated`/`freshName_spec` themselves live in
+  `Lemmas/Monad.lean`.
+- `Lemmas/Algorithm.lean` — same two-subject split. The algorithm-level dispatch (`AlgebraRefines`,
+  `algRelatesTo.refines`); then the pass's algorithm rung — `AlgorithmFresh` and
+  `Algorithm.toNetwork_spec`, which reports the processes pairwise `ProcessRefines` plus the global
+  state unchanged. Turning that into `AlgebraRefines` is not written (`PLAN.md` §D8).
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.

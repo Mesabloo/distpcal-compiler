@@ -1916,6 +1916,54 @@ proof here computes on characters.
 process does owe is `name_eq`: `Algorithm.algebra` resolves both `owned` and `table` by looking the
 process up under its name, so one compiled under a different name would own no labels at all.
 
+**A receive-free process needs `mb = .none`, and one construct forces `.some` (landed, item 7).**
+`Mailbox`'s `none` case is for a process containing no `receive`, and it is forced rather than a
+spare generality: `stepBranch` declares the `inbox` local only when a branch actually receives, so a
+receive-free compiled process never binds `inbox`, while `relatesTo (.some (c, inbox))` requires
+`σₜ.mem.lookup inbox = .some sv`. At `Algorithm.init` that is false, so `.some` would be *wrong*
+there, not merely unprovable.
+
+The fix was not a second chain. `action_refines`/`guard_refines` were already mailbox-polymorphic and
+`Fresh .none` is vacuous by definition, so `mbox` simply became a parameter of the whole ladder —
+`WalkInv` through `AlgorithmFresh`. **Exactly one construct forces `.some`**: a `receive`, via
+`BranchesFresh.mbox_some` (`∀ c r coe, receive c r coe ∈ … → mbox = .some (c₀, inbox)`), discharged
+in `stepStatement_spec`'s `receive` case and nowhere else. `BranchesFresh.none_of_no_receive` and
+`ProcessFresh.none_of_no_receive` then give the `.none` bundle from "no receives" alone, which is
+what makes that mailbox reachable rather than merely statable. `ProcessFresh` takes the mailbox as a
+function of the generated name, since which mailbox a process gets is settled before the pass runs
+but the name filling the `.some` is not.
+
+**Label disjointness splits the same way (landed, item 7).** A receiving thread's label must not be
+one a code thread can be scheduled at or jump to, and that is again two facts meeting at `Generated`.
+The pass's half is `ProcessRefines.rxLabels_generated`: every label in `rxLabels p'` came from
+`freshName`, since `stepBranch` is where one is made and every *code* thread of a compiled process is
+`.code` by `ThreadRefines`. The front end's half is `LabelsHygienic p`: no source block label, and no
+branch's terminal `goto` target, is `Generated "rx"`. `rx_disjoint` and `exit_not_rx` are the two
+corollaries, one and three lines. `goto` being the only terminal statement constructor is what lets
+the second field be stated syntactically, at `Br.action.last`.
+
+`ProcessRefines.ownedLabels_eq` then makes the split an *equation* —
+`NetworkPlusCal.Process.ownedLabels p' = rxLabels p' ∪ GuardedPlusCal.Process.ownedLabels p` — and
+`label_cases` packages it with the disjointness into the dispatch `AlgebraRefines.labels` consumes,
+carrying the negative fact in each branch. Exhaustive and exclusive together make `ownedLabels p'` a
+genuine disjoint union, which is what `procRelatesTo`'s `L₂ = L₁ ∪ rx` and `Disjoint L₁ rx` are
+stated against.
+
+**A label's branches are a concatenation, so `refines` is `BranchesRefine`, not `Forall₂` (landed,
+item 7).** `Process.codeTable` lets a label denote the union of every block carrying it, and
+`WellFormedness/Labelling.lean` checks only that `goto` targets exist — never that labels are unique.
+So `srcBranchesAt`/`tgtBranchesAt` concatenate over all blocks at a label, and no positional pairing
+between them exists. `CodeLabelRefines.refines` was weakened to `∀ Br' ∈ brs', ∃ Br ∈ brs, …`, which
+is exactly what its only consumer (`blockRefines_step`, via `exists_left`) ever spent. Nothing above
+changed. The alternative — assuming label uniqueness — would have been an unverified precondition on
+the source program, since no pass checks it. `BlockRefines` keeps its `Forall₂`: per block it is true
+and positional.
+
+That the checker does not enforce uniqueness is itself a gap, and a real one: a `goto` naming a
+duplicated label is ambiguous, and `codeTable`'s union turns it silently into non-deterministic
+choice rather than an error. Tracked as **§9.29**. The proof does not depend on closing it — the
+weaker `BranchesRefine` is what every consumer wants regardless.
+
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces
 it with the label the block's terminal `goto` reached. A thread contributes only the labels it owns

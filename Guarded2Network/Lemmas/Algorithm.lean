@@ -4,6 +4,7 @@ meta import CustomPrelude
 public import Guarded2Network.Lemmas.Process
 public import Guarded2Network.Lemmas.Rx
 public import Core.NetworkPlusCal.Semantics.Process
+import all Guarded2Network.PlusCal
 
 @[expose] public section
 
@@ -58,9 +59,10 @@ structure CodeLabelRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx 
     LocalState V false × Trace V × LocalState V true) ∈ (Aₜ.table p).reducing l → l' ∉ rx p
   /-- The branches refine pairwise, at every prefix function. -/
   refines : ∀ pref : ChanKey V → List V,
-    List.Forall₂ (BranchRefines (V := V) (mb p) pref) brs brs'
+    BranchesRefine (V := V) (mb p) pref brs brs'
   /-- Every source branch avoids the generated `inbox`. -/
-  fresh : ∀ Br ∈ brs, ∀ c inbox, mb p = .some (c, inbox) → BranchesFresh c inbox Br
+  fresh : ∀ Br ∈ brs, ∀ c inbox, mb p = .some (c, inbox) →
+    BranchesFresh (.some (c, inbox)) c inbox Br
   /-- A target step at this label is a step of one compiled branch. -/
   target_le : ∀ x ∈ (Aₜ.table p).reducing l,
     ∃ Br' ∈ brs', x ∈ NetworkPlusCal.AtomicBranch.reducing Br'
@@ -329,6 +331,95 @@ theorem algRelatesTo.refines [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : �
   terminating := algRelatesTo.terminating_reducing href
   aborting := algRelatesTo.aborting href
   diverging := algRelatesTo.diverging href
+
+/-! # The pass at this level: the whole algorithm, compiled
+
+  D8's last rung. `Algorithm.toNetwork` maps `Process.toNetwork` over the algorithm's processes and
+  keeps the global state, so the syntactic half is `Spec.mapM_list` a fourth time and nothing more.
+
+  The semantic half — turning the resulting `ProcessRefines` into the `AlgebraRefines` above — is a
+  different kind of step and is not here. It has to go through `Algorithm.algebra`'s by-name lookup
+  on both sides, and it is the first place the two languages' `Process.codeTable`s are compared
+  rather than their syntax.
+-/
+
+/-- **The source-side half of D8's contract, at the top.** Every process of the algorithm is
+`ProcessFresh` at the channel the mailbox assignment gives its name.
+
+`c₀` and `mbox` are keyed by process *name* rather than carried per process, because that is how the
+algorithm layer indexes: `Algorithm.algebra` resolves a process instance `⟨name, self⟩` by looking
+`name` up. `mbox`'s second argument is the name the pass will generate, which is why it is a function
+and not a `Mailbox` — see `ProcessFresh`. -/
+def AlgorithmFresh (mbox : String → String → Mailbox)
+  (c₀ : String → ComputableGuardedPlusCal.Ref)
+  (algo : ComputableGuardedPlusCal.Algorithm) : Prop :=
+    ∀ p ∈ algo.processes, ProcessFresh (mbox p.name) (c₀ p.name) p
+
+open Std.Do in
+/-- **The walk over an algorithm's processes.** `Process.toNetwork_spec` iterated by
+`Spec.mapM_list`.
+
+The per-process `inbox` stays existential inside the `Forall₂` rather than being collected into a
+function. Turning it into the `mb : ι → Mailbox` that `AlgebraRefines` wants is the semantic half's
+business, and it needs the by-name lookup anyway. -/
+private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
+  {mbox : String → String → Mailbox} {c₀ : String → ComputableGuardedPlusCal.Ref}
+  {pref : ChanKey V → List V} {ps : List ComputableGuardedPlusCal.Process}
+  (fresh : ∀ p ∈ ps, ProcessFresh (mbox p.name) (c₀ p.name) p) :
+    ⦃⌜True⌝⦄
+    ps.mapM (ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans)
+    ⦃⇓? ps' _ => ⌜List.Forall₂
+      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+      ps ps'⌝⦄ := by
+  mvcgen [Process.toNetwork_spec]
+  invariants
+  | inv1 => ⇓? ⟨cur, res⟩ _ =>
+    ⌜List.Forall₂
+      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+      cur.prefix res⌝
+  with
+  -- `Process.toNetwork_spec`'s seven implicits, answered by shape rather than by tag. Three the
+  -- context already holds; the mailbox and the channel are functions of *which* process, so they are
+  -- read off the walk's position; the last is the freshness hypothesis at that same process. One
+  -- alternative rather than seven, because the tags carry no information — they renumber whenever a
+  -- rung below gains a hypothesis, and `cur✝` is the only bare `Process` in scope either way.
+  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 =>
+    intro _ _
+    first
+      | assumption
+      | exact mbox ‹ComputableGuardedPlusCal.Process›.name
+      | exact c₀ ‹ComputableGuardedPlusCal.Process›.name
+      | (rw [‹ps = _ ++ _ :: _›] at fresh
+         exact fresh _ (List.mem_append_right _ List.mem_cons_self))
+
+  case vc1.pre => exact .nil
+  case vc2.post.success => exact id
+
+  case vc3.post.success _ _ _ _ _ _ _ hinv _ =>
+    intro _ hcur
+    exact List.rel_append hinv (List.forall₂_singleton.mpr hcur)
+
+open Std.Do in
+/-- **The whole algorithm, compiled — D8's syntactic half.** The walk over the processes, plus the
+global state carried across unchanged.
+
+`globalState` is reported because `Algorithm.init` is stated against it: the clause fixing every
+declared channel's initial queue quantifies over `algo.globalState.channels ++ .fifos`, and the
+initial-state obligation needs those to be the same two lists on both sides. Nothing in
+`AlgebraRefines` wants it. -/
+theorem Algorithm.toNetwork_spec {mbox : String → String → Mailbox}
+  {c₀ : String → ComputableGuardedPlusCal.Ref} {pref : ChanKey V → List V}
+  {algo : ComputableGuardedPlusCal.Algorithm} (fresh : AlgorithmFresh mbox c₀ algo) :
+    ⦃⌜True⌝⦄
+    ComputableGuardedPlusCal.Algorithm.toNetwork (m := G2NM) algo
+    ⦃⇓? algo' _ => ⌜algo'.globalState = algo.globalState ∧
+      List.Forall₂
+        (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+        algo.processes algo'.processes⌝⦄ := by
+  -- `-Spec.mapM_list` for the reason it is needed at every rung: the generic loop spec would match
+  -- the walk before `mapM_processToNetwork_spec` does
+  mvcgen [ComputableGuardedPlusCal.Algorithm.toNetwork, mapM_processToNetwork_spec,
+    -Std.Do.Spec.mapM_list]
 
 end Guarded2Network
 

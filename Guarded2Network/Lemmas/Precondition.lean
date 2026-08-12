@@ -734,14 +734,27 @@ and `walked` already refines the emitted guards followed by those pending pairs.
 
 Carrying the refinement *here* is the whole design. Each pair is moved past the guards that follow it
 by the very step that produces it, so no two orderings of a whole block ever have to be related — the
-`Head`/`Tail` bookkeeping stays local to one step. -/
-private def WalkInv (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+`Head`/`Tail` bookkeeping stays local to one step.
+
+The `rxs` clause is not part of that design and rides along only because this is where the list is
+built: every channel the walk records is the process's one channel, and recording one at all means
+the process has a mailbox. `rfresh` and `hmb` are what say those, one `receive` at a time, and the
+thread level is what spends them — a registered `.rx` thread has to be on the channel the refinement
+invariant is stated against, or the mailbox the algorithm level assigns the process would name a
+different channel than the one its receiving thread drains.
+
+**`mbox` is a parameter, not `.some (c₀, inbox)`.** A process with no `receive` at all is compiled
+without an `inbox` local and so must be related at `.none` (`Mailbox`'s own doc), which no chain
+fixed at `.some` can reach. Every clause here is insensitive to which it is; what forces `.some` is a
+`receive`, and `stepStatement_spec` below asks for it exactly there. -/
+private def WalkInv (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
     (pref : ChanKey V → List V)
     (walked : List (ComputableGuardedPlusCal.Statement true false))
     (results : List (ComputableNetworkPlusCal.Statement true false))
     (st : ReceiveState) : Prop :=
   ConsumptionPairs inbox st.i st.newInstrs ∧ results.length = walked.length ∧
-    StrongRefinement (relatesTo (V := V) (.some (c₀, inbox)) pref) (instTrace (V := V)).Rτ
+    (∀ x ∈ st.rxs, x.1 = c₀ ∧ mbox = .some (c₀, inbox)) ∧
+    StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.Statement.listReducing' walked)
       (GuardedPlusCal.Statement.listAborting' walked)
       ∅
@@ -753,10 +766,10 @@ private def WalkInv (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
       ∅
 
 /-- The invariant holds at the start: nothing walked, nothing emitted, nothing pending. -/
-private theorem WalkInv.nil {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+private theorem WalkInv.nil {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
     {pref : ChanKey V → List V} :
-    WalkInv (V := V) c₀ inbox pref [] [] {} := by
-  refine ⟨.nil, rfl, ?_⟩
+    WalkInv (V := V) mbox c₀ inbox pref [] [] {} := by
+  refine ⟨.nil, rfl, nofun, ?_⟩
   -- `simp only`, not `rw`: `({} : ReceiveState).newInstrs` is a projection out of a structure
   -- literal, and `rw`'s syntactic match never gets past it to `consumptions_nil`
   simp only [GuardedPlusCal.Statement.listReducing'_nil, GuardedPlusCal.Statement.listAborting'_nil,
@@ -773,28 +786,36 @@ the source statement composed onto the prefix.
 
 The freshness side condition sits in the precondition rather than in the signature because it is
 about the *accumulator*, which only exists at run time — the same reason prior art threads
-well-scopedness through its own loop invariant instead of assuming it up front. -/
-private theorem stepStatement_spec {chans : Guarded2NetworkChans}
+well-scopedness through its own loop invariant instead of assuming it up front.
+
+`hmb` is where the mailbox stops being arbitrary. A `with` or an `await` refines itself at any
+`mbox`; a `receive` is what the pass compiles into reads of `inbox`, so relating the two sides across
+one needs the invariant to *be* about that `inbox`. A receive-free walk never discharges `hmb` and so
+runs at `.none` as happily as at `.some`. -/
+private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
     (S : ComputableGuardedPlusCal.Statement true false)
     {pref : ChanKey V → List V}
     {walked : List (ComputableGuardedPlusCal.Statement true false)}
     {results : List (ComputableNetworkPlusCal.Statement true false)}
     {suff : List (ComputableGuardedPlusCal.Statement true false)}
+    (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      S = GuardedPlusCal.Statement.receive c r coe → mbox = .some (c₀, inbox))
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       S = GuardedPlusCal.Statement.receive c r coe → c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : Fresh (.some (c₀, inbox)) S) (pfresh : PairsFresh inbox (S :: suff)) :
-    ⦃λ st ↦ ⌜WalkInv (V := V) c₀ inbox pref walked results st ∧ AccFresh inbox st (S :: suff)⌝⦄
+    (gfresh : Fresh mbox S) (pfresh : PairsFresh inbox (S :: suff)) :
+    ⦃λ st ↦ ⌜WalkInv (V := V) mbox c₀ inbox pref walked results st ∧ AccFresh inbox st (S :: suff)⌝⦄
       (stepStatement (m := G2NM) chans inbox S)
-    ⦃⇓? T st' => ⌜WalkInv (V := V) c₀ inbox pref (walked ++ [S]) (results ++ [T]) st' ∧
+    ⦃⇓? T st' => ⌜WalkInv (V := V) mbox c₀ inbox pref (walked ++ [S]) (results ++ [T]) st' ∧
       AccFresh inbox st' suff⌝⦄ := by
   -- one line, and every `wp` is gone: three goals, one per guard constructor, each a plain
   -- `WalkInv` obligation with the incoming invariant in context
   mintro ⟨inv, gf⟩
   cases S <;> simp only [stepStatement] <;> mvcgen
   case vc1.with name ann bound e st n hinv =>
-    obtain ⟨⟨pairs, hlen, ref⟩, gf'⟩ := hinv
-    refine ⟨⟨pairs, by simp [hlen], ?_⟩, λ a ha x _ _ _ hm ↦ gf' a ha x _ _ _ (List.mem_cons_of_mem _ hm)⟩
+    obtain ⟨⟨pairs, hlen, hrxs, ref⟩, gf'⟩ := hinv
+    refine ⟨⟨pairs, by simp [hlen], hrxs, ?_⟩,
+      λ a ha x _ _ _ hm ↦ gf' a ha x _ _ _ (List.mem_cons_of_mem _ hm)⟩
     have hfresh : ∀ a ∈ st.newInstrs,
         GuardFresh a.1 a.2.1 (NetworkPlusCal.Statement.with name ann bound e) := by
       intro a ha x _ _ _ heq
@@ -823,8 +844,9 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans}
     exact Set.union_le_union le_rfl
       (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hfresh))
   case vc1.await e st n hinv =>
-    obtain ⟨⟨pairs, hlen, ref⟩, gf'⟩ := hinv
-    refine ⟨⟨pairs, by simp [hlen], ?_⟩, λ a ha x _ _ _ hm ↦ gf' a ha x _ _ _ (List.mem_cons_of_mem _ hm)⟩
+    obtain ⟨⟨pairs, hlen, hrxs, ref⟩, gf'⟩ := hinv
+    refine ⟨⟨pairs, by simp [hlen], hrxs, ?_⟩,
+      λ a ha x _ _ _ hm ↦ gf' a ha x _ _ _ (List.mem_cons_of_mem _ hm)⟩
     -- an `await` binds nothing, so its freshness against the accumulator is unconditional
     have hfresh : ∀ a ∈ st.newInstrs,
         GuardFresh a.1 a.2.1 (NetworkPlusCal.Statement.await e) := λ _ _ ↦ GuardFresh.await
@@ -849,10 +871,20 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans}
     exact Set.union_le_union le_rfl
       (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hfresh))
   case vc2.receive.h_2 c r coe st n hinv τ hτ =>
-    obtain ⟨⟨pairs, hlen, ref⟩, gf'⟩ := hinv
+    obtain ⟨⟨pairs, hlen, hrxs, ref⟩, gf'⟩ := hinv
+    -- the one statement that pins the mailbox: from here down the walk is about *this* `inbox`
+    obtain rfl := hmb c r coe rfl
     obtain ⟨rfl, hfr⟩ := rfresh c r coe rfl
-    refine ⟨⟨pairs.snoc (ne_name_of_fresh hfr.2.1).symm, by simp [hlen], ?_⟩, ?_⟩
-    case' refine_2 =>
+    refine ⟨⟨pairs.snoc (ne_name_of_fresh hfr.2.1).symm, by simp [hlen], ?_, ?_⟩, ?_⟩
+    -- the one step that grows `rxs`, and it grows it by this `receive`'s own channel
+    case' refine_1 =>
+      intro x hx
+      rw [List.concat_eq_append] at hx
+      rcases List.mem_append.mp hx with h' | h'
+      · exact hrxs x h'
+      · rw [List.mem_singleton.mp h']
+        exact ⟨rfl, rfl⟩
+    case' refine_3 =>
       intro a ha x ann bound e hm
       rcases List.mem_append.mp ha with h' | h'
       · exact gf' a h' x ann bound e (List.mem_cons_of_mem _ hm)
@@ -899,22 +931,25 @@ accumulator stays fresh for the statements yet to come.
 Both conjuncts are needed and neither can be dropped — the refinement is the point, and `AccFresh`
 is what the next step's precondition asks for. It shrinks with the suffix on a guard and is
 re-established from `PairsFresh` when a `receive` grows the accumulator. -/
-private theorem mapM_stepStatement_refines {chans : Guarded2NetworkChans}
+private theorem mapM_stepStatement_refines {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {Ss : List (ComputableGuardedPlusCal.Statement true false)}
+    (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ Ss → mbox = .some (c₀, inbox))
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ Ss → c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : ∀ S ∈ Ss, Fresh (.some (c₀, inbox)) S) (pfresh : PairsFresh inbox Ss) :
-    ⦃λ stf ↦ ⌜WalkInv (V := V) c₀ inbox pref [] [] stf ∧ AccFresh inbox stf Ss⌝⦄
+    (gfresh : ∀ S ∈ Ss, Fresh mbox S) (pfresh : PairsFresh inbox Ss) :
+    ⦃λ stf ↦ ⌜WalkInv (V := V) mbox c₀ inbox pref [] [] stf ∧ AccFresh inbox stf Ss⌝⦄
       Ss.mapM (stepStatement (m := G2NM) chans inbox)
-    ⦃⇓? bs stf' => ⌜WalkInv (V := V) c₀ inbox pref Ss bs stf' ∧ AccFresh inbox stf' []⌝⦄ :=
+    ⦃⇓? bs stf' => ⌜WalkInv (V := V) mbox c₀ inbox pref Ss bs stf' ∧ AccFresh inbox stf' []⌝⦄ :=
   Spec.mapM_list
-    (inv := ((λ q stf ↦ ⌜WalkInv (V := V) c₀ inbox pref q.1.prefix q.2 stf ∧
+    (inv := ((λ q stf ↦ ⌜WalkInv (V := V) mbox c₀ inbox pref q.1.prefix q.2 stf ∧
         AccFresh inbox stf q.1.suffix⌝, ExceptConds.true) :
       Invariant Ss (List (ComputableNetworkPlusCal.Statement true false))
         (.arg ReceiveState (.except G2NError (.arg Nat .pure)))))
     (λ _ cur suff h bs ↦
       stepStatement_spec (V := V) (c₀ := c₀) cur
+        (λ c r coe heq ↦ hmb c r coe (heq ▸ h ▸ List.mem_append_right _ List.mem_cons_self))
         (λ c r coe heq ↦ rfresh c r coe (heq ▸ h ▸ List.mem_append_right _ List.mem_cons_self))
         (gfresh cur (h ▸ List.mem_append_right _ List.mem_cons_self))
         (pfresh.mono (h ▸ List.subset_append_right _ _)))
@@ -926,15 +961,18 @@ toolchain's `[spec] StateT.run` never fires and `mvcgen` cannot descend on its o
 
 Registered `@[spec]` so the block-level proof never has to look inside the walk. -/
 @[spec] private theorem mapM_stepStatement_refines_run {chans : Guarded2NetworkChans}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
+    {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {pref : ChanKey V → List V}
     {Ss : List (ComputableGuardedPlusCal.Statement true false)}
+    (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ Ss → mbox = .some (c₀, inbox))
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ Ss → c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : ∀ S ∈ Ss, Fresh (.some (c₀, inbox)) S) (pfresh : PairsFresh inbox Ss) :
+    (gfresh : ∀ S ∈ Ss, Fresh mbox S) (pfresh : PairsFresh inbox Ss) :
     ⦃⌜True⌝⦄
       ((Ss.mapM (stepStatement (m := G2NM) chans inbox)).run {})
-    ⦃⇓? p n' => ⌜WalkInv (V := V) c₀ inbox pref Ss p.1 p.2 ∧ AccFresh inbox p.2 []⌝⦄ :=
-  λ n _ ↦ mapM_stepStatement_refines (V := V) rfresh gfresh pfresh {} n
+    ⦃⇓? p _ => ⌜WalkInv (V := V) mbox c₀ inbox pref Ss p.1 p.2 ∧ AccFresh inbox p.2 []⌝⦄ :=
+  λ n _ ↦ mapM_stepStatement_refines (V := V) hmb rfresh gfresh pfresh {} n
     ⟨WalkInv.nil, λ _ ha ↦ nomatch ha⟩
 
 /-- **`rfresh` assembled from its two sources.** The receive half comes from well-formedness, where
@@ -978,19 +1016,22 @@ the identity relation rather than with `∅`.
 
 Divergence is `∅` on both sides rather than `Block.diverging`, the form every composition site wants:
 no statement of either language diverges (`Block.diverging'_eq_empty`). -/
-private theorem processPrecondition_spec {chans : Guarded2NetworkChans}
+private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {pre : Option (GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false)}
     {n : Nat}
+    (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ preconditionList pre → mbox = .some (c₀, inbox))
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ preconditionList pre →
         c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : ∀ S ∈ preconditionList pre, Fresh (.some (c₀, inbox)) S)
+    (gfresh : ∀ S ∈ preconditionList pre, Fresh mbox S)
     (pfresh : PairsFresh inbox (preconditionList pre)) :
     ⦃λ n₀ ↦ ⌜n₀ = n⌝⦄
     processPrecondition (m := G2NM) chans inbox pre
-    ⦃⇓? (pre', assigns, _) _ =>
-      ⌜StrongRefinement (relatesTo (V := V) (.some (c₀, inbox)) pref) (instTrace (V := V)).Rτ
+    ⦃⇓? (pre', assigns, rxs) _ =>
+      ⌜(∀ x ∈ rxs, x.1 = c₀ ∧ mbox = .some (c₀, inbox)) ∧
+        StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
         (pre.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
           (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
         (pre.elim ∅ (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
@@ -1008,9 +1049,10 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans}
             NetworkPlusCal.Statement.listAborting' assigns)
         ∅⌝⦄ := by
     mvcgen [processPrecondition, -StateT.run]
-    with | rfresh | gfresh | pfresh => subst pre; assumption
+    with | hmb | rfresh | gfresh | pfresh => subst pre; assumption
 
     case h_1 =>
+      refine ⟨nofun, ?_⟩
       simp only [Option.elim, NetworkPlusCal.Statement.listReducing'_nil,
         NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₂.left_id_eq,
         Relation.lcomp₁.right_empty_eq_empty, Set.empty_union]
@@ -1025,7 +1067,8 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans}
        -   simp [NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₁.right_empty_eq_empty] -/
 
     case post.success r _ hinv =>
-      obtain ⟨⟨pairs, hlen, ref⟩, -⟩ := hinv
+      obtain ⟨⟨pairs, hlen, hrxs, ref⟩, -⟩ := hinv
+      refine ⟨hrxs, ?_⟩
       -- `dropLast`/`getLast!` put the block back together only because the walk emitted one
       -- statement per source statement, and a `Block` is non-empty by construction
       have hne : r.1 ≠ [] := by

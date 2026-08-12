@@ -485,3 +485,35 @@ Two candidate reasons, neither checked:
 Resolving it means checking whether `List.prod ∘ List.map e ∘ List.range` carries the five
 `partialProd` facts for free, and whether `Extra/Seq.lean`'s `get?_partialProd_of_le` /
 `get?_ωProduct` survive the change. Cosmetic if so; not blocking anything.
+
+### 9.29 Nothing checks that block labels are unique within a process
+Found during item 7, §D8, building `CodeLabelRefines` from `ProcessRefines`.
+
+`WellFormedness/Labelling.lean` collect a process's labels (`Process.labels`) and check every `goto`
+target resolve (`checkGotoTarget`), rejecting a redefined `"Done"`. It never check the collected list
+is `Nodup`. Nothing else do either — `Nodup` appear only for *declaration* names
+(`WellFormedness/WellScoped/CorePlusCal.lean:45`, `WellScoped/GuardedPlusCal.lean:149`).
+
+**Why it matter.** A `goto l` name a label; two blocks carrying `l` make it ambiguous. The semantics
+do not error — `Process.codeTable` (both languages) define a label to denote the *union* of every
+block carrying it, so duplicates silently become non-deterministic choice between blocks. That is a
+defensible reading of an ill-formed program, but it is not one the source language means, and no
+diagnostic tell the user.
+
+**What it cost the proof.** `CodeLabelRefines` want one branch list per label per side. With
+duplicates possible, `srcBranchesAt`/`tgtBranchesAt` (`Guarded2Network/Lemmas/Process.lean`) are
+*concatenations* over every block at that label, and the two side's lists cannot be paired
+positionally. So `CodeLabelRefines.refines` is `BranchesRefine` (`∀ Br' ∈ brs', ∃ Br ∈ brs, …`) rather
+than `List.Forall₂`. That weakening is free — `blockRefines_step` only ever spent the `Forall₂` via
+`exists_left` — so the proof do not *need* uniqueness. Recorded because the checker gap is real, not
+because item 7 is blocked on it.
+
+**To resolve.** Add a `Nodup` check to `TypedPlusCal.Process.labels` (or beside it) with its own
+`WellFormednessError`/`Diagnostics.Entry` — `duplicateLabel`, positioned at the second block carrying
+the name, same way `redefinedDone` is positioned at `posOf blk.end`. Then decide whether the
+Guarded/Network `WellScoped` structures should carry the fact as a field, so item 7 could strengthen
+`BranchesRefine` back to `List.Forall₂` — cosmetic, and probably not worth it: the weaker form is
+what every consumer wants anyway.
+
+Cross-check when doing it: `§9.13` list two well-formedness checks already unreachable, so confirm a
+new one is actually reachable from the driver before adding a fixture.

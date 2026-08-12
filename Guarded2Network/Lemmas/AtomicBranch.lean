@@ -136,23 +136,31 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
   exact hcomp
 
-/-- Every thread of a list is a receive loop on this `inbox`, under a label the pass generated.
-Stated on the bare list rather than on `ThreadState` because `Thread.toNetwork` hands the
-accumulator's `rxThreads` back as a plain list, and the levels above it never see the state again.
+/-- Every thread of a list is a receive loop on this process's channel and `inbox`, under a label the
+pass generated. Stated on the bare list rather than on `ThreadState` because `Thread.toNetwork` hands
+the accumulator's `rxThreads` back as a plain list, and the levels above it never see the state
+again.
 
-The `Generated` conjunct rides along for the same reason the rest does: `stepBranch` is the only
-place a receiving thread is ever appended, so it is the only place that fact can be established. The
-process level is what spends it — a receiving thread's label must not be one of the source's, or a
-code thread could be scheduled at it. -/
-def RxOnly (inbox : String) (Ts : List ComputableNetworkPlusCal.Thread) : Prop :=
-  ∀ T ∈ Ts, ∃ chan label τ, T = .rx chan label τ inbox ∧ Generated "rx" label
+All three extra conjuncts ride along for the same reason the rest does: `stepBranch` is the only
+place a receiving thread is ever appended, so it is the only place any of them can be established.
+The process level is what spends them. `Generated` keeps a receiving thread's label out of the
+source's, or a code thread could be scheduled at it. `c₀` makes the mailbox the algorithm level
+assigns the process name the same channel its receiving thread drains — a process has only one
+channel (`BranchesFresh.rfresh`), so there is only one to name. And `mbox = .some (c₀, inbox)` is
+what rules out the other mailbox: a thread is registered only for a branch that receives, and a
+branch that receives is what `BranchesFresh.mbox_some` says has a mailbox at all. -/
+def RxOnly (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+  (Ts : List ComputableNetworkPlusCal.Thread) : Prop :=
+    ∀ T ∈ Ts, mbox = .some (c₀, inbox) ∧
+      ∃ label τ, T = .rx c₀ label τ inbox ∧ Generated "rx" label
 
-/-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's `inbox`. `stepBranch` is
-the only place one is ever appended, so this is where the fact has to be established; the thread
-level is where it is needed, since `Thread.toNetwork` hands `rxThreads` back as threads and what
-makes that sound is that each is a receive loop rather than arbitrary code. -/
-private def RxThreads (inbox : String) (st : ThreadState) : Prop :=
-  RxOnly inbox st.rxThreads
+/-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's channel and `inbox`.
+`stepBranch` is the only place one is ever appended, so this is where the fact has to be established;
+the thread level is where it is needed, since `Thread.toNetwork` hands `rxThreads` back as threads
+and what makes that sound is that each is a receive loop rather than arbitrary code. -/
+private def RxThreads (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+    (st : ThreadState) : Prop :=
+  RxOnly mbox c₀ inbox st.rxThreads
 
 /-- What one compiled branch owes its source: the refinement, and agreement on where the branch
 goes next. Named because the block level quantifies over it — a compiled block's branches are
@@ -169,6 +177,28 @@ structure BranchRefines (mbox : Mailbox) (pref : ChanKey V → List V)
   `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
   last_eq : Br'.action.last = convertActionStmt Br.action.last
 
+/-- **What a whole label's worth of branches owes**: every compiled branch is *some* source branch,
+refined. Deliberately weaker than the positional `List.Forall₂` a single compiled block satisfies.
+
+Positional pairing is more than any consumer uses — `blockRefines_step` only ever asks for some
+source branch matching the target one it was handed, which is `Forall₂.exists_left` — and it is more
+than a *label* can supply. `Process.codeTable` lets a label denote the union of every block carrying
+it, and nothing in the front end rejects two blocks with one label, so the branch lists at a label
+are concatenations rather than a pair of aligned lists. This is what survives that. -/
+def BranchesRefine (mbox : Mailbox) (pref : ChanKey V → List V)
+  (brs : List ComputableGuardedPlusCal.AtomicBranch)
+  (brs' : List ComputableNetworkPlusCal.AtomicBranch) : Prop :=
+    ∀ Br' ∈ brs', ∃ Br ∈ brs, BranchRefines (V := V) mbox pref Br Br'
+
+/-- One compiled block's branches, as a whole label's worth — the positional form forgetting its
+positions. -/
+theorem BranchesRefine.of_forall₂ {mbox : Mailbox} {pref : ChanKey V → List V}
+    {brs : List ComputableGuardedPlusCal.AtomicBranch}
+    {brs' : List ComputableNetworkPlusCal.AtomicBranch}
+    (h : List.Forall₂ (BranchRefines (V := V) mbox pref) brs brs') :
+    BranchesRefine (V := V) mbox pref brs brs' :=
+  λ _ hBr' ↦ h.exists_left hBr'
+
 open Std.Do in
 /-- **One branch, compiled.** The two halves composed: `processPrecondition_spec` for the
 precondition, `actionBlock_refines` for the action block, and one `StrongRefinement.Comp` joining
@@ -182,31 +212,40 @@ says those are the same relation, and after it the join is associativity.
 `Br'.action.last` is reported alongside: `Block.prepend` does not touch `last` and
 `convertActionBlock` maps it pointwise, so a branch's terminal `goto` survives compilation
 unchanged. That is what the block level needs to know its branches still agree on where they go. -/
-private theorem stepBranch_spec {chans : Guarded2NetworkChans}
+private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
+    (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
+        mbox = .some (c₀, inbox))
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
         c = c₀ ∧ ReceiveFresh c r inbox)
-    (gfresh : ∀ S ∈ preconditionList Br.precondition, Fresh (.some (c₀, inbox)) S)
+    (gfresh : ∀ S ∈ preconditionList Br.precondition, Fresh mbox S)
     (pfresh : PairsFresh inbox (preconditionList Br.precondition))
-    (afresh : ∀ S ∈ Br.action.begin, Fresh (.some (c₀, inbox)) S)
-    (alast : Fresh (.some (c₀, inbox)) Br.action.last) :
-    ⦃λ st ↦ ⌜RxThreads inbox st⌝⦄
+    (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S)
+    (alast : Fresh mbox Br.action.last) :
+    ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st⌝⦄
     stepBranch (m := G2NM) chans inbox Br
     ⦃⇓? Br' st' =>
-      ⌜BranchRefines (V := V) (.some (c₀, inbox)) pref Br Br' ∧ RxThreads inbox st'⌝⦄ := by
+      ⌜BranchRefines (V := V) mbox pref Br Br' ∧ RxThreads mbox c₀ inbox st'⌝⦄ := by
   mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
   with {
+    -- `processPrecondition_spec`'s postcondition arrives as one unsplit conjunction: what the walk
+    -- recorded about the channels, and the refinement
+    obtain ⟨hrxs, href⟩ := ‹_ ∧ _›
     refine ⟨⟨?_, ?_⟩, ?_⟩
-    · exact branch_refines ‹_› afresh alast
+    · exact branch_refines href afresh alast
     · rfl
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; the branch that
     -- registers a new channel is the only one where the two halves differ
     · simp_all [RxThreads, RxOnly, or_imp, forall_and]
-      -- the one branch that registers a channel, at the label `freshName` just handed it — the
-      -- branches that register none are already closed, hence `all`
-      all : exact ⟨_, rfl⟩
+      -- the one branch that registers a channel, at the label `freshName` just handed it, plus
+      -- whichever half of the split `forall_and` left over — the branches that register none are
+      -- already closed, hence `all`
+      all : first
+        | exact ⟨_, rfl⟩
+        | exact ‹_ ∧ _›.1
   }
 
 /-! ## Owed: `stepBranch_spec`
