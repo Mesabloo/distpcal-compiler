@@ -84,11 +84,43 @@ def PipelineError.render (sources : SourceRegistry) (mainLines : List String.Sli
   | .network e => CompilerDiagnostic.pretty e mainLines colored
   | .go e => CompilerDiagnostic.pretty e mainLines colored
 
-/-- A compile's non-fatal diagnostics. Every pass past the driver reports at `MonadDiagnostic
-Empty ε`, i.e. cannot warn at all, so a warning is always a `DriverWarning` — this is an `abbrev`
-rather than a one-constructor wrapper to say exactly that, and becomes a real sum the day some
-later pass grows a warning. -/
-abbrev PipelineWarning := DriverWarning
+/-- A compile's non-fatal diagnostics, from any stage. Mirrors `PipelineError`, one constructor per
+group of stages that can produce one: everything up to type checking reports through
+`DriverWarning`, and well-formedness through its own. The passes after it still report at
+`MonadDiagnostic Empty ε` and so cannot warn at all; each grows a constructor here on the day it
+can. -/
+inductive PipelineWarning : Type
+  /-- Anything up to and including type checking (`Driver/Modules.lean`). -/
+  | driver (w : DriverWarning)
+  /-- A well-formedness finding that does not stop the compile. -/
+  | wellFormedness (w : WellFormednessWarning)
+
+/-- The `-W<name>`/`-Wno-<name>` name a given warning is filtered under — forwards to whichever
+wrapped warning's own. -/
+def PipelineWarning.name : PipelineWarning → String
+  | .driver w => DriverWarning.name w
+  | .wellFormedness w => WellFormednessWarning.name w
+
+/-- The source lines this warning should render against, or `none` to fall back to the main
+module's. Only a driver warning can belong to another module — everything past the driver runs on
+the main module alone, the same way `PipelineError.render` treats those errors. -/
+def PipelineWarning.sourceLines (registry : SourceRegistry) :
+    PipelineWarning → Option (List String.Slice)
+  | .driver w => DriverWarning.sourceLines registry w
+  | .wellFormedness _ => none
+
+instance : CompilerDiagnostic PipelineWarning String where
+  isError := false
+  name := PipelineWarning.name
+  code
+    | .driver w => CompilerDiagnostic.code w
+    | .wellFormedness w => CompilerDiagnostic.code w
+  posOf
+    | .driver w => CompilerDiagnostic.posOf w
+    | .wellFormedness w => CompilerDiagnostic.posOf w
+  msgOf
+    | .driver w => CompilerDiagnostic.msgOf w
+    | .wellFormedness w => CompilerDiagnostic.msgOf w
 
 /-- Everything one compile produced: its diagnostics, how far it got, the sources it read (needed
 to render those diagnostics), and each stage's output for whoever wants to inspect or dump it.
@@ -151,9 +183,19 @@ private def runPostDriver (moduleId : String) (warnings : List PipelineWarning)
   let mut result : PipelineResult :=
     { warnings, reached := .typeCheck, sources, typed := some typed }
 
-  match ← DiagT.run (TypedTLAPlus.Module.checkWellFormed typed : DiagT Empty WellFormednessError Base Unit) with
-    | (_, .error e) => return { result with error := some (.wellFormedness e) }
-    | (_, .ok ()) => result := { result with reached := .wellFormedness }
+  -- Well-formedness is the one stage past the driver that both warns and rewrites: an unused
+  -- `@mailbox` is warned about and dropped (`WellFormedness/Restrictions.lean`), so its warnings
+  -- join the result's and its output module — not the one it was handed — is what every later
+  -- stage compiles.
+  let (wfWarnings, wfResult) ← DiagT.run (TypedTLAPlus.Module.checkWellFormed typed :
+    DiagT WellFormednessWarning WellFormednessError Base TypedModule)
+  let warnings := result.warnings ++ wfWarnings.map PipelineWarning.wellFormedness
+  result := { result with warnings }
+  let typed ← match wfResult with
+    | .error e => return { result with error := some (.wellFormedness e) }
+    | .ok typed =>
+      result := { result with reached := .wellFormedness, typed := some typed }
+      pure typed
 
   let computable ← match ← runStage moduleId .computable
       (TypedTLAPlus.Module.toComputable typed : DiagT Empty ComputableError Base _) with
@@ -204,7 +246,7 @@ Never throws and never exits: every failure comes back as `PipelineResult.error`
 stage it came from. -/
 def runPipeline (source : String) (containingDir : Option System.FilePath) (moduleId : String)
     (expectedName : Option String := none) (hooks : PipelineHooks := {}) : Base PipelineResult := do
-  let (warnings, driverResult) ← runM <| compileModule source containingDir moduleId expectedName
+  let (driverWarnings, driverResult) ← runM <| compileModule source containingDir moduleId expectedName
     (isRoot := true)
     (onModuleEvent := λ name outcome ↦ liftM (hooks.onModuleEvent name outcome))
     (onModuleProgress := λ name ↦ liftM (hooks.onModuleProgress name))
@@ -214,6 +256,8 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
   -- rendering the error is exactly what needs it, and `Base`'s state layer sits under `DiagT`
   -- precisely so a throw does not discard it.
   let sourcesOf : Base SourceRegistry := (·.sources) <$> getThe DriverState
+
+  let warnings := driverWarnings.map PipelineWarning.driver
 
   let typed ← match driverResult with
     | .error e =>
@@ -225,10 +269,10 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
 
   -- The root module's outcome *is* the compile's, so it is reported here, where that is known,
   -- rather than at type-check time inside `compileModule` — which is why that call passes
-  -- `isRoot := true`. `hadWarnings` is `warnings` in full for the same reason it was there: a
-  -- module's scoped warnings include those of everything it `EXTENDS`.
+  -- `isRoot := true`. `hadWarnings` is the result's warnings in full: a module's scoped warnings
+  -- include those of everything it `EXTENDS`, and those every stage past the driver added.
   liftM <| hooks.onModuleEvent typed.name <|
-    if result.succeeded then .built !warnings.isEmpty else .failed
+    if result.succeeded then .built !result.warnings.isEmpty else .failed
   return result
 
 /-- `runPipeline` with its flags and its state supplied: one compile, self-contained, from `IO`.
@@ -254,7 +298,7 @@ different questions, and more than one caller wants the first without the second
 whether a warning is suppressed has to apply the filter, and should not have to re-implement it. -/
 def PipelineResult.reportedWarnings (flags : FlagsEnv) (r : PipelineResult) :
     List PipelineWarning :=
-  r.warnings.filter λ w ↦ flags.warnings.getD (DriverWarning.name w) true
+  r.warnings.filter λ w ↦ flags.warnings.getD (PipelineWarning.name w) true
 
 /-- This compile's reported warnings, rendered, in the order they were raised. Each renders against
 its own module's source lines, falling back to `mainLines`. Pure: the caller decides where the
@@ -262,7 +306,7 @@ lines go (`Fugue.lean` routes them through its spinner, the regression runner as
 def PipelineResult.renderWarnings (flags : FlagsEnv) (mainLines : List String.Slice)
     (r : PipelineResult) : List String :=
   (r.reportedWarnings flags).map λ w ↦
-    CompilerDiagnostic.pretty w ((DriverWarning.sourceLines r.sources w).getD mainLines) flags.colored
+    CompilerDiagnostic.pretty w ((PipelineWarning.sourceLines r.sources w).getD mainLines) flags.colored
 
 /-- This compile's fatal error, rendered, if it failed. -/
 def PipelineResult.renderError (flags : FlagsEnv) (mainLines : List String.Slice)

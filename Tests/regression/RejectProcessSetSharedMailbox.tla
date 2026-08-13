@@ -5,7 +5,9 @@
 \* longer account for what left the channel. Indexing by `self` (`ch[self]`) gives each instance
 \* its own FIFO, which is what the compilation assumes. A `=`-shaped process needs no index, since
 \* it has exactly one instance (`RejectReceiveTwoChannels.tla` covers the separate rule that no
-\* process may receive from two channels at all).
+\* process may receive from two channels at all). The `@mailbox` declaration is present so that
+\* this is the *only* thing wrong with the module: a receiving process without one is rejected by
+\* `receiveWithoutMailbox` instead (`RejectReceiveWithoutMailbox.tla`).
 
 CONSTANTS
     \* @type: Set(Address);
@@ -15,7 +17,7 @@ CONSTANTS
     fifos
         \* @type: Channel(Int);
         ch;
-    process (P \in PIDs)
+    (* @mailbox: ch; *) process (P \in PIDs)
         variables
         \* @type: Int;
         x = 0;

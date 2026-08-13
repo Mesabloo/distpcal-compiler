@@ -21,8 +21,9 @@ CONSTANTS
         \* @type: Address -> Channel(Str);
         agt[Agents];
 
+    \* @mailbox: agt[self];
     process (a \in Agents)
-        variable 
+        variable
             \* @parameter
             aState \in {"accept", "refuse"};
     {
@@ -35,6 +36,7 @@ CONSTANTS
     a4: skip;
     }
 
+    \* @mailbox: coord;
     process (c = Coord)
         variables
             cState = "unknown",

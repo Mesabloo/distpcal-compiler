@@ -33,7 +33,7 @@ private def TypedPlusCal.Declarations.namesWithPos (d : TypedPlusCal.Declaration
   ++ d.channels.map (λ (x, _, idxs) ↦ (x, idxs.head?.elim SourceSpan.placeholder posOf))
   ++ d.fifos.map (λ (x, _, idxs) ↦ (x, idxs.head?.elim SourceSpan.placeholder posOf))
 
-variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic WellFormednessWarning WellFormednessError m]
 
 /-- Rejects the first repeated name within one flat list — `duplicateName` at *that* repeat's
 own position, not the first occurrence's. -/

@@ -47,6 +47,7 @@ less(b1, b2) ==
         \* @type: Address -> Channel({type: Str, leader: Address, bal: <<Int, Address>>, val: Str});
         ch[Nodes];
 
+    \* @mailbox: ch[self];
     process (node \in Nodes)
         variables
             \* the highest-number ballot the node has participated in

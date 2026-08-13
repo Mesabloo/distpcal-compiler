@@ -1,7 +1,9 @@
 ---- MODULE AcceptParameterAndTypeOnInVariable ----
 \* Expect: accepted. `@type` and `@parameter` may co-occur on the same process-local
 \* variable, as long as it's `∈`-initialized (`TPC2.tla`'s `aState ∈ {"accept","refuse"}`
-\* example) — and `@mailbox` immediately before a `process` is likewise fine.
+\* example) — and `@mailbox` immediately before a `process` is likewise fine. This process never
+\* receives, so that `@mailbox` is dropped with W0007 (`AcceptUnusedMailboxWarns.tla`), which is
+\* incidental here: what is under test is that the annotation parses and resolves at that site.
 
 CONSTANTS
     \* @type: Address;

@@ -283,6 +283,11 @@ def mailboxNotIndexedBySelf : Entry :=
   { code := e 63, stage := .wellFormedness,
     summary := "A process set receives from a channel not indexed by 'self'." }
 
+/-- A process receiving without a `@mailbox` declaration. -/
+def receiveWithoutMailbox : Entry :=
+  { code := e 64, stage := .wellFormedness,
+    summary := "A process receives from a channel it never declared as its @mailbox." }
+
 /-! ## `Typed2Computable` -/
 
 /-- A construct with no finite runtime representation. -/
@@ -356,6 +361,11 @@ def extendsAlgorithm : Entry :=
   { code := w 6, stage := .resolve, warningName := "extends-algorithm",
     summary := "An EXTENDS-ed module contains a PlusCal algorithm, which EXTENDS does not import." }
 
+/-- A `@mailbox` declared by a process that contains no `receive`. -/
+def unusedMailbox : Entry :=
+  { code := w 7, stage := .wellFormedness, warningName := "unused-mailbox",
+    summary := "A process declares a @mailbox but never receives, so the declaration is dropped." }
+
 /-- Every registered diagnostic, in code order. `fugue explain --list` prints this; the regression
 runner's coverage report walks it to find codes no fixture exercises. -/
 def entries : List Entry :=
@@ -373,11 +383,12 @@ def entries : List Entry :=
     unknownLabel, redefinedDone, duplicateName, shadowedName, channelInExpression,
     channelTypedVariable, nonEmptyLocalChannels, globalPlusCalVariable, globalTLAPlusVariable,
     bareTemporalOrAction, unboundedQuantifier, receiveChannelMismatch, mailboxNotIndexedBySelf,
+    receiveWithoutMailbox,
     notComputable, computableInternalInvariant, guardedInternalInvariant, networkInternalInvariant,
     goInternalInvariant, goUnsupported,
     moduleNameMismatch,
     fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning,
-    partialMulticastAnnotation, extendsAlgorithm ]
+    partialMulticastAnnotation, extendsAlgorithm, unusedMailbox ]
 
 -- No two entries may share a number: the whole point of a code is that it identifies exactly one
 -- diagnostic. Checked here, at build time, rather than trusted.

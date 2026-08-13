@@ -13,7 +13,7 @@ public section
   `Desugarer/PlusCal.lean`'s `CorePlusCal.Algorithm.checkAssignConflicts`.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic WellFormednessWarning WellFormednessError m]
 
 /-- Collect every label a process defines across all its threads (`Process.threads`, the label
 of every atomic block), rejecting a literal `"Done"` entry along the way — `"Done"` is a

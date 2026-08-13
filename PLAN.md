@@ -634,10 +634,10 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
   field is a plain `Expression`, not `Option (Expression)` — enforced structurally.
 
 - **One receiving channel per process** (`WellFormednessError.receiveChannelMismatch`, not in the
-  thesis, added during phase 10 item 7). Every `receive` in a process must name the same channel:
-  its declared `@mailbox` if it has one, otherwise whatever channel the process's first `receive`
-  names. Index expressions count — `agt[self]` and `agt[other]` are different channels, compared
-  syntactically. **This is a precondition of `Guarded2Network` (§5.5) being correct at all**, not a
+  thesis, added during phase 10 item 7). Every `receive` in a process must name that process's
+  declared `@mailbox`. Index expressions count — `agt[self]` and `agt[other]` are different
+  channels, compared syntactically. **This is a precondition of `Guarded2Network` (§5.5) being
+  correct at all**, not a
   stylistic restriction: that pass gives a process one shared `inbox` sequence fed by a `.rx` thread
   per channel, so with two channels the consumption site `x := Head(inbox)` cannot tell which
   channel a message arrived on, and `.rx` threads are deduplicated by channel *name*, which drops
@@ -647,6 +647,24 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
   process-scoped rather than expression-scoped, so it runs as its own walk
   (`TypedPlusCal.Algorithm.checkReceiveChannels`) instead of a callback of the shared reachability
   walk, whose `visitStatement` has no idea which process a statement came from.
+- **The `@mailbox` field is made total on receiving processes by the same walk.** Two halves, and
+  they are deliberately not symmetric. A `receive` in a process with no `@mailbox` is an error
+  (`WellFormednessError.receiveWithoutMailbox`): the channel a process listens on is what
+  `Guarded2Network`'s per-instance `inbox` stands for, and reading it off whichever `receive` the
+  walk reached first made it depend on statement order rather than on anything the source says. A
+  `@mailbox` on a process with no `receive` is a **warning** (`WellFormednessWarning.unusedMailbox`,
+  `W0007`, `-Wno-unused-mailbox`) and the field is dropped — nothing about the program is wrong, the
+  declaration just has no effect. Afterwards `p.mailbox = .some c` exactly when the process receives,
+  and `c` is the channel it receives on, which is what lets the refinement proof read a process's
+  mailbox off the program instead of being handed one (§D8 below).
+
+  Two consequences for the layer's plumbing. The dropping makes this check a **rewriter**:
+  `Process`/`Algorithm.checkReceiveChannels` and `Module.checkWellFormed` return their subject
+  rather than `Unit`, and `Driver/Pipeline.lean` compiles the module they return. And this is the
+  first stage past the driver that warns, so its `MonadDiagnostic`'s warning channel is a real type
+  rather than `Empty`, and `PipelineWarning` is a real sum (`.driver`/`.wellFormedness`) rather than
+  an alias for `DriverWarning`. Every later pass still reports at `MonadDiagnostic Empty ε` and gets
+  its own constructor the day it can warn.
 - **A process set's channel must be indexed by `self`**
   (`WellFormednessError.mailboxNotIndexedBySelf`, also new in phase 10 item 7). For a `∈`-shaped
   process — `process (a \in Agents)` — the channel every `receive` names must mention `self`
@@ -1932,6 +1950,18 @@ in `stepStatement_spec`'s `receive` case and nowhere else. `BranchesFresh.none_o
 what makes that mailbox reachable rather than merely statable. `ProcessFresh` takes the mailbox as a
 function of the generated name, since which mailbox a process gets is settled before the pass runs
 but the name filling the `.some` is not.
+
+**Which mailbox that is comes from the source, not from the proof.** A process declares its
+`@mailbox` (`GuardedPlusCal.Process.mailbox`), and `Process.toNetwork` copies the field across, so
+`AlgebraRefines`' `mb` reads it off the compiled process rather than being chosen by whoever invokes
+the proof. What makes that sound is the front end's normalization (§5.2a): a `receive` without a
+declaration is rejected, a declaration with no `receive` is warned about and dropped, so `p.mailbox`
+means "the channel this process receives on, if any" and not "what the user wrote". Handing a
+receive-free process a `.some` mailbox is not unsound — its branch refinements hold vacuously — but
+makes `algRelatesTo` unsatisfiable at `Algorithm.init`, per the `.none` paragraph above.
+
+`Guarded2Network/Lemmas/Algorithm.lean`'s `procMailbox` still reads the mailbox off a compiled `.rx`
+thread, which works but is backwards; it becomes `p'.mailbox` when D8 is assembled.
 
 **Label disjointness splits the same way (landed, item 7).** A receiving thread's label must not be
 one a code thread can be scheduled at or jump to, and that is again two facts meeting at `Generated`.

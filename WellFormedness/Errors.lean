@@ -5,8 +5,8 @@ public import Core.TypedTLAPlus.Syntax
 
 public section
 
-/-! The well-formedness pass's diagnostics: one named error variant per violation. All checks
-are hard errors — no `WellFormednessWarning` type is needed. -/
+/-! The well-formedness pass's diagnostics: one named error variant per violation, plus the one
+non-fatal finding — a `@mailbox` nothing receives on, which is dropped rather than rejected. -/
 
 /-- The well-formedness pass's errors. -/
 inductive WellFormednessError : Type
@@ -56,6 +56,10 @@ inductive WellFormednessError : Type
   /-- A `∈`-shaped process (a process *set*) receives from a channel whose index path does not
   mention `self`, so every instance of the set would drain the same FIFO. -/
   | mailboxNotIndexedBySelf (pos : SourceSpan) (process : String) (channel : String)
+  /-- A process `receive`s without declaring a `@mailbox`. The channel a process listens on is
+  the one thing `Guarded2Network`'s single `inbox` per instance is indexed by, so it has to be
+  written down rather than inferred from whichever `receive` the walk happens to reach first. -/
+  | receiveWithoutMailbox (pos : SourceSpan) (process : String) (channel : String)
   deriving Repr, Inhabited, BEq
 
 /-- Renders a direct-vs-transitive `path` breadcrumb (innermost first) as "directly in a
@@ -82,6 +86,7 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .unboundedQuantifier .. => Diagnostics.unboundedQuantifier.code
     | .receiveChannelMismatch .. => Diagnostics.receiveChannelMismatch.code
     | .mailboxNotIndexedBySelf .. => Diagnostics.mailboxNotIndexedBySelf.code
+    | .receiveWithoutMailbox .. => Diagnostics.receiveWithoutMailbox.code
   posOf
     | .unknownLabel pos _ => pos
     | .redefinedDone pos => pos
@@ -96,6 +101,7 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .unboundedQuantifier pos _ => pos
     | .receiveChannelMismatch pos _ _ _ _ => pos
     | .mailboxNotIndexedBySelf pos _ _ => pos
+    | .receiveWithoutMailbox pos _ _ => pos
   msgOf
     | .unknownLabel _ label => s!"`goto {label}` targets a label that doesn't exist in this process."
     | .redefinedDone _ => "`Done` is a reserved label and cannot be redefined."
@@ -115,5 +121,30 @@ instance : CompilerDiagnostic WellFormednessError String where
         s!"Process `{process}` receives from `{found}` as well as from `{expected}` — a process may only receive from one channel."
     | .mailboxNotIndexedBySelf _ process channel =>
       s!"Process set `{process}` receives from `{channel}`, one channel shared by every instance — a process set's channel must be indexed by `self` (`{channel}[self]`), so that each instance has its own."
+    | .receiveWithoutMailbox _ process channel =>
+      s!"Process `{process}` receives from `{channel}` without declaring it — a receiving process must name the channel it listens on in a `@mailbox` annotation on the process itself."
+
+/-- The well-formedness pass's warnings. -/
+inductive WellFormednessWarning : Type
+  /-- A process declares a `@mailbox` and contains no `receive`. The declaration is dropped, so
+  that a `.some` mailbox means exactly "this process receives, on this channel". -/
+  | unusedMailbox (pos : SourceSpan) (process : String) (channel : String)
+  deriving Repr, Inhabited, BEq
+
+/-- The `-W<name>` a given warning is filtered under. -/
+def WellFormednessWarning.name : WellFormednessWarning → String
+  | .unusedMailbox .. => Diagnostics.unusedMailbox.warningName
+
+@[no_expose]
+instance : CompilerDiagnostic WellFormednessWarning String where
+  isError := false
+  name := WellFormednessWarning.name
+  code
+    | .unusedMailbox .. => Diagnostics.unusedMailbox.code
+  posOf
+    | .unusedMailbox pos _ _ => pos
+  msgOf
+    | .unusedMailbox _ process channel =>
+      s!"Process `{process}` declares `@mailbox: {channel}` but never receives — the declaration has no effect and is dropped."
 
 end

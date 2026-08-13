@@ -652,6 +652,29 @@ namespace List
       · obtain ⟨y, hy, hxy'⟩ := ih hx'
         exact ⟨y, mem_cons_of_mem _ hy, hxy'⟩
 
+  /-- **Two `find?`s under a `Forall₂` land on related elements.** The predicates need not be the
+  same — they need only agree on related pairs, which is the usual situation: a lookup keyed on a
+  field both sides preserve.
+
+  `Forall₂` is positional and `find?` returns the *first* match, so the two searches walk the lists
+  in step and stop at the same index; the induction is that observation. -/
+  theorem Forall₂.find?_right {R : α → β → Prop} {xs ys} (h : List.Forall₂ R xs ys)
+      {P : α → Bool} {Q : β → Bool} (hPQ : ∀ x y, R x y → P x = Q y) {y}
+      (hy : ys.find? Q = some y) : ∃ x, xs.find? P = some x ∧ R x y := by
+    induction h with
+    | nil => exact nomatch hy
+    | @cons x' y' _ _ hxy _ ih =>
+      rw [find?_cons] at hy ⊢
+      cases hq : Q y' with
+      | true =>
+        rw [hq] at hy
+        rw [hPQ _ _ hxy, hq]
+        exact ⟨x', rfl, (Option.some.inj hy) ▸ hxy⟩
+      | false =>
+        rw [hq] at hy
+        rw [hPQ _ _ hxy, hq]
+        exact ih hy
+
   theorem attach_eq_cons {xs ys} {y : {x : α // x ∈ xs}} (h : xs.attach = y :: ys) :
       ∃ x xs', ∃ (h' : xs = x :: xs'), x = ↑y ∧ ys = xs'.attach.map (λ ⟨y, h⟩ => ⟨y, h' ▸ mem_cons_of_mem x h⟩) := by
     cases xs <;> try contradiction

@@ -186,7 +186,9 @@ Surface → Core lowering (§3.2).
 §5.2a — well-labelledness, well-scopedness, no-shared-memory/no-bare-temporal restrictions, run
 against a `TypedModule`'s `pcalAlgorithm` right after type checking (`Driver/Modules.lean`).
 Assignment-conflict checking stays ad hoc in `Desugarer/PlusCal.lean`, not duplicated here.
-- `Errors.lean` — `WellFormednessError` variants.
+- `Errors.lean` — `WellFormednessError` variants, plus `WellFormednessWarning` — one variant,
+  `unusedMailbox`, which is why this layer's `MonadDiagnostic` warning channel is a real type rather
+  than `Empty`.
 - `Monad.lean` — `MonadForeignLookup` (fetch a module's checked declarations by name; the one
   seam into `Driver/`'s module cache) plus `StateT`/`ExceptT` lift instances.
 - `Reachability.lean` — shared reachability walk, reused by `Restrictions.lean` and
@@ -208,12 +210,14 @@ Assignment-conflict checking stays ad hoc in `Desugarer/PlusCal.lean`, not dupli
   non-channel `Ref` positions, `Statement.checkRefRestrictions`), no reference to a module-level
   `VARIABLE`, no bare/transitive temporal or action operator, no unbounded quantifier —
   transitively through every operator/function the algorithm calls. Also carries
-  `Algorithm.checkReceiveChannels`, outside that walk: every `receive` of one process names the
-  same channel (its `@mailbox` if declared, else the first `receive`'s channel), and a `∈`-shaped
-  process indexes that channel by `self` — together, what `Guarded2Network`'s single `inbox` per
-  process instance requires.
+  `Algorithm.checkReceiveChannels`, outside that walk: every `receive` of one process names that
+  process's declared `@mailbox`, and a `∈`-shaped process indexes that channel by `self` — together,
+  what `Guarded2Network`'s single `inbox` per process instance requires. Also the one **rewriter** in
+  this layer: it returns the process, with an `@mailbox` no `receive` uses warned about and dropped,
+  so that afterwards `.some` means "receives, on this channel".
 - `WellFormedness.lean` — ties the five checks together; `TypedTLAPlus.Module.checkWellFormed`
-  is the entry point `Driver/Modules.lean` calls.
+  is the entry point `Driver/Modules.lean` calls. Returns the module, since the check above may
+  have rewritten it.
 
 ## `Typed2Computable/`
 `Typed*` → `Computable*` (§5.3), run right after well-formedness (`Driver/Modules.lean`).
@@ -249,8 +253,10 @@ parse/desugar a module, recurse on its `EXTENDS` list, module cache `Ξ`, stdlib
   source registry, and module cache `Ξ`) and the monad `M` it all runs at. `ResolvedDep` is what
   one resolved dependency hands back: the checked module, whether it was recomputed, and the
   `Origin`-tagged bindings it brings into scope (re-exports included).
-- `Pipeline.lean` — a whole compile as one function: `Stage`, `PipelineError`/`PipelineResult`,
-  `runPipeline`, and the pure diagnostic renderers. `Fugue.lean` and `tests/`'s runner are its
+- `Pipeline.lean` — a whole compile as one function: `Stage`, `PipelineError`/`PipelineWarning`/
+  `PipelineResult`, `runPipeline`, and the pure diagnostic renderers. `PipelineWarning` is a sum over
+  the stages that can warn (`.driver`, `.wellFormedness`); a later pass gets a constructor the day it
+  stops reporting at `MonadDiagnostic Empty ε`. `Fugue.lean` and `tests/`'s runner are its
   two consumers; neither reimplements the pass order.
 - `Errors.lean` — wraps each lower-level pass's error type (incl. `ComputableError` as
   `.computability`) plus resolution conditions (`moduleNotFound`, etc.).

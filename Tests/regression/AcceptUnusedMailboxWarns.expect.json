@@ -1,0 +1,4 @@
+{
+  "warnings": [{ "code": "W0007" }],
+  "suppressible": ["unused-mailbox"]
+}

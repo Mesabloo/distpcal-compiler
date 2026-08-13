@@ -58,7 +58,7 @@ public section
     check here throws (stopping the whole pass) rather than continuing.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic WellFormednessWarning WellFormednessError m]
 
 /-- The channel-shapedness check itself, at one type and one position — every node-level check
 below is this applied to whichever type that node carries. -/
@@ -129,10 +129,13 @@ def TypedPlusCal.Statement.checkRefRestrictions {b} (s : TypedPlusCal.Statement 
   `mailboxₚ`, the one channel a process listens on. Checked here rather than assumed, so the
   refinement proof's precondition is one the front end actually enforces.
 
-  The reference channel is the process's declared `@mailbox` when it has one, and otherwise the
-  channel its first `receive` names — an `@mailbox` annotation is optional (`tests/examples/
-  TwoPhaseCommit.tla` declares none and still receives), so requiring one would reject working
-  programs.
+  The reference channel is the process's declared `@mailbox`, and a process containing a `receive`
+  must declare one: the channel a process listens on is what the compiled `inbox` stands for, so it
+  is written down rather than read off whichever `receive` the walk reaches first. The mirror case
+  is not an error — a `@mailbox` on a process with no `receive` is a warning, and the field is
+  dropped, which is why this check returns the process rather than `Unit`. Between them the field
+  becomes total on receiving processes: afterwards `p.mailbox` is `.some c` exactly when the process
+  receives, and `c` is the channel it receives on.
 
   **A process *set* additionally has to index its channel by `self`.** `process (a \in Agents)`
   declares many instances at once, and one channel per *process text* is not one channel per
@@ -170,41 +173,59 @@ private def indexedBySelf (c : ChannelRef) : Bool :=
 private def mailboxChannel : String × List TypedPlusCal.Expression → ChannelRef
   | (name, es) => (name, es.map .inr)
 
-/-- One process's receives, checked against `expected` — the process's `@mailbox` if declared, else
-filled in by the first `receive` seen. `StateT` rather than a fold so the first `receive` can
-install the reference channel for the rest of the walk. -/
-private def checkOneReceive (process : String) (isProcessSet : Bool)
-    (s : TypedPlusCal.Statement false) (pos : SourceSpan) : StateT (Option ChannelRef) m Unit :=
+/-- One process's receives, checked against `expected` — the process's declared `@mailbox`, or
+`none` when it declared none, which a `receive` then rejects. The `StateT Bool` records whether a
+`receive` was seen at all, which is what the caller needs to tell a used `@mailbox` from an unused
+one; `expected` is a plain argument, since nothing installs one mid-walk any more. -/
+private def checkOneReceive (process : String) (isProcessSet : Bool) (expected : Option ChannelRef)
+    (s : TypedPlusCal.Statement false) (pos : SourceSpan) : StateT Bool m Unit :=
   match s with
   | .receive c _ _ => do
     let found := refChannel c
     if isProcessSet && !indexedBySelf found then
       throw (.mailboxNotIndexedBySelf pos process found.1)
-    match ← get with
-    | none => set (some found)
+    match expected with
+    | none => throw (.receiveWithoutMailbox pos process found.1)
     | some expected =>
+      set true
       if expected.1 == found.1 && List.isEqv expected.2 found.2 sameArg then pure ()
       else throw (.receiveChannelMismatch pos process expected.1 found.1
         (indicesDiffer := expected.1 == found.1))
   | _ => pure ()
 
 /-- Every `receive` reachable in `p` — including those nested inside `if`/`while`/`either`/`with`
-(`Statement.forEachNode`) — names the same channel, indexed by `self` when `p` is a process set
-(`«=|∈» = false` is the `∈` case: `Parser_/PlusCal.lean` sets `true` for `=`). -/
-def TypedPlusCal.Process.checkReceiveChannels (p : TypedPlusCal.Process) : m Unit :=
-  let visit : ∀ {b}, TypedPlusCal.Statement b → StateT (Option ChannelRef) m Unit :=
-    λ {b} s ↦ match_source s with
-      | s@(.receive ..), pos => checkOneReceive p.name (!p.«=|∈») s pos
-      | _, _ => pure ()
-  let go : StateT (Option ChannelRef) m Unit :=
-    ElaboratedPlusCal.Process.forStatements (λ {_} s ↦ ElaboratedPlusCal.Statement.forEachNode visit s) p
-  go.run' (p.mailbox.map mailboxChannel)
+(`Statement.forEachNode`) — names `p`'s declared `@mailbox`, indexed by `self` when `p` is a process
+set (`«=|∈» = false` is the `∈` case: `Parser_/PlusCal.lean` sets `true` for `=`).
 
-/-- `Process.checkReceiveChannels` over every process of `algo`. Kept out of
-`Algorithm.checkRestrictions`'s shared walk: that walk's `visitStatement` callback sees a statement
-with no record of which process it came from, and this check is process-scoped by nature. -/
-def TypedPlusCal.Algorithm.checkReceiveChannels (algo : TypedPlusCal.Algorithm) : m Unit :=
-  algo.processes.forM TypedPlusCal.Process.checkReceiveChannels
+Returns `p`, with its `mailbox` cleared when it declared one and no `receive` used it — the one
+non-fatal outcome here, warned about and then normalized away rather than rejected. Position for
+that warning is `p.id`'s own, the same one `WellFormedness/Declarations.lean`'s
+`checkNoLocalChannels` points at: the annotation itself carries none of its own, and a bare
+`@mailbox: ch;` has no index expression to borrow one from. -/
+def TypedPlusCal.Process.checkReceiveChannels (p : TypedPlusCal.Process) : m TypedPlusCal.Process := do
+  let expected := p.mailbox.map mailboxChannel
+  let visit : ∀ {b}, TypedPlusCal.Statement b → StateT Bool m Unit :=
+    λ {b} s ↦ match_source s with
+      | s@(.receive ..), pos => checkOneReceive p.name (!p.«=|∈») expected s pos
+      | _, _ => pure ()
+  let go : StateT Bool m Unit :=
+    ElaboratedPlusCal.Process.forStatements (λ {_} s ↦ ElaboratedPlusCal.Statement.forEachNode visit s) p
+  let (_, received) ← go.run false
+  match p.mailbox with
+  | some (channel, _) =>
+    if received then return p
+    else do
+      warn (.unusedMailbox (posOf p.id) p.name channel)
+      return { p with mailbox := none }
+  | none => return p
+
+/-- `Process.checkReceiveChannels` over every process of `algo`, threading each rewritten process
+back into the algorithm. Kept out of `Algorithm.checkRestrictions`'s shared walk: that walk's
+`visitStatement` callback sees a statement with no record of which process it came from, and this
+check is process-scoped by nature. -/
+def TypedPlusCal.Algorithm.checkReceiveChannels (algo : TypedPlusCal.Algorithm) :
+    m TypedPlusCal.Algorithm := do
+  return { algo with processes := ← algo.processes.mapM TypedPlusCal.Process.checkReceiveChannels }
 
 /-- Runs all the above checks over a whole algorithm, via the shared
 `TypedPlusCal.Algorithm.walkReachable` (`WellFormedness/Reachability.lean`), supplying

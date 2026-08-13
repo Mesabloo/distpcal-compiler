@@ -1,4 +1,5 @@
 {
   "reaches": "go",
-  "goBuild": true
+  "goBuild": true,
+  "warnings": [{ "code": "W0007" }]
 }

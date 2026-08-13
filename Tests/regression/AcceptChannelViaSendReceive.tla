@@ -12,7 +12,7 @@ CONSTANTS
     fifos
         \* @type: Channel(Int);
         ch;
-    process (P = PID)
+    (* @mailbox: ch; *) process (P = PID)
         variable x = 0;
     {
     p1: send(ch, 1);

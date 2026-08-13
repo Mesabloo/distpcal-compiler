@@ -18,7 +18,7 @@ public section
     untouched by this.
 -/
 
-variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty WellFormednessError m]
+variable {m : Type → Type} [Monad m] [MonadDiagnostic WellFormednessWarning WellFormednessError m]
 
 /-- Rejects a Channel-shaped entry in one `Declarations` value's `variables` list. Position is
 the entry's own initializer expression if one exists, `SourceSpan.placeholder` otherwise (matches

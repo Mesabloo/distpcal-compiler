@@ -706,6 +706,28 @@ theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l :
       exact ⟨LocalState.running M' F', ε₁, ε₂,
         (LocalState.sem_glue₂ (B := B')).mpr red_pre, (LocalState.sem_glue₁ (B := Br.action)).mpr red_act, rfl⟩
 
+/-- **A branch ends at the label its terminal `goto` names.** `AtomicBranch.reducing` composes the
+precondition onto the action block, and the action block composes its `begin` onto its `last`, so the
+final state is whatever `last` produced — and `goto` is the only statement that produces a `.done`
+one at all (it is the only terminal constructor, `Core/GuardedPlusCal/Syntax.lean`).
+
+Stated with the `goto`'s target supplied rather than existentially, because every caller already
+knows it: it is read off the *source* branch through `BranchRefines.last_eq`, and what is wanted is
+that the step agrees with it. This is what lets a caller rule out where a compiled block can jump to
+without inspecting the run — `Guarded2Network`'s `CodeLabelRefines.exits`, which needs a compiled
+code thread never to land on a receiving thread's label. -/
+theorem AtomicBranch.reducing_label {M M' : Memory V} {F F' : FIFOs V} {l label : String}
+    {ε : Trace V} {Br : ComputableNetworkPlusCal.AtomicBranch}
+    (hlast : Br.action.last = .goto label)
+    (h : (⟨.running M F, ε, .done M' F' l⟩ :
+      LocalState V false × Trace V × LocalState V true) ∈ AtomicBranch.reducing Br) :
+    l = label := by
+  obtain ⟨_, _, _, _, hblock, _⟩ := h
+  obtain ⟨_, _, _, _, hstmt, _⟩ := hblock
+  rw [hlast] at hstmt
+  obtain ⟨_, _, _, hdone, _⟩ := hstmt
+  injection hdone
+
 theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
     {Br : ComputableNetworkPlusCal.AtomicBranch} :
     ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.aborting Br ↔
