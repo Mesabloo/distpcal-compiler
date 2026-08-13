@@ -343,6 +343,38 @@ theorem algRelatesTo.refines [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : �
   rather than their syntax.
 -/
 
+/-! ## `mb` and `rx`, read off the compiled processes
+
+  `AlgebraRefines` is indexed by instances (`ι = String × V`) while the pass's data is positional in
+  a list, and `Algorithm.algebra` bridges the two by looking a process up under its *name*. So both
+  functions are that lookup composed with something local to the compiled process — no existential,
+  no choice, and `.none` for a process that has no receiving thread, which is exactly the mailbox a
+  receive-free process must have.
+
+  `List.Forall₂.find?_right` is what makes the lookup usable: the two `find?`s walk their lists in
+  step, so a target process found under a name is the compilation of the source process found under
+  the same one. `ProcessRefines.name_eq` is what makes the two predicates agree on related pairs.
+-/
+
+/-- **The mailbox of the process an instance belongs to.** An algorithm has no mailbox; its processes
+do, and an instance's is its process's. Found by name, then read off the process's receiving thread —
+`.none` when it has none.
+
+Reading it off the *thread* is provisional: the source process carries a declared `@mailbox` field
+which `Process.toNetwork` copies across, and that is where this should come from. The front end now
+makes that field trustworthy — `checkReceiveChannels` rejects a `receive` with no declaration and
+drops a declaration no `receive` uses (`PLAN.md` §5.2a) — so this becomes `p'.mailbox` when D8 is
+assembled. -/
+def procMailbox (algo' : ComputableNetworkPlusCal.Algorithm) : String × V → Mailbox :=
+  λ ⟨name, _⟩ ↦ (algo'.processes.find? (·.name == name)).bind λ p' ↦
+    p'.threads.findSome? λ T ↦ match T with
+      | .rx chan _ _ ib => some (chan, ib)
+      | .code _ => none
+
+/-- And the receiving labels of the process an instance belongs to, found the same way. -/
+def procRxLabels (algo' : ComputableNetworkPlusCal.Algorithm) : String × V → Set String :=
+  λ ⟨name, _⟩ ↦ (algo'.processes.find? (·.name == name)).elim ∅ rxLabels
+
 /-- **The source-side half of D8's contract, at the top.** Every process of the algorithm is
 `ProcessFresh` at the channel the mailbox assignment gives its name.
 

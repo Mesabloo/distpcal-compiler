@@ -138,7 +138,9 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
   case vc1.step.pre h => exact h.2
 
   case vc2.step.post.success _ _ _ _ _ _ _ _ _ _ hinv _ =>
-    intro _ _ hbr hrx
+    -- the branch spec's third conclusion — that a receiving branch leaves a thread registered — is
+    -- dropped here: this invariant does not carry it, and the process level is where it is wanted
+    intro _ _ hbr hrx _
     exact ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hbr), hrx⟩
 
   case vc16.pre => exact ⟨.nil, ‹_›⟩

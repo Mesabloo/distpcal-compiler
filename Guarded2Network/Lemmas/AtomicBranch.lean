@@ -146,13 +146,20 @@ place a receiving thread is ever appended, so it is the only place any of them c
 The process level is what spends them. `Generated` keeps a receiving thread's label out of the
 source's, or a code thread could be scheduled at it. `c₀` makes the mailbox the algorithm level
 assigns the process name the same channel its receiving thread drains — a process has only one
-channel (`BranchesFresh.rfresh`), so there is only one to name. And `mbox = .some (c₀, inbox)` is
-what rules out the other mailbox: a thread is registered only for a branch that receives, and a
-branch that receives is what `BranchesFresh.mbox_some` says has a mailbox at all. -/
+channel (`BranchesFresh.rfresh`), so there is only one to name. `mbox = .some (c₀, inbox)` rules out
+the other mailbox: a thread is registered only for a branch that receives, and a branch that receives
+is what `BranchesFresh.mbox_some` says has a mailbox at all. And the channel does not mention the
+generated name, which is `ReceiveFresh`'s first clause and what `RxLabelRefines.chan_fresh` asks
+for — a relay resolves its channel in a memory the relay itself is about to write `inbox` in. -/
+def IsRxThread (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+  (T : ComputableNetworkPlusCal.Thread) : Prop :=
+    mbox = .some (c₀, inbox) ∧ inbox ∉ GuardedPlusCal.Ref.freeVars c₀ ∧
+      ∃ label τ, T = .rx c₀ label τ inbox ∧ Generated "rx" label
+
+@[inherit_doc IsRxThread]
 def RxOnly (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
   (Ts : List ComputableNetworkPlusCal.Thread) : Prop :=
-    ∀ T ∈ Ts, mbox = .some (c₀, inbox) ∧
-      ∃ label τ, T = .rx c₀ label τ inbox ∧ Generated "rx" label
+    ∀ T ∈ Ts, IsRxThread mbox c₀ inbox T
 
 /-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's channel and `inbox`.
 `stepBranch` is the only place one is ever appended, so this is where the fact has to be established;
@@ -199,6 +206,17 @@ theorem BranchesRefine.of_forall₂ {mbox : Mailbox} {pref : ChanKey V → List 
     BranchesRefine (V := V) mbox pref brs brs' :=
   λ _ hBr' ↦ h.exists_left hBr'
 
+/-- A list of channel/type pairs that is not a cons is empty — the shape `stepBranch`'s `if let`
+leaves behind when the precondition walk recorded no channel. A standalone lemma rather than a `have`
+in the proof below: in context it is a `∀`-shaped rewrite that sends the surrounding `simp_all` into
+a heartbeat timeout. -/
+private theorem eq_nil_of_not_cons
+    {l : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ)}
+    (h : ∀ chan τ tail, l ≠ (chan, τ) :: tail) : l = [] :=
+  match l with
+  | [] => rfl
+  | (chan, τ) :: tail => (h chan τ tail rfl).elim
+
 open Std.Do in
 /-- **One branch, compiled.** The two halves composed: `processPrecondition_spec` for the
 precondition, `actionBlock_refines` for the action block, and one `StrongRefinement.Comp` joining
@@ -228,24 +246,41 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st⌝⦄
     stepBranch (m := G2NM) chans inbox Br
     ⦃⇓? Br' st' =>
-      ⌜BranchRefines (V := V) mbox pref Br Br' ∧ RxThreads mbox c₀ inbox st'⌝⦄ := by
+      ⌜BranchRefines (V := V) mbox pref Br Br' ∧ RxThreads mbox c₀ inbox st' ∧
+        ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+          GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
+            st'.rxThreads ≠ []⌝⦄ := by
   mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
   with {
     -- `processPrecondition_spec`'s postcondition arrives as one unsplit conjunction: what the walk
-    -- recorded about the channels, and the refinement
-    obtain ⟨hrxs, href⟩ := ‹_ ∧ _›
-    refine ⟨⟨?_, ?_⟩, ?_⟩
+    -- recorded about the channels, that a `receive` leaves `rxs` non-empty, and the refinement
+    obtain ⟨hrxs, hrecv, href⟩ := ‹_ ∧ _›
+    refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
     · exact branch_refines href afresh alast
     · rfl
-    -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; the branch that
-    -- registers a new channel is the only one where the two halves differ
+    -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list. `IsRxThread` stays
+    -- out of the simp set on purpose: opaque, it is one obligation per thread, and the branches that
+    -- register none are closed outright. Unfolded, `forall_and` would shred it into one `∀` per
+    -- conjunct and the leftovers would have to be reassembled by hand — which is what this cost
+    -- every time a conjunct was added.
     · simp_all [RxThreads, RxOnly, or_imp, forall_and]
-      -- the one branch that registers a channel, at the label `freshName` just handed it, plus
-      -- whichever half of the split `forall_and` left over — the branches that register none are
-      -- already closed, hence `all`
-      all : first
-        | exact ⟨_, rfl⟩
-        | exact ‹_ ∧ _›.1
+      -- what is left is the single new thread, at the label `freshName` just handed it: the mailbox
+      -- `simp_all` already rewrote to the right one, the channel's freshness is in context
+      all : refine ⟨rfl, ?_, _, _, rfl, _, rfl⟩
+      all : simp_all
+    -- a branch that receives leaves a thread registered: either this step appended one, or one for
+    -- the same channel was already there. The third case — no channel to register — is the one
+    -- `hrecv` rules out, `rxs` being non-empty exactly when the branch receives
+    -- a branch that receives leaves a thread registered. `hrecv` says the walk found a channel, so
+    -- the "nothing to register" case cannot arise; of the two that remain, one appended a thread and
+    -- the other found one for this channel already there
+    · intro c r coe hmem hnil
+      first
+        -- the `if let` found no channel, which `hrecv` says a receiving branch cannot leave behind
+        | (refine hrecv c r coe hmem (eq_nil_of_not_cons ?_)
+           simp_all)
+        -- otherwise a thread was appended, or one for this channel was already there
+        | simp_all [List.any_eq_true]
   }
 
 /-! ## Owed: `stepBranch_spec`

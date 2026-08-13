@@ -1,6 +1,5 @@
-\* https://github.com/DistCompiler/pgo/blob/main/systems/dqueue/dqueue.tla
-
 ------------ MODULE DQueue ---------------
+\* https://github.com/DistCompiler/pgo/blob/main/systems/dqueue/dqueue.tla
 EXTENDS Fugue
 
 CONSTANTS

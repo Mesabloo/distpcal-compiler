@@ -517,3 +517,7 @@ what every consumer wants anyway.
 
 Cross-check when doing it: `§9.13` list two well-formedness checks already unreachable, so confirm a
 new one is actually reachable from the driver before adding a fixture.
+
+### 9.30 Parser fails before module header
+In TLA+, any text that occurs before the module header, and after the module footer, is gibberish to be 
+ignored. Currently, the parser may fail in unexpected ways (e.g. a comment before the header).

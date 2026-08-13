@@ -753,7 +753,10 @@ private def WalkInv (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbo
     (results : List (ComputableNetworkPlusCal.Statement true false))
     (st : ReceiveState) : Prop :=
   ConsumptionPairs inbox st.i st.newInstrs ∧ results.length = walked.length ∧
-    (∀ x ∈ st.rxs, x.1 = c₀ ∧ mbox = .some (c₀, inbox)) ∧
+    (∀ x ∈ st.rxs, x.1 = c₀ ∧ mbox = .some (c₀, inbox) ∧
+      inbox ∉ GuardedPlusCal.Ref.freeVars c₀) ∧
+    (∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+      GuardedPlusCal.Statement.receive c r coe ∈ walked → st.rxs ≠ []) ∧
     StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.Statement.listReducing' walked)
       (GuardedPlusCal.Statement.listAborting' walked)
@@ -769,7 +772,7 @@ private def WalkInv (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbo
 private theorem WalkInv.nil {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
     {pref : ChanKey V → List V} :
     WalkInv (V := V) mbox c₀ inbox pref [] [] {} := by
-  refine ⟨.nil, rfl, nofun, ?_⟩
+  refine ⟨.nil, rfl, nofun, nofun, ?_⟩
   -- `simp only`, not `rw`: `({} : ReceiveState).newInstrs` is a projection out of a structure
   -- literal, and `rw`'s syntactic match never gets past it to `consumptions_nil`
   simp only [GuardedPlusCal.Statement.listReducing'_nil, GuardedPlusCal.Statement.listAborting'_nil,
@@ -813,9 +816,14 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
   mintro ⟨inv, gf⟩
   cases S <;> simp only [stepStatement] <;> mvcgen
   case vc1.with name ann bound e st n hinv =>
-    obtain ⟨⟨pairs, hlen, hrxs, ref⟩, gf'⟩ := hinv
-    refine ⟨⟨pairs, by simp [hlen], hrxs, ?_⟩,
+    obtain ⟨⟨pairs, hlen, hrxs, hrecv, ref⟩, gf'⟩ := hinv
+    refine ⟨⟨pairs, by simp [hlen], hrxs, ?_, ?_⟩,
       λ a ha x _ _ _ hm ↦ gf' a ha x _ _ _ (List.mem_cons_of_mem _ hm)⟩
+    case' refine_1 =>
+      intro c r coe hmem
+      rcases List.mem_append.mp hmem with h' | h'
+      · exact hrecv c r coe h'
+      · exact nomatch List.mem_singleton.mp h'
     have hfresh : ∀ a ∈ st.newInstrs,
         GuardFresh a.1 a.2.1 (NetworkPlusCal.Statement.with name ann bound e) := by
       intro a ha x _ _ _ heq
@@ -844,9 +852,14 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
     exact Set.union_le_union le_rfl
       (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hfresh))
   case vc1.await e st n hinv =>
-    obtain ⟨⟨pairs, hlen, hrxs, ref⟩, gf'⟩ := hinv
-    refine ⟨⟨pairs, by simp [hlen], hrxs, ?_⟩,
+    obtain ⟨⟨pairs, hlen, hrxs, hrecv, ref⟩, gf'⟩ := hinv
+    refine ⟨⟨pairs, by simp [hlen], hrxs, ?_, ?_⟩,
       λ a ha x _ _ _ hm ↦ gf' a ha x _ _ _ (List.mem_cons_of_mem _ hm)⟩
+    case' refine_1 =>
+      intro c r coe hmem
+      rcases List.mem_append.mp hmem with h' | h'
+      · exact hrecv c r coe h'
+      · exact nomatch List.mem_singleton.mp h'
     -- an `await` binds nothing, so its freshness against the accumulator is unconditional
     have hfresh : ∀ a ∈ st.newInstrs,
         GuardFresh a.1 a.2.1 (NetworkPlusCal.Statement.await e) := λ _ _ ↦ GuardFresh.await
@@ -871,20 +884,23 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
     exact Set.union_le_union le_rfl
       (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hfresh))
   case vc2.receive.h_2 c r coe st n hinv τ hτ =>
-    obtain ⟨⟨pairs, hlen, hrxs, ref⟩, gf'⟩ := hinv
+    obtain ⟨⟨pairs, hlen, hrxs, _, ref⟩, gf'⟩ := hinv
     -- the one statement that pins the mailbox: from here down the walk is about *this* `inbox`
     obtain rfl := hmb c r coe rfl
     obtain ⟨rfl, hfr⟩ := rfresh c r coe rfl
-    refine ⟨⟨pairs.snoc (ne_name_of_fresh hfr.2.1).symm, by simp [hlen], ?_, ?_⟩, ?_⟩
-    -- the one step that grows `rxs`, and it grows it by this `receive`'s own channel
+    refine ⟨⟨pairs.snoc (ne_name_of_fresh hfr.2.1).symm, by simp [hlen], ?_, ?_, ?_⟩, ?_⟩
+    -- the one step that grows `rxs`: by this `receive`'s own channel, and so to something non-empty
     case' refine_1 =>
       intro x hx
       rw [List.concat_eq_append] at hx
       rcases List.mem_append.mp hx with h' | h'
       · exact hrxs x h'
       · rw [List.mem_singleton.mp h']
-        exact ⟨rfl, rfl⟩
-    case' refine_3 =>
+        exact ⟨rfl, rfl, hfr.1⟩
+    case' refine_2 =>
+      intro _ _ _ _
+      simp
+    case' refine_4 =>
       intro a ha x ann bound e hm
       rcases List.mem_append.mp ha with h' | h'
       · exact gf' a h' x ann bound e (List.mem_cons_of_mem _ hm)
@@ -1030,7 +1046,10 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : 
     ⦃λ n₀ ↦ ⌜n₀ = n⌝⦄
     processPrecondition (m := G2NM) chans inbox pre
     ⦃⇓? (pre', assigns, rxs) _ =>
-      ⌜(∀ x ∈ rxs, x.1 = c₀ ∧ mbox = .some (c₀, inbox)) ∧
+      ⌜(∀ x ∈ rxs, x.1 = c₀ ∧ mbox = .some (c₀, inbox) ∧
+          inbox ∉ GuardedPlusCal.Ref.freeVars c₀) ∧
+        (∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+          GuardedPlusCal.Statement.receive c r coe ∈ preconditionList pre → rxs ≠ []) ∧
         StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
         (pre.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
           (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
@@ -1052,7 +1071,7 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : 
     with | hmb | rfresh | gfresh | pfresh => subst pre; assumption
 
     case h_1 =>
-      refine ⟨nofun, ?_⟩
+      refine ⟨nofun, nofun, ?_⟩
       simp only [Option.elim, NetworkPlusCal.Statement.listReducing'_nil,
         NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₂.left_id_eq,
         Relation.lcomp₁.right_empty_eq_empty, Set.empty_union]
@@ -1067,8 +1086,8 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : 
        -   simp [NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₁.right_empty_eq_empty] -/
 
     case post.success r _ hinv =>
-      obtain ⟨⟨pairs, hlen, hrxs, ref⟩, -⟩ := hinv
-      refine ⟨hrxs, ?_⟩
+      obtain ⟨⟨pairs, hlen, hrxs, hrecv, ref⟩, -⟩ := hinv
+      refine ⟨hrxs, hrecv, ?_⟩
       -- `dropLast`/`getLast!` put the block back together only because the walk emitted one
       -- statement per source statement, and a `Block` is non-empty by construction
       have hne : r.1 ≠ [] := by

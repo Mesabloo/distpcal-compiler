@@ -463,6 +463,23 @@ def ProcessFresh (mbox : String → Mailbox) (c₀ : ComputableGuardedPlusCal.Re
     ∀ inbox, Generated "inbox" inbox →
       ∀ T ∈ p.threads, ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh (mbox inbox) c₀ inbox Br
 
+/-- **A generated `inbox` is never `self`** — `AlgebraRefines.inbox_ne_self`, which is load-bearing
+rather than hygiene: `CodeTable.procReducing` requires the memory to bind `selfName`, and the source
+memory agrees with the target's only *away* from the generated name.
+
+Pure arithmetic on the shape of the name, needing nothing from the source program: `selfName` is
+`"self"`, four characters, and any generated name is its six-character prefix plus a counter. -/
+theorem Generated.ne_selfName {s : String} (h : Generated "inbox" s) :
+    s ≠ GuardedPlusCal.selfName := by
+  obtain ⟨_, rfl⟩ := h
+  intro heq
+  have hlen := congrArg String.length heq
+  -- the literal parts of the interpolation stay separate, so two `length_append`s, not one; the
+  -- three literal lengths are then defeq to their values, which is all `omega` is missing
+  rw [String.length_append, String.length_append] at hlen
+  change 5 + 1 + _ = 4 at hlen
+  omega
+
 /-- **A process that never receives is `ProcessFresh` at `.none` for nothing**, whatever name the pass
 generates — `BranchesFresh.none_of_no_receive` at every branch. The receive-free half of D8's contract
 in one line, and what says the `.none` mailbox costs the front end nothing to supply. -/
@@ -546,7 +563,7 @@ theorem ProcessRefines.rxLabels_generated
   obtain ⟨_, _, _, hmem⟩ := hl
   rw [hsplit] at hmem
   rcases List.mem_append.mp hmem with hin | hin
-  · obtain ⟨_, _, _, heq, hgen⟩ := hrx _ hin
+  · obtain ⟨_, _, _, _, heq, hgen⟩ := hrx _ hin
     injection heq with _ hlbl _ _
     exact hlbl ▸ hgen
   · obtain ⟨_, _, _, hcodeq, _⟩ := hcode.exists_left hin
@@ -587,7 +604,7 @@ theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) mbox c₀ inb
   · rw [hsplit] at hT
     rcases List.mem_append.mp hT with hin | hin
     · -- a receiving thread owns exactly its own label
-      obtain ⟨_, lbl, τ, rfl, _⟩ := hrx _ hin
+      obtain ⟨_, _, lbl, τ, rfl, _⟩ := hrx _ hin
       obtain rfl := List.mem_singleton.mp hl
       exact .inl ⟨c₀, τ, inbox, hsplit ▸ List.mem_append_left _ hin⟩
     · -- a code thread owns the labels of its blocks, which are its source blocks' unchanged
@@ -723,13 +740,111 @@ theorem ProcessRefines.branchesRefine (h : ProcessRefines (V := V) mbox c₀ inb
   rw [hsplit] at hblocks
   rcases List.mem_append.mp hblocks with hin | hin
   · -- a `.code` thread is never one the pass registered
-    obtain ⟨_, _, _, heq, _⟩ := hrx _ hin
+    obtain ⟨_, _, _, _, heq, _⟩ := hrx _ hin
     exact nomatch heq
   · obtain ⟨T₀, hT₀, blocks₀, hcodeq, hblocks₀⟩ := hcode.exists_left hin
     injection hcodeq with hbl
     obtain ⟨blk, hblk, hlabeq, hbranches⟩ := hblocks₀.exists_left (hbl ▸ hblk')
     obtain ⟨Br, hBr, href⟩ := hbranches.exists_left hmem
     exact ⟨Br, mem_srcBranchesAt.mpr ⟨T₀, hT₀, blk, hblk, hlabeq ▸ hlab, hBr⟩, href⟩
+
+/-- **A compiled block never leaves for a receiving thread's label** — `CodeLabelRefines.exits`, the
+last of its fields.
+
+Four steps, and each is a lemma already in hand. The step is one of the label's compiled branches
+(`tgt_reducing_le`); that branch refines some source branch (`branchesRefine`), which fixes its
+terminal statement to the source's re-tagged (`BranchRefines.last_eq`); a source terminal statement
+is a `goto`, `goto` being the only terminal constructor, and `convertActionStmt` leaves it alone; so
+the step's final label is that `goto`'s target (`AtomicBranch.reducing_label`), which the front end
+promised is not generated (`exit_not_rx`).
+
+The `match` on `Br.action.last` is that "only terminal constructor" fact, spelled the one way Lean
+accepts it — there is no other branch to write. -/
+theorem ProcessRefines.exits (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    (hyg : LabelsHygienic p) {l : String} (hl : l ∉ rxLabels p')
+    {M M' : Memory V} {F F' : FIFOs V} {l' : String} {τ : Trace V}
+    (hstep : (⟨.running M F, τ, .done M' F' l'⟩ :
+      LocalState V false × Trace V × LocalState V true) ∈
+        (NetworkPlusCal.Process.codeTable (V := V) p').reducing l) :
+    l' ∉ rxLabels p' := by
+  obtain ⟨Br', hBr', hx⟩ := tgt_reducing_le hl _ hstep
+  obtain ⟨Br, hBr, href⟩ := h.branchesRefine l Br' hBr'
+  obtain ⟨T, hT, blk, hblk, _, hmem⟩ := mem_srcBranchesAt.mp hBr
+  match hgoto : Br.action.last with
+  | .goto lgoto =>
+    have hlast : Br'.action.last = .goto lgoto := by rw [href.last_eq, hgoto]; rfl
+    rw [NetworkPlusCal.AtomicBranch.reducing_label hlast hx]
+    exact h.exit_not_rx hyg hT hblk hmem hgoto
+
+/-! ## The receiving side of the dispatch
+
+  Where the code side has to *find* a compiled branch, this side has to rule one out: a receiving
+  label's table entry must be the relay and nothing else. `l ∉ ownedLabels p` — `label_cases`' other
+  negative half — is what kills `Process.codeTable`'s first summand, mirroring the way
+  `l ∉ rxLabels p'` killed its second one for the code labels.
+-/
+
+/-- **Any receiving thread of a compiled process is one the pass registered**, and so is on the
+process's own channel and `inbox` — which in turn means the process has a mailbox naming both.
+
+The primitive the receiving side is built from, and it is stated at a thread membership rather than
+at `l ∈ rxLabels p'` because that is what both callers hold. `RxLabelRefines`' `mailbox` and
+`chan_fresh` are its first two components. -/
+theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    {chan : ComputableNetworkPlusCal.Ref} {l ib : String} {τ : ComputableTLAPlus.Typ}
+    (hT : NetworkPlusCal.Thread.rx chan l τ ib ∈ p'.threads) :
+    mbox = .some (c₀, inbox) ∧ inbox ∉ GuardedPlusCal.Ref.freeVars c₀ ∧ chan = c₀ ∧ ib = inbox := by
+  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  rw [hsplit] at hT
+  rcases List.mem_append.mp hT with hin | hin
+  · obtain ⟨hmb, hfree, _, _, heq, _⟩ := hrx _ hin
+    injection heq with hchan _ _ hib
+    exact ⟨hmb, hfree, hchan, hib⟩
+  · obtain ⟨_, _, _, hcodeq, _⟩ := hcode.exists_left hin
+    exact nomatch hcodeq
+
+/-- **A step at a receiving label is the relay** — `RxLabelRefines.target_le`. `l ∉ ownedLabels p`
+kills `Process.codeTable`'s *code* summand: a compiled block carrying this label would have to be the
+compilation of a source block carrying it, and the source owns no such label. -/
+theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
+    (NetworkPlusCal.Process.codeTable (V := V) p').reducing l ⊆
+      NetworkPlusCal.Thread.rxBranch c₀ l inbox := by
+  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, _, _, _⟩ | ⟨_, hT, chan, τ, ib, rfl, hx⟩)
+  · -- a compiled block at this label would give a source block at it, and the source has none
+    rw [hsplit] at hT
+    rcases List.mem_append.mp hT with hin | hin
+    · obtain ⟨_, _, _, _, heq, _⟩ := hrx _ hin
+      exact nomatch heq
+    · obtain ⟨T₀, hT₀, blocks₀, hcodeq, hblocks₀⟩ := hcode.exists_left hin
+      injection hcodeq with hbl
+      obtain ⟨blk, hblk, hlabeq, _⟩ := hblocks₀.exists_left (hbl ▸ hblk')
+      exact (hsrc ⟨T₀, hT₀, blk, hblk, hlabeq ▸ hlab⟩).elim
+  · -- the relay, on the channel and `inbox` the invariant is stated against
+    obtain ⟨_, _, rfl, rfl⟩ := h.rxThread hT
+    exact hx
+
+/-- The same where it goes wrong — `RxLabelRefines.target_abort_le`. Identical shape: the code
+summand is ruled out by the source owning no such label, and what is left is the relay's own aborting
+set. That set is not empty, and the algorithm-level invariant is what rules it out
+(`algRelatesTo`'s channel-presence clause); ruling it out is not this lemma's job. -/
+theorem ProcessRefines.rx_target_abort_le (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
+    (NetworkPlusCal.Process.codeTable (V := V) p').aborting l ⊆
+      NetworkPlusCal.Thread.rxBranchAborting c₀ inbox := by
+  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, _, _, _⟩ | ⟨_, hT, chan, τ, ib, rfl, hx⟩)
+  · rw [hsplit] at hT
+    rcases List.mem_append.mp hT with hin | hin
+    · obtain ⟨_, _, _, _, heq, _⟩ := hrx _ hin
+      exact nomatch heq
+    · obtain ⟨T₀, hT₀, blocks₀, hcodeq, hblocks₀⟩ := hcode.exists_left hin
+      injection hcodeq with hbl
+      obtain ⟨blk, hblk, hlabeq, _⟩ := hblocks₀.exists_left (hbl ▸ hblk')
+      exact (hsrc ⟨T₀, hT₀, blk, hblk, hlabeq ▸ hlab⟩).elim
+  · obtain ⟨_, _, rfl, rfl⟩ := h.rxThread hT
+    exact hx
 
 /-- **The dispatch itself.** A label the compiled process owns belongs to exactly one of the two
 groups, and the case analysis carries the *negative* fact as well as the positive one.
