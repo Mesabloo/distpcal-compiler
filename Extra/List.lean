@@ -675,6 +675,69 @@ namespace List
         rw [hPQ _ _ hxy, hq]
         exact ih hy
 
+  @[inherit_doc Forall₂.find?_right]
+  theorem Forall₂.find?_left {R : α → β → Prop} {xs ys} (h : List.Forall₂ R xs ys)
+      {P : α → Bool} {Q : β → Bool} (hPQ : ∀ x y, R x y → P x = Q y) {x}
+      (hx : xs.find? P = some x) : ∃ y, ys.find? Q = some y ∧ R x y := by
+    induction h with
+    | nil => exact nomatch hx
+    | @cons x' y' _ _ hxy _ ih =>
+      rw [find?_cons] at hx ⊢
+      cases hp : P x' with
+      | true =>
+        rw [hp] at hx
+        rw [← hPQ _ _ hxy, hp]
+        exact ⟨y', rfl, (Option.some.inj hx) ▸ hxy⟩
+      | false =>
+        rw [hp] at hx
+        rw [← hPQ _ _ hxy, hp]
+        exact ih hx
+
+  /-- **`find?` lands on the only match.** `find?` returns the first element satisfying the
+  predicate, so knowing which element it returns generally needs to know where it sits; when the
+  match is unique that positional information is not needed, and membership is enough. -/
+  theorem find?_eq_some_of_unique {P : α → Bool} {l : List α} {x : α} (hx : x ∈ l) (hP : P x)
+      (huniq : ∀ y ∈ l, P y → y = x) : l.find? P = some x := by
+    induction l with
+    | nil => exact nomatch hx
+    | cons a rest ih =>
+      rw [find?_cons]
+      cases hPa : P a with
+      | true => rw [huniq a mem_cons_self hPa]
+      | false =>
+        refine ih ?_ ?_
+        · rcases mem_cons.mp hx with rfl | hmem
+          · rw [hP] at hPa
+            contradiction
+          · exact hmem
+        · exact λ y hy ↦ huniq y (mem_cons_of_mem _ hy)
+
+  /-- **Two `map`s under a `Forall₂` agree** when the two functions agree on related pairs. What
+  reads it is a field both sides of a compilation preserve: the two lists of that field are then
+  *equal*, so anything said about one list of names is said about the other. -/
+  theorem Forall₂.map_eq_map {R : α → β → Prop} {γ : Type _} {f : α → γ} {g : β → γ} {xs ys}
+      (h : List.Forall₂ R xs ys) (hfg : ∀ x y, R x y → f x = g y) : xs.map f = ys.map g := by
+    induction h with
+    | nil => rfl
+    | cons hxy _ ih => rw [map_cons, map_cons, hfg _ _ hxy, ih]
+
+  /-- **A `Forall₂` whose left list is an append splits at the same point.** `Forall₂` is positional,
+  so the right list has a prefix related to the left one's and a suffix related to the rest.
+
+  What reads it is a statement about a list one pass *extended*: the extension's own related
+  elements are exactly the suffix this hands back, with nothing about them left tangled up in the
+  original's. -/
+  theorem Forall₂.exists_append_left {R : α → β → Prop} {xs₁ xs₂ : List α} {ys : List β}
+      (h : List.Forall₂ R (xs₁ ++ xs₂) ys) :
+      ∃ ys₁ ys₂, ys = ys₁ ++ ys₂ ∧ List.Forall₂ R xs₁ ys₁ ∧ List.Forall₂ R xs₂ ys₂ := by
+    induction xs₁ generalizing ys with
+    | nil => exact ⟨[], ys, rfl, .nil, h⟩
+    | cons _ _ ih =>
+      cases h with
+      | cons hxy htl =>
+        obtain ⟨ys₁, ys₂, rfl, h₁, h₂⟩ := ih htl
+        exact ⟨_ :: ys₁, ys₂, rfl, .cons hxy h₁, h₂⟩
+
   theorem attach_eq_cons {xs ys} {y : {x : α // x ∈ xs}} (h : xs.attach = y :: ys) :
       ∃ x xs', ∃ (h' : xs = x :: xs'), x = ↑y ∧ ys = xs'.attach.map (λ ⟨y, h⟩ => ⟨y, h' ▸ mem_cons_of_mem x h⟩) := by
     cases xs <;> try contradiction

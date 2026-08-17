@@ -768,6 +768,7 @@ private def WalkInv (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbo
           NetworkPlusCal.Statement.listAborting' (consumptions st.newInstrs))
       ∅
 
+omit [SeqBuiltins V] in
 /-- The invariant holds at the start: nothing walked, nothing emitted, nothing pending. -/
 private theorem WalkInv.nil {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
     {pref : ChanKey V → List V} :

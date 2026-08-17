@@ -676,6 +676,26 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
   order. `chan[self]` resolves to a distinct `ChanKey` per instance, which is what makes each
   instance's `inbox` account for exactly its own channel. `=`-shaped processes are single
   instances and are exempt.
+- **Process names are unique** (`WellFormednessError.duplicateProcessName`, `E0065`, also new in
+  phase 10 item 7). Checked by `TypedPlusCal.Algorithm.checkWellScoped`, first, before any
+  declaration is looked at. Process names are a **flat scope of their own** — a process and a
+  variable may share a name and nothing is ambiguous — so `duplicateName`/`shadowedName` never look
+  at them and the error is its own. Position is the offending process's `id` expression, the name
+  token carrying none.
+
+  Not a style rule: an instance is `⟨process name, self⟩`, and both languages' `Algorithm.algebra`
+  resolve one by `processes.find? (·.name == name)`, the *first* process carrying it. Two processes
+  sharing a name would give every instance of the second the first's code table and owned labels,
+  while `Algorithm.init` still contributed instances from both — a state no algebra steps correctly.
+  It is the hypothesis `Algorithm.init_refines` takes as `(algo.processes.map (·.name)).Nodup`, and
+  what `Algorithm.init.functional` needs on both sides (§D8).
+
+  **Process *identifiers* are the opposite case and stay assumed.** Whether two instances have
+  distinct `self` values is a question about the `id` expressions' *values* under the constants,
+  which no syntactic pass can decide. So the proof assumes what it must and checks what it can:
+  distinctness of *keys* is `InitKeys.inj`, a hypothesis, made plausible rather than checked by
+  `mailboxNotIndexedBySelf` (the bullet above) — that is the syntactic condition under which
+  distinct instances *do* get distinct keys. Nothing tries to check identifier distinctness itself.
 
 ### 5.3 Type checking
 **Input:** `CoreTLAPlus`/`CorePlusCal`. **Output:** `TypedTLAPlus`/`TypedPlusCal`.
@@ -1993,6 +2013,130 @@ That the checker does not enforce uniqueness is itself a gap, and a real one: a 
 duplicated label is ambiguous, and `codeTable`'s union turns it silently into non-deterministic
 choice rather than an error. Tracked as **§9.29**. The proof does not depend on closing it — the
 weaker `BranchesRefine` is what every consumer wants regardless.
+
+**"Receives ⟹ a thread was registered" is a ghost-carrying walk (landed, item 7).** `procMailbox`
+reads the mailbox off an `.rx` thread, so the pass owes the forward direction: a source process that
+receives is compiled to one with a thread draining its channel. `RxOnly` gives the converse free —
+it forces `mbox = .some` on every registered thread, so `.none` implies there are none.
+
+The fact is established where `rxThreads` is written (`stepBranch`, the only writer) and carried up
+by an invariant per rung, conditioned on `BranchReceives`/`BlockReceives`/`ThreadReceives`/
+`ProcessReceives`. Each step case needs "a list already non-empty stays non-empty", which relates
+pre- to post-state — and a Hoare postcondition cannot mention the pre-state. `Std.Do` has no
+primitive for this (`Triple.and`/`Triple.mp` conjoin preconditions; `HasFrame` only splits a pure
+component off an entailment), so it enters as a universally quantified ghost, `Registered (H : Prop)
+st := H → st.rxThreads ≠ []`, with pre `Registered H st` and post `Registered (H ∨ ‹this receives›)
+st'`. The ghost is confined to the three walks under one `ThreadState` and collapses at
+`mapM_stepBlock_spec_run`, where the walk starts at `{}` and `H` is `False`. Above that the
+accumulator is the result list, and `++` supplies monotonicity outright.
+
+`ProcessRefines.threads` ends `∧ (ProcessReceives p → rxs ≠ [])`, and `procMailbox_eq` spends it:
+`mb` is *computed* from the compiled algorithm rather than witnessed alongside it, which is what
+`AlgebraRefines` needs — it takes `mb : ι → Mailbox` as a parameter, not an existential. The
+front-end half is `MailboxUsed`, `∀ p ∈ algo.processes, ∀ inbox, mbox p.name inbox ≠ .none →
+ProcessReceives p`, which is what `checkReceiveChannels` establishes now that it rejects a receive
+without a mailbox (§9.30).
+
+**`AlgebraRefines` is proved (landed, item 7).** `Guarded2Network.algebraRefines`: the compiled
+algebra refines the source's, at `procMailbox`/`procRxLabels`. Every clause is one lemma at the
+resolved instance — `find?_refines` turns an instance into a related process pair, the four
+`*_algebra_table`/`*_algebra_owned` lemmas get past `Algorithm.algebra`'s `Option.elim` to the bare
+`Process.codeTable`/`ownedLabels` the field lemmas are stated at, and `labels` splits on
+`label_cases`. Four hypotheses: the pass's `ProcessesRefine`, and three the front end owes —
+`MailboxUsed`, `AlgorithmFresh`, `LabelsHygienic`.
+
+**And the pass's correctness theorem is proved (landed, item 7).**
+`Guarded2Network.Algorithm.toNetwork_refines`: compiling an algorithm yields one whose algebra
+refines the source's under `algRelatesTo`, at `procMailbox`/`procRxLabels`. Three hypotheses, all the
+front end's — `AlgorithmFresh`, `MailboxUsed`, `LabelsHygienic`. It is `Algorithm.toNetwork_spec`
+(the four walks) composed with `algebraRefines` (the dispatch) and `algRelatesTo.refines` (the
+refinement argument).
+
+**`pref`'s `∀` is a five-line lemma, not a refactor.** `algebraRefines` wants the pass's output
+related at *every* prefix function, and a spec supplies one per instantiation; `Std.Do` has no
+infinitary conjunctivity to close that gap (`PredTrans` carries the binary form only). But `G2NM` is
+deterministic — `wp⟦x⟧ Q n` is a match on what `x` returns at `n`, the same match whatever `Q` is —
+so `triple_forall` (`Guarded2Network/Lemmas/Monad.lean`) proves the infinitary version directly, by
+unfolding `wp`. It is the one place in this development that does. Carrying `∀ pref` through
+`BranchRefines`/`BlockRefines`/`ThreadRefines`/`ProcessRefines` and four spec postconditions was the
+alternative, and is not needed.
+
+**The declared `@mailbox` field cannot serve as the `Mailbox`.** It is real and `Process.toNetwork`
+copies it across, but two of the three things a `Mailbox` holds are missing. The generated `inbox` is
+not in it — the pass writes that into the threads it builds and the local it declares, never back
+into the field — and the channel is `Option (String × List Expr)` where a `Mailbox` holds a
+`ComputableGuardedPlusCal.Ref`: no `baseType`, and `args` without the `String ⊕ ·` summand
+`relatesTo` evaluates with `EvalStep`. So reading the receiving thread is not a search past
+information already in hand; it is the only place the generated name exists. Worth revisiting once:
+`relatesTo` uses only `c.name` and `c.args`, so `Mailbox`'s `Ref` is wider than anything reads.
+
+**And the initial states are related (landed, item 7).** `Guarded2Network.Algorithm.init_refines`:
+every `NetworkPlusCal.Algorithm.init` state of the compiled algorithm has a
+`GuardedPlusCal.Algorithm.init` state of the source related to it under `algRelatesTo`, at the same
+`procMailbox`/`procRxLabels`. This is what keeps `Algorithm.toNetwork_refines` from being vacuous — a
+`StrongRefinement` over a relation that never holds is trivially true.
+
+The source state is built on the *target's own* FIFO map. `Algorithm.toNetwork_spec` reports
+`algo'.globalState = algo.globalState`, so the two `init`s' channel clauses are literally the same
+statement and the map satisfying one satisfies the other; `pref` is then `λ _ ↦ []` and the FIFO
+equation is reflexivity. What is left is the instances, and each is the target's own with the pass's
+three differences undone: `ProcessRefines.inits_eq` strips the `inbox` initializer back off the
+memory, `.entryLabels_eq` strips the receiving threads off the label set, and `InitKeys` says what
+the inbox accounts for.
+
+**`init` is a characterization of membership, not an existence claim.** "For each declared instance
+some state exists" does not constrain `Ps` at all — an `Instances` holding junk pairs, or two states
+for one instance, still witnesses the existential. The membership form is what makes
+`Instances.Functional` derivable (`Algorithm.init.functional`), and that clause of `algRelatesTo` is a
+soundness obligation rather than bookkeeping. Making it derivable is also why `ExprSemantics` states
+`evalUnique`: the initializers pin their values, so `InitProc` pins the state.
+
+**Front-end obligations the initial state adds.** Two beyond the three
+`Algorithm.toNetwork_refines` already carries.
+
+- **Process names are unique** (`(algo.processes.map (·.name)).Nodup`). Not bookkeeping: both
+  `Algorithm.algebra`s resolve an instance by `find?` on its process name, so two processes sharing
+  one would have every instance of the second running the first's code. It is what pins `find?` to
+  the process an instance came from, on both sides — the target's names are the source's pointwise by
+  `ProcessRefines.name_eq`. The front end checks it: `duplicateProcessName`, §5.2a.
+- **`InitKeys`**, three clauses about the key a receiving instance starts on: the mailbox channel's
+  index expressions *evaluate* in that instance's own initial memory, the resulting key names a FIFO
+  that exists, and distinct instances get distinct keys. None is anything the pass decides. The third
+  is the well-formedness condition that a process set's mailbox is indexed by `self` — without it one
+  FIFO would be accounted against two inboxes and no relation of `algRelatesTo`'s shape could hold.
+
+**`ExprSemantics.eval_seq_nil` is stated as existence**, `∃ s, Eval M (.seq [] τ) s ∧ isSeq s []`,
+for the reason `seqAppend_isSeq` is: totality is then part of the law. A compiled instance has an
+initial state only if every initializer it declares evaluates, and `<<>>` for the `inbox` is the only
+initializer the pass invents — an implication would leave the compiled algorithm free to have no
+initial state where its source has one. The implication form is `isSeq_of_eval_seq_nil`, `evalUnique`
+away.
+
+**The pass is packaged as `Compiler.Correctness` (landed, item 7).** `Guarded2Network.correct`.
+`VerifiedCompiler/Denotational/Correctness.lean` is where "this pass is correct" is *stated* for any
+pass: the target's initial states are covered by related source ones, and its behaviour refines the
+source's.
+
+**Both halves live in one Hoare triple, and the relation is indexed by both programs.** They have to
+be. `algRelatesTo`'s mailbox and receiving labels are read off the *compiled* algorithm, and the
+`inbox` name they mention is one the pass invents — no relation written before the pass runs can name
+it, and no outer `∀` can bind it, since the compiled algorithm exists only under `C x`. The same goes
+for `isInit`/`isInit'`: an algorithm's initial states are a function of the algorithm.
+
+**Composition needs the relation forgotten.** A chain's simulation relation is `R₁ x y ∘ᵣ R₂ y z` at
+the intermediate program `y`, which exists only inside the first triple; and it cannot be recovered by
+quantifying `y` *inside* the relation, because `StrongRefinement` takes its relation as both pre- and
+post-relation (`Terminating R R …`) and so is monotone in neither direction. `Compiler.Correct` is
+`Correctness` with the relation existentially quantified inside the triple, where both programs are in
+scope; `Correctness.toCorrect` and `Correct.comp` are the two lemmas that need.
+
+**The source program type carries the front end's facts.** `Guarded2Network.SourceProgram` bundles an
+algorithm with its `mbox`/`c₀` and a `FrontEnd` record of the five conditions. `Correctness` quantifies
+over *every* program of its source type, so hoisting them into `∀ algo, AlgorithmFresh mbox c₀ algo`
+would ask one mailbox assignment to be fresh for every algorithm at once — no assignment is, and the
+theorem would hold vacuously. `TargetProgram V` is a phantom index over the same reason the framework's
+`Reduce`/`Abort`/`Diverge` take their semantics as an `outParam`: the program type has to determine the
+value universe.
 
 **Threads have no denotation.** A process state is a memory plus a *set of labels*, at most one per
 thread; a process step picks an enabled label, runs the atomic block that label names, and replaces

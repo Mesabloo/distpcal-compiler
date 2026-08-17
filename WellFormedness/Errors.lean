@@ -60,6 +60,11 @@ inductive WellFormednessError : Type
   the one thing `Guarded2Network`'s single `inbox` per instance is indexed by, so it has to be
   written down rather than inferred from whichever `receive` the walk happens to reach first. -/
   | receiveWithoutMailbox (pos : SourceSpan) (process : String) (channel : String)
+  /-- Two processes of one algorithm carry the same name. Separate from `duplicateName`, which is
+  about a *scope*: process names are not in any declaration scope — a process and a variable may
+  share a name — but they are what the semantics dispatches an instance on, so they must be
+  distinct among themselves. -/
+  | duplicateProcessName (pos : SourceSpan) (name : String)
   deriving Repr, Inhabited, BEq
 
 /-- Renders a direct-vs-transitive `path` breadcrumb (innermost first) as "directly in a
@@ -87,6 +92,7 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .receiveChannelMismatch .. => Diagnostics.receiveChannelMismatch.code
     | .mailboxNotIndexedBySelf .. => Diagnostics.mailboxNotIndexedBySelf.code
     | .receiveWithoutMailbox .. => Diagnostics.receiveWithoutMailbox.code
+    | .duplicateProcessName .. => Diagnostics.duplicateProcessName.code
   posOf
     | .unknownLabel pos _ => pos
     | .redefinedDone pos => pos
@@ -102,6 +108,7 @@ instance : CompilerDiagnostic WellFormednessError String where
     | .receiveChannelMismatch pos _ _ _ _ => pos
     | .mailboxNotIndexedBySelf pos _ _ => pos
     | .receiveWithoutMailbox pos _ _ => pos
+    | .duplicateProcessName pos _ => pos
   msgOf
     | .unknownLabel _ label => s!"`goto {label}` targets a label that doesn't exist in this process."
     | .redefinedDone _ => "`Done` is a reserved label and cannot be redefined."
@@ -123,6 +130,8 @@ instance : CompilerDiagnostic WellFormednessError String where
       s!"Process set `{process}` receives from `{channel}`, one channel shared by every instance — a process set's channel must be indexed by `self` (`{channel}[self]`), so that each instance has its own."
     | .receiveWithoutMailbox _ process channel =>
       s!"Process `{process}` receives from `{channel}` without declaring it — a receiving process must name the channel it listens on in a `@mailbox` annotation on the process itself."
+    | .duplicateProcessName _ name =>
+      s!"Two processes are named `{name}` — a process instance is identified by its process's name together with its own `self`, so two processes sharing a name cannot be told apart."
 
 /-- The well-formedness pass's warnings. -/
 inductive WellFormednessWarning : Type

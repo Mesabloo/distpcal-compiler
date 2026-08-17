@@ -288,6 +288,11 @@ def receiveWithoutMailbox : Entry :=
   { code := e 64, stage := .wellFormedness,
     summary := "A process receives from a channel it never declared as its @mailbox." }
 
+/-- Two processes of one algorithm carrying the same name. -/
+def duplicateProcessName : Entry :=
+  { code := e 65, stage := .wellFormedness,
+    summary := "Two processes of one algorithm share a name." }
+
 /-! ## `Typed2Computable` -/
 
 /-- A construct with no finite runtime representation. -/
@@ -383,7 +388,7 @@ def entries : List Entry :=
     unknownLabel, redefinedDone, duplicateName, shadowedName, channelInExpression,
     channelTypedVariable, nonEmptyLocalChannels, globalPlusCalVariable, globalTLAPlusVariable,
     bareTemporalOrAction, unboundedQuantifier, receiveChannelMismatch, mailboxNotIndexedBySelf,
-    receiveWithoutMailbox,
+    receiveWithoutMailbox, duplicateProcessName,
     notComputable, computableInternalInvariant, guardedInternalInvariant, networkInternalInvariant,
     goInternalInvariant, goUnsupported,
     moduleNameMismatch,

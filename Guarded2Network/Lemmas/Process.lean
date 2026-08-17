@@ -492,6 +492,12 @@ theorem ProcessFresh.none_of_no_receive {c₀ : ComputableGuardedPlusCal.Ref}
   λ _ _ T hT blk hblk Br hBr ↦
     BranchesFresh.none_of_no_receive (norecv T hT blk hblk Br hBr)
 
+/-- A process one of whose threads receives — the source-side condition the pass's registration
+promise is conditioned on, and the one the algorithm level reads off well-formedness: after
+`checkReceiveChannels`, a process has a `mailbox` exactly when this holds of it. -/
+def ProcessReceives (p : ComputableGuardedPlusCal.Process) : Prop :=
+  ∃ T ∈ p.threads, ThreadReceives T
+
 /-- **What one compiled process owes its source.**
 
 `threads` is the refinement: a compiled process's threads are the receiving loops the pass
@@ -510,9 +516,22 @@ obligation's own business. -/
 structure ProcessRefines (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
   (pref : ChanKey V → List V) (p : ComputableGuardedPlusCal.Process)
   (p' : ComputableNetworkPlusCal.Process) : Prop where
-    /-- The registered receive loops, then the compiled code threads. -/
-    threads : ∃ rxs codes, p'.threads = rxs ++ codes ∧ RxOnly mbox c₀ inbox rxs ∧
-      List.Forall₂ (ThreadRefines (V := V) mbox pref) p.threads codes
+    /-- The registered receive loops, then the compiled code threads — and a source process that
+    receives at all has at least one of the former. That conjunct is what connects the two
+    directions: `RxOnly` says a registered thread means the process has a mailbox, and this says a
+    process with something to receive has a thread registered to drain it.
+
+    The locals ride in the same existential rather than in a field of their own, because what makes
+    them usable is `news = [] ↔ rxs = []` — the `rxs` bound here. `Algorithm.init` spends both
+    directions: at `.none`, `RxOnly` forces `rxs = []` and so no extra local, leaving the two
+    memories equal; at `.some`, `MailboxUsed` forces `rxs ≠ []` and so an `inbox` declared, which is
+    what binds it in the compiled instance's initial memory. -/
+    threads : ∃ rxs codes news, p'.threads = rxs ++ codes ∧
+      p'.localState = { p.localState with «variables» := p.localState.variables ++ news } ∧
+      RxOnly mbox c₀ inbox rxs ∧
+      List.Forall₂ (ThreadRefines (V := V) mbox pref) p.threads codes ∧
+      (ProcessReceives p → rxs ≠ []) ∧
+      (∀ e ∈ news, InboxLocal inbox e) ∧ (news = [] ↔ rxs = [])
     /-- The mailbox this is all stated against is a name the pass generated. -/
     inbox_generated : Generated "inbox" inbox
     /-- And the compiled process answers to the same name, `id`, and instance shape. -/
@@ -546,6 +565,25 @@ compiled process rather than supplied alongside it. -/
 def rxLabels (p' : ComputableNetworkPlusCal.Process) : Set String :=
   {l | ∃ chan τ inbox, NetworkPlusCal.Thread.rx chan l τ inbox ∈ p'.threads}
 
+/-- **The mailbox a compiled process's receiving threads drain** — `AlgebraRefines`' `mb p`, read the
+same way `rxLabels` is.
+
+**Why not `p'.mailbox`.** The process does carry a declared mailbox, and `Process.toNetwork` copies
+it across; it is just not a `Mailbox`. Two of the three things this type holds are missing from it.
+The `inbox` is not there at all — the pass generates it (`freshName "inbox"`) and writes it into the
+threads it builds and the local it declares, never back into the field. And the channel is
+`Option (String × List Expr)` where a `Mailbox` holds a `ComputableGuardedPlusCal.Ref` — no
+`baseType`, and `args` without the `String ⊕ ·` summand that `relatesTo` evaluates with `EvalStep`.
+
+So this is not a search past information already in hand: the receiving thread is the only place the
+generated `inbox` exists. What the declared field is good for is the *decision* — whether a process
+has a mailbox at all — and that is exactly what enters below as a hypothesis, discharged by the front
+end rather than guessed from the compiled output. -/
+def rxMailbox (p' : ComputableNetworkPlusCal.Process) : Mailbox :=
+  p'.threads.findSome? λ T ↦ match T with
+    | .rx chan _ _ ib => some (chan, ib)
+    | .code _ => none
+
 variable {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
   {pref : ChanKey V → List V} {p : ComputableGuardedPlusCal.Process}
   {p' : ComputableNetworkPlusCal.Process}
@@ -559,7 +597,7 @@ want, and they are the only consumers. -/
 theorem ProcessRefines.rxLabels_generated
     (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') {l : String} (hl : l ∈ rxLabels p') :
     Generated "rx" l := by
-  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   obtain ⟨_, _, _, hmem⟩ := hl
   rw [hsplit] at hmem
   rcases List.mem_append.mp hmem with hin | hin
@@ -598,7 +636,7 @@ source. -/
 theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') :
     NetworkPlusCal.Process.ownedLabels p'
       = rxLabels p' ∪ GuardedPlusCal.Process.ownedLabels p := by
-  obtain ⟨rxs, codes, hsplit, hrx, hcode⟩ := h.threads
+  obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   ext l
   iff_rintro ⟨T, hT, hl⟩ (⟨chan, τ, ib, hmem⟩ | ⟨T₀, hT₀, blk, hblk, rfl⟩)
   · rw [hsplit] at hT
@@ -617,6 +655,102 @@ theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) mbox c₀ inb
     obtain ⟨blk', hblk', hlabel, _⟩ := hblocks.exists_right hblk
     refine ⟨.code blocks, hsplit ▸ List.mem_append_right _ hT', ?_⟩
     exact List.mem_map.mpr ⟨blk', hblk', hlabel⟩
+
+/-- **The entry labels split the same way the owned ones do** — every receiving thread's label, plus
+the source's own.
+
+Owed to `Algorithm.init` rather than to `AlgebraRefines`: a compiled instance starts at
+`Process.entryLabels p'`, and `procRelatesTo` wants that to be the source's label set together with
+`rx p`. A receiving thread is one block long, so its entry label *is* its only label, which is what
+makes the receiving half of this `rxLabels` rather than a subset of it.
+
+The code half needs the two lists' heads to correspond, not just their elements — that is
+`List.Forall₂`'s `nil`/`cons` split, and `BlockRefines` carries the label agreement at each. -/
+theorem ProcessRefines.entryLabels_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') :
+    NetworkPlusCal.Process.entryLabels p'
+      = rxLabels p' ∪ GuardedPlusCal.Process.entryLabels p := by
+  obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
+  ext l
+  iff_rintro ⟨T, hT, hl⟩ (⟨chan, τ, ib, hmem⟩ | ⟨T₀, hT₀, blk, hhead, rfl⟩)
+  · rw [hsplit] at hT
+    rcases List.mem_append.mp hT with hin | hin
+    · -- a receiving thread is one block long, so its entry label is the label it owns
+      obtain ⟨_, _, lbl, τ, rfl, _⟩ := hrx _ hin
+      obtain rfl := Option.some.inj hl
+      exact .inl ⟨c₀, τ, inbox, hsplit ▸ List.mem_append_left _ hin⟩
+    · -- a code thread starts at its first block, which is its source thread's first block relabelled
+      obtain ⟨_, hT₀, blocks, rfl, hblocks⟩ := hcode.exists_left hin
+      cases hblocks with
+      | nil => exact nomatch hl
+      | @cons blk _ _ _ hblk _ =>
+        obtain rfl := Option.some.inj hl
+        exact .inr ⟨_, hT₀, blk, rfl, hblk.1.symm⟩
+  · exact ⟨_, hmem, rfl⟩
+  · obtain ⟨T', hT', blocks, rfl, hblocks⟩ := hcode.exists_right hT₀
+    refine ⟨.code blocks, hsplit ▸ List.mem_append_right _ hT', ?_⟩
+    cases hblocks with
+    | nil => exact nomatch hhead
+    | @cons _ blk' _ _ hblk _ =>
+      obtain rfl := Option.some.inj hhead
+      exact congrArg _ hblk.1
+
+/-- **A compiled process contributes the same instances.** `Process.identities` reads nothing but
+`«=|∈»` and `id`, and `Process.toNetwork` copies both across.
+
+Owed to `Algorithm.init`, which quantifies over the instances each declared process contributes: the
+two algorithms have to declare the same ones, or the states being related would not even be indexed
+alike. -/
+theorem ProcessRefines.identities_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') :
+    NetworkPlusCal.Process.identities (V := V) p'
+      = GuardedPlusCal.Process.identities (V := V) p := by
+  rw [NetworkPlusCal.Process.identities_eq, GuardedPlusCal.Process.identities_eq, h.id_eq,
+    h.idShape_eq]
+
+/-- **And the initializers split the same way the locals do** — the source's, then the pass's own for
+the `inbox`.
+
+`Process.inits` is `initsOf` over the declared locals and `ProcessRefines` reports the target's locals
+as the source's with the pass's appended, so the split itself is `initsOf_append`. The other two
+halves are about what was appended: an `InboxLocal` carries an initializer, so it survives `initsOf`
+rather than being filtered out, and `RxOnly` ties "a thread was registered" to the mailbox in both
+directions — a registered thread forces `.some`, and `hused` (the front end's `MailboxUsed` at this
+process) forces a registration from `.some`.
+
+Owed to `Algorithm.init`: a compiled instance's initial memory is the source's with `inbox` written
+on top, and this is what says which extra initializers wrote it, and when there are none. -/
+theorem ProcessRefines.inits_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    (hused : mbox ≠ .none → ProcessReceives p) :
+    ∃ ninits, NetworkPlusCal.Process.inits p' = GuardedPlusCal.Process.inits p ++ ninits ∧
+      (∀ e ∈ ninits, InboxInit inbox e) ∧ (ninits = [] ↔ mbox = .none) := by
+  obtain ⟨rxs, -, news, -, hlocal, hrx, -, hreg, hloc, hboth⟩ := h.threads
+  have hnews : GuardedPlusCal.initsOf news = [] ↔ news = [] := by
+    rw [GuardedPlusCal.initsOf_eq_filterMap, List.filterMap_eq_nil_iff]
+    iff_intro hf hn
+    · refine List.eq_nil_iff_forall_not_mem.mpr λ e he ↦ ?_
+      obtain ⟨_, hsome, -⟩ := initOf_inboxLocal (hloc e he)
+      rw [hf e he] at hsome
+      contradiction
+    · rw [hn]
+      nofun
+  refine ⟨GuardedPlusCal.initsOf news, ?_, ?_, ?_⟩
+  · rw [NetworkPlusCal.Process.inits_eq, hlocal, GuardedPlusCal.Process.inits_eq,
+      GuardedPlusCal.initsOf_append]
+  · intro e he
+    rw [GuardedPlusCal.initsOf_eq_filterMap, List.mem_filterMap] at he
+    obtain ⟨v, hv, hfilt⟩ := he
+    obtain ⟨_, hsome, hini⟩ := initOf_inboxLocal (hloc v hv)
+    rw [hsome] at hfilt
+    exact Option.some.inj hfilt ▸ hini
+  · rw [hnews, hboth]
+    iff_intro hnil hnone
+    · by_contra! hcon
+      exact hreg (hused hcon) hnil
+    · cases rxs with
+      | nil => rfl
+      | cons T _ =>
+        have habs := (hrx T List.mem_cons_self).1
+        rw [hnone] at habs
+        contradiction
 
 /-- **And a compiled block never leaves for one.** The same two facts at a branch's terminal `goto`
 rather than at a block's own label — `CodeLabelRefines.exits`, which is what stops a code thread
@@ -734,7 +868,7 @@ concatenations would be over unrelated blocks. -/
 theorem ProcessRefines.branchesRefine (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     (l : String) :
     BranchesRefine (V := V) mbox pref (srcBranchesAt p l) (tgtBranchesAt p' l) := by
-  obtain ⟨rxs, codes, hsplit, hrx, hcode⟩ := h.threads
+  obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   intro Br' hBr'
   obtain ⟨blocks, hblocks, blk', hblk', hlab, hmem⟩ := mem_tgtBranchesAt.mp hBr'
   rw [hsplit] at hblocks
@@ -794,7 +928,7 @@ theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) mbox c₀ inbox pre
     {chan : ComputableNetworkPlusCal.Ref} {l ib : String} {τ : ComputableTLAPlus.Typ}
     (hT : NetworkPlusCal.Thread.rx chan l τ ib ∈ p'.threads) :
     mbox = .some (c₀, inbox) ∧ inbox ∉ GuardedPlusCal.Ref.freeVars c₀ ∧ chan = c₀ ∧ ib = inbox := by
-  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   rw [hsplit] at hT
   rcases List.mem_append.mp hT with hin | hin
   · obtain ⟨hmb, hfree, _, _, heq, _⟩ := hrx _ hin
@@ -810,7 +944,7 @@ theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) mbox c₀ inbox
     {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
     (NetworkPlusCal.Process.codeTable (V := V) p').reducing l ⊆
       NetworkPlusCal.Thread.rxBranch c₀ l inbox := by
-  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, _, _, _⟩ | ⟨_, hT, chan, τ, ib, rfl, hx⟩)
   · -- a compiled block at this label would give a source block at it, and the source has none
     rw [hsplit] at hT
@@ -833,7 +967,7 @@ theorem ProcessRefines.rx_target_abort_le (h : ProcessRefines (V := V) mbox c₀
     {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
     (NetworkPlusCal.Process.codeTable (V := V) p').aborting l ⊆
       NetworkPlusCal.Thread.rxBranchAborting c₀ inbox := by
-  obtain ⟨_, _, hsplit, hrx, hcode⟩ := h.threads
+  obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, _, _, _⟩ | ⟨_, hT, chan, τ, ib, rfl, hx⟩)
   · rw [hsplit] at hT
     rcases List.mem_append.mp hT with hin | hin
@@ -862,6 +996,118 @@ theorem ProcessRefines.label_cases (h : ProcessRefines (V := V) mbox c₀ inbox 
   · exact .inr ⟨hrx, Set.disjoint_right.mp (h.rx_disjoint hyg) hrx⟩
   · exact .inl ⟨hsrc, Set.disjoint_left.mp (h.rx_disjoint hyg) hsrc⟩
 
+/-- **A process with a mailbox has the one the ladder is stated against.** `ProcessRefines` carries
+`c₀` and `inbox` as indices without ever saying they are the mailbox's two components — nothing below
+needs that, `Fresh .none` being vacuous and `mbox` a parameter throughout. A process that actually
+receives does say it: the thread it registered is an `.rx` on exactly those two (`IsRxThread`), and
+`threads`' registration clause is what says there is one to look at.
+
+Wanted wherever a `.some` mailbox has to be taken apart — `AlgebraRefines.inbox_ne_self` needs the
+`inbox` to be the generated one, which is a field of this structure and not of an arbitrary
+`Mailbox`. -/
+theorem ProcessRefines.mailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    (hused : mbox ≠ .none → ProcessReceives p) (hne : mbox ≠ .none) :
+    mbox = .some (c₀, inbox) := by
+  obtain ⟨rxs, _, _, -, -, hrx, -, hreg, -, -⟩ := h.threads
+  rcases rxs with _ | ⟨T, _⟩
+  · exact (hreg (hused hne) rfl).elim
+  · exact (hrx T List.mem_cons_self).1
+
+/-- **The mailbox the refinement was proved at is the one the compiled process wears.** What lets
+`AlgebraRefines`' `mb` be *computed* from the compiled algorithm rather than witnessed alongside it.
+
+Both directions of the pass's mailbox contract meet here, and neither is free. `RxOnly` gives one:
+it forces `mbox = .some` on every registered thread, so a process related at `.none` has none
+registered, every one of its threads is a `.code`, and the search finds nothing. The other is
+`threads`' registration clause — a process that receives has a thread registered to drain its
+channel — and carrying that up from `stepBranch`, the only writer of `rxThreads`, is what the ghost
+in `Registered` is for.
+
+`hused` is the front end's, and is where the *declared* mailbox does its work. Nothing in the pass
+rules out being handed a `.some` mailbox for a process that never receives; `checkReceiveChannels`
+does, by rejecting a `receive` with no declaration and dropping a declaration no `receive` uses
+(`PLAN.md` §5.2a). -/
+theorem ProcessRefines.rxMailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+    (hused : mbox ≠ .none → ProcessReceives p) : rxMailbox p' = mbox := by
+  obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, hreg, -, -⟩ := h.threads
+  rcases rxs with _ | ⟨T, rest⟩
+  · -- nothing registered, so the process declared no mailbox, and every thread it has is a `.code`
+    obtain rfl : mbox = .none := by
+      by_contra hne
+      exact hreg (hused hne) rfl
+    simp only [rxMailbox, hsplit, List.nil_append]
+    refine List.findSome?_eq_none_iff.mpr ?_
+    intro T hT
+    obtain ⟨_, _, _, rfl, _⟩ := hcode.exists_left hT
+    rfl
+  · -- a thread was registered, and `RxOnly` says which channel and `inbox` it drains
+    obtain ⟨hmb, _, _, _, rfl, _⟩ := hrx T List.mem_cons_self
+    simp only [rxMailbox, hsplit, hmb, List.cons_append, List.findSome?_cons]
+
+/-! ## `dedupLocalsByName`
+
+  `Process.toNetwork` runs the per-thread locals through it before declaring them: every receiving
+  thread of a process independently proposes that process's one `inbox`, and the declaration must
+  appear once. Two facts about it are wanted, and both are about the underlying `foldl` with an
+  arbitrary accumulator rather than about the `[]` it starts at.
+-/
+
+/-- One declared local, as `Declarations.variables` holds it. -/
+private abbrev LocalDecl :=
+  String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)
+
+/-- The accumulator survives: the fold only ever appends to what it has. -/
+private theorem foldl_dedup_prefix (l acc : List LocalDecl) :
+    acc <+: l.foldl (λ acc e ↦ if acc.any (·.1 == e.1) then acc else acc.concat e) acc := by
+  induction l generalizing acc with
+  | nil => exact List.prefix_rfl
+  | cons a _ ih =>
+    refine List.IsPrefix.trans ?_ (ih _)
+    -- the fold's step is still a beta-redex here, and `split` does not look through one
+    beta_reduce
+    split
+    · exact List.prefix_rfl
+    · simpa only [List.concat_eq_append] using List.prefix_append acc [a]
+
+/-- What the fold ends with was in the accumulator or in the list — it invents nothing. -/
+private theorem mem_foldl_dedup {l acc : List LocalDecl} {e : LocalDecl}
+    (h : e ∈ l.foldl (λ acc e ↦ if acc.any (·.1 == e.1) then acc else acc.concat e) acc) :
+    e ∈ acc ∨ e ∈ l := by
+  induction l generalizing acc with
+  | nil => exact .inl h
+  | cons a _ ih =>
+    rcases ih h with h' | h'
+    · beta_reduce at h'
+      split at h'
+      · exact .inl h'
+      · simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at h'
+        rcases h' with h' | rfl
+        · exact .inl h'
+        · exact .inr List.mem_cons_self
+    · exact .inr (List.mem_cons_of_mem _ h')
+
+/-- **`dedupLocalsByName` only drops.** What it returns was in what it was given. -/
+private theorem mem_of_mem_dedupLocalsByName {l : List LocalDecl} {e : LocalDecl}
+    (h : e ∈ dedupLocalsByName l) : e ∈ l :=
+  (mem_foldl_dedup h).resolve_left nofun
+
+/-- **And it drops nothing that was alone.** It returns the empty list only for the empty list —
+the first entry is always taken, `[]` matching no name. -/
+private theorem dedupLocalsByName_eq_nil_iff {l : List LocalDecl} :
+    dedupLocalsByName l = [] ↔ l = [] := by
+  constructor
+  · intro h
+    cases l with
+    | nil => rfl
+    | cons a rest =>
+      have hp := foldl_dedup_prefix rest [a]
+      rw [show dedupLocalsByName (a :: rest)
+        = rest.foldl (λ acc e ↦ if acc.any (·.1 == e.1) then acc else acc.concat e) [a] from rfl] at h
+      rewrite [h] at hp
+      simp at hp
+  · rintro rfl
+    rfl
+
 open Std.Do in
 /-- **The walk over a process's threads.** `Thread.toNetwork_spec` iterated by `Spec.mapM_list`, at
 the invariant "the code threads compiled so far refine pairwise, and every receiving thread
@@ -878,24 +1124,44 @@ private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2Netwo
     Ts.mapM (ComputableGuardedPlusCal.Thread.toNetwork (m := G2NM) chans inbox)
     ⦃⇓? rs _ =>
       ⌜List.Forall₂ (ThreadRefines (V := V) mbox pref) Ts (rs.map (·.2.2)) ∧
-        RxOnly mbox c₀ inbox (rs.flatMap (·.2.1))⌝⦄ := by
+        RxOnly mbox c₀ inbox (rs.flatMap (·.2.1)) ∧
+        ((∃ T ∈ Ts, ThreadReceives T) → rs.flatMap (·.2.1) ≠ []) ∧
+        (∀ e ∈ rs.flatMap (·.1), InboxLocal inbox e) ∧
+        (rs.flatMap (·.1) = [] ↔ rs.flatMap (·.2.1) = [])⌝⦄ := by
   mvcgen [Thread.toNetwork_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ _ =>
     ⌜List.Forall₂ (ThreadRefines (V := V) mbox pref) cur.prefix (res.map (·.2.2)) ∧
-      RxOnly mbox c₀ inbox (res.flatMap (·.2.1))⌝
+      RxOnly mbox c₀ inbox (res.flatMap (·.2.1)) ∧
+      ((∃ T ∈ cur.prefix, ThreadReceives T) → res.flatMap (·.2.1) ≠ []) ∧
+      (∀ e ∈ res.flatMap (·.1), InboxLocal inbox e) ∧
+      (res.flatMap (·.1) = [] ↔ res.flatMap (·.2.1) = [])⌝
   with
   -- `Thread.toNetwork_spec`'s implicits, abstracted over the loop's context and wrapped in `id`
   | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 => intro _ _; assumption
 
-  case vc1.pre => exact ⟨.nil, nofun⟩
-  case vc2.post.success => intro hthr hrx; exact ⟨hthr, hrx⟩
+  case vc1.pre => exact ⟨.nil, nofun, nofun, nofun, iff_of_true rfl rfl⟩
+  case vc2.post.success =>
+    intro hthr hrx hreg hloc hboth
+    exact ⟨hthr, hrx, hreg, hloc, hboth⟩
 
   case vc3.post.success _ _ _ _ _ _ _ hinv _ =>
-    intro _ hthr hrx
-    rw [List.map_append, List.flatMap_append, List.flatMap_singleton]
-    refine ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hthr), ?_⟩
-    exact List.forall_mem_append.mpr ⟨hinv.2, hrx⟩
+    intro _ hthr hrx hreg hloc hboth
+    rw [List.map_append, List.flatMap_append, List.flatMap_singleton, List.flatMap_append,
+      List.flatMap_singleton]
+    refine ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hthr), ?_, ?_, ?_, ?_⟩
+    · exact List.forall_mem_append.mpr ⟨hinv.2.1, hrx⟩
+    -- no ghost here, unlike the walks below this one: this accumulator is the *result* list, which
+    -- the walk only ever appends to, so a thread registered earlier stays registered by `++`
+    · rintro ⟨T, hmem, hrecv⟩ hnil
+      rcases List.mem_append.mp hmem with hm | hm
+      · exact hinv.2.2.1 ⟨T, hm, hrecv⟩ (List.append_eq_nil_iff.mp hnil).1
+      · exact hreg (List.mem_singleton.mp hm ▸ hrecv) (List.append_eq_nil_iff.mp hnil).2
+    · exact List.forall_mem_append.mpr ⟨hinv.2.2.2.1, hloc⟩
+    -- both flatMaps grew by one thread's contribution, and that thread's two lists are empty
+    -- together, so the appended halves match on each side
+    · rw [List.append_eq_nil_iff, List.append_eq_nil_iff]
+      exact and_congr hinv.2.2.2.2 hboth
 
   -- the freshness hypothesis at whichever thread the walk is currently on
   case vc11 _ _ cur _ hsplit _ =>
@@ -927,7 +1193,11 @@ theorem Process.toNetwork_spec [SeqBuiltins V] {globalChans : Guarded2NetworkCha
 
   case vc8.post.success.post.success _ _ _ _ hgen _ _ _ _ _ hinv =>
     refine ⟨_, ?_, hgen, rfl, rfl, rfl⟩
-    exact ⟨_, _, rfl, hinv.2, hinv.1⟩
+    refine ⟨_, _, _, rfl, rfl, hinv.2.1, hinv.1, hinv.2.2.1, ?_, ?_⟩
+    -- the declared locals are the walk's, deduped: it drops entries but invents none …
+    · exact λ _ he ↦ hinv.2.2.2.1 _ (mem_of_mem_dedupLocalsByName he)
+    -- … and drops none from a list that had any, so it is empty exactly when the walk's was
+    · exact dedupLocalsByName_eq_nil_iff.trans hinv.2.2.2.2
 
 end Guarded2Network
 

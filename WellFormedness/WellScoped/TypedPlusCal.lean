@@ -14,6 +14,9 @@ public section
   "process-local" here (`variables`/`channels`/`fifos` already coexist in one flat scope per
   `Declarations` value), so it's folded into whichever of those two applies.
 
+  Process *names* are checked here too, as a flat scope of their own — they clash with each other
+  and with nothing else. See `Algorithm.checkWellScoped` for why they must be distinct at all.
+
   This is only the "no duplicate names / no shadowing" half — "every reference resolves to a
   declared name" is redundant with type checking's own success and isn't re-derived here.
 
@@ -35,14 +38,17 @@ private def TypedPlusCal.Declarations.namesWithPos (d : TypedPlusCal.Declaration
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic WellFormednessWarning WellFormednessError m]
 
-/-- Rejects the first repeated name within one flat list — `duplicateName` at *that* repeat's
-own position, not the first occurrence's. -/
-private def checkNoDuplicates : List (String × SourceSpan) → m Unit
+/-- Rejects the first repeated name within one flat list, at *that* repeat's own position, not the
+first occurrence's. The error is a parameter because the two callers report different ones:
+declarations clash within a *scope*, processes clash within the algorithm's own list, and those are
+not the same violation. -/
+private def checkNoDuplicates (mkError : SourceSpan → String → WellFormednessError) :
+    List (String × SourceSpan) → m Unit
   | [] => pure ()
   | (n, _) :: rest =>
     match rest.find? (·.1 == n) with
-    | some (_, pos) => throw (.duplicateName pos n)
-    | none => checkNoDuplicates rest
+    | some (_, pos) => throw (mkError pos n)
+    | none => checkNoDuplicates mkError rest
 
 /-- Rejects any of `names` already present in `inScope` — `shadowedName` at the shadowing
 entry's own position. -/
@@ -71,16 +77,32 @@ partial def TypedPlusCal.Statement.checkWellScoped {b} (inScope : List String)
   | .goto _, _ | .skip, _ | .print _, _ | .assign _, _ | .await _, _ | .assert _, _
   | .receive _ _ _, _ | .send _ _, _ | .multicast _ _, _ => pure ()
 
-/-- Well-scopedness over a whole algorithm: global declarations fresh among themselves; each
-process's own local declarations fresh among themselves and not shadowing a global one; every
-`with` binder inside a process's threads fresh against global ++ that process's own locals ++
-whatever outer `with`s it's nested in. -/
+/-- Every process's name, paired with the position to report against it — its `id` expression's,
+which is always present and positioned (`Elaborator/PlusCal.lean` type-checks it via `checkExprR`),
+the process's own name token carrying none. Same convention as `Declarations.checkNoLocalChannels`. -/
+private def TypedPlusCal.Algorithm.processNamesWithPos (algo : TypedPlusCal.Algorithm) :
+    List (String × SourceSpan) :=
+  algo.processes.map λ p ↦ (p.name, posOf p.id)
+
+/-- Well-scopedness over a whole algorithm: the processes distinct among themselves; global
+declarations fresh among themselves; each process's own local declarations fresh among themselves
+and not shadowing a global one; every `with` binder inside a process's threads fresh against
+global ++ that process's own locals ++ whatever outer `with`s it's nested in.
+
+**Process names are their own flat scope**, not part of any declaration scope: a process and a
+variable may share a name and nothing is ambiguous. What makes them have to be distinct is dispatch
+rather than scoping — a process instance is `⟨process name, self⟩`, and both languages' semantics
+resolve one by `processes.find? (·.name == name)`, the *first* process carrying it. Two processes
+sharing a name would silently give every instance of the second the first's code and labels, while
+the initial state still contributed instances from both. Checked first, before any declaration is
+looked at, since it is a property of the algorithm rather than of a scope inside it. -/
 def TypedPlusCal.Algorithm.checkWellScoped (algo : TypedPlusCal.Algorithm) : m Unit := do
+  checkNoDuplicates .duplicateProcessName (TypedPlusCal.Algorithm.processNamesWithPos algo)
   let globalNames := TypedPlusCal.Declarations.namesWithPos algo.globalState
-  checkNoDuplicates globalNames
+  checkNoDuplicates .duplicateName globalNames
   for p in algo.processes do
     let localNames := TypedPlusCal.Declarations.namesWithPos p.localState
-    checkNoDuplicates localNames
+    checkNoDuplicates .duplicateName localNames
     checkNoShadow (globalNames.map Prod.fst) localNames
     let inScope := globalNames.map Prod.fst ++ localNames.map Prod.fst
     ElaboratedPlusCal.Process.forStatements (TypedPlusCal.Statement.checkWellScoped inScope) p

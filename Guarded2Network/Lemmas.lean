@@ -15,6 +15,7 @@ public import Guarded2Network.Lemmas.AtomicBlock
 public import Guarded2Network.Lemmas.Thread
 public import Guarded2Network.Lemmas.Process
 public import Guarded2Network.Lemmas.Algorithm
+public import Guarded2Network.Lemmas.Correctness
 public import Core.NetworkPlusCal.Semantics.Lemmas
 public import VerifiedCompiler
 public import Std.Do.WP

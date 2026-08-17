@@ -87,6 +87,7 @@ theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : 
     exact StrongRefinement.Comp _ (action_refines S (fresh S List.mem_cons_self))
       (IH (λ S' hS' ↦ fresh S' (List.mem_cons_of_mem _ hS')) freshLast)
 
+omit [SeqBuiltins V] in
 /-- **The two halves of a branch, joined.** The precondition's refinement (as
 `processPrecondition_spec` leaves it, with the hoisted assignments on its right edge) composed with
 the action block's, against the branch the pass actually builds — which carries those assignments on
@@ -129,8 +130,7 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
   -- `union_lcomp₂` normalizes `Comp`'s output, not the goal: the goal is already in its right-hand
   -- form once `Block.aborting_prepend` has split the prepended assignments off
   simp only [GuardedPlusCal.Block.diverging'_eq_empty, NetworkPlusCal.Block.diverging'_eq_empty,
-    Relation.lcomp₁.right_empty_eq_empty, Set.union_self, Set.empty_union,
-    Relation.lcomp₁.union_lcomp₂] at hcomp
+    Relation.lcomp₁.right_empty_eq_empty, Set.union_self, Relation.lcomp₁.union_lcomp₂] at hcomp
   simp only [GuardedPlusCal.AtomicBranch.reducing', GuardedPlusCal.AtomicBranch.aborting'_eq,
     NetworkPlusCal.AtomicBranch.reducing', NetworkPlusCal.AtomicBranch.aborting'_eq,
     Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
@@ -161,13 +161,73 @@ def RxOnly (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : Strin
   (Ts : List ComputableNetworkPlusCal.Thread) : Prop :=
     ∀ T ∈ Ts, IsRxThread mbox c₀ inbox T
 
-/-- Every thread the pass has put in `rxThreads` is an `.rx` on this call's channel and `inbox`.
-`stepBranch` is the only place one is ever appended, so this is where the fact has to be established;
-the thread level is where it is needed, since `Thread.toNetwork` hands `rxThreads` back as threads
-and what makes that sound is that each is a receive loop rather than arbitrary code. -/
+/-- **One entry of the locals list the pass invents**: the `inbox`, declared as a sequence and
+initialized empty.
+
+Owed to `Algorithm.init`, which is the only thing that reads it: a compiled instance's memory has to
+bind `inbox` to something `isSeq`-related to the empty inbox contents, and this is what says the
+declaration puts it there. -/
+def InboxLocal (inbox : String)
+    (e : String × ComputableTLAPlus.Typ × Bool ×
+      Option (Bool × ComputablePlusCal.Expression)) : Prop :=
+  ∃ τ, e = (inbox, .seq τ, false, some (true, .seq [] τ))
+
+/-- The same declaration after `GuardedPlusCal.initsOf` has kept only what `InitProc` reads — the
+name and the initializer. The type annotation and the constant flag play no part in what an initial
+memory is, so this is all `Algorithm.init` ever sees of the local the pass declares. -/
+def InboxInit (inbox : String) (ne : String × ComputablePlusCal.Expression) : Prop :=
+  ∃ τ, ne = (inbox, .seq [] τ)
+
+/-- `initOf` keeps an `InboxLocal` and turns it into an `InboxInit` — the one step between the two
+definitions above, and the reason neither has to be unfolded where they meet. -/
+theorem initOf_inboxLocal {inbox : String}
+    {e : String × ComputableTLAPlus.Typ × Bool × Option (Bool × ComputablePlusCal.Expression)}
+    (h : InboxLocal inbox e) :
+    ∃ ne, GuardedPlusCal.initOf e = .some ne ∧ InboxInit inbox ne := by
+  obtain ⟨τ, rfl⟩ := h
+  exact ⟨_, rfl, τ, rfl⟩
+
+/-- What the pass has put in its accumulator: every thread in `rxThreads` is an `.rx` on this call's
+channel and `inbox`, every entry in `newLocals` is that `inbox`'s declaration, and the two lists are
+empty together.
+
+`stepBranch` is the only place either list is ever appended to, so this is where all three have to be
+established. The thread level is where the first is needed — `Thread.toNetwork` hands `rxThreads`
+back as threads, and what makes that sound is that each is a receive loop rather than arbitrary code.
+The other two are `Algorithm.init`'s: a process that receives is compiled with an `inbox` to receive
+into, and one that does not is compiled with no extra local at all, so its memory is the source's.
+
+The third is what ties them, and it needs no ghost: `stepBranch` appends to both lists or to neither,
+so "empty together" is an invariant of the state rather than a fact about the walk so far. -/
 private def RxThreads (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
     (st : ThreadState) : Prop :=
-  RxOnly mbox c₀ inbox st.rxThreads
+  RxOnly mbox c₀ inbox st.rxThreads ∧ (∀ e ∈ st.newLocals, InboxLocal inbox e) ∧
+    (st.newLocals = [] ↔ st.rxThreads = [])
+
+/-- **A branch that receives at all** — what makes the pass register a receiving thread, and so what
+the registration fact is conditioned on.
+
+Existential where `BranchesFresh`'s fields are universal, and the difference is not cosmetic: those
+are hypotheses, discharged once per `receive` a branch has, while this is what a *conclusion* is
+conditioned on, and one `receive` is all it takes. -/
+def BranchReceives (Br : ComputableGuardedPlusCal.AtomicBranch) : Prop :=
+  ∃ c r coe, GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition
+
+/-- **The registration fact, in the form that survives a walk.** `H` is whatever the caller already
+knows has registered a thread — everything walked before this call — and each level hands back
+`Registered (H ∨ ‹this step receives›)`, so the fact accumulates along the walk instead of being
+re-established at each step.
+
+The parameter is what makes that possible at all. A Hoare postcondition cannot mention the pre-state,
+so "and the list was already non-empty" — which is what every step but the first needs — has nowhere
+else to enter. It leaves again at `mapM_stepBlock_spec_run`, instantiated at `False`: a thread's walk
+starts at `{}`, whose `rxThreads` is `[]`, so there is nothing yet to have registered.
+
+Kept out of `RxThreads` deliberately, though both are state predicates threaded the same way.
+`RxThreads` is unfolded into the `simp` set at every level; this is not, and an opaque implication is
+what keeps `H` pinned by unification against the loop invariant rather than shredded into the
+surrounding goal. -/
+private def Registered (H : Prop) (st : ThreadState) : Prop := H → st.rxThreads ≠ []
 
 /-- What one compiled branch owes its source: the refinement, and agreement on where the branch
 goes next. Named because the block level quantifies over it — a compiled block's branches are
@@ -197,6 +257,7 @@ def BranchesRefine (mbox : Mailbox) (pref : ChanKey V → List V)
   (brs' : List ComputableNetworkPlusCal.AtomicBranch) : Prop :=
     ∀ Br' ∈ brs', ∃ Br ∈ brs, BranchRefines (V := V) mbox pref Br Br'
 
+omit [SeqBuiltins V] in
 /-- One compiled block's branches, as a whole label's worth — the positional form forgetting its
 positions. -/
 theorem BranchesRefine.of_forall₂ {mbox : Mailbox} {pref : ChanKey V → List V}
@@ -205,6 +266,41 @@ theorem BranchesRefine.of_forall₂ {mbox : Mailbox} {pref : ChanKey V → List 
     (h : List.Forall₂ (BranchRefines (V := V) mbox pref) brs brs') :
     BranchesRefine (V := V) mbox pref brs brs' :=
   λ _ hBr' ↦ h.exists_left hBr'
+
+/-- **The locals list `stepBranch` leaves still holds only `inbox` declarations** — it either kept the
+one it had or appended this call's.
+
+Standalone rather than a step inside the proof below, for the reason `eq_nil_of_not_cons` is: the
+goal there is over a *pair*-typed list, and `simp_all` shreds `∀ e ∈ l, P e` at such a type into one
+quantifier per component (`Prod.forall`) — from the *default* simp set, so keeping `InboxLocal`
+opaque does not prevent it. Out here the statement is small and the split is two cases. -/
+private theorem inboxLocal_ite {inbox : String} {τ : ComputableTLAPlus.Typ}
+    {l : List (String × ComputableTLAPlus.Typ × Bool ×
+      Option (Bool × ComputablePlusCal.Expression))} (h : ∀ e ∈ l, InboxLocal inbox e) :
+    ∀ e ∈ (if l.isEmpty then l.concat (inbox, .seq τ, false, some (true, .seq [] τ)) else l),
+      InboxLocal inbox e := by
+  split
+  · intro e he
+    simp only [List.concat_eq_append, List.mem_append, List.mem_singleton] at he
+    rcases he with he | rfl
+    · exact h e he
+    · exact ⟨τ, rfl⟩
+  · exact h
+
+/-- A branch that registers leaves the locals list non-empty: it appended to it, or it was already
+non-empty and that is why it did not. -/
+private theorem ite_isEmpty_concat_ne_nil {α : Type} (l : List α) (a : α) :
+    (if l.isEmpty then l.concat a else l) ≠ [] := by
+  split
+  · simp
+  · simp_all
+
+/-- And a list some element of which matched a guard is not empty — the shape the receiving-thread
+list is in on the branch where `stepBranch` found a thread for this channel already registered. -/
+private theorem ne_nil_of_any {α : Type} {l : List α} {p : α → Bool} (h : l.any p = true) :
+    l ≠ [] := by
+  rintro rfl
+  simp at h
 
 /-- A list of channel/type pairs that is not a cons is empty — the shape `stepBranch`'s `if let`
 leaves behind when the precondition walk recorded no channel. A standalone lemma rather than a `have`
@@ -229,9 +325,14 @@ says those are the same relation, and after it the join is associativity.
 
 `Br'.action.last` is reported alongside: `Block.prepend` does not touch `last` and
 `convertActionBlock` maps it pointwise, so a branch's terminal `goto` survives compilation
-unchanged. That is what the block level needs to know its branches still agree on where they go. -/
+unchanged. That is what the block level needs to know its branches still agree on where they go.
+
+And `Registered`: a branch that receives leaves a receiving thread registered, and one that was
+registered before this branch stays registered. This is the only place either can be established —
+`stepBranch` is the sole writer of `rxThreads` — and the process level is what spends them, to know
+that a source process which receives is compiled to one with a thread to drain its channel. -/
 private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V} {H : Prop}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
@@ -243,19 +344,20 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     (pfresh : PairsFresh inbox (preconditionList Br.precondition))
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S)
     (alast : Fresh mbox Br.action.last) :
-    ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st⌝⦄
+    ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st ∧ Registered H st⌝⦄
     stepBranch (m := G2NM) chans inbox Br
     ⦃⇓? Br' st' =>
       ⌜BranchRefines (V := V) mbox pref Br Br' ∧ RxThreads mbox c₀ inbox st' ∧
-        ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
-          GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
-            st'.rxThreads ≠ []⌝⦄ := by
+        Registered (H ∨ BranchReceives Br) st'⌝⦄ := by
   mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
   with {
+    -- the precondition, split: three conjuncts below would otherwise find it before
+    -- `processPrecondition_spec`'s postcondition, which is the one that is three deep
+    obtain ⟨⟨hrx₀, hloc₀, hboth₀⟩, hreg⟩ := ‹RxThreads _ _ _ _ ∧ Registered _ _›
     -- `processPrecondition_spec`'s postcondition arrives as one unsplit conjunction: what the walk
     -- recorded about the channels, that a `receive` leaves `rxs` non-empty, and the refinement
-    obtain ⟨hrxs, hrecv, href⟩ := ‹_ ∧ _›
-    refine ⟨⟨?_, ?_⟩, ?_, ?_⟩
+    obtain ⟨hrxs, hrecv, href⟩ := ‹_ ∧ _ ∧ _›
+    refine ⟨⟨?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
     · exact branch_refines href afresh alast
     · rfl
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list. `IsRxThread` stays
@@ -263,24 +365,36 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     -- register none are closed outright. Unfolded, `forall_and` would shred it into one `∀` per
     -- conjunct and the leftovers would have to be reassembled by hand — which is what this cost
     -- every time a conjunct was added.
-    · simp_all [RxThreads, RxOnly, or_imp, forall_and]
+    -- the two locals hypotheses are cleared first: `simp_all` would otherwise spend the block's
+    -- whole heartbeat budget shredding a pair-typed `∀ e ∈ …` it has no use for here
+    · clear hloc₀ hboth₀
+      simp_all [RxOnly, or_imp, forall_and]
       -- what is left is the single new thread, at the label `freshName` just handed it: the mailbox
       -- `simp_all` already rewrote to the right one, the channel's freshness is in context
       all : refine ⟨rfl, ?_, _, _, rfl, _, rfl⟩
       all : simp_all
-    -- a branch that receives leaves a thread registered: either this step appended one, or one for
-    -- the same channel was already there. The third case — no channel to register — is the one
-    -- `hrecv` rules out, `rxs` being non-empty exactly when the branch receives
-    -- a branch that receives leaves a thread registered. `hrecv` says the walk found a channel, so
-    -- the "nothing to register" case cannot arise; of the two that remain, one appended a thread and
-    -- the other found one for this channel already there
-    · intro c r coe hmem hnil
+    -- the locals list: unchanged where nothing was registered, `inboxLocal_ite` where it was
+    · clear href
       first
-        -- the `if let` found no channel, which `hrecv` says a receiving branch cannot leave behind
-        | (refine hrecv c r coe hmem (eq_nil_of_not_cons ?_)
-           simp_all)
-        -- otherwise a thread was appended, or one for this channel was already there
-        | simp_all [List.any_eq_true]
+        | exact hloc₀
+        | exact inboxLocal_ite hloc₀
+    -- and the two lists stay empty together — where one grew so did the other, so both are non-empty
+    · clear href
+      first
+        | exact hboth₀
+        | (refine iff_of_false (ite_isEmpty_concat_ne_nil _ _) ?_
+           first
+             | exact ne_nil_of_any ‹_›
+             | simp)
+    · rintro (hH | ⟨c, r, coe, hmem⟩) hnil
+      -- the carried half: a list this step found non-empty it also leaves non-empty, since the only
+      -- thing done to it is a `concat`
+      · refine hreg hH ?_
+        simp_all
+      -- and the half this step establishes, at the one case that is not already contradictory: the
+      -- `if let` found no channel to register, which `hrecv` rules out for a branch that receives
+      · refine hrecv c r coe hmem (eq_nil_of_not_cons ?_)
+        simp_all
   }
 
 /-! ## Owed: `stepBranch_spec`

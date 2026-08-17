@@ -105,6 +105,18 @@ class ExprSemantics (V : Type) where
   isSeq : V → List V → Prop
   /-- A value is the sequence of at most one element list. -/
   isSeq_inj {s : V} {vs ws : List V} : isSeq s vs → isSeq s ws → vs = ws
+  /-- The empty sequence literal has a value, and it is the empty sequence. The one place a *value*
+  has to be known to be a sequence from the syntax that produced it rather than from an operation on
+  another sequence: `Guarded2Network` declares its `inbox` local with initializer `<<>>`, and
+  `Algorithm.init` has to relate that instance's memory to an inbox holding nothing. `seqAppend`
+  covers every step after the first; this covers the first.
+
+  Stated as existence for the reason `seqAppend_isSeq` is: *totality* is then part of the law. A
+  compiled instance has an initial state only if every initializer it declares evaluates, and this is
+  the only initializer the pass invents — an implication would leave the compiled algorithm free to
+  have no initial state where its source has one. The implication form is `isSeq_of_eval_seq_nil`
+  below, `evalUnique` away. -/
+  eval_seq_nil {M : Memory V} {τ : Typ} : ∃ s, Eval M (.seq [] τ) s ∧ isSeq s []
   /-- Appending to a sequence value always succeeds, and appends to its element list. Stated as
   existence rather than as an equation on a given result so that `seqAppend`'s *totality on
   sequences* is part of the law — `Thread.rxBranch` treats a failed append as an abort, which must
@@ -184,6 +196,13 @@ theorem isSeq_of_seqAppend {s v s' : V} {vs : List V} (h : ExprSemantics.isSeq s
   rw [h'] at happ
   obtain rfl := Option.some.inj happ
   exact hseq
+
+/-- `eval_seq_nil` read against a value already in hand: evaluation is deterministic, so *the* value
+of `<<>>` is the empty sequence. -/
+theorem isSeq_of_eval_seq_nil {M : Memory V} {τ : Typ} {s : V}
+    (h : ExprSemantics.Eval M (.seq [] τ) s) : ExprSemantics.isSeq s [] := by
+  obtain ⟨s', h', hseq⟩ := ExprSemantics.eval_seq_nil (M := M) (τ := τ)
+  rwa [ExprSemantics.evalUnique h' h] at hseq
 
 /-- `M ⊢ e ↯` — `e` has no value at all under `M`. Derived rather than assumed: with `Eval` a
 relation, "no derivation tree" already *is* the meaning of "no value", so nothing links the two

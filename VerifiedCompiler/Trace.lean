@@ -99,6 +99,20 @@ class Trace (εₛ εₜ : Type _) [Monoid εₛ] [Monoid εₜ] where
   is what a divergence refinement uses to place an abort reached after `n` steps. -/
   Rτ_one : Rτ 1 1
 
+@[reducible, expose]
+def Trace.comp {εₛ εₜ εᵤ} [Monoid εₛ] [Monoid εₜ] [Monoid εᵤ] [inst₁ : Trace εₛ εₜ] [inst₂ : Trace εₜ εᵤ] : Trace εₛ εᵤ where
+  Rτ := inst₁.Rτ ∘ᵣ inst₂.Rτ
+  Rτ_total := by
+    intros z
+    obtain ⟨y, h₂⟩ := inst₂.Rτ_total z
+    obtain ⟨x, h₁⟩ := inst₁.Rτ_total y
+    use x, y, h₁, h₂
+  Rτ_closed := by
+    rintro x z x' z' ⟨y, xRy, yRz⟩ ⟨y', x'Ry', y'Rz'⟩
+    use y * y', ?_, ?_ <;> apply Rτ_closed <;> assumption
+  Rτ_one := by
+    use 1, Rτ_one, Rτ_one
+
 /-!
 # Relating traces across languages
 

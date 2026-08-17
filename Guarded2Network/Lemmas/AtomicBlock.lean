@@ -84,6 +84,12 @@ theorem BranchesFresh.none_of_no_receive {c₀ : ComputableGuardedPlusCal.Ref} {
   afresh _ _ := nofun
   alast := nofun
 
+/-- A block one of whose branches receives — `BranchReceives` at the level the walk above is over.
+What a block owes about receiving is conditioned on this, and one branch is enough: the pass
+registers a thread the first time any branch of any block of the thread asks for one. -/
+def BlockReceives (blk : ComputableGuardedPlusCal.AtomicBlock) : Prop :=
+  ∃ Br ∈ blk.branches, BranchReceives Br
+
 /-- What one compiled block owes its source: the same label, and branches pairwise `BranchRefines`.
 
 The thread level quantifies over it — a compiled `.code` thread's blocks are pairwise this,
@@ -111,47 +117,64 @@ place.
 The invariant is supplied to `mvcgen` rather than proved after it: `Spec.mapM_list` is `@[spec]`, so
 `mvcgen` finds the loop on its own and only wants the invariant. -/
 private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
-    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
+    {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V} {H : Prop}
     {blk : ComputableGuardedPlusCal.AtomicBlock}
     (fresh : ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
-    ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st⌝⦄
+    ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st ∧ Registered H st⌝⦄
     stepBlock (m := G2NM) chans inbox blk
     ⦃⇓? blk' st' =>
-      ⌜BlockRefines (V := V) mbox pref blk blk' ∧ RxThreads mbox c₀ inbox st'⌝⦄ := by
+      ⌜BlockRefines (V := V) mbox pref blk blk' ∧ RxThreads mbox c₀ inbox st' ∧
+        Registered (H ∨ BlockReceives blk) st'⌝⦄ := by
   mvcgen [stepBlock, stepBranch_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ st =>
     ⌜List.Forall₂ (BranchRefines (V := V) mbox pref) cur.prefix res ∧
-      RxThreads mbox c₀ inbox st⌝
+      RxThreads mbox c₀ inbox st ∧ Registered (H ∨ ∃ Br ∈ cur.prefix, BranchReceives Br) st⌝
   with
-  -- `stepBranch_spec`'s remaining implicits. `mvcgen` abstracts over the loop's context whatever the
-  -- *program* does not say — the value type, and the prefix function — and wraps each in `id`, so a
-  -- goal mentioning one reads `id ?vc7 s n h` rather than `pref`. Discharged here, before any case
-  -- that would have to unify against that. (`c₀` is no longer among them: `RxThreads` names it, so
-  -- the loop invariant pins it.)
-  | vc4 | vc6 | vc7 | vc8 => intro _ _ _; assumption
+  -- `stepBranch_spec`'s remaining implicits and instances. `mvcgen` abstracts over the loop's
+  -- context whatever the *program* does not say — the value type, the prefix function, and
+  -- `SeqBuiltins` on the first of those — and wraps each in `id`, so a goal mentioning one reads
+  -- `id ?vc7 s n h` rather than `pref`. Discharged here, before any case that would have to unify
+  -- against that.
+  --
+  -- What is *not* listed matters as much: `mbox`, `c₀` and `H` are pinned by the loop invariant,
+  -- which names all three, and listing them would have `assumption` answer them by search instead.
+  -- For `H` that is not a cosmetic difference — its goal is a `Prop` to *supply*, and `assumption`
+  -- supplies whichever proposition it finds first, which is `H` itself rather than the disjunction
+  -- the walk has accumulated.
+  | vc4 | vc7 | vc8 | vc9 | vc10 => intro _ _ _; assumption
 
   -- the label is `rfl`; re-associating the rest is all that separates the loop's invariant from
   -- `BlockRefines`
-  case vc17.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
+  case vc18.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
 
   case vc1.step.pre h => exact h.2
 
   case vc2.step.post.success _ _ _ _ _ _ _ _ _ _ hinv _ =>
-    -- the branch spec's third conclusion — that a receiving branch leaves a thread registered — is
-    -- dropped here: this invariant does not carry it, and the process level is where it is wanted
-    intro _ _ hbr hrx _
-    exact ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hbr), hrx⟩
+    intro _ _ hbr hrx hreg
+    refine ⟨List.rel_append hinv.1 (List.forall₂_singleton.mpr hbr), hrx, λ h ↦ hreg ?_⟩
+    -- the branch spec registers against "everything before this branch, or this branch"; the
+    -- invariant reads the same fact off the walked prefix with this branch appended
+    rcases h with h | ⟨Br, hmem, hBr⟩
+    · exact .inl (.inl h)
+    · rcases List.mem_append.mp hmem with hm | hm
+      · exact .inl (.inr ⟨Br, hm, hBr⟩)
+      · exact .inr (List.mem_singleton.mp hm ▸ hBr)
 
-  case vc16.pre => exact ⟨.nil, ‹_›⟩
+  case vc17.pre =>
+    obtain ⟨hrx, hreg⟩ := ‹_ ∧ _›
+    -- nothing walked yet, so the walk has registered nothing and owes nothing
+    refine ⟨.nil, hrx, λ h ↦ hreg ?_⟩
+    simp_all
   -- one `BranchesFresh` field each, at whichever branch the walk is currently on
-  case vc9 _ _ _ _ cur _ hsplit _ | vc10 _ _ _ _ cur _ hsplit _ | vc11 _ _ _ _ cur _ hsplit _
-     | vc12 _ _ _ _ cur _ hsplit _ | vc13 _ _ _ _ cur _ hsplit _ | vc14 _ _ _ _ cur _ hsplit _
-     | vc15 _ _ _ _ cur _ hsplit _ =>
-    intro _ _ _
+  case vc11 _ _ _ _ cur _ hsplit _ | vc12 _ _ _ _ cur _ hsplit _ | vc13 _ _ _ _ cur _ hsplit _
+     | vc14 _ _ _ _ cur _ hsplit _ | vc15 _ _ _ _ cur _ hsplit _ | vc16 _ _ _ _ cur _ hsplit _ =>
+    intro _ _
     rw [hsplit] at fresh
     obtain ⟨_, _, _, _, _, _⟩ := fresh cur (List.mem_append_right _ List.mem_cons_self)
-    solve | assumption | intro _; assumption
+    -- the invariant reaches these goals either as one conjunction or curried into an implication
+    -- per conjunct, depending on the field, so what is left to introduce is nothing, one, or three
+    solve | assumption | (intro _; assumption) | (intro _ _ _; assumption)
 
 end Guarded2Network
 

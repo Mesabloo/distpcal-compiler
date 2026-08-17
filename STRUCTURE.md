@@ -198,7 +198,8 @@ Assignment-conflict checking stays ad hoc in `Desugarer/PlusCal.lean`, not dupli
 - `Labelling.lean` — every `goto` targets a label its process defines, or `"Done"`; `"Done"`
   never redefined.
 - `WellScoped.lean` — re-export of `WellScoped/`, one file per `PlusCal` stage: no duplicate or
-  shadowed names in any scope (global, process-local, block-local `with`).
+  shadowed names in any scope (global, process-local, block-local `with`), plus process names
+  distinct among themselves — their own flat scope, since a process and a variable may share a name.
   `WellScoped/TypedPlusCal.lean` is the **executable** check the driver runs;
   `WellScoped/CorePlusCal.lean` and `WellScoped/GuardedPlusCal.lean` are `Prop`-side
   counterparts over those stages' ASTs, not executed — infrastructure for the future
@@ -357,10 +358,18 @@ Guarded → Network PlusCal (§5.5, §6.2) — **pass implemented, refinement pr
   (`srcBranchesAt`/`tgtBranchesAt`, concatenations because nothing enforces unique labels) and five
   of `CodeLabelRefines`' fields as standalone lemmas. `Generated`/`freshName_spec` themselves live in
   `Lemmas/Monad.lean`.
-- `Lemmas/Algorithm.lean` — same two-subject split. The algorithm-level dispatch (`AlgebraRefines`,
-  `algRelatesTo.refines`); then the pass's algorithm rung — `AlgorithmFresh` and
-  `Algorithm.toNetwork_spec`, which reports the processes pairwise `ProcessRefines` plus the global
-  state unchanged. Turning that into `AlgebraRefines` is not written (`PLAN.md` §D8).
+- `Lemmas/Algorithm.lean` — three subjects. The algorithm-level dispatch (`AlgebraRefines`,
+  `algRelatesTo.refines`), then `procMailbox`/`procRxLabels` and `algebraRefines` joining the two;
+  then the pass's algorithm rung — `AlgorithmFresh`, `Algorithm.toNetwork_spec` (processes pairwise
+  `ProcessRefines` plus the global state unchanged) and `Algorithm.toNetwork_refines`, the pass's
+  correctness theorem. Then the initial state: `InitKeys` (the front end's three obligations about
+  the key a receiving instance starts on) and `Algorithm.init_refines`, which is what keeps the
+  `StrongRefinement` from being vacuous.
+- `Lemmas/Correctness.lean` — the packaging: `Guarded2Network.correct : Compiler.Correctness …`.
+  `SourceProgram` bundles an algorithm with `mbox`/`c₀` and the front end's facts (`FrontEnd`),
+  because the framework quantifies over every program of its source type and a hoisted freshness
+  hypothesis would be vacuous; `TargetProgram` is a phantom `V`-index, so the `Reduce`/`Abort`/
+  `Diverge` `outParam`s resolve. `correct'` is the composable `Compiler.Correct` form.
 - `Lemmas/Relation.lean` — `relatesTo`, the refinement invariant (`F₁[c] = inbox ++ F₂[c]`), with
   named introduction/projection lemmas instead of positional `conv … enter` navigation; and its
   algorithm-level lift `≋` (`algRelatesTo`/`procRelatesTo`/`InboxState`), one FIFO split per key.
@@ -501,9 +510,14 @@ Vendored generic proof infrastructure.
 - `Denotational/Tactics.lean` — `refines_match`/`refines_abort`/`refines_diverge` (choose a
   refinement obligation's disjunct and supply its witnesses) and `trace_rel`/`trace_pfx` (the `Rτ`
   and `≼[Rτ]` obligations). Framework-level; leaves goals, never searches.
-- `VerifiedCompiler.lean` (project root) — the library's root module, importing the five above.
-  Nothing imports it; it exists so `lake build VerifiedCompiler` resolves. The default target
-  (`lean_exe fugue`) reaches none of these files, so a plain `lake build` says nothing about them.
+- `Denotational/Correctness.lean` — what a *pass* being correct means: `Compiler.Correctness R C
+  isInit isInit'`, one Hoare triple carrying both halves (target initial states covered by related
+  source ones, and `StrongRefinement`). `Correct` is the same with the relation existentially
+  quantified — the composable form, since a chain's relation can only be named once the
+  intermediate program exists. `Correctness.toCorrect` and `Correct.comp` join them.
+- `VerifiedCompiler.lean` (project root) — the library's root module, importing the six above. Only
+  `Guarded2Network.Lemmas.Correctness` reaches into it (for `Denotational/Correctness.lean`); it
+  exists so `lake build VerifiedCompiler` resolves and covers the files a pass does not import.
 
 ## `ProgressBar/`
 Vendored CLI spinners — `Spinner.lean`, `SpinnerData.lean`, `Spinners.lean`.

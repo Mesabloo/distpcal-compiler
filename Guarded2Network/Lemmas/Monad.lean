@@ -56,6 +56,31 @@ collision proofs here immediate rather than a computation on characters. -/
 def Generated (namePrefix s : String) : Prop := ∃ n : Nat, s = s!"{namePrefix}${n}"
 
 open Std.Do in
+/-- **A family of triples for one program is one triple for the family.** The postcondition may be
+quantified over an arbitrary index after the fact, which is what lets a fact owed "at every `x`" be
+assembled from the specs proved at each — `AlgebraRefines` wants the pass's output related at every
+prefix function, and `Algorithm.toNetwork_spec` supplies one prefix function per instantiation.
+
+Not derivable from `Std.Do`: a `PredTrans` carries *binary* conjunctivity only
+(`PredTrans.conjunctive`, which `Triple.and` spends), and there is no infinitary version to appeal
+to. It is true here because `G2NM` is deterministic — `wp⟦x⟧ Q n` is a match on what `x` returns at
+`n`, the same match whatever `Q` is — so the proof is the one place in this development that unfolds
+`wp` rather than going through the `[spec]` API. Confined to this lemma for that reason.
+
+The precondition is `⌜True⌝` rather than general because that is what every top-level spec has, and a
+general one would have to be assumed at every `i` separately. `himp` rides along because the caller
+always wants to *spend* the family rather than report it, and weakening a postcondition afterwards
+would need a `PostCond.entails` built by hand. -/
+theorem triple_forall {α ι : Type} {x : G2NM α} {Q : ι → α → Prop} {R : α → Prop}
+    (h : ∀ i, ⦃⌜True⌝⦄ x ⦃⇓? a => ⌜Q i a⌝⦄) (himp : ∀ a, (∀ i, Q i a) → R a) :
+    ⦃⌜True⌝⦄ x ⦃⇓? a => ⌜R a⌝⦄ := by
+  intro n _
+  replace h := λ i ↦ h i n trivial
+  simp only [Std.Do.WP.wp, PredTrans.apply_pushExcept, PredTrans.apply_pushArg,
+    PredTrans.apply_Pure_pure, StateT.run, ExceptT.run] at h ⊢
+  cases hx : (x n).run.1 <;> simp_all
+
+open Std.Do in
 /-- **`freshName` produces a `Generated` name.** Stated as a triple rather than an equation for the
 same reason every other fact about this pass is: the counter is state, and a run-equation would force
 reading the pass backwards from its output. -/

@@ -61,22 +61,54 @@ def Algorithm.algebra [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorit
   owned := λ ⟨name, _⟩ ↦ (algo.processes.find? (·.name == name)).elim ∅ Process.ownedLabels
   self := Prod.snd
 
+/-- The instance identities a declared process contributes — see
+`GuardedPlusCal.Process.identities`, identical reasoning here. -/
+def Process.identities [ExprSemantics V] (p : ComputableNetworkPlusCal.Process) : Set V :=
+  GuardedPlusCal.identitiesOf p.«=|∈» p.id
+
+/-- `Process.identities` reads nothing but the two fields — the same statement as
+`GuardedPlusCal.Process.identities_eq`, at the same shared function, which is what lets a pass
+preserving those two fields preserve the instances by rewriting. -/
+theorem Process.identities_eq [ExprSemantics V] {p : ComputableNetworkPlusCal.Process} :
+    Process.identities (V := V) p = GuardedPlusCal.identitiesOf p.«=|∈» p.id := rfl
+
+/-- A declared process's local initializers, in the shape `InitProc` takes them. -/
+def Process.inits (p : ComputableNetworkPlusCal.Process) :
+    List (String × ComputablePlusCal.Expression) :=
+  GuardedPlusCal.initsOf p.localState.variables
+
+/-- `Process.inits` reads nothing but the declared locals — the same statement as
+`GuardedPlusCal.Process.inits_eq`, at the same shared function, which is what lets a pass that only
+*extends* the locals say so. -/
+theorem Process.inits_eq {p : ComputableNetworkPlusCal.Process} :
+    Process.inits p = GuardedPlusCal.initsOf p.localState.variables := rfl
+
 /-- A valid initial state — see `GuardedPlusCal.Algorithm.init`'s doc comment, identical reasoning
-here. -/
+here, including why this is a characterization of membership rather than an existence claim. -/
 def Algorithm.init [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
     AlgState (String × V) V → Prop
   | ⟨Ps, F⟩ =>
-    (∀ p ∈ algo.processes, ∀ self : V,
-      (∃ σ, ((p.name, self), σ) ∈ Ps ∧
-        InitProc self
-          (p.localState.variables.filterMap λ (n, _, _, e?) ↦ e?.map λ (_, e) ↦ (n, e))
-          (Process.entryLabels p) σ) ↔
-      match p.«=|∈» with
-        | true => ExprSemantics.Eval ∅ p.id self
-        | false => ∃ S, ExprSemantics.Eval ∅ p.id S ∧ ExprSemantics.mem self S)
+    (∀ (i : String × V) (σ : GuardedPlusCal.ProcState V),
+      (⟨i, σ⟩ : (String × V) × GuardedPlusCal.ProcState V) ∈ Ps ↔
+      ∃ p ∈ algo.processes, ∃ self ∈ Process.identities (V := V) p,
+        i = (p.name, self) ∧ GuardedPlusCal.InitProc self p.inits (Process.entryLabels p) σ)
     ∧ ∀ nτd ∈ algo.globalState.channels ++ algo.globalState.fifos, ∀ idx : List V,
         (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
           F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
+
+/-- **An initial state holds one state per instance** — `GuardedPlusCal.Algorithm.init.functional`
+at this language's `init`, and the same two halves. -/
+theorem Algorithm.init.functional [ExprSemantics V] {algo : ComputableNetworkPlusCal.Algorithm}
+    {Ps : GuardedPlusCal.Instances (String × V) V} {F : GuardedPlusCal.FIFOs V}
+    (hnames : ∀ p ∈ algo.processes, ∀ q ∈ algo.processes, p.name = q.name → p = q)
+    (h : Algorithm.init algo ⟨Ps, F⟩) : Ps.Functional := by
+  intro i σ σ' hσ hσ'
+  obtain ⟨p, hp, self, -, rfl, hinit⟩ := (h.1 i σ).mp hσ
+  obtain ⟨q, hq, self', -, heq, hinit'⟩ := (h.1 _ σ').mp hσ'
+  simp only [Prod.mk.injEq] at heq
+  obtain ⟨hname, rfl⟩ := heq
+  obtain rfl := hnames p hp q hq hname
+  exact hinit.inj hinit'
 
 end NetworkPlusCal
 

@@ -6,6 +6,7 @@ public import VerifiedCompiler.Relation
 public import VerifiedCompiler.Denotational.Notations
 public import VerifiedCompiler.Denotational.Tactics
 public import VerifiedCompiler.Denotational.StrongRefinement
+public import VerifiedCompiler.Denotational.Correctness
 
 public section
 
