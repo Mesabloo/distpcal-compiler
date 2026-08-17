@@ -37,7 +37,7 @@ checker only cover rules with unambiguous textual form.
 scripts/facts q <words>
 ```
 
-Index 474 theorem, 1216 definition, 27 class field, 15 project-defined tactic, plus curated note.
+Index 638 theorem, 1282 definition, 72 class field, 15 project-defined tactic, 82 curated note.
 `private` declaration indexed too, tagged `[private]` — reachable only via `import all`. Also:
 `c <const>,<const>` (lemma whose *conclusion* mention all these), `m <file>` (one file lemma, source
 order), `t` (project tactic — `sem_red`, `sem_side`, `erwa`, `iff_rintro`, `refines_match`, …),
@@ -47,6 +47,11 @@ this is why. Mathlib **not** indexed: use `Loogle` / `lean_local_search` for tha
 Learn something durable while proving — goal shape maps to lemma, tactic trap, rule-set membership:
 `scripts/facts add '<text>' --tag <tag> --ref <name>`. Run `scripts/facts refresh` after add or
 rename lemma; `scripts/facts doctor` check database against source.
+
+**Note = one fact, keyed to name, two line max.** `add` warn past 240 char, refuse past 360. Note
+rank into every query, so long note bill its background to whoever search something else. Text not
+fit ⇒ text have story in it ⇒ story go `.claude/FINDINGS.md`, trigger→action half stay note. Rule
+about proof style or convention go `LEAN_STYLE.md`, never note.
 
 ## Files to check before work
 

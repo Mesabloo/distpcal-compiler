@@ -339,13 +339,13 @@ Full list + docstrings: `scripts/facts t`.
 
 | Situation | Reach for | Defined |
 |---|---|---|
-| `Statement.reducing` membership goal | `sem_red`, then `sem_side` | `Core/NetworkPlusCal/Semantics/Lemmas.lean:426`, `:449` |
+| `Statement.reducing` membership goal | `sem_red`, then `sem_side` | `Core/NetworkPlusCal/Semantics/Lemmas.lean:933`, `:956` |
 | `StrongRefinement` matching disjunct | `refines_match σ, ε` — two-arg form | `VerifiedCompiler/Denotational/Tactics.lean:41` |
 | Source aborted instead | `refines_abort ε` | `:50` |
 | Source diverges too | `refines_diverge ε` | `:57` |
 | `Rτ ε' ε` goal | `trace_rel` | `:62` |
 | `ε' ≼[Rτ] ε` goal | `trace_pfx` | `:66` |
-| `erw` then `assumption` | `erwa` | `CustomPrelude.lean:70` |
+| Rewrite blocked only by unfolding | `erw` — `erwa` when it then closes by `assumption` | `CustomPrelude.lean:70` |
 | `split` needing named hypotheses | `split … using n \| n _` | `:75` |
 | `injections` needing names | `injections with a b` | `:81` |
 | Build `Iff` from two directions | `iff_intro x y` / `iff_rintro p q` | `:84`, `:86` |
@@ -406,6 +406,23 @@ The project made these calls; they are not open.
   Genuinely auxiliary facts stay `have`s. The rule is about a `have` that re-quantifies the
   *enclosing goal's* own variables — not about `have hstab : ∀ m, n ≤ m → …`
   (`Extra/Seq.lean:251`), whose statement is nothing the surrounding proof is trying to prove.
+- **A rewrite that fails only up to unfolding → `erw`, or `erwa` when the result is already a
+  hypothesis.** Not `simp only [theOneUnfoldingLemma]`, and not adding a `@[simp]` tag to make a
+  `simp` fire. `erwa` is `erw` followed by `assumption` (`CustomPrelude.lean:70`); plain `erw` is
+  the same rewrite without that discharge, for when the goal is left open. Both are cheaper than a
+  `simp` call and say which unfolding the step leans on.
+
+  Same for a goal that is closed by definitional equality outright: `rfl`, or `show …` / `change …`
+  to restate it in the form the next step wants. A `simp only` whose lemma list is one or two
+  unfolding lemmas (`*_eq`, `*_apply`, a bare `def` name) is almost always one of these written the
+  long way.
+
+  Keep `simp` where it is doing real work — rewriting under binders, normalizing a union, closing a
+  goal by a many-lemma chain. The rule is about `simp` used as a way to avoid naming a defeq step.
+
+  Zero call sites in this project today; that measures a proof-writing habit, not the tactics. See
+  `.claude/FINDINGS.md` §Tactic adoption, and `#defeq_abuse` in the table below for checking which
+  steps actually lean on defeq.
 - **An `induction` whose IH goes unused is a case split → `rintro (_|i)`.** Nothing mentions `ih`,
   so `induction … with | zero | succ i ih` costs the reader a hunt for the recursive appeal that is
   not there, and costs two lines of `| case =>` scaffolding to say what a pattern says. Fold the

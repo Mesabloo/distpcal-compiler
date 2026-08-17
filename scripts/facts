@@ -17,6 +17,12 @@ fields and locally defined tactics, written by `scripts/DumpFacts.lean` and neve
 `.claude/facts/notes.jsonl` is *curated*: the things no extractor can know, added with `add` and
 removed with `rm`. Both feed one index, so a single `q` surfaces all of them.
 
+A note is **one fact, keyed to a name, two lines at most** — a goal shape that maps to a lemma, a
+tactic that looks applicable and is not, an error message and its real cause. `add` refuses past
+360 characters. Anything with a *when*, a *why* or a *story* belongs in `.claude/FINDINGS.md`
+instead: notes are read on every query that ranks them, so a long one bills its background to
+whoever was looking for something else, and the database stops being cheaper than the sources.
+
 A result shown with `⊢` is a theorem and the text is its conclusion; one shown with `:` is a
 definition — a `def`, `abbrev`, `inductive` or `structure` — and the text is its signature.
 `private` declarations are indexed under the name the source gives them and tagged `[private]`:
@@ -53,6 +59,14 @@ EXTRACTOR = os.path.join("scripts", "DumpFacts.lean")
 
 WIDTH = int(os.environ.get("FACTS_WIDTH", "168"))
 DEFAULT_LIMIT = 8
+
+# A note earns its place by being *retrievable*, which means being read in full at a glance from a
+# `q` result. Past roughly two lines it stops competing with grep and starts competing with
+# `.claude/FINDINGS.md`, which is the right home for anything with a when, a why, or a story — and
+# which nothing has to pay for on a query that was looking for something else. These two numbers
+# are the whole enforcement; without them the database silently becomes a second findings file.
+NOTE_SOFT = 240
+NOTE_HARD = 360
 
 # FTS5 reserved characters. Every query token is quoted as a phrase anyway, but a stray quote
 # would end the phrase early and turn the rest of the query into syntax errors.
@@ -404,11 +418,19 @@ def next_id(notes: list[dict]) -> str:
 
 
 def cmd_add(db, args: list[str], limit: int) -> None:
-    """Append a curated note. Everything an extractor cannot know goes here."""
+    """Append a curated note. Everything an extractor cannot know goes here.
+
+    One fact, keyed to a name, short enough to read off a `q` line. Longer than `NOTE_HARD` is
+    refused: what does not fit is a finding, not a note."""
     opts = {"--tag": "", "--ref": "", "--src": ""}
     text_parts = []
+    long_ok = False
     i = 0
     while i < len(args):
+        if args[i] == "--long":
+            long_ok = True
+            i += 1
+            continue
         if args[i] in opts:
             if i + 1 >= len(args):
                 die(f"{args[i]} takes a value")
@@ -419,7 +441,18 @@ def cmd_add(db, args: list[str], limit: int) -> None:
             i += 1
     text = " ".join(text_parts).strip()
     if not text:
-        die("usage: facts add <text> [--tag a,b] [--ref x,y] [--src where]")
+        die("usage: facts add <text> [--tag a,b] [--ref x,y] [--src where] [--long]")
+    if len(text) > NOTE_HARD and not long_ok:
+        die(f"note is {len(text)} characters; the limit is {NOTE_HARD}.\n"
+            "  A note is one fact keyed to a name, read at a glance off a query line. This one has\n"
+            "  a story in it — put the story in .claude/FINDINGS.md and add the trigger→action\n"
+            "  half here, with --ref naming the lemma it applies to. Splitting into two notes is\n"
+            "  usually right too: they are indexed separately and surface on different queries.\n"
+            "  --long overrides, and almost always means FINDINGS.md was the right answer.")
+    if len(text) > NOTE_SOFT:
+        print(f"warning: {len(text)} characters (soft limit {NOTE_SOFT}) — check that the whole "
+              "note is trigger→action\n         and that no sentence of it is background.",
+              file=sys.stderr)
     notes = read_jsonl(NOTES)
     note = {"id": next_id(notes), "txt": text}
     if opts["--tag"]:
@@ -499,6 +532,15 @@ def cmd_doctor(db, args: list[str], limit: int) -> None:
         for note_id, ref in dangling:
             print(f"  {note_id} → {ref}")
         print("       fix: scripts/facts rm <id> and re-add, or refresh if the lemma was renamed")
+
+    bloated = [(n["id"], len(n["txt"])) for n in read_jsonl(NOTES) if len(n["txt"]) > NOTE_HARD]
+    if bloated:
+        problems += 1
+        print(f"long: {len(bloated)} note(s) over {NOTE_HARD} characters — these are findings, "
+              "not notes")
+        for note_id, size in sorted(bloated, key=lambda p: -p[1]):
+            print(f"  {note_id} ({size})")
+        print("       fix: move the story to .claude/FINDINGS.md, keep the trigger→action here")
 
     counts = dict(db.execute("SELECT kind, COUNT(*) FROM fact GROUP BY kind").fetchall())
     summary = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))

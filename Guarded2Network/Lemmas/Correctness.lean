@@ -138,6 +138,8 @@ theorem correct' [DecidableEq V] :
       NetworkPlusCal.Algorithm.init :=
   correct.toCorrect
 
+assert_no_sorry correct'
+
 end Guarded2Network
 
 end
