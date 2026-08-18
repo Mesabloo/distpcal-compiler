@@ -17,9 +17,8 @@ public import Extra.Seq
   `⟦·⟧*`/`⟦·⟧⊥`/`⟦·⟧∞` notations do not apply here. Those classes take their second argument as an
   `outParam`, and with the value type abstract it occurs *only* there — nothing in a `Statement` or
   an `AtomicBranch` mentions it — so Lean cannot order the synthesis of the `ExprSemantics`
-  argument. Prior art carried no such argument, its value type being fixed. Nothing needs the
-  classes: `VerifiedCompiler/Denotational/StrongRefinement.lean` takes the relations as plain
-  `Set`s. The instances can be registered later, against the concrete TLA⁺ value type.
+  argument. Nothing needs the classes: `StrongRefinement` takes the relations as plain `Set`s. The
+  instances can be registered later, against the concrete TLA⁺ value type.
 
   Blocking and aborting are deliberately different: a statement with no `reducing` transition and no
   `aborting` state is a guard that is simply not enabled yet, which is what `await`, `receive` on an
@@ -29,8 +28,8 @@ public import Extra.Seq
   The expression layer underneath is abstract (`ComputableTLAPlus.ExprSemantics`), to be refined to
   the real TLA⁺ semantics later; see that file's module doc.
 
-  Channels are kept out of the main memory, in a separate `FIFOs` map — the paper's `LState =
-  (Var → Value) × (Var → Value*)`. An expression that reaches into a channel therefore has no
+  Channels are kept out of the main memory, in a separate `FIFOs` map, so a local state is a
+  variable memory beside a channel memory. An expression that reaches into a channel therefore has no
   meaning at all here rather than a wrong one, which is what lets the expression layer stay ignorant
   of channels entirely.
 
@@ -39,10 +38,9 @@ public import Extra.Seq
   fixed points over a step relation. See `Core/NetworkPlusCal/Semantics/Denotational.lean`'s
   `Thread.labels`.
 
-  Where the paper's rules and this file differ, this file is the *stronger* of the two: the paper
-  leaves several failure modes to well-formedness side conditions it assumes rather than states
-  (`⟦receive(c,r)⟧⊥ = ∅` outright; `await` on a non-boolean and `with x ∈ e` on a non-set merely
-  block). Those cases abort here. Deliberate — see `OPEN_QUESTIONS.md`.
+  Failure modes a well-formedness side condition could assume away are stated instead: a `receive`
+  with a bad channel, an `await` on a non-boolean and a `with x ∈ e` on a non-set all abort here
+  rather than blocking or being ruled out by assumption.
 -/
 
 namespace GuardedPlusCal
@@ -52,8 +50,8 @@ open ComputableTLAPlus (Memory PathStep ExprSemantics)
 variable {V : Type} [ExprSemantics V]
 
 /-- The key identifying a single FIFO: the channel's name together with its resolved index path.
-Prior art carried the whole channel reference; only the name and the evaluated indices are
-observable, and this is also the shape a `Behavior.send` reports. -/
+Only the name and the evaluated indices are observable, and this is also the shape a
+`Behavior.send` reports. -/
 abbrev ChanKey (V : Type) : Type := String × List (PathStep V)
 
 /-- The name a process instance's own identity is bound to, matching `Elaborator/PlusCal.lean`'s
@@ -68,21 +66,19 @@ and their relative order would stop being observable.
 
 `send` additionally carries the channel it pushes onto.
 
-**Reception is deliberately not an event.** An earlier design gave `Behavior` a `recv` constructor,
-so that a proof about `Guarded2Network` would say *when* a message leaves its channel. It is
-unsound as an observation of the source program: `Guarded2Network` defers consumption to a `.rx`
-thread that pops the channel ahead of the block that uses the value, and a block whose guard never
-holds — `l: receive(ch, x) ; await FALSE ; goto l'` — then pops a message in the target while the
-source block never reduces at all and so never emits anything. No relation up to reordering
-repairs that: the target event has no source counterpart to be reordered against. What ties the
-channel's contents to the target's `inbox` is the refinement invariant `relatesTo`, per channel,
-which is where trace preservation for reception belongs. -/
+**Reception is not an event.** The alphabet is exactly `print` and `send`, and a `recv` event would
+be unsound as an observation of the source program: `Guarded2Network` defers consumption to a `.rx`
+thread that pops the channel ahead of the block that uses the value, so a block whose guard never
+holds — `l: receive(ch, x) ; await FALSE ; goto l'` — pops a message in the target while the source
+block never reduces at all and so never emits anything. No relation up to reordering repairs that:
+the target event has no source counterpart to be reordered against. What ties the channel's contents
+to the target's `inbox` is the refinement invariant `relatesTo`, per channel. -/
 inductive Behavior (V : Type) : Type
   | print (p v : V)
   | send (p : V) (c : ChanKey V) (v : V)
 
-/-- The trace alphabet: a possibly-infinite sequence of observable events. `Extra/Seq.lean`'s
-`Monoid (Seq α)` makes it the paper's `⟨T, *, ε, ≤⟩`.
+/-- The trace alphabet: a possibly-infinite sequence of observable events. `Monoid (Seq α)` makes it
+the ordered monoid traces are composed in.
 
 Possibly-infinite and not `List`, even though no statement or block can emit an infinite trace —
 `Statement.diverging` is `∅` and a block is finite, so divergence enters only at `Algebra`
@@ -92,13 +88,10 @@ executions that fall silent after finitely many events, so every productive dive
 absent from the denotation outright.
 
 The type is uniform across the statement, block and algorithm layers rather than finite below and
-infinite above. A layer boundary would put a `Seq.ofList` coercion on exactly the seam that the
-Guarded-to-Network refinement proof crosses, and would double every `Block.*_map` lemma; carrying
-one type instead pushes the coercion down to the trace literals in this file, where it is written
-once per event and never reappears. Finiteness of the reducing and aborting traces is then a
-derived property rather than a typing constraint, which costs nothing — nothing downstream of here
-needs it, and no proof relies on cancellativity (`Seq` has none: an infinite left factor absorbs
-its right factor, `Extra/Seq.lean`'s `mul_eq_left_of_not_terminates`). -/
+infinite above, so no layer boundary carries a `Seq.ofList` coercion. Finiteness of the reducing and
+aborting traces is a derived property rather than a typing constraint: nothing downstream needs it,
+and no proof relies on cancellativity (`Seq` has none — an infinite left factor absorbs its right
+factor, `mul_eq_left_of_not_terminates`). -/
 abbrev Trace (V : Type) : Type := Stream'.Seq (Behavior V)
 
 /-- The global map containing FIFOs. Pushes go on the right, pops come off the left.
@@ -111,14 +104,12 @@ usable `lookup` equation (`= some v`, not `v <$ lookup k F`). -/
 abbrev FIFOs (V : Type) : Type := Finmap λ _ : ChanKey V ↦ List V
 
 /-- The local reduction state of an atomic block: the process's own memory and the channels. A
-`done` state additionally carries the label the branch's terminal `goto` jumped to — the paper's
-`LState⊥ = (Var → Value) × (Var → Value*)` and `LState⊤ = LState⊥ × Label`.
+`done` state additionally carries the label the branch's terminal `goto` jumped to, which is the
+only difference between the two indices.
 
-There is deliberately no third component for `with`-bound temporaries. Prior art carried one, using
-`x ∉ tmp` as a side condition to stop an assignment targeting a block-local binder; that is a
-syntactic property, and `WellFormedness/` checks it on the way in. Keeping it in the state would
-oblige every lemma transcribed from the paper to translate between two state shapes for no
-proof-side gain. -/
+There is deliberately no third component for `with`-bound temporaries. That an assignment does not
+target a block-local binder is a syntactic property, checked by `WellFormedness`; keeping it in the
+state would oblige every lemma to translate between two state shapes for no proof-side gain. -/
 inductive LocalState (V : Type) : Bool → Type
   | running (M : Memory V) (F : FIFOs V) : LocalState V false
   | done (M : Memory V) (F : FIFOs V) (l : String) : LocalState V true
@@ -135,8 +126,6 @@ only the `.inr` ones are considered. -/
 def Ref.pathAborts (M : Memory V) (r : ComputableGuardedPlusCal.Ref) : Prop :=
   ∃ e ∈ r.args.filterMap Sum.getRight?, M ⊢ e ↯
 
-------------
-
 /-! # Reduction of statements -/
 
 def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b b' →
@@ -146,8 +135,8 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
       M ⊢ e ⇒ v ∧
       Finmap.lookup name M = none ∧
       σ = .running M F ∧ ε = 1 ∧ match bound with
-        -- `bound` is `true` for `=`, `false` for `∈` — the opposite polarity from prior art's
-        -- `«=|∈»` field, see `Core/GuardedPlusCal/Syntax.lean`.
+        -- `bound` is `true` for `=`, `false` for `∈`, the opposite polarity from the syntax's
+        -- `«=|∈»` field.
         | true => σ' = .running (M.insert name v) F
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F
     }
@@ -177,11 +166,10 @@ def Statement.reducing : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
       σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1
     }
-  -- TODO(item 7): `multicast` has no semantics yet, so it currently neither steps nor aborts —
-  -- deliberately deferred, not an oversight. Prior art left both its `reducing` and `aborting` cases
-  -- `sorry`, and the shape wanted here (whether the recipient set must enumerate to a finite list,
-  -- and what order the emitted `Behavior.send`s come in) is fixed by what the refinement proof
-  -- needs. `∅` rather than `sorry` so the no-`sorry` check stays meaningful in the meantime.
+  -- TODO(multicast): no semantics yet, so it neither steps nor aborts. The shape wanted here
+  -- (whether the recipient set must enumerate to a finite list, and what order the emitted
+  -- `Behavior.send`s come in) is fixed by what the refinement proof needs. `∅` rather than `sorry`,
+  -- so the no-`sorry` check stays meaningful.
   | false, false, .multicast _ _ => ∅
   | false, false, .assign r e =>
     {⟨σ, ε, σ'⟩ | ∃ M F M' v rpath,
@@ -244,7 +232,7 @@ def Statement.aborting : {b b' : Bool} → ComputableGuardedPlusCal.Statement b 
     ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = 1}
     ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
         F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}
-  -- TODO(item 7): see `Statement.reducing`'s `multicast` case.
+  -- TODO(multicast): see `Statement.reducing`'s `multicast` case.
   | false, false, .multicast _ _ => ∅
   | false, false, .assign r e =>
     {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}

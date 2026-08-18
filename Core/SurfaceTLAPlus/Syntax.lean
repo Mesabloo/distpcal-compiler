@@ -208,7 +208,7 @@ instance : ToString InfixOperator where
     | .«-+->» => "-+->" | .«--» => "--" | .«-|» => "-|" | .«-» => "-"
     | .«...» => "..." | .«..» => ".." | .«.» => "." | .«//» => "//"
     | .«/=» => "/=" | .«#» => "#"
-    | .«/\» => r"/\" | .«\land» => r"\land" | .«/» => "/" -- "
+    | .«/\» => r"/\" | .«\land» => r"\land" | .«/» => "/"
     | .«::=» => "::=" | .«:=» => ":=" | .«:>» => ":>" | .«<:» => "<:"
     | .«<=>» => "<=>" | .«\equiv» => r"\equiv"
     | .«=<» => "=<" | .«<=» => "<=" | .«\leq» => r"\leq"
@@ -229,7 +229,7 @@ instance : ToString InfixOperator where
     | .«\o» => r"\o" | .«\circ» => r"\circ" | .«\sqcup» => r"\sqcup" | .«\div» => r"\div"
     | .«\sqsubseteq» => r"\sqsubseteq" | .«\sqsubset» => r"\sqsubset" | .«\uplus» => r"\uplus"
     | .«\doteq» => r"\doteq" | .«\wr» => r"\wr" | .«\sqsupset» => r"\sqsupset"
-    | .«\notin» => r"\notin" | .«\» => r"\" -- "
+    | .«\notin» => r"\notin" | .«\» => r"\"
 
 /-- TLA⁺ types, in the [same format as Apalache](https://apalache-mc.org/docs/adr/002adr-types.html). -/
 inductive Typ : Type
@@ -248,7 +248,7 @@ inductive Typ : Type
   | operator (_ : List Typ) (_ : Typ)
   /-- A rigid, universally-quantified type variable `a`. -/
   | var (_ : String)
-  /-- `CONSTANT` -- an abstract type. -/
+  /-- `CONSTANT` — an abstract type. -/
   | const (_ : String)
   | record (_ : List (String × Typ))
   /-- `Channel(τ)`. Covariant: `τ <: τ' → Channel(τ) <: Channel(τ')`. -/
@@ -269,7 +269,7 @@ def Typ.isChannelLike : Typ → Bool
   | .function _ (.channel _) => true
   | _ => false
 
--- `deriving DecidableEq` doesn't apply here -- proved by hand instead.
+-- `deriving DecidableEq` doesn't apply here — proved by hand instead.
 partial instance : DecidableEq Typ :=
   let rec go (τ τ' : Typ) : Decidable (τ = τ') := match τ, τ' with
     | .bool, .bool | .int, .int | .str, .str | .address, .address => isTrue rfl
@@ -487,8 +487,8 @@ inductive Expression (α : Type) : Type
   | stutter : Expression α → Expression α → Expression α
   deriving Repr, Inhabited, BEq
 
--- Structural recursion isn't visibly decreasing to Lean here (nested `List`/`QuantifierBound`
--- occurrences of `Expression`) — `partial` until that's revisited.
+-- `partial`: the recursion is structural, but not visibly decreasing to Lean (nested
+-- `List`/`QuantifierBound` occurrences of `Expression`).
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
   | .var v, pos => .var v @@ pos
   | .nat n, pos => .nat n @@ pos

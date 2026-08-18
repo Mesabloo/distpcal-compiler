@@ -89,8 +89,8 @@ inductive Expression (α : Type) : Type
   | stutter : Expression α → Expression α → Expression α
   deriving Repr, Inhabited, BEq
 
--- Structural recursion isn't visibly decreasing to Lean here (nested `List`/`Option` occurrences
--- of `Expression`) — `partial` until revisited.
+-- `partial`: the recursion is structural, but not visibly decreasing to Lean (nested
+-- `List`/`Option` occurrences of `Expression`).
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
   | .var v, pos => .var v @@ pos
   | .nat n, pos => .nat n @@ pos

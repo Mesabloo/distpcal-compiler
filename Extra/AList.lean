@@ -54,16 +54,6 @@ namespace AList
       -- duplicates keys. But that's not provable generically, since only per-key properties are
       -- statable on the traversal result, not a global no-duplicates property over the whole list.
       <$> x.entries.traverse λ ⟨k, v⟩ ↦ Sigma.mk k <$> f k v
-    -- (λ (kvs : List {y : Nat × Sigma γ // ∃ (h : y.fst < x.entries.length), x.entries[y.fst].fst = y.snd.fst}) ↦ {
-    --   entries := kvs.unattach.map Prod.snd |>.dedupKeys
-    --   nodupKeys := List.nodupKeys_dedupKeys ..
-    -- }) <$> x.entries.enum.attach.traverse λ ⟨⟨i, k, x⟩, h⟩ ↦ (λ v ↦ Subtype.mk (i, Sigma.mk k v) (by
-    --   obtain ⟨i_valid, ith_eq⟩ := List.mem_enum h
-    --   apply congrArg Sigma.fst at ith_eq
-    --   exists i_valid
-    --   symm
-    --   simpa using ith_eq
-    -- )) <$> f k x
 
     /-- `erase` on two different keys commutes, needed to fold `erase` over a list of keys regardless of order. -/
     instance eraseRightCommutative.{u, v} {α : Type u} [DecidableEq α] {β : α → Type v} : RightCommutative (λ (x : AList β) (k : α) ↦ x.erase k) where
@@ -280,7 +270,7 @@ namespace AList
       k ∈ AList.insert k' v x ↔ k ∈ x := by
     simp only [mem_insert, false_or, neq]
 
-  -- TODO: constructively rewrite this proof?
+  -- TODO(constructive): this proof goes through `by_contra!`; a direct one would be constructive.
   theorem mem_of_lookup_eq_some.{u, v} {α : Type u} [DecidableEq α] {β : α → Type v} {x : AList β} {k : α} {v : β k} (h : x.lookup k = some v) : k ∈ x := by
     by_contra! h'
     rw [notMem_iff, h] at h'

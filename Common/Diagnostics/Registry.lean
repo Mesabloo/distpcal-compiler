@@ -127,9 +127,7 @@ def conflictingAssignment : Entry :=
 def invalidRecordFieldAccess : Entry :=
   { code := e 19, stage := .desugar, summary := "A record field access whose field is not an identifier." }
 
--- E0020 is unallocated: it was drafted for a fatal repeated `@parameter`, which turned out to be
--- a warning (`W0003`) and nothing else. Left as a gap rather than handed to the next diagnostic —
--- numbers are never reused, including ones that never shipped.
+-- E0020 is unallocated. Numbers are never reused, including ones that never shipped.
 
 /-! ## `EXTENDS` resolution -/
 

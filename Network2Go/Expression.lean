@@ -8,14 +8,14 @@ public import Common.Fresh
 public section
 
 /-!
-  Compiling TLA⁺ expressions into Go expressions (thesis §7.2.1.2).
+  Compiling TLA⁺ expressions into Go expressions.
 
   The output is a single `Go.Expression`, never a statement prelude: everything that needs
   statements to express — the quantifiers' search loops, `IF`/`CASE`'s laziness, `EXCEPT`'s record
   update — is wrapped in an immediately-applied `Go.Expression.funcLit`. That keeps this function
   callable from any expression position (a branch's guard, an argument, another expression's
   sub-term) without every caller having to thread a list of statements to emit first. `funcLit`
-  exists in `Core/Go/Syntax.lean` precisely because §7.2.1.2 cannot be compiled without it.
+  exists in `Core.Go.Syntax` precisely because these forms cannot be compiled without it.
 
   Recurring conventions, all forced by the runtime library's own types:
 
@@ -52,8 +52,8 @@ public section
     except equality) take none.
 
   Deliberately not handled here, since they are not expression forms: operator and function
-  *definitions* (§7.2.2, including `MkRecFn` for recursive ones), which live in
-  `Network2Go/Definition.lean`, and the renaming of user-chosen names that collide after
+  *definitions* (including `MkRecFn` for recursive ones), which live in `Network2Go.Definition`,
+  and the renaming of user-chosen names that collide after
   capitalization.
 -/
 
@@ -97,7 +97,7 @@ private def wrongArity (pos : SourceSpan) (name : String) (n : Nat) : m Computab
 the two slices, so the runtime gives it as a free function taking that dictionary.
 
 Functions have no equality at all: comparing two lazy maps means comparing them on every point of
-their domain, which the representation deliberately does not do (`§7.2.1.2`). -/
+their domain, which the representation deliberately does not do. -/
 private def compileEq (pos : SourceSpan) (τ : Typ) (x y : ComputableGo.Expression) :
     m ComputableGo.Expression :=
   match τ with
@@ -123,7 +123,7 @@ private def setElemDict (pos : SourceSpan) (name : String) : Typ → m Computabl
 mutual
 
 /--
-  Compiles a checked TLA⁺ expression into the Go expression that computes it (§7.2.1.2).
+  Compiles a checked TLA⁺ expression into the Go expression that computes it.
 -/
 partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expression :=
   match_source e with
@@ -134,8 +134,8 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
   | .str s, _ => return tlaplusCall "Str" [.str s]
   | .true, _ => return tlaBool .true
   | .false, _ => return tlaBool .false
-  -- A bound variable — a quantifier's, a process's, a branch's — keeps the name it had: §7.2.2
-  -- capitalizes *definitions*, not variables.
+  -- A bound variable — a quantifier's, a process's, a branch's — keeps the name it had:
+  -- capitalization applies to *definitions*, not variables.
   | .var name _ .binder, _ => return .var (binderName name)
   | .var name τ (.module mod), pos =>
     if builtinModuleNames.contains mod then compileBuiltinVar pos mod name τ
@@ -246,8 +246,8 @@ partial def compilePredicate (x : String) (τ : Typ) (body : ComputablePlusCal.E
   return .funcLit [(binderName x, ← compileTyp τ)] [.bool] [.return [goBool (← compileExpr body)]]
 
 /--
-  `\A x \in S : P` and `\E x \in S : P`, per §7.2.1.2: a search of `S` for the first
-  counterexample/witness, the two being De Morgan duals of one another.
+  `\A x \in S : P` and `\E x \in S : P`: a search of `S` for the first counterexample/witness, the
+  two being De Morgan duals of one another.
 
   Written as a loop inside an immediately-applied literal rather than as
   `Cardinality(SetFilter(S, ¬P)) = 0`, because the filter would evaluate `P` at every element even
@@ -340,7 +340,7 @@ partial def compileStructUpdate (pos : SourceSpan) (τ : Typ) (field : String) (
     [.assign [.field (.var r) field] [inner], .return [.var r]]) [base]
 
 /--
-  A builtin operator, applied (§7.2.1.2). `τ` is the *operator's own* type, already specialized by
+  A builtin operator, applied. `τ` is the *operator's own* type, already specialized by
   the checker, which is where the operand type `=` dispatches on comes from.
 
   Every case producing a truth value converts back into `tlaplus.Bool`: the runtime's predicates
@@ -419,7 +419,7 @@ module, not something to apply. -/
 partial def compileBuiltinVar (pos : SourceSpan) (mod name : String) (_τ : Typ) :
     m ComputableGo.Expression :=
   match mod, name with
-  -- Both denote infinite sets, and the representation is a finite sorted slice (§9.15). Nothing is
+  -- Both denote infinite sets, and the representation is a finite sorted slice. Nothing is
   -- lost by rejecting them: they are only useful as a quantifier's domain, which would not
   -- terminate either.
   | "Naturals", "Nat" | "Integers", "Int" =>

@@ -24,12 +24,10 @@ public section
   `TypedPlusCal` and `ComputablePlusCal` pin) doesn't derive `Bifunctor`/`Bitraversable` instances
   of its own the way `CorePlusCal`'s equivalently-shaped types do — so `Ref`/`Statement`/`Block`/
   `Branches`/`Declarations`/`Process`/`Algorithm` each get a hand-written `toComputable` below,
-  mirroring `CorePlusCal.Statement.bitraverse`'s own per-constructor shape
-  (`Core/CorePlusCal/Syntax.lean:134-163`) with `f := pure` (the `τ`-side function, always the
-  identity here) folded away. `Multicast` is the one exception: it's reused generically from
-  `CorePlusCal`, which *does* carry a registered `Bitraversable` instance, so its `toComputable`
-  is just `bitraverse pure Expression.toComputable` (same precedent as `Desugarer/TLAPlus.lean`'s
-  own `bitraverse pure Expression.desugar` calls).
+  mirroring `CorePlusCal.Statement.bitraverse`'s own per-constructor shape with `f := pure` (the
+  `τ`-side function, always the identity here) folded away. `Multicast` is the one exception: it's
+  reused generically from `CorePlusCal`, which *does* carry a registered `Bitraversable` instance,
+  so its `toComputable` is just `bitraverse pure Expression.toComputable`.
 
   Every `ElaboratedPlusCal`-family conversion below is invoked via **qualified call**
   (`TypedPlusCal.Block.toComputable B`, not `B.toComputable`) rather than dot-notation:
@@ -56,8 +54,8 @@ def TypedPlusCal.Multicast.toComputable (filter : TypedPlusCal.Multicast) :
   bitraverse pure TypedTLAPlus.Expression.toComputable filter
 
 mutual
-  /-- Mirrors `CorePlusCal.Statement.bitraverse`'s own per-constructor shape
-  (`Core/CorePlusCal/Syntax.lean:134-153`), `f := pure` folded away, and reattaches the source
+  /-- Mirrors `CorePlusCal.Statement.bitraverse`'s own per-constructor shape, `f := pure` folded
+  away, and reattaches the source
   statement's own span to the translated one exactly the way `Statement.bitraverse` and
   `TypedTLAPlus.Expression.toComputable` do — a `ComputablePlusCal.Statement` whose position is
   never registered is a position `posOf` cannot answer for, and it answers with an unrelated

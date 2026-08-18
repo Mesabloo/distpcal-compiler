@@ -9,7 +9,7 @@ public section
   block, and the declarations themselves.
 
   Kept out of `Core/Go/Pretty.lean`, which prints the AST and nothing else. A file's framing is
-  not part of the Go fragment §6.6 gives a semantics to, and the import paths are `Network2Go`'s
+  not part of the Go fragment the semantics covers, and the import paths are `Network2Go`'s
   knowledge — `Naming.lean` is where the runtime's package qualifiers are decided, so this is
   where the paths they resolve to belong.
 
@@ -114,7 +114,7 @@ declarations.
 
 `package` defaults to `main` — the shape a user most often wants to drop a `func main` beside —
 and `-Xgo-pkg:<name>` overrides it. The compiler emits no `main` of its own: which processes
-run, where, and how they find each other is not something a specification says (§7.3), so the
+run, where, and how they find each other is not something a specification says, so the
 generated file is a library its caller drives. -/
 def emitFile (packageName : String) (decls : List Declaration) : String :=
   let imports := (usedPackages decls).filterMap λ pkg ↦

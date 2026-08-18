@@ -72,9 +72,8 @@ inductive Coercion : Type
   transitivity for `tryAxioms`' chained-axiom case (e.g. `Str <: Seq(Int) <: Int → Int`). -/
   | comp (c₁ c₂ : Coercion)
 
--- Structural recursion isn't visibly decreasing to Lean here (nested `List Coercion` occurrences,
--- same shape as `Expression.map`'s own note in `Core/TypedTLAPlus/Syntax.lean`) — `partial` until
--- revisited.
+-- `partial`: the recursion is structural, but not visibly decreasing to Lean (nested `List
+-- Coercion` occurrences).
 /-- Apply a coercion to an already-elaborated expression.
 
 Every node built here is synthesized — none of it has source text of its own — but all of it

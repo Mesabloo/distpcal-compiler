@@ -404,7 +404,7 @@ namespace SurfacePlusCal.Parser
       }
 
     def parseAlgorithm : PlusCalParser (Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) := located do
-      -- TODO: support macros, procedures, defines
+      -- TODO(pluscal-decls): support macros, procedures and `define` blocks.
       let _ ← token .dashdash
       let isFair ← located <| test <| token .fair
       let _ ← warnIfFair isFair

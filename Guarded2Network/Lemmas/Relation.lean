@@ -22,15 +22,13 @@ public import Core.NetworkPlusCal.Semantics.Process
   `checkReceiveChannels` establishes that a process receives from exactly one channel, so `mbox`
   carries one `Ref` — `none` for a process that never receives, in which case the two states are
   equal outright. The channel is a `Ref` (name plus an already-resolvable index path) rather than
-  prior art's raw `Expression`, so the two syntactic cases prior art had to split on (`c` and
-  `c[self]`, with a `mailbox_shape` lemma to case on them) collapse into one: `EvalStep` resolves
-  `Ref.args` uniformly, whether the list is empty or not.
+  a raw `Expression`, so the two syntactic cases `c` and `c[self]` collapse into one: `EvalStep`
+  resolves `Ref.args` uniformly, whether the list is empty or not.
 
-  **Why an API and not a raw ∧-chain.** Prior art destructures this predicate inline at every use
-  and navigates it positionally (`conv at sim => enter [2, 2, 2, 2]`). Each projection below is one
-  of those coordinates, named. A `conv … enter` into a conjunction is a `rw [show … from rfl]` in
-  disguise: it silently depends on the order the conjuncts happen to be written in, and every
-  reordering of this definition would break proofs that never mention it.
+  **Why an API and not a raw ∧-chain.** Each projection below names one coordinate of the predicate,
+  so no proof has to navigate it positionally. A `conv … enter` into a conjunction is a
+  `rw [show … from rfl]` in disguise: it silently depends on the order the conjuncts happen to be
+  written in, and every reordering of this definition would break proofs that never mention it.
 -/
 
 namespace Guarded2Network
@@ -53,8 +51,8 @@ is the target's with `pref k` in front — some other instance's `inbox`, which 
 observe. That prefix is a *parameter* rather than an existential on purpose: the algorithm level
 needs those keys to come back unchanged after a block runs, and "the same `pref` on both sides" is
 the only way to say so. An existential would let the conclusion re-witness, and the fact would be
-true but unstatable. (Prior art wrote this clause as plain equality, i.e. `pref k = []`; that is
-false as soon as a second instance receives, which is the bug this parameter fixes.)
+true but unstatable. Stating the clause as plain equality (`pref k = []`) is false as soon as a
+second instance receives.
 
 At this process's *own* channel the prefix is its `inbox`, tied to the target's memory by
 `isSeq sv vs` and existential — because it is the one prefix the process itself changes, a `receive`

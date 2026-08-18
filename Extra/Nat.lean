@@ -27,8 +27,6 @@ namespace Nat
 
   theorem min_le {m n o p : Nat} : m ≤ n → o ≤ p → min m o ≤ min n p := by omega
 
-  -- theorem le_add_left_of_le {m n o : Nat} (h : m ≤ o) : m ≤ n + o := by omega
-
   theorem add_max {m n o : Nat} : m + max n o = max (m + n) (m + o) := by omega
 
   theorem le_max_of_le_left {m n o : Nat} (h : m ≤ n) : m ≤ max n o := by omega

@@ -135,7 +135,7 @@ def GuardedPlusCal.Block.freeVars {g b} (B : Block (ComputableGuardedPlusCal.Sta
   (B.begin.map GuardedPlusCal.Statement.freeVars).foldl (· ∪ ·) ∅ ∪ B.last.freeVars
 
 /-- `x` is read nowhere in `Br` — precondition guard list (if any) and action block alike. The
-`AtomicBranch`-level freshness side condition D5's `reorder_assign_guard` pair needs: a preceding
+`AtomicBranch`-level freshness side condition the `reorder_assign_guard` pair needs: a preceding
 action's assigned name must stay fresh in every later guard for the substitution `𝒞_reord`
 performs to be sound. -/
 def GuardedPlusCal.AtomicBranch.FreshIn (x : String) (Br : ComputableGuardedPlusCal.AtomicBranch) :

@@ -13,9 +13,8 @@ public import Network2Go.Emit
 public section
 
 /-!
-  `Network2Go`'s entry point — `network.toGo` (`Network2Go/PlusCal.lean`), matching the
-  `<InputType>.<verb>` convention the other passes use. Only the pass's `N2GError` diagnostics type
-  exists so far; the compilation modules are re-exported here as they land.
+  `Network2Go`'s entry point — `network.toGo`, matching the `<InputType>.<verb>` convention the
+  other passes use. The pass's own modules are re-exported here.
 -/
 
 end

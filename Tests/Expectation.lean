@@ -115,9 +115,8 @@ convention — which the runner reports rather than quietly ignoring, since an u
 usually a typo that would otherwise take the fixture out of the suite.
 
 Fixtures are named `<Prefix><WhatItTests>.tla`, in CamelCase, because TLA⁺ requires a module's
-file to be named after the module: `EXTENDS Foo` looks for `Foo.tla` and nothing else. The corpus
-used snake_case until the sidecars showed what that cost — two fixtures whose `EXTENDS` could
-never resolve, and which had therefore never tested what they claimed (§9.23). -/
+file to be named after the module: `EXTENDS Foo` looks for `Foo.tla` and nothing else. A snake_case
+name therefore gives a fixture an `EXTENDS` that can never resolve, so it silently tests nothing. -/
 def Expectation.ofFilename (name : String) : Option Expectation :=
   if "Accept".isPrefixOf name then
     some { outcome := .accept }

@@ -789,8 +789,7 @@ source statement: whatever it emits, together with whatever it appends to the ac
 the source statement composed onto the prefix.
 
 The freshness side condition sits in the precondition rather than in the signature because it is
-about the *accumulator*, which only exists at run time — the same reason prior art threads
-well-scopedness through its own loop invariant instead of assuming it up front.
+about the *accumulator*, which only exists at run time.
 
 `hmb` is where the mailbox stops being arbitrary. A `with` or an `await` refines itself at any
 `mbox`; a `receive` is what the pass compiles into reads of `inbox`, so relating the two sides across
@@ -812,8 +811,7 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
       (stepStatement (m := G2NM) chans inbox S)
     ⦃⇓? T st' => ⌜WalkInv (V := V) mbox c₀ inbox pref (walked ++ [S]) (results ++ [T]) st' ∧
       AccFresh inbox st' suff⌝⦄ := by
-  -- one line, and every `wp` is gone: three goals, one per guard constructor, each a plain
-  -- `WalkInv` obligation with the incoming invariant in context
+  -- three goals, one per guard constructor, each a plain `WalkInv` obligation
   mintro ⟨inv, gf⟩
   cases S <;> simp only [stepStatement] <;> mvcgen
   case vc1.with name ann bound e st n hinv =>
@@ -993,9 +991,8 @@ Registered `@[spec]` so the block-level proof never has to look inside the walk.
     ⟨WalkInv.nil, λ _ ha ↦ nomatch ha⟩
 
 /-- **`rfresh` assembled from its two sources.** The receive half comes from well-formedness, where
-`WellFormedness/Restrictions.lean`'s executable checks put it; the two conditions on the *generated*
-`inbox` come from whoever generated it, which is `Thread.toNetwork` (plan step D8) and not this
-file.
+the executable restriction checks put it; the two conditions on the *generated* `inbox` come from
+whoever generated it, which is `Thread.toNetwork` and not this file.
 
 The split is deliberate and follows the shape of the problem: one half is a property of the source
 program that a front-end pass rejects, the other is a property of a name this pass invents. Nothing
@@ -1078,13 +1075,6 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : 
         Relation.lcomp₁.right_empty_eq_empty, Set.empty_union]
       exact StrongRefinement.ofNonDiverging _ (StrongRefinement.Terminating.Id _)
         (StrongRefinement.Aborting.Empty _)
-      /- apply StrongRefinement.ofNonDiverging
-       - · dsimp
-       -   convert StrongRefinement.Terminating.Id _
-       -   · rw [instTrace_Rτ]
-       -   · simp [NetworkPlusCal.Statement.listReducing'_nil, Relation.lcomp₂.left_id_eq]
-       - · convert StrongRefinement.Aborting.Empty _
-       -   simp [NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₁.right_empty_eq_empty] -/
 
     case post.success r _ hinv =>
       obtain ⟨⟨pairs, hlen, hrxs, hrecv, ref⟩, -⟩ := hinv

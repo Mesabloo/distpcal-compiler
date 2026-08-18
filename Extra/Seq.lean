@@ -372,7 +372,7 @@ namespace Stream'.Seq
 
   /-! ## Products of a sequence that keeps emitting
 
-  The converse half of the paper's closed form needs the infinite product to be *determined* by its
+  The converse half of the closed form needs the infinite product to be *determined* by its
   partial products, which it is only when those keep growing. Each nonempty factor extends the
   partial product by at least one index, so infinitely many of them reach every index — and an
   element sharing every partial product as a left factor then agrees with the product everywhere.

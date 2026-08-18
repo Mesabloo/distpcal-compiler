@@ -6,7 +6,7 @@ public import Mathlib.Tactic.Monotonicity
 @[expose] public section
 
 /-!
-  The process and algorithm layers, following `reference/jlamp.pdf` §3.3.
+  The process and algorithm layers.
 
   Nothing here mentions either language's AST. A thread has no denotation of its own — it only owns
   labels — and a process is scheduled entirely by label, so the whole layer is parameterized by two
@@ -91,9 +91,8 @@ so: `Algorithm.init` produces one pair per declared instance, and `Algebra.step`
 an instance had rather than adding one, so every reachable state satisfies it.
 
 Named because a refinement invariant over an algorithm state generally cannot be stated without it.
-An invariant that accounts for anything *per instance* — `Guarded2Network`'s per-instance inbox, and
-the FIFO prefix it is accounted against — is outright false at a state holding two states for one
-instance: that instance's step updates the accounting, and the second state, which did not move, is
+An invariant that accounts for anything *per instance* is outright false at a state holding two
+states for one instance: that instance's step updates the accounting, and the second state, which did not move, is
 left related against the old one. So it is carried as a clause of the invariant rather than derived
 from reachability, which would put a reachability hypothesis on every lemma below it. -/
 def Instances.Functional (Ps : Instances ι V) : Prop :=
@@ -137,7 +136,7 @@ def Algebra.step (A : Algebra ι V) : Set (AlgState ι V × Trace V × AlgState 
     ⟨⟨σ, F⟩, τ, ⟨σ', F'⟩⟩ ∈ (A.table p).procReducing (A.owned p) (A.self p) ∧
     Ps' = insert ⟨p, σ'⟩ (Ps \ {⟨p, σ⟩})}
 
-/-- Some process goes wrong *now*: the immediate half of the paper's `P⊥_red`, with no steps taken
+/-- Some process goes wrong *now*: the immediate half of the aborting semantics, with no steps taken
 first. Named on its own because the aborting semantics is built from it by composition rather than
 by iterating a functional that mentions it. -/
 def Algebra.immediateAbort (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
@@ -183,9 +182,8 @@ def Algebra.diverging (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
 
 /-- The memory a list of initializers and their values builds on top of a memory already in hand:
 each declared name bound to its own value, in declaration order, so a name declared twice keeps the
-later binding. Named rather than written inline in `InitProc` below because relating the state of an
-instance whose initializer list one pass *extended* to the state of the source's is exactly a
-statement about this function. -/
+later binding. Named rather than written inline in `InitProc` below, so that extending an
+initializer list is a statement about this function alone. -/
 def InitMem [ExprSemantics V] (inits : List (String × ComputablePlusCal.Expression)) (vs : List V)
     (M : Memory V) : Memory V :=
   ((inits.map Prod.fst).zip vs).foldl (λ M xv ↦ M.insert xv.1 xv.2) M
@@ -224,8 +222,8 @@ theorem eval_forall₂_inj [ExprSemantics V] {M : Memory V}
 set is `entry` outright, and the memory is a fold over the initializers' values, which
 `ExprSemantics.evalUnique` pins one by one.
 
-What wants it is `Instances.Functional` — `Guarded2Network`'s algorithm-level invariant requires one
-state per instance on both sides, for soundness rather than bookkeeping (see that field's own doc). -/
+This is what `Instances.Functional` rests on: one state per instance is a soundness condition, not
+bookkeeping. -/
 theorem InitProc.inj [ExprSemantics V] {self : V}
     {inits : List (String × ComputablePlusCal.Expression)} {entry : Set String}
     {σ σ' : ProcState V} (h : InitProc self inits entry σ) (h' : InitProc self inits entry σ') :
@@ -289,11 +287,8 @@ theorem InitMem.lookup_mem [ExprSemantics V]
 /-- **A state over a longer initializer list is one over the shorter, written on top of.** Every
 initializer is evaluated under the *same* memory — `self` alone, never the one being accumulated —
 so appending to the list neither disturbs the values already taken nor makes new ones depend on
-them, and the fold splits where the list does.
-
-What reads it is `Guarded2Network`: a compiled process declares the source's locals plus the `inbox`
-the pass invented, and relating the two initial memories is exactly this split. The shorter state's
-label set is free, being whatever the caller's own `init` asks for. -/
+them, and the fold splits where the list does. The shorter state's label set is free, being whatever
+the caller's own `init` asks for. -/
 theorem InitProc.append [ExprSemantics V] {self : V}
   {is₁ is₂ : List (String × ComputablePlusCal.Expression)} {e₁ e₂ : Set String} {σ' : ProcState V}
   (h : InitProc self (is₁ ++ is₂) e₂ σ') :
@@ -306,9 +301,8 @@ theorem InitProc.append [ExprSemantics V] {self : V}
   refine ⟨InitMem is₁ ws₁ (Finmap.singleton selfName self), ws₂, ⟨ws₁, hw₁, rfl, rfl⟩, hw₂, ?_⟩
   rw [hmem, InitMem.append hw₁.length_eq]
 
-/-- The converse: values for the added initializers build a state over the longer list. What wants
-this direction is the *existence* half — a source instance's initial state is only usable as a
-witness if the compiled instance has one too. -/
+/-- The converse: values for the added initializers build a state over the longer list. The
+existence direction — an initial state over the shorter list extends to one over the longer. -/
 theorem InitProc.append_of [ExprSemantics V] {self : V}
   {is₁ is₂ : List (String × ComputablePlusCal.Expression)} {e₁ e₂ : Set String} {σ : ProcState V}
   {ws : List V} (h : InitProc self is₁ e₁ σ)
@@ -345,13 +339,12 @@ def Algebra.divergingFrom (A : Algebra ι V) (init : AlgState ι V → Prop) :
 def Process.ownedLabels (p : ComputableGuardedPlusCal.Process) : Set String :=
   {l | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l}
 
-/-- The label each thread starts at — the paper's `init(Tᵢ)`, the first block in program order. A
+/-- The label each thread starts at: the first block in program order. A
 thread with no blocks contributes nothing and is simply never scheduled. -/
 def Process.entryLabels (p : ComputableGuardedPlusCal.Process) : Set String :=
   {l | ∃ T ∈ p.threads, ∃ B, T.head? = .some B ∧ B.label = l}
 
-/-- A thread's first block is one of its blocks, so a process starts at labels it owns. What reads it
-is disjointness: a fact about every owned label holds of every entry label without being re-proved. -/
+/-- A thread's first block is one of its blocks, so a process starts at labels it owns. -/
 theorem Process.entryLabels_subset_ownedLabels {p : ComputableGuardedPlusCal.Process} :
     Process.entryLabels p ⊆ Process.ownedLabels p := by
   rintro _ ⟨T, hT, B, hhead, rfl⟩
@@ -400,8 +393,8 @@ def identitiesOf [ExprSemantics V] (shape : Bool) (id : ComputablePlusCal.Expres
 def Process.identities [ExprSemantics V] (p : ComputableGuardedPlusCal.Process) : Set V :=
   identitiesOf p.«=|∈» p.id
 
-/-- `Process.identities` reads nothing but the two fields. The form every statement relating a
-process to a compiled copy of it goes through. -/
+/-- `Process.identities` reads nothing but the two fields, so a pass preserving them preserves the
+instances by rewriting. -/
 theorem Process.identities_eq [ExprSemantics V] {p : ComputableGuardedPlusCal.Process} :
     Process.identities (V := V) p = identitiesOf p.«=|∈» p.id := rfl
 
@@ -442,8 +435,8 @@ def Process.inits (p : ComputableGuardedPlusCal.Process) :
     List (String × ComputablePlusCal.Expression) :=
   initsOf p.localState.variables
 
-/-- `Process.inits` reads nothing but the declared locals. The form every statement relating a
-process to a compiled copy of it goes through. -/
+/-- `Process.inits` reads nothing but the declared locals, so a pass that only *extends* them can
+say so by rewriting. -/
 theorem Process.inits_eq {p : ComputableGuardedPlusCal.Process} :
     Process.inits p = initsOf p.localState.variables := rfl
 

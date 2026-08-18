@@ -16,9 +16,8 @@ public section
   `Driver/Modules.lean`'s `compileModule` only takes a module as far as type checking, and caches
   that; every pass after it (well-formedness, `Typed2Computable`, `Computable2Guarded`,
   `Guarded2Network`) runs once, here, against the checked main module rather than per `EXTENDS`
-  dependency. Before this file existed that tail lived inline in `Fugue.lean`'s `runCli`,
-  interleaved with spinner calls and `IO.Process.exit`, which meant a full compile could only be
-  run by being the CLI. Two consumers need it now: the CLI, and `tests/regression`'s runner.
+  dependency. It is separate from the CLI because two consumers need it: the CLI itself, and
+  `tests/regression`'s runner.
 -/
 
 -- `Stage` itself lives in `Common/Diagnostics/Stage.lean`, so the diagnostic registry can name a
@@ -323,10 +322,6 @@ def PipelineResult.renderDiagnostics (flags : FlagsEnv) (mainLines : List String
 producing a checked module. -/
 def PipelineResult.renderSummary (r : PipelineResult) : Option String :=
   r.typed.map λ typedMod ↦
---     s!"Fugue: type-checked and well-formed module '{typedMod.name}' (extends \
--- {typedMod.extends.length} module(s), {typedMod.declarations₁.length + typedMod.declarations₂.length} \
--- declaration(s), {if typedMod.pcalAlgorithm.isSome then "with" else "without"} an embedded PlusCal \
--- algorithm). " ++
     if r.go.isSome then
       "Compiled to Go."
     else if typedMod.pcalAlgorithm.isNone then

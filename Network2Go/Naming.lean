@@ -17,11 +17,10 @@ public section
     packages are `runtime/tlaplus` (TLA⁺'s own value types), `runtime/comm` (message passing) and
     `runtime/locks` (mutual exclusion); none of them is called `runtime`, deliberately, since that
     is Go's own package name.
-  - **Renaming what the user wrote.** Thesis §7.2.2 capitalizes every defined name in the
-    generated code regardless of the original's case, except `LOCAL` definitions, so that
-    definitions are exported from the package they land in; record fields get the same treatment
-    (§7.3's worked example turns a record's `from`/`mes` into `From`/`Mes`), process variables do
-    not.
+  - **Renaming what the user wrote.** Every defined name is capitalized in the generated code
+    regardless of the original's case, except `LOCAL` definitions, so that definitions are exported
+    from the package they land in. Record fields get the same treatment (a record's `from`/`mes`
+    become `From`/`Mes`); process variables do not.
 -/
 
 namespace Network2Go
@@ -94,10 +93,8 @@ def tlaplusCall {α} (name : String) (args : List (Go.Expression α)) : Go.Expre
   therefore means "compiler-introduced", and no user name can reach a fresh name's spelling
   however it is written.
 
-  Any pair of lengths with those parities would do — `$` odd, `_` even, or the two swapped. The
-  one choice that cannot work is leaving `_` as itself, which would put user underscores and `$`s
-  in the same parity class. Note the argument does not need fresh prefixes to be free of `_`:
-  a prefix's underscores contribute evenly and leave the `$`'s parity intact.
+  Only the parities matter, not the lengths; leaving `_` as itself is what cannot work, since that
+  puts user underscores and `$`s in the same parity class.
 
   The encoding is **not injective in general** and must not be reused as though it were: `_$` and
   `$_` both encode to three underscores. That costs nothing here, since telling the two
@@ -119,18 +116,17 @@ enclosing definition binds `ord_a` for exactly the type variables its own type m
 The single `_` in the prefix is itself compiler-introduced, and an odd-length run, so no user name
 can reach it: `ord_x` here and a user's own `ord_x` (which escapes to `ord__x`) stay distinct.
 
-It sits in the same shape as an escaped fresh name, though, so `ord` is **reserved as a
-`freshName` prefix** — `freshName "ord"` would mint `ord$n`, spelled `ord_n`, which is exactly this
-function's answer for a type variable named `n`. Nothing uses that prefix (the live ones are
-`set`, `i`, `rec`, `inbox`, `fresh`); the reservation is what keeps it that way. -/
+It sits in the same shape as an escaped fresh name, so `ord` is **reserved as a `freshName`
+prefix**: `freshName "ord"` would mint `ord$n`, spelled `ord_n`, which is this function's answer for
+a type variable named `n`. -/
 def ordParamName (a : String) : String := s!"ord_{goIdent a}"
 
 /-!
   ## Renaming user-chosen names
 
   `goIdent` separates the compiler's names from the user's. What is left is the user's names
-  against *each other* and against Go's own vocabulary, and the requirement (`PLAN.md` §2) is that
-  generated code never introduces shadowing.
+  against *each other* and against Go's own vocabulary, and the requirement is that generated code
+  never introduces shadowing.
 
   **The renaming is a pure function of the name, not a collision map, and that is forced rather
   than preferred.** Record fields decide it: Go identifies struct types *structurally*, so a field
@@ -150,9 +146,8 @@ def ordParamName (a : String) : String := s!"ord_{goIdent a}"
   **Which side gets marked differs by name class, and follows the conventions of the language being
   compiled.** A definition must start uppercase to be exported and TLA⁺ definitions are
   conventionally already capitalized, so `Init` passes through and `init` is marked. Record fields
-  must also be capitalized (§7.2.2), but TLA⁺ fields are conventionally lowercase, so the marking
-  is reversed: `from` becomes `From`, matching §7.3's worked example, and a source `From` is the
-  one marked. Each class keeps its common case clean. The two do not share a namespace — Go's
+  must also be capitalized, but TLA⁺ fields are conventionally lowercase, so the marking is
+  reversed: `from` becomes `From`, and a source `From` is the one marked. Each class keeps its common case clean. The two do not share a namespace — Go's
   struct fields are per-type, package-level names are not — so the two schemes cannot interfere.
 -/
 
@@ -184,11 +179,11 @@ private def avoidsReserved (name : String) : String :=
   if Go.keywords.contains name || Go.predeclared.contains name then marked name else name
 
 /-- The Go name of a binder: a quantifier's variable, an operator's parameter, a rigid type
-variable. §7.2.2 renames definitions and record fields but deliberately leaves variables alone, so
+variable. The renaming scheme covers definitions and record fields but leaves variables alone, so
 this only escapes the name and steps around Go's own vocabulary. -/
 def binderName (name : String) : String := avoidsReserved (goIdent name)
 
-/-- The Go name of a top-level TLA⁺ definition (§7.2.2).
+/-- The Go name of a top-level TLA⁺ definition.
 
 Capitalized so that the definition is exported, which is what lets generated code spread over
 more than one file later without revisiting the naming scheme. Uppercasing is `Unicode.getUpperChar`
@@ -200,7 +195,7 @@ and unexported for a reason having nothing to do with the specification.
 A *caseless* first letter has no uppercase to map to, and so stays unexported: `getUpperChar` is
 `Simple_Uppercase_Mapping` and leaves `ß` and `ﬁ` alone (their full mappings are two characters, and
 `UnicodeBasic` ships no `SpecialCasing.txt`), while `א` and `日` have no uppercase in any mapping.
-Knowingly unhandled — TLA⁺ proper admits only ASCII identifiers (*Specifying Systems* §16.1), so
+Knowingly unhandled — TLA⁺ proper admits only ASCII identifiers, so
 these names are already outside the specified language and reach this function only through this
 parser's more permissive lexer. Everything still compiles; the definitions are merely package-local,
 which costs nothing while the generated code is one package.
@@ -219,11 +214,10 @@ def definitionName (isLocal : Bool) (name : String) : String :=
   else
     if startsUppercase name then name else marked (mapFirst Unicode.getUpperChar name)
 
-/-- The Go name of a record field (§7.2.2 — "the same renaming is performed for fields of record
-types").
+/-- The Go name of a record field, renamed on the same scheme as a definition.
 
 Marked on the opposite side from `definitionName`: TLA⁺ record fields are conventionally lowercase,
-so `from` becomes `From` — §7.3's worked example — and a source `From` is the one that takes the
+so `from` becomes `From`, and a source `From` is the one that takes the
 mark. Package-level names and struct field names do not share a namespace, so the two schemes are
 free to differ. -/
 def fieldName (name : String) : String :=
@@ -233,14 +227,12 @@ def fieldName (name : String) : String :=
 /-!
   ## Names this pass invents at package level
 
-  §7.2.3 needs a Go function per atomic block, per branch, per thread and per process, plus the
-  `Network` struct type — none of which the specification names. They land in the same package
-  namespace as the compiled TLA⁺ definitions, so they need to be disjoint from those *and* from
-  each other, and the thesis's own spellings are not: §7.3 calls `sndPi`'s scheduler `SndPi`,
-  which `definitionName` would also produce for a definition named `sndPi`, and calls the process
-  function `Pong` — while `PingPongs.tla` has both a process named `Ping` and a `CONSTANT` named
-  `Ping`, whose compiled names would then be the same identifier. So the readable names cannot be
-  used as-is.
+  Compiling a process needs a Go function per atomic block, per branch, per thread and per process,
+  plus the `Network` struct type — none of which the specification names. They land in the same
+  package namespace as the compiled TLA⁺ definitions, so they have to be disjoint from those *and*
+  from each other. The readable spellings are not: a scheduler called `SndPi` is what
+  `definitionName` produces for a definition named `sndPi`, and a process function called `Pong`
+  collides with a `CONSTANT` of that name. So a prefix scheme is used instead.
 
   **The shape is `<Kind>_<parts…>`, and the single underscore is what makes it safe.** `goIdent`
   doubles every user underscore, so a single one can only come from a `$` — which no user name
@@ -253,21 +245,20 @@ def fieldName (name : String) : String :=
   it is the entry point whoever wires the system together calls — and harmless for the rest.
 -/
 
-/-- The Go type name for the network shape (§7.3's `Network` struct). One per compiled algorithm,
-not per process. -/
+/-- The Go type name for the network shape. One per compiled algorithm, not per process. -/
 def networkTypName : String := "Net_Network"
 
 /-- The scheduler function for an atomic block: the `Rand`-driven loop over its branches. -/
 def blockName (proc label : String) : String := s!"Blk_{goIdent proc}_{goIdent label}"
 
-/-- The function for one branch of an atomic block, `i` counting from 1 as in §7.3's `SndPi1`. -/
+/-- The function for one branch of an atomic block, `i` counting from 1. -/
 def branchName (proc label : String) (i : Nat) : String :=
   s!"Brn_{goIdent proc}_{goIdent label}_{i}"
 
 /-- The function for a thread, `k` its index in the process. -/
 def threadName (proc : String) (k : Nat) : String := s!"Thr_{goIdent proc}_{k}"
 
-/-- The function for a receiving thread (§7.3's `Thread_rx`), `k` its index in the process. Kept
+/-- The function for a receiving thread, `k` its index in the process. Kept
 distinct from `threadName` rather than sharing its numbering: the two have different signatures,
 and a reader should not have to count threads to tell which is which. -/
 def rxThreadName (proc : String) (k : Nat) : String := s!"Rx_{goIdent proc}_{k}"
@@ -277,7 +268,7 @@ def processName (proc : String) : String := s!"Proc_{goIdent proc}"
 
 /-- The Go name of tuple component `i`, counting from 1.
 
-A tuple is compiled as the record shape `[proj1 ↦ τ₁, …, projn ↦ τₙ]` (§5.7), so its components
+A tuple is compiled as the record shape `[proj1 ↦ τ₁, …, projn ↦ τₙ]`, so its components
 are ordinary fields and get an ordinary field's capitalization. Being lowercase in the source, they
 land on `fieldName`'s clean side: `Proj1`, not `Proj1_`. -/
 def projName (i : Nat) : String := fieldName s!"proj{i}"

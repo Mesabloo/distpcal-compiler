@@ -4,14 +4,11 @@ public import Common.Errors
 
 public section
 
-/-! `Network2Go`'s diagnostics — a single defense-in-depth catch-all, mirroring
-`Guarded2Network/Errors.lean`'s `G2NError.internalInvariantViolated`. Every case this pass can hit
-should be impossible given upstream guarantees: `Guarded2Network` already established the network
-form's own invariants (every channel reference resolved, every process's threads well-formed), and
-type checking established the TLA⁺-side ones this pass compiles against. No proof of either fact
-exists yet, so these stay real runtime checks, same rationale as
-`ComputableError.internalInvariantViolated`. Real, user-facing failure modes (an unsupported source
-construct, say) get their own constructors as the compilation passes surface them. -/
+/-! `Network2Go`'s diagnostics: a single defense-in-depth catch-all, plus one constructor per real
+user-facing failure. Every case the catch-all reports is one an earlier pass rules out —
+`Guarded2Network` establishes the network form's own invariants (every channel reference resolved,
+every process's threads well-formed) and type checking the TLA⁺-side ones — but this pass has no
+proof of either to appeal to, so the checks are real ones. -/
 
 /-- `Network2Go`'s errors. -/
 inductive N2GError : Type
@@ -23,7 +20,7 @@ inductive N2GError : Type
   | internalInvariantViolated (pos : SourceSpan) (description : String)
   /-- A construct the Go backend cannot compile. Unlike `internalInvariantViolated` this is a real
   user-facing failure on well-formed, well-typed input: `Nat`/`Int` denote infinite sets no finite
-  representation captures (§9.15), the `Bags` module has no runtime counterpart, and function
+  representation captures, the `Bags` module has no runtime counterpart, and function
   equality would have to compare two lazy maps entry by entry. `construct` names what was written,
   `reason` says why it cannot be compiled. -/
   | unsupported (pos : SourceSpan) (construct : String) (reason : String)

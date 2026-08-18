@@ -25,8 +25,8 @@ namespace TypedTLAPlus
 transforms. -/
 abbrev CExpr := ComputableTLAPlus.Expression ComputableTLAPlus.Typ
 
--- Structural recursion isn't visibly decreasing to Lean here, same as `Coercion.apply` — `partial`
--- until revisited.
+-- `partial`: the recursion is structural, but not visibly decreasing to Lean (nested `List
+-- Coercion` occurrences).
 /-- Applies a coercion to an already-built `ComputableTLAPlus.Expression` — see the module doc
 above for why this can't reuse `Coercion.apply`. Registers every synthesized node at the coerced
 expression's own span, for the reason spelled out on `Coercion.apply`. -/

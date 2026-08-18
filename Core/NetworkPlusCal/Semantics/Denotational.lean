@@ -14,8 +14,8 @@ public import Core.GuardedPlusCal.Semantics.Denotational
   The state space is *shared*, not re-declared: `Behavior`, `ChanKey`, `FIFOs`, `LocalState`,
   `EvalStep` and `Ref.pathAborts` are taken from `GuardedPlusCal` unchanged. This pass does not
   touch memories, channels or references — it only moves a `receive` out of the guard position and
-  into a `Thread.rx`. Sharing the state space is also what lets item 7 state a refinement between
-  the two languages without first transporting across two isomorphic copies of the same types.
+  into a `Thread.rx`. Sharing the state space is also what lets a refinement between the two
+  languages be stated without first transporting across two isomorphic copies of the same types.
 -/
 
 namespace NetworkPlusCal
@@ -53,9 +53,8 @@ def Statement.reducing : {b b' : Bool} → ComputableNetworkPlusCal.Statement b 
       σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1
     }
-  -- TODO(item 7): `multicast` has no semantics yet, exactly as on the Guarded side — see
-  -- `Core/GuardedPlusCal/Semantics/Denotational.lean`'s `Statement.reducing`. The two must be
-  -- resolved together: a refinement between them is only provable once both say something.
+  -- TODO(multicast): no semantics yet, exactly as on the Guarded side. The two must be resolved
+  -- together: a refinement between them is only provable once both say something.
   | false, false, .multicast _ _ => ∅
   | false, false, .assign r e =>
     {⟨σ, ε, σ'⟩ | ∃ M F M' v rpath,
@@ -94,7 +93,7 @@ def Statement.aborting : {b b' : Bool} → ComputableNetworkPlusCal.Statement b 
     ∪ {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts M c ∧ σ = .running M F ∧ ε = 1}
     ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
         F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}
-  -- TODO(item 7): see `Statement.reducing`'s `multicast` case.
+  -- TODO(multicast): see `Statement.reducing`'s `multicast` case.
   | false, false, .multicast _ _ => ∅
   | false, false, .assign r e =>
     {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
@@ -174,9 +173,7 @@ def AtomicBranch.diverging (B : ComputableNetworkPlusCal.AtomicBranch) :
   relation's target type is what needs the flat `LocalState'` encoding uniformly
   (`Semantics/Lemmas.lean`'s `sem_glue₃`/`abort_glue₂`/`div_glue₂`/`div_glue₃`), the source stays
   indexed throughout since it is only ever existentially quantified, never required to match the
-  target's type — so `GuardedPlusCal` never needed this layer built (confirmed against prior art,
-  `Guarded2Network/Lemmas.lean`: no `GuardedPlusCal.AtomicBlock.reducing`/`.aborting`/`.diverging`
-  anywhere). -/
+  target's type. `GuardedPlusCal` therefore has no `AtomicBlock` semantics at all. -/
 
 def AtomicBlock.reducing (B : ComputableNetworkPlusCal.AtomicBlock) :
     Set (LocalState V false × Trace V × LocalState V true) :=
@@ -192,20 +189,20 @@ def AtomicBlock.diverging (B : ComputableNetworkPlusCal.AtomicBlock) :
 
 /-! # Threads
 
-  A thread has no denotation of its own. Following the paper (§3.3, *Semantics of threads and
-  processes*), a process state is a memory together with a **set of labels** — at most one per
+  A thread has no denotation of its own. A process state is a memory together with a **set of
+  labels** — at most one per
   thread — and one process step picks an enabled label `l` from that set, runs the atomic block the
   label names, and replaces `l` by the label the block's terminal `goto` jumped to. So a thread
   contributes exactly two things: the labels it owns, and the block each of those labels names.
   Everything else is the process- and algorithm-level fixed points.
 
-  `Thread.rx` is no exception. The paper (§4.1) defines its meaning to be *that of the atomic block*
+  `Thread.rx` is no exception: its meaning is that of the atomic block
 
   ```
   rxₚ : receive(mailboxₚ, tmpₚ) ; inboxₚ := Append(inboxₚ, tmpₚ) ; goto rxₚ
   ```
 
-  "although without the temporary variable `tmpₚ` assigned to". That block is a single atomic block —
+  without the temporary variable `tmpₚ` ever being assigned to. That block is a single atomic block —
   guard, one assignment, terminal `goto` — so draining the channel into `inboxₚ` is one transition
   by construction rather than by stipulation, and the self-`goto` is what makes it loop. `tmpₚ` is
   never written: the value goes straight from the channel into `inboxₚ`, so it needs no name and the
@@ -219,7 +216,7 @@ def Thread.labels : ComputableNetworkPlusCal.Thread → List String
   | .code blocks => blocks.map (·.label)
   | .rx _ label _ _ => [label]
 
-/-- The atomic block a receiving thread denotes, per the paper's §4.1: receive a message from `chan`,
+/-- The atomic block a receiving thread denotes: receive a message from `chan`,
 append it to `inbox`, and jump back to `label` — its own label, which is what makes it a loop.
 Written directly as an `AtomicBranch` rather than built from `Statement`s, because
 `NetworkPlusCal.Statement` has no `receive` — that is the whole point of this pass — and because the

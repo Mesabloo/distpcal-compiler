@@ -13,7 +13,7 @@ public section
 
 Divergence is denoted directly, by the infinite iteration `Relation.omega` (`Extra/Rel.lean`), which
 is what the semantics in `Core/*/Semantics/Process.lean` use. This module is about the *other*
-denotation — the greatest fixed point the paper (arXiv 2404.17297, 5:36) starts from — and about
+denotation — the greatest fixed point the framework starts from — and about
 when the two agree:
 
 ```
@@ -21,7 +21,8 @@ gfp (λ x, Y ∪ X ∘ᵣ₁ x)  =  (X* ∘ᵣ₁ Y) ∪ X^∞
 ```
 
 Nothing in the compiler or its refinement proofs may depend on that identity, and nothing does. It
-is stated here because the paper computes with it, and because writing down the exact hypothesis it
+is stated here because the fixed-point presentation computes with it, and because writing down the
+exact hypothesis it
 needs is what justifies not taking the greatest fixed point as the definition in the first place.
 
 Split from `Extra/Rel.lean` on the same principle as the rest of this library: `Extra/` carries what
@@ -108,7 +109,7 @@ advance, so there is nothing to quantify over positively. -/
 def Relation.Productive {α ε : Type _} [Monoid ε] (R : Set (α × ε × α)) : Prop :=
   ¬∃ σ : ℕ → α, ∀ i, (σ i, (1 : ε), σ (i + 1)) ∈ R
 
-/-- The functional whose greatest fixed point the paper takes as the denotation of divergence: one
+/-- The functional whose greatest fixed point is the other denotation of divergence: one
 `X`-step in front of the rest, or stop in `Y`. -/
 @[expose]
 def Relation.divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) (Y : Set (α × ε)) :
@@ -122,7 +123,7 @@ def Relation.divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) (Y :
     {Y x : Set (α × ε)} : Relation.divFun X Y x = Y ∪ X ∘ᵣ₁ x := rfl
 
 /-- The closed form is below the greatest fixed point, unconditionally: it is a post-fixed point.
-This is the half of the paper's identity that always holds. -/
+This is the half of the identity that always holds. -/
 theorem Relation.closedForm_le_gfp {α ε : Type _} [Monoid ε] [OmegaProd ε]
     (hunfold : OmegaProd.HasUnfold ε) {X : Set (α × ε × α)} {Y : Set (α × ε)} :
     (Relation.star X ∘ᵣ₁ Y) ∪ Relation.omega X ≤ OrderHom.gfp (Relation.divFun X Y) := by
@@ -267,8 +268,7 @@ theorem Relation.lfp_starFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × 
       exact hsteps n (by omega)
 
 /-- `step* ∘ᵣ₁ immediate` is what `μx. immediate ∪ step ∘ᵣ₁ x` denoted. The *least* fixed point of
-the functional whose *greatest* one overshoots — the paper states both halves at 5:36, and this half
-needs no hypothesis at all. -/
+the functional whose *greatest* one overshoots. This half needs no hypothesis at all. -/
 theorem Relation.lfp_divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) (Y : Set (α × ε)) :
     OrderHom.lfp (Relation.divFun X Y) = Relation.star X ∘ᵣ₁ Y := by
   apply le_antisymm

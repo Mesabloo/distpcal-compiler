@@ -28,7 +28,7 @@ structure Ref (β : Type) : Type where
   args : List (String ⊕ List β)
   deriving Repr
 
--- `deriving Functor, Traversable` doesn't apply to structures here -- written by hand instead.
+-- `deriving Functor, Traversable` doesn't apply to structures here — written by hand instead.
 instance : Functor Ref where
   map f r := { r with args := (Sum.map id (f <$> ·)) <$> r.args }
 
@@ -70,7 +70,7 @@ inductive Statement (α β : Type) : Type
   | assign (_ : List (Ref β × β))
   | «if» (cond : β) (B₁ : List (String ⊕ Statement α β)) (B₂ : Option (List (String ⊕ Statement α β)))
   | await (e : β)
-  /-- `with (* @type: ... *) x = e do B` / `with (* @type: ... *) x ∈ e do B` -- the `Bool` is
+  /-- `with (* @type: ... *) x = e do B` / `with (* @type: ... *) x ∈ e do B` — the `Bool` is
   `true` for `=`, `false` for `∈`. -/
   | «with» (vars : List (String × α × Bool × β)) (B : List (String ⊕ Statement α β))
   | assert (e : β)
@@ -149,7 +149,7 @@ instance : Bitraversable Declarations where
 /-- `process(x ∈ S) ⋆ …` / `process(x = e) ⋆ …`. -/
 structure Process (α β : Type) : Type where
   ann : α
-  /-- Carried through for round-tripping only -- this compiler never acts on it. -/
+  /-- Carried through for round-tripping only — this compiler never acts on it. -/
   isFair : Bool
   name : String
   /-- `true` for `=`, `false` for `∈`. -/

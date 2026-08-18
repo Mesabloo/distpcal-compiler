@@ -116,7 +116,7 @@ def TypedPlusCal.Statement.checkRefRestrictions {b} (s : TypedPlusCal.Statement 
 
 /-! ## One receiving channel per process
 
-  `Guarded2Network` (§5.5) compiles every `receive` in a process into reads off **one** shared
+  `Guarded2Network` compiles every `receive` in a process into reads off **one** shared
   `inbox` sequence, fed by a `.rx` thread per channel. That is only faithful while a process
   receives from a single channel: with two, both `.rx` threads append into the same `inbox`, the
   channel a message came from is no longer recoverable at the consumption site, and
@@ -125,8 +125,8 @@ def TypedPlusCal.Statement.checkRefRestrictions {b} (s : TypedPlusCal.Statement 
   `receive(agt[self], …)` and `receive(agt[other], …)` in one thread produce a single `.rx` thread
   draining only the first.
 
-  The paper (`reference/jlamp.pdf` §4.1) assumes this away by construction: its `rxₚ` drains
-  `mailboxₚ`, the one channel a process listens on. Checked here rather than assumed, so the
+  The Network PlusCal semantics assumes this away by construction: a process's `rxₚ` drains
+  `mailboxₚ`, the one channel it listens on. Checked here rather than assumed, so the
   refinement proof's precondition is one the front end actually enforces.
 
   The reference channel is the process's declared `@mailbox`, and a process containing a `receive`

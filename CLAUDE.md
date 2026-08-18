@@ -20,7 +20,8 @@ sequences where dropped conjunctions make order ambiguous. Resume right after.
 **Caveman in these files too:** `CLAUDE.md`, `INSTRUCTIONS.md`, `PLAN.md`,
 `OPEN_QUESTIONS.md`, `.claude/FINDINGS.md`, `.claude/tasklist*.md`, `.claude/plans/*`.
 
-**Normal prose:** source code and its doc comments, commit messages, PR bodies.
+**Normal prose:** source code and its doc comments, commit messages, PR bodies. What a doc comment
+may *say* is a separate rule — `INSTRUCTIONS.md` §Comments, enforced by `scripts/lean-style`.
 
 ## Lean proof rule — applies every time, no exceptions
 
@@ -59,7 +60,8 @@ about proof style or convention go `LEAN_STYLE.md`, never note.
 - `PLAN.md` — architecture, pipeline stage-by-stage, decisions. Check before any design call.
 - `OPEN_QUESTIONS.md` — open questions/known issues, numbered `9.x` and cross-referenced from
   `PLAN.md` as `§9.x`. Check before treating an ambiguity as unlisted.
-- `STRUCTURE.md` — directory map. Use instead of `ls`/`find`. Keep in sync when files move.
+- `STRUCTURE.md` — pure file map: where each file lives, one line each, no references. Use
+  instead of `ls`/`find`. Keep in sync when files move.
 - `.claude/plans/` — in-flight plan documents, one or more per active effort. Names rotate per
   session — ask owner which is current rather than assume a filename.
 - `.claude/tasklist*.md` — task lists for current work. May be stale; confirm with owner.

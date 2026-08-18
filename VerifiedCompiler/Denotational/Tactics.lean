@@ -7,25 +7,19 @@ public import VerifiedCompiler.Denotational.StrongRefinement
 /-!
   Tactics for discharging `StrongRefinement` obligations.
 
-  These are shaped by the framework as it now stands, not by prior art's. Two changes make prior
-  art's tactic set the wrong target:
-
   - **A refinement obligation is a disjunction over two different shapes.** `Terminating` concludes
     *either* "the source takes a matching step" (a source state, a source trace, the post-relation,
     `Rτ`, and membership) *or* "the source aborted having emitted a sequentially consistent prefix"
-    (a source trace, `≼[Rτ]`, membership). `Diverging` has its own two. Prior art had neither
-    disjunction in this form, so it had nothing to say about choosing between them; `refines_match`
-    / `refines_abort` / `refines_diverge` are that choice, with the witness supplied and every
+    (a source trace, `≼[Rτ]`, membership); `Diverging` has its own two. `refines_match` /
+    `refines_abort` / `refines_diverge` make that choice, with the witness supplied and every
     remaining side condition left as a numbered goal.
-  - **Traces are related by `Rτ`, not equal, and prefixes are `≼[Rτ]`, not `<+:`.** A goal that
-    used to be closed by `rfl`/`le_rfl` now needs the relation's own lemmas. `trace_rel` and
+  - **Traces are related by `Rτ`, not equal, and prefixes are `≼[Rτ]`, not `<+:`.** `trace_rel` and
     `trace_pfx` close the two shapes at a `Rτ` that relates a trace to itself, which is the common
-    case for a pass that preserves traces exactly — including this project's own `Guarded2Network`,
-    since reception is unobservable there.
+    case for a pass that preserves traces exactly — including `Guarded2Network`, since reception is
+    unobservable there.
 
-  Every tactic here leaves goals rather than searching: the leaf discharge is `sem_side`'s job
-  (`Core/NetworkPlusCal/Semantics/Lemmas.lean`), and per plan §3's rule a search tactic runs
-  terminally or not at all.
+  Every tactic here leaves goals rather than searching: the leaf discharge is `sem_side`'s job, and
+  a search tactic runs terminally or not at all.
 -/
 
 namespace StrongRefinement

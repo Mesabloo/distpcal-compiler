@@ -8,20 +8,17 @@ public import Core.NetworkPlusCal.Semantics.Lemmas
 @[expose] public section
 
 /-!
-  D5 — commuting an assignment past a guard.
+  Commuting an assignment past a guard.
 
   `processPrecondition` compiles a `receive` into an `await` on the inbox plus two consumption
   assignments, and those assignments are *not* emitted where the `receive` was: they are prepended to
   the branch's action block, so they end up after every guard the precondition still has to run
-  (`Guarded2Network/PlusCal.lean`'s `stepBranch`). What keeps that sound is that each guard is
-  rewritten on the way past — `substGuards` substitutes every already-processed assignment's effect
-  into it. This file says those two moves cancel.
+  (`stepBranch`). What keeps that sound is that each guard is rewritten on the way past —
+  `substGuards` substitutes every already-processed assignment's effect into it. This file says
+  those two moves cancel.
 
-  Prior art states the same fact six times (`reorder_let`, `reorder_let'`, `reorder_await`,
-  `reorder_await'`, and two copies inlined in `correctness_precond_receive'`), because it splits on
-  the guard constructor and on terminating-vs-aborting and never abstracts either. Here the
-  constructor split is internal — `with` and `await` differ only in which field carries the guard
-  expression — so what is left is the split that is real: reducing and aborting are different
+  The guard constructor is not split on: `with` and `await` differ only in which field carries the
+  guard expression. The split that remains is the real one — reducing and aborting are different
   statements, and only the first is an equation.
 -/
 
@@ -231,7 +228,7 @@ theorem assign_aborting_of_insert {r : ComputableGuardedPlusCal.Ref}
 
 /-! ## The pair -/
 
-/-- **D5, reducing.** An assignment commutes with a following guard, provided the guard's
+/-- **Reducing.** An assignment commutes with a following guard, provided the guard's
 substituted form is what runs on the other side. An equation, not an inclusion: every run of one side
 is a run of the other, with the same trace — both sides take two silent steps.
 
@@ -313,10 +310,10 @@ theorem reorder_assign_guard {r : ComputableGuardedPlusCal.Ref}
       · exact NetworkPlusCal.Statement.reducing.await.intro
           ⟨M', F, rfl, rfl, (evalSubstRef hv hpath hupd).mpr htru, rfl⟩
 
-/-- **D5, iterated.** The pass never substitutes one assignment: `substGuards` folds *every*
+/-- **Iterated.** The pass never substitutes one assignment: `substGuards` folds *every*
 consumption assignment accumulated so far into the guard, and emits them, in list order, after it. So
 the single-assignment equation lifts to the whole list — which is the form
-`Guarded2Network/Lemmas/Precondition.lean` needs, `substGuards` being what `stepStatement` applies.
+`stepPrecondition`'s proof needs, `substGuards` being what `stepStatement` applies.
 
 The `foldr` in `substGuards` is what makes the induction come out: its head is the *outermost*
 substitution and the *first* assignment to run, so peeling one entry peels one factor off each side
@@ -381,7 +378,7 @@ theorem reorder_assigns_guard'
       Relation.lcomp₂.assoc, reorder_assign_guard' (fresh a List.mem_cons_self).substGuards,
       ← Relation.lcomp₂.assoc, substGuards_cons]
 
-/-- **D5, aborting.** The same commutation for the runs that fail — and here only an inclusion. Every
+/-- **Aborting.** The same commutation for the runs that fail — and here only an inclusion. Every
 way the compiled order `guard[subst] ; assign` can abort is a way the source order `assign ; guard`
 can, but not conversely: a guard has a third outcome an assignment does not, since it can *block*. A
 state where the assignment aborts and the substituted guard blocks is a source abort and not a target

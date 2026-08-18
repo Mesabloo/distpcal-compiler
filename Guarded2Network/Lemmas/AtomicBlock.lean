@@ -131,17 +131,10 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     ⌜List.Forall₂ (BranchRefines (V := V) mbox pref) cur.prefix res ∧
       RxThreads mbox c₀ inbox st ∧ Registered (H ∨ ∃ Br ∈ cur.prefix, BranchReceives Br) st⌝
   with
-  -- `stepBranch_spec`'s remaining implicits and instances. `mvcgen` abstracts over the loop's
-  -- context whatever the *program* does not say — the value type, the prefix function, and
-  -- `SeqBuiltins` on the first of those — and wraps each in `id`, so a goal mentioning one reads
-  -- `id ?vc7 s n h` rather than `pref`. Discharged here, before any case that would have to unify
-  -- against that.
-  --
-  -- What is *not* listed matters as much: `mbox`, `c₀` and `H` are pinned by the loop invariant,
-  -- which names all three, and listing them would have `assumption` answer them by search instead.
-  -- For `H` that is not a cosmetic difference — its goal is a `Prop` to *supply*, and `assumption`
-  -- supplies whichever proposition it finds first, which is `H` itself rather than the disjunction
-  -- the walk has accumulated.
+  -- `stepBranch_spec`'s remaining implicits and instances, discharged before any case has to unify
+  -- against them. `mbox`, `c₀` and `H` are deliberately absent: the loop invariant pins all three,
+  -- and answering them by `assumption` instead would supply `H` where the accumulated disjunction
+  -- is meant.
   | vc4 | vc7 | vc8 | vc9 | vc10 => intro _ _ _; assumption
 
   -- the label is `rfl`; re-associating the rest is all that separates the loop's invariant from
@@ -172,8 +165,7 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     intro _ _
     rw [hsplit] at fresh
     obtain ⟨_, _, _, _, _, _⟩ := fresh cur (List.mem_append_right _ List.mem_cons_self)
-    -- the invariant reaches these goals either as one conjunction or curried into an implication
-    -- per conjunct, depending on the field, so what is left to introduce is nothing, one, or three
+    -- the invariant arrives as one conjunction or curried per conjunct, depending on the field
     solve | assumption | (intro _; assumption) | (intro _ _ _; assumption)
 
 end Guarded2Network

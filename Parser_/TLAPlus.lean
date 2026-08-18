@@ -61,7 +61,7 @@ namespace SurfaceTLAPlus.Lexer
 
       return mapKeywordToToken (String.ofList (cs.insertIdx 0 c).toList)
     where
-      -- TODO: add all TLA⁺ reserved words
+      -- TODO(reserved): complete the TLA⁺ reserved-word list.
       mapKeywordToToken : String → Token α
         | "MODULE" => .module
         | "EXTENDS" => .extends
@@ -108,7 +108,7 @@ namespace SurfaceTLAPlus.Lexer
           .infix .«\notin» <$ chars "otin",
           .prefix .«\neg» <$ chars "eg"
         ],
-        -- .«\AA» <$ chars "AA",
+        -- TODO: lex the temporal quantifier `\AA`; it has no token yet.
         .«\A» <$ char 'A',
         .«\E» <$ char 'E',
         char 'c' *> first [
@@ -249,7 +249,7 @@ namespace SurfaceTLAPlus.Lexer
         .langle <$ char '<',
         .prefix .«<>» <$ char '>',
         .infix .«<:» <$ char ':',
-        -- .«<-» <$ char '-',
+        -- TODO: lex the substitution arrow `<-`; it has no token yet.
         pure (.infix .«<»)
       ],
       char '>' *> first [
@@ -350,7 +350,7 @@ namespace SurfaceTLAPlus.Lexer
     private def lineComment {α} : TLAPlusLexer (Token α) := do
       let _ ← chars r"\*"
       let ⟨content, _⟩ ← takeUntil (() <$ eol <|> endOfInput) anyToken
-      -- TODO: perhaps there is a faster way to convert an array into a string?
+      -- TODO(perf): find a faster array-to-string conversion.
       return .inlineComment <| String.ofList <| Array.toList content
 
     private partial def blockComment (lexTLAToken : TLAPlusLexer (Located (Token (Located SurfacePlusCal.Token)))) (inner : Bool := false) : TLAPlusLexer (Token (Located SurfacePlusCal.Token)) := do
@@ -374,7 +374,7 @@ namespace SurfaceTLAPlus.Lexer
       ]
       return .blockComment (chars.foldl (init := "") (· ++ ·))
 
-    -- TODO: support binary, octal and hexadecimal formats
+    -- TODO(numerals): support binary, octal and hexadecimal literals.
     private def number {α} : TLAPlusLexer (Token α) :=
       (.number ∘ String.ofList ∘ Array.toList) <$> takeMany1 (withBacktracking ASCII.numeric)
 
@@ -418,8 +418,9 @@ namespace SurfaceTLAPlus.Lexer
     | .error _ e => .inl <| errToUnexpected e
     | .ok str tokens =>
       assert! str.1.isEmpty
-      -- TODO: patch positions from byte indices to line/column in UTF-8 codepoints. Currently
-      -- inefficient: traverses the whole token list and overlapping stream parts per token.
+      -- TODO(positions): patch positions from byte indices to line/column in UTF-8 codepoints.
+      -- The current conversion traverses the whole token list, and overlapping stream parts once
+      -- per token.
       .inr <| tokens.map λ ⟨pos, tok⟩ ↦ ⟨mkPosition pos, (λ ⟨pos, tok⟩ ↦ ⟨mkPosition pos, tok⟩) <$> tok⟩
   where
     @[inline]
@@ -645,7 +646,8 @@ namespace SurfaceTLAPlus.Parser
             ann @@ startPos ++ endPos
         | .error _ e =>
           dbg_trace e
-          throw (Error.unexpected (Stream.getPosition s) none) -- TODO: use `e` to report a better error
+          -- TODO(annotation-errors): report `e` instead of a bare `unexpected`.
+          throw (Error.unexpected (Stream.getPosition s) none)
   end Annotations
   export Annotations (tryParseAnnotations)
 
@@ -1035,8 +1037,7 @@ namespace SurfaceTLAPlus.Parser
         parseSetLiteral ws (parseExpression · inUpdate),
         parseQuantifier ws (parseExpression · inUpdate),
         parseExcept ws (parseExpression · inUpdate) (parseExpression · ·),
-        -- NOTE: parse collect BEFORE map because, as stated in "Specifying Systems",
-        -- `{x ∈ S : x ∈ T}` should be parsed as a collect, not a map
+        -- Collect before map: `{x ∈ S : x ∈ T}` is a collect, not a map.
         parseSetCollect ws (parseExpression · inUpdate),
         parseSetMap ws (parseExpression · inUpdate),
         parseRecordSet ws (parseExpression · inUpdate),
@@ -1144,7 +1145,7 @@ namespace SurfaceTLAPlus.Parser
 
   /-- Parse a full module. -/
   def parseModule' : TLAPlusParser (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation)) := located do
-    -- TODO: handle junk before module start and after module end
+    -- TODO(module-junk): handle text before the module header and after the module footer.
     let _ ← lexeme <| tokenFilter λ | ⟨_, .moduleStart _⟩ => true | _ => false
     let _ ← lexeme <| token .module
     let name ← lexeme parseIdentifier

@@ -104,8 +104,6 @@ theorem Relation.flip_icomp {α β δ ι ι'} {R : ι → α → β → Prop} {R
   dsimp [Relation.iComp]
   rw [Relation.flip_comp]
 
-------
-
 /--
   `Eventually R x P` is the proposition stating that:
   * All possible `R`-chains from `x` are safe (do not get stuck).
@@ -141,8 +139,6 @@ theorem Relation.Eventually.cut {α} {x : α} {P : Set α} (P' : Set α) {R : α
 theorem Relation.Eventually.cut_chained  {α} {x : α} {R : α → Set α → Prop} {P : Set _} (h : Relation.Eventually R x {y | Relation.Eventually R y P}) : Relation.Eventually R x P := by
   apply Relation.Eventually.cut _ h
   simp
-
---------
 
 /--
   `Eventually? R x P` is the proposition stating that:

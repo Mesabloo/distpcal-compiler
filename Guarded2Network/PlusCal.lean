@@ -15,21 +15,17 @@ public section
   read `inbox` instead — the guard's truth no longer depends on an abstract "did a message
   arrive" primitive, only on ordinary sequence operations (`Head`/`Tail`/`Len`) over `inbox`.
 
-  - **Monad-polymorphic**: generic `{m} [Monad m] [MonadFresh m] [MonadDiagnostic Empty G2NError
-    m]` — `MonadDiagnostic`, not a bare `MonadExceptOf`, so the concrete instantiation pairs
-    directly with `Fugue.lean`'s `runPassDiag` (the same `DiagT`-based calling convention every
-    other diagnostics-producing pass uses, `Elaborator.lean`'s `runChecker`/`Desugarer/
-    TLAPlus.lean`'s `runDesugarer`). `Empty` for the warning channel, since this pass has no
-    warnings to report yet (`Common/Errors.lean`'s `CompilerDiagnostic Empty String` instance
-    exists exactly for this case).
+  - **Monad-polymorphic**: `{m} [Monad m] [MonadFresh m] [MonadDiagnostic Empty G2NError m]`, the
+    same `DiagT`-based calling convention every other diagnostics-producing pass uses. `Empty` for
+    the warning channel: this pass reports no warnings.
   - **Every fresh name — the process-local `inbox` variable and each `.rx` thread's own block
     label — comes from `freshName` (`Common/Fresh.lean`)**, giving the same
     `$`-based hygiene as every other pass's fresh binder: a name a real user could have written
     can never collide with one of these. `inbox` is fresh once per process, shared by every
     thread of that process; each new `.rx` thread gets its own fresh label. That label is what the
-    semantics schedules the receiving loop by, and what its own terminal `goto` targets
-    (`reference/jlamp.pdf` §4.1); it must therefore stay distinct from every `AtomicBlock.label` in
-    the process, which `freshName` guarantees.
+    semantics schedules the receiving loop by, and what its own terminal `goto` targets; it must
+    therefore stay distinct from every `AtomicBlock.label` in the process, which `freshName`
+    guarantees.
   - **A `receive`'s stored `Coercion` (`Core/TypedTLAPlus/Coercion.lean`) is discharged via
     `Coercion.applyComputable` directly against the built `Head(inbox)` expression**, not left
     unapplied.
@@ -49,12 +45,10 @@ public section
     processes right-to-left), which is what makes a second receive's freshly-substituted
     `Head(inbox)` get caught and advanced to `Head(Tail(inbox))` by the first receive's
     still-pending advance. Switching to `foldl` silently breaks this.
-  - **Positions are carried across, not dropped**: every `NetworkPlusCal.Statement` this pass
-    builds is registered (`@@`) at the `GuardedPlusCal.Statement` it replaces, and the
-    consumption assignments a `receive` compiles into take that `receive`'s own span. Positions
-    live in `Common/Position.lean`'s side map rather than in a field on the node, so this costs
-    the AST nothing — but a node left unregistered is one `posOf` answers for with an unrelated
-    node's span, which is why every construction site here has an `@@`.
+  - **Positions are carried across, not dropped**: every `NetworkPlusCal.Statement` this pass builds
+    is registered (`@@`) at the `GuardedPlusCal.Statement` it replaces, and the consumption
+    assignments a `receive` compiles into take that `receive`'s own span. An unregistered node is
+    one `posOf` answers for with an unrelated node's span.
 
   ```
   receive(c, x[0]);

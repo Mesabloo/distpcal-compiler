@@ -5,10 +5,9 @@ public import Core.TypedTLAPlus.Syntax
 
 public section
 
-/-! `Computable2Guarded`'s diagnostics — a single defense-in-depth catch-all, mirroring
-`Typed2Computable/Errors.lean:34`'s `ComputableError.internalInvariantViolated` exactly. Every
-case this pass can hit should be impossible given upstream guarantees (e.g. `𝒞_cflow` finding a
-`while` not at block-front) — this pass introduces no genuinely new user-facing restriction. -/
+/-! `Computable2Guarded`'s diagnostics: a single defense-in-depth catch-all. Every case it reports
+is one this pass's own invariants rule out (`𝒞_cflow` finding a `while` not at block-front, say);
+the pass introduces no user-facing restriction of its own. -/
 
 /-- `Computable2Guarded`'s errors. -/
 inductive GuardedError : Type

@@ -86,17 +86,16 @@ class ExprSemantics (V : Type) where
   /-- The empty path overwrites the old value outright, and always succeeds. A law rather than only
   a remark on `updatePath` above, because `Memory.update` routes an *unindexed* assignment (`x := e`,
   where the reference has no `.args`) through `updatePath` too: without this, the memory such an
-  assignment produces is not pinned to `M.insert x v`, and the reorder lemmas
-  (`Guarded2Network/Lemmas/Reorder.lean`) cannot identify it with the one substitution describes. -/
+  assignment produces is not pinned to `M.insert x v`, and no reorder lemma can identify it with the
+  memory substitution describes. -/
   updatePath_nil {old v : V} : updatePath old [] v = some v
   /-- `seqAppend s v` — `s` with `v` appended on the right, `none` when `s` is not a sequence value.
   TLA⁺'s `Append(s, v)`. Needed by `NetworkPlusCal.Thread.rx`, which drains a channel into a
   process-local sequence. -/
   seqAppend : V → V → Option V
   /-- `isSeq s vs` — `s` is the sequence value whose elements are `vs`, in order. The link between
-  the value world and a `List V` the `Guarded2Network` refinement invariant can compare against a
-  FIFO's contents: that pass's `inbox` is a sequence *value*, while the channel it mirrors is a
-  `List V`, and nothing else in this class can bridge the two.
+  the value world and a `List V`: a sequence-valued local and a FIFO's contents are otherwise two
+  unrelated things, and nothing else in this class bridges them.
 
   A relation rather than a partial function to a list, for the same reason `Eval` is one: it is a
   fact about a value, not a computation, and a value that is not a sequence is simply related to
@@ -107,14 +106,11 @@ class ExprSemantics (V : Type) where
   isSeq_inj {s : V} {vs ws : List V} : isSeq s vs → isSeq s ws → vs = ws
   /-- The empty sequence literal has a value, and it is the empty sequence. The one place a *value*
   has to be known to be a sequence from the syntax that produced it rather than from an operation on
-  another sequence: `Guarded2Network` declares its `inbox` local with initializer `<<>>`, and
-  `Algorithm.init` has to relate that instance's memory to an inbox holding nothing. `seqAppend`
-  covers every step after the first; this covers the first.
+  another sequence: `seqAppend` covers every step after the first, and this covers the first.
 
-  Stated as existence for the reason `seqAppend_isSeq` is: *totality* is then part of the law. A
-  compiled instance has an initial state only if every initializer it declares evaluates, and this is
-  the only initializer the pass invents — an implication would leave the compiled algorithm free to
-  have no initial state where its source has one. The implication form is `isSeq_of_eval_seq_nil`
+  Stated as existence for the reason `seqAppend_isSeq` is: *totality* is then part of the law. An
+  initial state exists only if every declared initializer evaluates, so an implication would leave a
+  `<<>>` initializer free to have no value at all. The implication form is `isSeq_of_eval_seq_nil`
   below, `evalUnique` away. -/
   eval_seq_nil {M : Memory V} {τ : Typ} : ∃ s, Eval M (.seq [] τ) s ∧ isSeq s []
   /-- Appending to a sequence value always succeeds, and appends to its element list. Stated as
@@ -126,8 +122,8 @@ class ExprSemantics (V : Type) where
   /-- Every tail of a sequence is itself a sequence value. The counterpart of `seqAppend_isSeq` on
   the other side: that one says the value world is closed under adding an element, this one that it
   is closed under dropping the first. Needed because `isSeq` is a relation — without it a list could
-  have no value representing it, and `Guarded2Network`'s `inbox := Tail(inbox)` would be free to
-  abort where the source `receive` it compiles does not. -/
+  have no value representing it, and a compiled `inbox := Tail(inbox)` would be free to abort where
+  the source it compiles does not. -/
   isSeq_tail {s v : V} {vs : List V} : isSeq s (v :: vs) → ∃ t, isSeq t vs
   /-- `coerce c v v'` — applying the coercion `c` to `v` yields `v'`. The value-level counterpart of
   `Coercion.apply`/`Coercion.applyComputable`, which act on expressions. -/
@@ -137,10 +133,8 @@ class ExprSemantics (V : Type) where
   the PlusCal semantics through `with x ∈ S` and process scheduling, never through an expression.
 
   Load-bearing rather than cosmetic: a `Ref`'s index path resolves through `EvalStep`, so without
-  this a channel reference could resolve to two different `ChanKey`s at once and the refinement
-  invariant could not name *the* FIFO a `receive` reads (`Guarded2Network/Lemmas/Relation.lean`'s
-  `relatesTo`). `EvalStep.path_inj` (`Core/GuardedPlusCal/Semantics/Lemmas.lean`) is that
-  consequence. -/
+  this a channel reference could resolve to two different `ChanKey`s at once and no invariant could
+  name *the* FIFO a `receive` reads. `EvalStep.path_inj` is that consequence. -/
   evalUnique {M : Memory V} {e : Expression Typ} {v w : V} : Eval M e v → Eval M e w → v = w
   /-- A variable node denotes what the memory binds its name to, and denotes nothing when the name
   is unbound.
@@ -163,7 +157,7 @@ class ExprSemantics (V : Type) where
   evalCoerce {M : Memory V} {c : TypedTLAPlus.Coercion} {e : Expression Typ} {v' : V} :
     Eval M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔ ∃ v, Eval M e v ∧ coerce c v v'
   /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
-  agreeing results. Replaces prior art's `eval_ext`/`eval_mem_ext`. -/
+  agreeing results. -/
   evalLocal {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
     (∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) → (Eval M₁ e v ↔ Eval M₂ e v)
   /-- Substitution is evaluation-under-extended-memory, read backwards: binding `x` to `e'`'s

@@ -202,7 +202,7 @@ instance : Bitraversable AtomicBlock where
 `List (String × Block τ ε true)` pairing, so no separate label pairing is needed here. -/
 abbrev Thread (Typ Expr : Type) : Type := List (AtomicBlock Typ Expr)
 
-/-- A fresh copy of `ElaboratedPlusCal.Declarations`'s shape. -/
+/-- What a scope declares: its variables with their initializers, its channels, and its FIFOs. -/
 structure Declarations (Typ Expr : Type) : Type where
   «variables» : List (String × Typ × Bool × Option (Bool × Expr))
   channels : List (String × Typ × List Expr)
@@ -223,8 +223,8 @@ instance : Bitraversable Declarations where
       <*> traverse (λ (x, ann, es) ↦ (x, ·, ·) <$> f ann <*> traverse g es) decls.channels
       <*> traverse (λ (x, ann, es) ↦ (x, ·, ·) <$> f ann <*> traverse g es) decls.fifos
 
-/-- A fresh copy of `ElaboratedPlusCal.Process`'s shape, `threads` reshaped to `List (Thread Typ
-Expr)` per the module doc above. -/
+/-- A declared process: its optional mailbox, its fairness, its identity, its own declarations, and
+its parallel threads, each a `Thread Typ Expr` of self-labelled atomic blocks. -/
 structure Process (Typ Expr : Type) : Type where
   mailbox : Option (String × List Expr)
   isFair : Bool

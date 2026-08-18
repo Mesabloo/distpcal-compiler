@@ -11,8 +11,7 @@ open Colorized (Color Style)
   What the runner prints.
 
   Kept apart from the checks themselves so that deciding a fixture's verdict, and deciding how to
-  say it, are separate things — the same reports feed the per-fixture lines, the tally, and (later)
-  the `--report` file.
+  say it, are separate things — the same reports feed the per-fixture lines and the tally.
 -/
 
 /-- A fixture's overall answer, once its checks are in. -/

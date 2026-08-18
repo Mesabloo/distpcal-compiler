@@ -18,39 +18,19 @@ public section
   (`GuardedError.internalInvariantViolated`), not type-level ones, same precedent `CFlow.lean`
   itself already uses for `while`-must-be-block-front.
 
-  `walkBlock` threads two accumulators built up in original encounter order — `guards : List
-  (GuardedPlusCal.Statement true false)` (`with`/`await`/`receive`) and `actions : List
-  (GuardedPlusCal.Statement false false)` (everything else) — neither ever reordered *within*
-  itself, only guards jump *actions* they were originally sequenced after:
-  - **action-class statements** (`skip`/`print`/`assert`/`send`/`multicast`/single-target
-    `assign`): translated directly and appended to `actions`, unchanged/uninspected. Implements
-    no named subpass on its own — it's the "otherwise" case both `𝒞_flat`/`𝒞_reord` leave alone.
-  - **`await`/`receive`**: **`𝒞_reord`'s own substitution case.** Needs to "see through" every
-    action accumulated so far: `substActionsInExpr`/`substActionsInRef` fold `Expression.substRef`
-    across `actions` in *reverse* (most-recently-accumulated action first, since it happened
-    closest to this guard's original position — substituting right-to-left through the pending
-    prefix applies the single-step `e'[e\r]` rule once per intervening action). `actions` itself
-    is **not** consumed/cleared (those statements still need to run, just after every guard) —
-    only the guard being floated gets adjusted, then appended to `guards`.
-  - **`with`**: no substitution (a fresh `with`-bound name is never re-bound, so nothing about its
-    own domain expression needs adjusting when it moves earlier). Its (body-less) binding is
-    appended to `guards`, and its nested body is *un-nested* — spliced in front of whatever
-    followed the `with` (`Block.append`) — before continuing the same walk. This un-nesting is
-    sound because of the same freshness/no-shadowing invariant, and uniformly resolves `𝒞_par`'s
-    own synthesized nested-`with`-chains too, with no separate case.
-  - **`either`**: **`𝒞_flat`'s own fork/hoist case.** Splices each branch in front of whatever
-    followed the `either` (again `Block.append`) and recurses independently per branch,
-    concatenating every branch's resulting `AtomicBranch` list — the distribute-over-choice
-    equation `𝒞_flat(B; either{B1}or…or{Bn}; B') = either{B;B1;B'}or…or{B;Bn;B'}`, applied
-    directly during the walk (a nested `either`/`with`-body reached via splicing is discovered
-    and handled the same way, no separate "hoist out of a `with`" rule needed).
-  - **`goto`**: ends a branch — packages `(guards, actions, goto label)` into one
-    `AtomicBranch`.
+  `walkBlock` threads two accumulators in original encounter order — `guards`
+  (`with`/`await`/`receive`) and `actions` (everything else). Neither is reordered *within* itself;
+  only guards jump actions they were originally sequenced after, and a floated guard is rewritten
+  as it goes:
 
-  This is sound for the `receive`-writes-a-variable-a-later-guard-reads case too: guards are only
-  ever *appended* to `guards` in original relative order (never reordered against each other,
-  only extracted past intervening actions), so a guard that depends on a preceding `receive`
-  stays correctly ordered after it.
+  ```
+  𝒞_reord(r ≔ e ; await e') = await e'[e\r] ; r ≔ e
+  𝒞_flat(B ; either{B₁}or…or{Bₙ} ; B') = either{B;B₁;B'}or…or{B;Bₙ;B'}
+  ```
+
+  A guard is only ever appended to `guards`, so guards keep their relative order and one reading a
+  variable a preceding `receive` writes stays after it. A `goto` ends a branch, packaging
+  `(guards, actions, label)` into one `AtomicBranch`.
 -/
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty GuardedError m]

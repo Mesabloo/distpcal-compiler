@@ -13,16 +13,14 @@ public import Mathlib.Algebra.BigOperators.Group.Finset.Basic
   injective relabelling of the state type.
 
   Everything here is about *this* language's own semantics, not about the relationship between
-  Guarded and Network PlusCal — prior art inlined these into `Guarded2Network/Lemmas.lean`, which is
-  what made that file 7521 lines.
+  Guarded and Network PlusCal.
 
   Nothing in this file mentions values or the expression layer: the `Block` combinators are generic
   over the statement family `α`, the state family `β`, and the behavior monoid `γ`, so
   `NetworkPlusCal`'s own semantics reuses these lemmas verbatim rather than restating them.
 
-  Prior art phrased these with the `⟦·⟧*`/`⟦·⟧⊥`/`⟦·⟧∞` notations, resolving the semantics through
-  `Reduce`/`Abort`/`Diverge` instances. Those instances do not exist here (see
-  `Semantics/Denotational.lean`'s module doc), so each lemma takes the step relation explicitly.
+  There are no `Reduce`/`Abort`/`Diverge` instances resolving the semantics behind a notation, so
+  each lemma takes the step relation explicitly.
 -/
 
 namespace GuardedPlusCal
@@ -35,7 +33,7 @@ open ComputableTLAPlus (Memory ExprSemantics)
   channel and into a process's `inbox`, so it strictly decreases the total; only a `send` increases
   it. A target run that relays forever without ever sending is therefore impossible — which is what
   says a target cannot diverge on `.rx` steps alone, and so what lets a source answering those steps
-  with no step of its own still be said to diverge (`Guarded2Network`, item 7).
+  with no step of its own still be said to diverge.
 -/
 
 /-- How many messages are queued, across every channel at once. -/
@@ -172,10 +170,9 @@ end Resolution
 
   Restate each constructor's `Statement.reducing`/`.aborting` case as a named lemma whose
   hypothesis is exactly that case's own body — proved by `trivial` (the two sides are defeq).
-  Exist solely so a caller (`sem_red`'s dispatch macro, §3 T1) can `apply` a fixed name per
-  constructor instead of unfolding the raw `Set`-membership definition inline. `multicast` has no
-  semantics yet (`TODO(item 7)`, `OPEN_QUESTIONS.md` §9.27) and no aborting counterpart for
-  `skip`/`goto` exists, since both are always `∅` there.
+  Exist solely so a caller (`sem_red`'s dispatch macro) can `apply` a fixed name per constructor
+  instead of unfolding the raw `Set`-membership definition inline. `multicast` has no semantics yet,
+  and no aborting counterpart for `skip`/`goto` exists, since both are always `∅` there.
 
   Duplicated between `GuardedPlusCal`/`NetworkPlusCal` rather than stated once generically:
   `Statement.reducing`/`.aborting` are two separate `def`s (one per language, on two separate
@@ -316,7 +313,7 @@ theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : Trace V}
 
 end Intro
 
--- Leaf discharge for `sem_side` (T1, `Core/NetworkPlusCal/Semantics/Lemmas.lean`'s `sem_red`).
+-- Leaf discharge for `sem_side`, the side conditions `sem_red` leaves.
 attribute [aesop safe apply (rule_sets := [sem])]
   Statement.reducing.with.intro Statement.reducing.await.intro Statement.reducing.receive.intro
   Statement.reducing.skip.intro Statement.reducing.goto.intro Statement.reducing.print.intro
@@ -380,7 +377,7 @@ theorem Block.reducing_prepend' {b : Bool} {A : List (α false)} {B : Block α b
 
 end Reducing
 
--- Leaf discharge for `sem_side` (T1).
+-- Leaf discharge for `sem_side`.
 attribute [aesop safe apply (rule_sets := [sem])]
   Block.reducing_end Block.reducing_cons Block.reducing_concat
 
@@ -462,8 +459,8 @@ variable {α β : Bool → Type} {γ : Type} [Monoid γ]
   (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
 
 /-- **`Block.diverging` *is* `Block.aborting`.** "This element goes wrong, or it steps and the rest
-does" is one shape, and the two definitions spell it identically; the semantics has said so in prose
-since they were written. Saying it as an equation is what keeps the two families of lemmas below
+does" is one shape, and the two definitions spell it identically. Saying it as an equation is what
+keeps the two families of lemmas below
 from drifting apart — each is now the aborting one under the diverging name, and none of them is a
 second proof. -/
 theorem Block.diverging_eq_aborting {b : Bool} {B : Block α b} :
@@ -545,7 +542,7 @@ theorem Block.diverging_map {α β δ : Bool → Type} {γ : Type} [Monoid γ] {
 
   `toLocalState'` is the translation, `toLocalState'_inj` its injectivity, and the `*_eq_map` lemmas
   below say the two encodings give the same block semantics up to that translation. The `*_glue`
-  lemmas are the membership-level corollaries, which is the form item 7 actually rewrites with.
+  lemmas are the membership-level corollaries, which is the form a refinement proof rewrites with.
 -/
 
 section Flat
@@ -556,10 +553,9 @@ variable {V : Type}
 abbrev LocalState' (V : Type) : Type := Memory V × FIFOs V × Option String
 
 /-! Named projections of `LocalState'`. It is a nested anonymous product, so its components are
-otherwise reachable only as `σ.1`/`σ.2.1`/`σ.2.2` or by destructuring at every binding site — and
-the refinement proof binds a state roughly four times per lemma across dozens of lemmas. Named
-projections let those proofs `intro σₜ σₜ' ε σₛ` with no pattern at all and reach components by
-name, destructuring only where a proof genuinely case-splits on the label. Kept an `abbrev` rather
+otherwise reachable only as `σ.1`/`σ.2.1`/`σ.2.2` or by destructuring at every binding site. Named
+projections let a proof `intro σₜ σₜ' ε σₛ` with no pattern at all and reach components by name,
+destructuring only where it genuinely case-splits on the label. Kept an `abbrev` rather
 than promoted to a structure so `toLocalState'_inj` and the `*_eq_map` lemmas below are unaffected;
 the `@[simp]` equations put each projection back into component form on demand. -/
 
@@ -669,9 +665,7 @@ theorem Statement.listAborting'_cons {g : Bool} {S : ComputableGuardedPlusCal.St
     Statement.listAborting' (V := V) (S :: A) =
       Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
 
-/-- A run splits wherever its list does. Named at this instantiation because that is how the
-walk meets it — one statement appended at a time — while the content is
-`Block.listReducing_append`. -/
+/-- A run splits wherever its list does — `Block.listReducing_append` at a statement list. -/
 theorem Statement.listReducing'_append {g : Bool}
     {A B : List (ComputableGuardedPlusCal.Statement g false)} :
     Statement.listReducing' (V := V) (A ++ B) =
@@ -686,8 +680,7 @@ theorem Statement.listAborting'_append {g : Bool}
   Block.listAborting_append _ _
 
 /-- No *list* of statements diverges either — `Statement.diverging'_eq_empty` propagated through the
-fold. What makes a block-level refinement's diverging component `StrongRefinement.Diverging.Empty`
-rather than an argument. -/
+fold. -/
 @[simp] theorem Statement.listDiverging'_eq_empty {g : Bool}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
     Statement.listDiverging' (V := V) A = ∅ := by
@@ -776,9 +769,10 @@ theorem Block.diverging'_eq_map {g b : Bool}
   conv_rhs => enter [1, b, S]; rw [← Statement.diverging'_eq_map S]
   conv_rhs => enter [2, b, S]; rw [← Statement.reducing'_eq_map S]
 
-/-! The four membership-level corollaries item 7 rewrites with. Each says that a concrete indexed
-step is the same fact as the corresponding flat one — the direction that matters is `mp`, which
-lets an indexed hypothesis be fed to a `StrongRefinement` goal stated over `LocalState'`. -/
+/-! The four membership-level corollaries a refinement proof rewrites with. Each says that a
+concrete indexed step is the same fact as the corresponding flat one — the direction that matters is
+`mp`, which lets an indexed hypothesis be fed to a `StrongRefinement` goal stated over
+`LocalState'`. -/
 
 theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
     {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) true} :
@@ -826,9 +820,8 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
   · exists _, sem
   · exact sem
 
--- Leaf discharge for `sem_side` (T1). `simp` builder, not `apply`: these are `↔`, and aesop's own
--- apply-builder linter is right that an iff wants `simp`, not `apply` (which only ever tries one
--- direction and is what the plan's own draft literally said — deviated from it here).
+-- Leaf discharge for `sem_side`. `simp` builder, not `apply`: these are `↔`, and an `apply`
+-- builder only ever tries one direction.
 attribute [aesop norm simp (rule_sets := [sem])]
   LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue
 

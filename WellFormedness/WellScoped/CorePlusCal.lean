@@ -5,11 +5,10 @@ public import Core.CorePlusCal.Syntax
 public section
 
 /-!
-  `CorePlusCal.WellScoped`, a **Prop** — authored fresh, not executed by anything. Modeled on the
-  same scope-class shape as `WellFormedness.WellScoped.TypedPlusCal`'s executable check
-  (`TypedPlusCal.Algorithm.checkWellScoped`), over the pre-`Elaborator` `CorePlusCal.Algorithm`:
-  infrastructure for a later preservation lemma, not something the executable check needs to
-  invoke.
+  `CorePlusCal.WellScoped`, a **Prop**. Same scope-class shape as the executable check
+  (`TypedPlusCal.Algorithm.checkWellScoped`), stated over the pre-`Elaborator`
+  `CorePlusCal.Algorithm`: it is the form a preservation lemma is stated against, not something the
+  executable check invokes.
 -/
 
 /-- Every name a `Declarations` value binds — the `Prop`-side counterpart of
@@ -40,7 +39,7 @@ end
 
 /-- `p` has no duplicate name in any scope, and no name shadows an enclosing scope's — the
 `Prop` counterpart of `TypedPlusCal.Algorithm.checkWellScoped`, over the pre-`Elaborator`
-`CorePlusCal.Algorithm`. Not proved or used by anything yet — see the module doc above. -/
+`CorePlusCal.Algorithm`. -/
 def CorePlusCal.WellScoped {α β} (algo : CorePlusCal.Algorithm α β) : Prop :=
   algo.globalState.names.Nodup ∧
   ∀ p ∈ algo.processes,

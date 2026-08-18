@@ -1,6 +1,5 @@
 module
 
--- public import Mathlib.Control.Traversable.Basic
 meta import CustomPrelude
 
 public section

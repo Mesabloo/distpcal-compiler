@@ -7,17 +7,17 @@ public import Core.GuardedPlusCal.Semantics.Lemmas
 @[expose] public section
 
 /-!
-  Network PlusCal's half of the flat state encoding item 7 needs.
+  Network PlusCal's half of the flat state encoding a refinement proof is stated over.
 
-  Everything generic lives in `Core/GuardedPlusCal/Semantics/Lemmas.lean` and is *used* here, not
+  Everything generic lives in Guarded PlusCal's own semantic lemmas and is *used* here, not
   restated: the `Block.reducing`/`.aborting`/`.diverging` equations, the `*_map` relabelling lemmas,
   and `LocalState'`/`toLocalState'`/`toLocalState'_inj` itself — the two languages share one state
-  space (see `Semantics/Denotational.lean`'s module doc), so they share its flat encoding too. What
+  space, so they share its flat encoding too. What
   is genuinely per-language is the primed statement semantics, since that is defined from this
   language's own `Statement.reducing`.
 
-  That sharing is the point: item 7 relates a `GuardedPlusCal` block to a `NetworkPlusCal` one over
-  a single `LocalState'`, with no isomorphism to transport across first.
+  That sharing is the point: a refinement relates a `GuardedPlusCal` block to a `NetworkPlusCal`
+  one over a single `LocalState'`, with no isomorphism to transport across first.
 -/
 
 namespace NetworkPlusCal
@@ -293,7 +293,7 @@ theorem Statement.aborting.assign.iff {σ : LocalState V false} {ε : Trace V} {
 
 end Elim
 
--- Leaf discharge for `sem_side` (T1, see below).
+-- Leaf discharge for `sem_side` (see below).
 attribute [aesop safe apply (rule_sets := [sem])]
   Statement.reducing.with.intro Statement.reducing.await.intro
   Statement.reducing.skip.intro Statement.reducing.goto.intro Statement.reducing.print.intro
@@ -596,9 +596,8 @@ theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
   Mirrors `Statement.blockReducing`/`AtomicBranch.reducing` (`Semantics/Denotational.lean`) at the
   flat encoding, built from the primed leaf functions above rather than proved equal to an
   image of the indexed version after the fact — the indexed `AtomicBranch.reducing`/etc. are
-  themselves already exactly "precondition, then action" by definition, so there is no separate
-  `sem_eq`/`abort_eq`/`div_eq` step to port here the way prior art needed (its `AtomicBranch`
-  semantics went through a `Reduce`/`Abort`/`Diverge` instance first). -/
+  themselves already exactly "precondition, then action" by definition, so no separate
+  `sem_eq`/`abort_eq`/`div_eq` step is needed. -/
 
 /-- `AtomicBranch.reducing` in the flat encoding. -/
 def AtomicBranch.reducing' (B : ComputableNetworkPlusCal.AtomicBranch) :
@@ -906,23 +905,21 @@ theorem AtomicBranch.reducing'_fifos_mem {Br : ComputableNetworkPlusCal.AtomicBr
     rw [hp] at hpres
     exact Block.reducing'_fifos_mem hpres h
 
--- Leaf discharge for `sem_side` (T1).
+-- Leaf discharge for `sem_side`.
 attribute [aesop norm simp (rule_sets := [sem])]
   LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue
 
 end NetworkPlusCal
 
-/-! # T1 — `sem_red`/`sem_side`
+/-! # `sem_red`/`sem_side`
 
-  `sem_redg`/`sem_redn`'s role, prior art's per-language dispatch macros: say *from which state to
-  which state* a `Statement.reducing` step goes, leaving every side condition as one existential
-  body goal. One macro now, not two — `LocalState` is shared, so nothing about the dispatch itself
-  is per-language, only which intro lemma matches.
+  Between them they say *from which state to which state* a `Statement.reducing` step goes, leaving
+  every side condition as one existential body goal. One macro covers both languages: `LocalState`
+  is shared, so nothing about the dispatch itself is per-language, only which intro lemma matches.
 
-  Aesop only ever runs terminally here (`Rule: aesop closes the goal or it is not used`,
-  plan §3 T1) — the goals it would otherwise leave are whatever the search happened to stop at,
-  the same instability as non-terminal `simp`, worse because later proof steps are written
-  against a fixed goal order.
+  Aesop only ever runs terminally here — the goals it would otherwise leave are whatever the search
+  happened to stop at, the same instability as non-terminal `simp`, worse because later proof steps
+  are written against a fixed goal order.
 -/
 
 /-- Dispatch is a lookup, not a search: the statement's head constructor determines the intro
@@ -950,9 +947,8 @@ macro "sem_red" : tactic => `(tactic| first
   | apply NetworkPlusCal.Statement.reducing.assign.intro)
 
 /-- `sem_red`'s leaf discharge: the side conditions it leaves — evaluation transfers, memberships,
-freshness — are a real search problem, handed to the `sem` rule set. Terminal, per T1's rule;
-`aesop?` prints the found proof when it fails, unlike prior art's bare `fail "Statement
-unsupported (yet)"`. -/
+freshness — are a real search problem, handed to the `sem` rule set. Terminal, and `aesop?` prints
+the found proof when it fails. -/
 macro "sem_side" : tactic => `(tactic| aesop (rule_sets := [sem]))
 
 end

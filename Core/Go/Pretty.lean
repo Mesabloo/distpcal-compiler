@@ -12,14 +12,12 @@ public section
   ships is whatever this module prints. (`Guarded2Network` has no pretty-printer at all and dumps
   via `reprStr`; that path stays for `-d dump-network`, and `-d dump-go` will reuse this one.)
 
-  - `keywords`/`sanitize` come from prior art
-    (`~/Documents/distpcal-compiler/Core/Go/Pretty.lean`), **split in two**: that table mixed Go's
-    reserved words with its predeclared identifiers, so it escaped the generated code's own
-    references to `int`/`any`/`comparable`/`len` into `int__`/`comparable__`. Only `keywords` is
-    escaped here; `predeclared` is exported for `Network2Go` to rename *user-chosen* names against,
-    since only the pass knows which names came from the specification (`PLAN.md` §2's
-    identifier-hygiene row: hygiene is checked at every pass, not just the printer). Extend
-    `keywords` with `Network2Go`'s own synthesized names (lock variables) once those exist.
+  - `keywords` and `predeclared` are two tables, not one: Go's reserved words are escaped by the
+    printer, while its predeclared identifiers are not — escaping those would rewrite the generated
+    code's own references to `int`/`any`/`comparable`/`len` into `int__`/`comparable__`.
+    `predeclared` is exported for `Network2Go` to rename *user-chosen* names against, since only the
+    pass knows which names came from the specification; identifier hygiene is enforced per pass, not
+    only by the printer.
   - Precedence levels are Go's own: `||` 1, `&&` 2, comparisons 3, `+`/`-` 4, `*`/`/`/`%` 5, unary
     6, selector/index/call 7. `Common/Pretty.lean`'s `infixl`/`prefix` combinators parenthesize
     against them, so no expression is over-parenthesized.
@@ -29,9 +27,8 @@ public section
   - Expressions and statements print from one `mutual` block, since `Expression.funcLit` carries a
     statement body. Statement cases therefore call `Expression.pretty · 0` directly rather than
     going through the `Std.ToFormat` instance, which is only available once the block closes.
-  - String literals print as Go raw strings (`` `…` ``), same as prior art — no escaping pass
-    needed. A source string containing a backtick would break this; TLA⁺'s own string syntax has no
-    way to write one.
+  - String literals print as Go raw strings (`` `…` ``), so no escaping pass is needed. A source
+    string containing a backtick would break this; TLA⁺'s own string syntax has no way to write one.
   - `print` compiles to Go's builtin `println`, not `fmt.Println`, so that generated code needs no
     import beyond the runtime library.
 -/
@@ -44,6 +41,7 @@ them unconditionally.
 Exported alongside `predeclared` so that `Network2Go` can rename a user-chosen name *out* of this
 set rather than leaving it to `sanitize` below — a rename that knows the name's provenance can pick
 a spelling that stays distinct from every other name, which a blind suffix cannot. -/
+-- TODO(keywords): add `Network2Go`'s own synthesized names (lock variables) to this set.
 def keywords : Std.HashSet String := {
   "break", "case", "chan", "const", "continue", "default",
   "defer", "else", "fallthrough", "for", "func", "go", "goto",
@@ -54,14 +52,14 @@ def keywords : Std.HashSet String := {
 /-- Go's *predeclared* identifiers — types, constants and builtin functions living in the universe
 block. Unlike `keywords` these are ordinary identifiers that a declaration may legally shadow, so
 the printer must **not** escape them: the generated code refers to `int`, `any`, `comparable`,
-`error` and `append`/`len`/`make` by name constantly, and prior art's single combined table turned
-those into `int__`/`comparable__`.
+`error` and `append`/`len`/`make` by name constantly, and escaping them would turn those into
+`int__`/`comparable__`.
 
 A *user-chosen* name colliding with one of these still has to be renamed — shadowing `int` in a
 file that also emits `int` for TLA⁺'s `Int` would silently change what the generated code means.
 That rename belongs to `Network2Go`, which is the only place that knows whether a name came from
-the specification or from the compiler; this set is exported for it to consult (`PLAN.md` §2's
-"checked at every pass, not just the final pretty-printer"). -/
+the specification or from the compiler; this set is exported for it to consult. Hygiene is
+enforced per pass, not only by the printer. -/
 def predeclared : Std.HashSet String := {
   -- types
   "any", "bool", "byte", "comparable", "complex64", "complex128", "error",
@@ -83,10 +81,10 @@ identifier-print site — a backstop, not the whole hygiene story: see `predecla
 Unreachable for anything `Network2Go` emits, which renames user-chosen names out of `keywords`
 itself; this catches only a name reaching the printer from somewhere that did not.
 
-The suffix is a *single* `_`, not the doubled one prior art used, because `Network2Go` spends
-underscore-run parity to separate user-written names from compiler-introduced ones (see its
-`Naming.lean`): a doubled suffix lands in the user half, so `type` and a user's own `type_` would
-both print `type__`. An odd-length suffix cannot collide with either. -/
+The suffix is a *single* `_`, because `Network2Go` spends underscore-run parity to separate
+user-written names from compiler-introduced ones: a doubled suffix lands in the user half, so `type`
+and a user's own `type_` would both print `type__`. An odd-length suffix cannot collide with
+either. -/
 @[inline]
 def sanitize (name : String) : String :=
   if name ∈ keywords then name ++ "_" else name
@@ -274,7 +272,7 @@ instance {α} [Std.ToFormat α] : Std.ToFormat (Function α) := ⟨Function.pret
 
 /-- A top-level declaration. The `var` form spells its type even when there is an initializer, so
 that a `nil`-valued or otherwise uninferable right-hand side still declares the right thing, and
-because §7.2.2's own listings do. -/
+because the compilation listings do. -/
 def Declaration.pretty {α} [Std.ToFormat α] : Declaration α → Std.Format
   | .function F => Function.pretty F
   | .var name τ value =>

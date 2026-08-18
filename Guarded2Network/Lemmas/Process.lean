@@ -61,9 +61,8 @@ instance's own channel, where it uses the instance's own `inbox` instead — and
 clause `ib` already pins (`hkey`). So the projection is a repackaging, with no side condition and
 nothing to choose.
 
-Stated against `algRelatesTo`'s witnesses rather than against `algRelatesTo` itself: a caller has
-already destructured it to get at the instance, and re-assembling it here would only have to be
-undone. -/
+Stated against `algRelatesTo`'s witnesses rather than against `algRelatesTo` itself, which a caller
+has already destructured to get at the instance. -/
 theorem relatesTo_of_procRelatesTo {mb : Mailbox} {rx : Set String} {pref : ChanKey V → List V}
     {ib : Option (InboxState V)} {M₁ M₂ : Memory V} {L₁ L₂ : Set String} {F₁ F₂ : FIFOs V}
     (h : procRelatesTo mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
@@ -435,8 +434,8 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
 
 /-! # The pass at this level: one process, compiled
 
-  The other half of the process layer, and the next rung of D8's ladder after
-  `Lemmas/Thread.lean`. Everything above is about a process *step*; everything below is about
+  The other half of the process layer, above `Thread.toNetwork`. Everything above is about a
+  process *step*; everything below is about
   `Process.toNetwork` — what a compiled process owes its source syntactically, so that the algorithm
   level can read `AlgebraRefines` off it.
 
@@ -448,7 +447,7 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
   the implication for every counter value at once.
 -/
 
-/-- **The source-side half of D8's contract at this level.** Every branch of the process is fresh for
+/-- **The source-side freshness obligation at this level.** Every branch of the process is fresh for
 *any* name the pass could generate as its `inbox`.
 
 Quantified over the generated name rather than stated at one, because `Process.toNetwork` invents it
@@ -481,8 +480,8 @@ theorem Generated.ne_selfName {s : String} (h : Generated "inbox" s) :
   omega
 
 /-- **A process that never receives is `ProcessFresh` at `.none` for nothing**, whatever name the pass
-generates — `BranchesFresh.none_of_no_receive` at every branch. The receive-free half of D8's contract
-in one line, and what says the `.none` mailbox costs the front end nothing to supply. -/
+generates — `BranchesFresh.none_of_no_receive` at every branch, which is what says the `.none`
+mailbox costs the front end nothing to supply. -/
 theorem ProcessFresh.none_of_no_receive {c₀ : ComputableGuardedPlusCal.Ref}
     {p : ComputableGuardedPlusCal.Process}
     (norecv : ∀ T ∈ p.threads, ∀ blk ∈ T, ∀ Br ∈ blk.branches,
@@ -539,7 +538,7 @@ structure ProcessRefines (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) 
     id_eq : p'.id = p.id
     idShape_eq : p'.«=|∈» = p.«=|∈»
 
-/-- **The source-side hygiene D8's label dispatch rests on.** No name the source process uses as a
+/-- **The source-side hygiene label dispatch rests on.** No name the source process uses as a
 label — neither a block's own, nor one a branch's terminal `goto` leaves for — is a name the pass
 could have generated for a receiving thread.
 
@@ -592,8 +591,8 @@ variable {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
 `freshName`, `RxOnly` carries it, and the compiled process's *code* threads cannot supply one at all
 — every one of them is a `.code` thread by `ThreadRefines`, and `.rx` is the other constructor.
 
-Said about `rxLabels` rather than about a thread because that is the form the two corollaries below
-want, and they are the only consumers. -/
+Said about `rxLabels` rather than about a thread, which is the form the two corollaries below take
+it in. -/
 theorem ProcessRefines.rxLabels_generated
     (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') {l : String} (hl : l ∈ rxLabels p') :
     Generated "rx" l := by
@@ -1025,8 +1024,7 @@ in `Registered` is for.
 
 `hused` is the front end's, and is where the *declared* mailbox does its work. Nothing in the pass
 rules out being handed a `.some` mailbox for a process that never receives; `checkReceiveChannels`
-does, by rejecting a `receive` with no declaration and dropping a declaration no `receive` uses
-(`PLAN.md` §5.2a). -/
+does, by rejecting a `receive` with no declaration and dropping a declaration no `receive` uses. -/
 theorem ProcessRefines.rxMailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     (hused : mbox ≠ .none → ProcessReceives p) : rxMailbox p' = mbox := by
   obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, hreg, -, -⟩ := h.threads
@@ -1183,7 +1181,6 @@ theorem Process.toNetwork_spec [SeqBuiltins V] {globalChans : Guarded2NetworkCha
     ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans p
     ⦃⇓? p' _ => ⌜∃ inbox, ProcessRefines (V := V) (mbox inbox) c₀ inbox pref p p'⌝⦄ := by
   -- `-Spec.mapM_list`, or the generic loop spec matches the walk before `mapM_threadToNetwork_spec`
-  -- does and `mvcgen` asks for an invariant that was already supplied one level down
   mvcgen [ComputableGuardedPlusCal.Process.toNetwork, freshName_spec, mapM_threadToNetwork_spec,
     -Std.Do.Spec.mapM_list]
 

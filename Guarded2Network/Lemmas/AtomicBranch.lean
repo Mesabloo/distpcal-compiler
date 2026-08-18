@@ -25,8 +25,7 @@ import all Guarded2Network.PlusCal
 
   Freshness stays a hypothesis here, as it does at every level of this proof: these are syntactic
   conditions on the source program and on the pass's generated `inbox`, and discharging them needs
-  the passes before this one (type checking, well-formedness). Prior art carries them the same way,
-  as fields of a per-level `wellFormed` structure.
+  the passes before this one (type checking, well-formedness).
 -/
 
 namespace Guarded2Network
@@ -270,10 +269,8 @@ theorem BranchesRefine.of_forall₂ {mbox : Mailbox} {pref : ChanKey V → List 
 /-- **The locals list `stepBranch` leaves still holds only `inbox` declarations** — it either kept the
 one it had or appended this call's.
 
-Standalone rather than a step inside the proof below, for the reason `eq_nil_of_not_cons` is: the
-goal there is over a *pair*-typed list, and `simp_all` shreds `∀ e ∈ l, P e` at such a type into one
-quantifier per component (`Prod.forall`) — from the *default* simp set, so keeping `InboxLocal`
-opaque does not prevent it. Out here the statement is small and the split is two cases. -/
+Standalone rather than a step inside the proof below, where the goal is over a pair-typed list and
+the statement would be split per component. -/
 private theorem inboxLocal_ite {inbox : String} {τ : ComputableTLAPlus.Typ}
     {l : List (String × ComputableTLAPlus.Typ × Bool ×
       Option (Bool × ComputablePlusCal.Expression))} (h : ∀ e ∈ l, InboxLocal inbox e) :
@@ -303,9 +300,7 @@ private theorem ne_nil_of_any {α : Type} {l : List α} {p : α → Bool} (h : l
   simp at h
 
 /-- A list of channel/type pairs that is not a cons is empty — the shape `stepBranch`'s `if let`
-leaves behind when the precondition walk recorded no channel. A standalone lemma rather than a `have`
-in the proof below: in context it is a `∀`-shaped rewrite that sends the surrounding `simp_all` into
-a heartbeat timeout. -/
+leaves behind when the precondition walk recorded no channel. -/
 private theorem eq_nil_of_not_cons
     {l : List (ComputableGuardedPlusCal.Ref × ComputableTLAPlus.Typ)}
     (h : ∀ chan τ tail, l ≠ (chan, τ) :: tail) : l = [] :=
@@ -360,13 +355,9 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     refine ⟨⟨?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
     · exact branch_refines href afresh alast
     · rfl
-    -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list. `IsRxThread` stays
-    -- out of the simp set on purpose: opaque, it is one obligation per thread, and the branches that
-    -- register none are closed outright. Unfolded, `forall_and` would shred it into one `∀` per
-    -- conjunct and the leftovers would have to be reassembled by hand — which is what this cost
-    -- every time a conjunct was added.
-    -- the two locals hypotheses are cleared first: `simp_all` would otherwise spend the block's
-    -- whole heartbeat budget shredding a pair-typed `∀ e ∈ …` it has no use for here
+    -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; `IsRxThread` stays
+    -- out of the simp set, one obligation per thread. The locals hypotheses are cleared first, so
+    -- `simp_all` does not shred a pair-typed `∀ e ∈ …` it has no use for here.
     · clear hloc₀ hboth₀
       simp_all [RxOnly, or_imp, forall_and]
       -- what is left is the single new thread, at the label `freshName` just handed it: the mailbox
@@ -396,22 +387,6 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
       · refine hrecv c r coe hmem (eq_nil_of_not_cons ?_)
         simp_all
   }
-
-/-! ## Owed: `stepBranch_spec`
-
-  Written against `GuardedPlusCal.Thread.toNetwork_spec₁` in the prior development, which is the
-  model — not `processPrecondition_spec₁`, the trivial one next to it.
-
-  The shape: `mvcgen`, then supply the loop invariants at the `case inv1`/`inv2` goals as
-  `⇓ (_, ⟨_, _, rxs⟩) => ⌜…⌝`. That is where `ThreadState` enters, and it is what a postcondition of
-  bare existentials leaves out. The invariant to carry is prior art's — every thread accumulated in
-  `rxThreads` is an `.rx` — alongside the branch's own shape, `processPrecondition`'s rewritten
-  precondition paired with the converted action block carrying the hoisted assignments on its left
-  edge.
-
-  One mechanical fact worth not rediscovering: `⇓` is `PostCond.noThrow`, so under `G2NM`'s `except`
-  shape every postcondition here is a `⇓?`.
--/
 
 end Guarded2Network
 

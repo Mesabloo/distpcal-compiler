@@ -110,10 +110,6 @@ instance {α β} [BEq α] [Hashable α] : Coe (Std.HashMap α β) (Batteries.Has
   coe x := ⟨x⟩
 
 namespace Std.HashMap
-  -- def mapVal {α β γ} [BEq α] [Hashable α] (f : α → β → γ) (t : HashMap α β) : HashMap α γ where
-  --   val := t.val.mapVal f
-  --   property := t.val.WF.mapVal
-
   abbrev find? {α β} [BEq α] [Hashable α] (m : HashMap α β) (k : α) : Option β := Prod.snd <$> m.findEntry? k
 
   def traverseWithKey {α β γ} [BEq α] [Hashable α] {m : Type _ → Type _} [Applicative m] (f : α → β → m γ) (t : HashMap α β) : m (HashMap α γ) :=

@@ -28,8 +28,8 @@ abbrev Declarations := ElaboratedPlusCal.Declarations ComputableTLAPlus.Typ Expr
 abbrev Process := ElaboratedPlusCal.Process ComputableTLAPlus.Typ Expression
 abbrev Algorithm := ElaboratedPlusCal.Algorithm ComputableTLAPlus.Typ Expression
 
-/-- `TypedPlusCal.Ref.stepType`'s counterpart at this pin's types; see that def and
-`ElaboratedPlusCal.Ref.baseType` (same file) for why this is cheap and necessary. -/
+/-- Advances a reference's type by one path step: a field name projects a record, an index
+expression enters a function, sequence or tuple. -/
 def Ref.stepType (τ : ComputableTLAPlus.Typ) : String ⊕ Expression → ComputableTLAPlus.Typ
   | .inl field => match τ with
     | .record fs => (fs.lookup field).getD τ
@@ -51,7 +51,7 @@ def Ref.indexType : ComputableTLAPlus.Typ → ComputableTLAPlus.Typ
   | .tuple _ => .int
   | τ => τ
 
-/-- `TypedPlusCal.Ref.resultType`'s own counterpart at this pin's types. -/
+/-- The type a whole reference denotes: its base type, advanced one `Ref.stepType` per index. -/
 def Ref.resultType (r : Ref) : ComputableTLAPlus.Typ := r.args.foldl Ref.stepType r.baseType
 
 end ComputablePlusCal

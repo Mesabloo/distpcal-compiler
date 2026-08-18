@@ -78,7 +78,7 @@ instance {σ τ : Type _} [Parser.Stream σ τ] [Repr (Parser.Stream.Position σ
   inferInstanceAs (Repr (_ × _))
 
 
--- TODO: uniformize `Located` and `Located'`
+-- TODO(located): collapse `Located` and `Located'` into one type.
 structure Located (α : Type _) where
   segment : Parser.Stream.Segment PositionedSlice
   data : α
@@ -107,7 +107,6 @@ structure Located' (α : Type _) : Type _ where
 
 
 deriving instance Repr for Parser.Stream.OfList
--- deriving instance DecidableEq for String.Slice
 
 
 structure Unexpected (α : Type _) where
@@ -168,15 +167,11 @@ abbrev ParserWarningM := StateT (List ParserWarning) Id
 
 open Parser hiding takeMany1
 
-/-- `debug p` instruments `p` with tracing via `dbgTrace`: when `p` is applied (with the current
-stream position), and whether it succeeded or failed (with the result/error). -/
+/-- `debug name p` runs `p` unchanged. It is the single seam parser tracing is inserted at, and
+`name` is the label such a trace would carry; call sites tag themselves once and stay tagged. -/
 @[expose, never_extract, specialize, macro_inline]
 def debug {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [Repr ε] [Repr α] [Repr (Stream.Position σ)] (name : String) (p : ParserT ε σ τ m α) : ParserT ε σ τ m α := λ s ↦ do
-  -- dbg_trace "{name}> Applying parser (stream position: {repr (Stream.getPosition s)})"
   let res ← p.run s
-  -- match res with
-  --   | .ok s r => dbg_trace "{name}> Success: {repr r} (stream position: {repr (Stream.getPosition s)})"
-  --   | .error s e => dbg_trace "{name}> Error: {repr e} (stream position: {repr (Stream.getPosition s)})"
   return res
 
 /--

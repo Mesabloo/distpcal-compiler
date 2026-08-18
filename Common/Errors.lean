@@ -49,7 +49,9 @@ def colorizeIf {α} [Colorized α] (enabled : Bool) (c : Colorized.Color) (x : �
 def styleIf {α} [Colorized α] (enabled : Bool) (s : Colorized.Style) (x : α) : α :=
   if enabled then Colorized.style s x else x
 
-/-- Pretty basic error pretty printing. `colored := false` (driven by `-fno-color`) disables ANSI styling. -/
+/-- Renders one diagnostic: an `error[E0042]:`-style header, the message and its hints, and the
+offending source line with the span underlined. `colored := false` (driven by `-fno-color`) disables
+ANSI styling. -/
 @[nospecialize]
 def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [CompilerDiagnostic ε α] (err : ε) (source : List String.Slice) (colored : Bool := true) : String :=
   -- `error[E0042]:` / `warning[W0003]:` — the code is part of the header, so continuation lines

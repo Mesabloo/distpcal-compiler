@@ -36,6 +36,27 @@ ambiguity: add there, don't decide unilaterally.
 - Prior art already solve something well: say so, reuse idea. "Fresh rewrite" is about
   architectural ownership, not novelty.
 
+## Comments
+
+Docstring say **what declaration is and what it guarantee**. Nothing else.
+
+- No how-it-proved. Tactic-debugging note go inline `--` at the tactic (one line) or
+  `.claude/FINDINGS.md` (story).
+- No plan/task reference: `PLAN.md`, `OPEN_QUESTIONS.md`, `.claude/`, `§N`, `item N`, `D5`, `T1`.
+- No thesis/paper citation. Provenance live in `reference/SPEC_MAP.md`, one row per declaration.
+  Citation carry content ("merge along strict domination") ⇒ keep content, drop number.
+- No history, no prior-art comparison, no "still owed"/"not yet"/"now". Read as if current state
+  always was state — same rule `PLAN.md` follow.
+- No `file.lean:123` cross-reference. Name declaration.
+- No commented-out code. Git have it.
+- `TODO` need subject: `TODO(<subject>): <what owed>`.
+
+`scripts/lean-style` enforce mechanical half, both direction (code rules and comment rules), on
+`Stop`. Judgment half — proof narration, consumer note, weak doc — stay reader job.
+
+`STRUCTURE.md` own rule: pure file map, one line per file, zero reference.
+`scripts/structure-check` enforce it, own hook, own switch `FUGUE_STRUCTURE_HOOK=off`.
+
 ## Context discipline
 
 Context re-billed every turn. Token read at turn 20 of 200 paid 180 more times. What *stays*

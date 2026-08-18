@@ -71,9 +71,6 @@ namespace List
             | false => simp [loop, h, takeWhile_neg_eq h, dropWhile_neg_eq h]
             | true => simp [takeWhile_pos_eq h, dropWhile_pos_eq h, loop, h, @IH (x :: ys)]
 
-  -- theorem span_eq_takeWhile_dropWhile {xs : List _} {p : α → Bool} : xs.span p = (xs.takeWhile p, xs.dropWhile p) := by
-  --   simpa using span.loop_eq_takeWhile_dropWhile
-
   theorem mem_takeWhile {p : α → Bool} {x y} {ys} (h : x ∈ takeWhile p (y :: ys)) : (x = y ∧ p x) ∨ x ∈ takeWhile p ys := by
     unfold takeWhile at h
     split at h
@@ -139,7 +136,7 @@ namespace List
     | nil => nofun
     | cons y xs IH =>
       rintro (_|⟨_, x_in_xs⟩) <;> rw [List.map_cons]
-      · exact mem_cons_self --(f x) (map f xs)
+      · exact mem_cons_self
       · exact mem_cons_of_mem (f y) (IH x_in_xs)
 
   theorem prefix_append' {xs ys zs : List α} : xs <+: ys → xs <+: ys ++ zs := by
@@ -387,20 +384,6 @@ namespace List
           · repeat rw [dlookup_cons_ne _ ⟨k'', _⟩ k_eq]
             exact IH
 
-  -- theorem forIn_append {α β} {m : _ → _} [Monad m] [LawfulMonad m] {xs ys : List α} {b : β} {f : α → β → m (ForInStep β)} (h : ∀ x y, ∃ z, f x y = pure (ForInStep.yield z)) :
-  --   forIn (xs ++ ys) b f = (do forIn ys (← forIn xs b f) f) := by
-  --     induction xs generalizing b with
-  --     | nil => simp_rw [nil_append, forIn_nil, pure_bind]
-  --     | cons y ys IH =>
-  --       simp_rw [cons_append, forIn_cons, IH]
-  --       obtain ⟨z, eq⟩ := h y b
-  --       simp [eq]
-
-  -- theorem forIn'.loop.cons {m : _ → _} [Monad m] [LawfulMonad m] {α β} {xs ys : List α} {y : α} {f : (x : α) → x ∈ xs → β → m (ForInStep β)} {b : β}
-  --   (h : ∃ zs, zs ++ y :: ys = xs) : forIn'.loop xs f (y :: ys) b h =
-  --     (do match ← f y (by obtain ⟨bs, rfl⟩ := h; exact mem_append_right _ (Mem.head ..)) b with | .done b => pure b | .yield b => forIn'.loop xs f ys b (have ⟨bs, h⟩ := h; ⟨bs ++ [y], by rw [← h, append_cons _ y ys]⟩)) := by
-  --   rfl
-
   theorem getLast_sizeOf_lt [SizeOf α] {xs : List α} (h : xs ≠ []) : sizeOf (xs.getLast h) < sizeOf xs := by
     fun_induction List.getLast xs h
     · simp +arith
@@ -509,11 +492,6 @@ namespace List
       · rw [suffix_cons_iff]
         right
         assumption
-
-  -- theorem dedup_cons {x : α} {xs : List α} [DecidableEq α] : (x :: xs).dedup = if x ∈ xs then xs.dedup else x :: xs.dedup := by
-  --   split_ifs with h
-  --   · exact dedup_cons_of_mem h
-  --   · exact dedup_cons_of_not_mem h
 
   theorem union_eq_append [DecidableEq α] {xs ys : List α} : ys ∪ xs = (ys.removeAll xs).dedup ++ xs := by
     rw [union_def]
@@ -712,9 +690,8 @@ namespace List
           · exact hmem
         · exact λ y hy ↦ huniq y (mem_cons_of_mem _ hy)
 
-  /-- **Two `map`s under a `Forall₂` agree** when the two functions agree on related pairs. What
-  reads it is a field both sides of a compilation preserve: the two lists of that field are then
-  *equal*, so anything said about one list of names is said about the other. -/
+  /-- **Two `map`s under a `Forall₂` agree** when the two functions agree on related pairs, so the
+  two mapped lists are *equal* and anything said about one is said about the other. -/
   theorem Forall₂.map_eq_map {R : α → β → Prop} {γ : Type _} {f : α → γ} {g : β → γ} {xs ys}
       (h : List.Forall₂ R xs ys) (hfg : ∀ x y, R x y → f x = g y) : xs.map f = ys.map g := by
     induction h with
@@ -722,11 +699,8 @@ namespace List
     | cons hxy _ ih => rw [map_cons, map_cons, hfg _ _ hxy, ih]
 
   /-- **A `Forall₂` whose left list is an append splits at the same point.** `Forall₂` is positional,
-  so the right list has a prefix related to the left one's and a suffix related to the rest.
-
-  What reads it is a statement about a list one pass *extended*: the extension's own related
-  elements are exactly the suffix this hands back, with nothing about them left tangled up in the
-  original's. -/
+  so the right list has a prefix related to the left one's and a suffix related to the rest, with
+  nothing about either left tangled up in the other. -/
   theorem Forall₂.exists_append_left {R : α → β → Prop} {xs₁ xs₂ : List α} {ys : List β}
       (h : List.Forall₂ R (xs₁ ++ xs₂) ys) :
       ∃ ys₁ ys₂, ys = ys₁ ++ ys₂ ∧ List.Forall₂ R xs₁ ys₁ ∧ List.Forall₂ R xs₂ ys₂ := by

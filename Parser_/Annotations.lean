@@ -93,7 +93,7 @@ section
       rest x : TypeParser α := first [
         do let f ← op; let y ← p; rest (f x y),
         --             ^^^^^^^^^
-        -- TODO: drop error of `op`, but keep error of `p`
+        -- TODO(errors): drop `op`'s error but keep `p`'s.
         pure x
       ]
 

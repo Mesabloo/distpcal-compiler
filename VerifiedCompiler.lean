@@ -18,11 +18,9 @@ public section
   VerifiedCompiler` a usable check that the whole framework compiles, and gives `doc-gen4` a single
   entry point covering it.
 
-  Without it the library claims no modules, so `lake build VerifiedCompiler` fails with "some
-  modules have bad imports" and the only way to check this tier was to name every module by hand.
-  Worth having precisely because the default target (`lean_exe fugue`) does not reach any of these
-  files: the CLI imports no proofs, so a plain `lake build` stays green no matter what happens
-  here.
+  It is what makes this tier checkable at all: the default target (`lean_exe fugue`) reaches none
+  of these files, since the CLI imports no proofs, so a plain `lake build` stays green no matter
+  what happens here.
 -/
 
 end

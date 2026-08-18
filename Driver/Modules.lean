@@ -227,12 +227,11 @@ as `.failed` via `onModuleEvent`, and re-throw the error unchanged. If it succee
 warnings back into the ambient accumulator — so they keep flowing toward whichever later stage,
 or the final per-module flush, is next — and return its value. `compileModule` needs this exact
 flush/report/re-throw-or-forward shape at three separate points. -/
-private def reportFailureOnThrow {α} --(lines : List String.Slice) (colored : Bool) (logLine : String → M Unit)
+private def reportFailureOnThrow {α}
     (onModuleEvent : String → ModuleOutcome → M Unit) (name : String) (act : M α) : M α := do
   let (warnings, result) ← runScoped act
   match result with
   | .error e =>
-    -- flushWarnings lines colored logLine warnings
     tell warnings
     onModuleEvent name .failed
     throw e
@@ -274,8 +273,7 @@ private def TypedModule.ownBindings (mod : TypedModule) : List (String × Bindin
 with the module that *declared* it, and `bindings` below appends the module's own declarations to
 it — so `EXTENDS` is transitive, and identically so for a builtin and for a `.tla` file on disk.
 Neither field is a choice a construction site gets to make: there is no way to build a
-`ResolvedDep` that exports its own declarations but not its dependencies', which is what a `.file`
-module used to do.
+`ResolvedDep` that exports its own declarations but not its dependencies'.
 
 The `inherited` entries are carried here rather than recomputed by the caller from `mod`'s
 declaration list because a re-exported declaration is indistinguishable from an own one inside a
@@ -425,7 +423,6 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
   | .ok resolved =>
     unless isRoot do
       onModuleEvent mod.name (.built (!warnings.isEmpty))
-    -- flushWarnings lines colored logLine warnings
     return resolved
 
 /-- The `EXTENDS`-specific wrapper around `compileModule`: locate `name` (`locate` above, error on

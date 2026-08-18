@@ -39,7 +39,7 @@ semantic: `AlgorithmFresh` (the generated `inbox` collides with nothing the sour
 `MailboxUsed` (a declared mailbox is one its process receives on, `checkReceiveChannels`),
 `LabelsHygienic` (no source label is one the pass could generate), `Nodup` on the process names
 (`duplicateProcessName`) — and `InitKeys`, the key a receiving instance starts on, which is the one
-thing here no checker establishes (`PLAN.md` §5.2a).
+thing here no checker establishes.
 
 `keys` quantifies over the FIFO map because `InitKeys.declared` is stated against it: which map an
 initial state carries is not fixed until that state is chosen. The other two clauses do not mention

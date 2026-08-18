@@ -106,20 +106,13 @@ private def pollIntervalMs : UInt32 := 2
 
 /-- Run `act`, giving up after `timeoutMs`. `none` means it did not finish in time.
 
-Lean has no timed wait, so this polls the work task against a deadline. The obvious spelling —
-race the work against an `IO.sleep timeoutMs` alarm and take whichever `IO.waitAny` lands first —
-is wrong in a way that costs the whole suite: `IO.waitAny` returns as soon as the work wins, but
-nothing stops the *loser*, and the runtime joins outstanding tasks before the process exits. Every
-fixture would leave a thread sleeping out its full timeout, and `lake test` would print its summary
-and then sit there for `timeoutMs` (30 seconds, by default) with no work left to do. `IO.cancel`
-does not rescue that spelling either: `IO.sleep` on a dedicated thread is an uninterruptible sleep
-and never observes the flag.
+Lean has no timed wait, so this polls the work task against a deadline. Racing the work against an
+`IO.sleep` alarm instead would leave the losing sleep outstanding, and the runtime joins outstanding
+tasks before the process exits — so every fixture would add its full timeout to the suite's runtime.
 
-Polling spawns nothing to wait *with*, so a fixture that finishes leaves nothing behind. What this
-still cannot do is *stop* a fixture that does not: a Lean task has no cancellation, so an abandoned
-compile keeps running — and keeps a core — until the process exits. That is the honest cost of
-reporting the culprit instead of hanging forever with no indication of which fixture is at fault,
-and it is why the timeout is a backstop rather than something a fixture should ever reach. -/
+Polling spawns nothing to wait *with*, so a fixture that finishes leaves nothing behind. It still
+cannot *stop* one that does not: a Lean task has no cancellation, so an abandoned compile keeps
+running until the process exits. The timeout is a backstop, not something a fixture should reach. -/
 private def withTimeout {α : Type} (timeoutMs : Nat) (act : IO α) : IO (Option α) := do
   let work ← IO.asTask act .dedicated
   let deadline := (← IO.monoMsNow) + timeoutMs
@@ -205,18 +198,13 @@ private def runWorker (style : ReportStyle) (timeoutMs : Nat) (repoRoot : System
 /-- Run every fixture, `jobs` at a time.
 
 Everything the *driver* owns is per-compile — flags, the fresh-name counter, the source registry,
-the module cache all live in `DriverState` — so on that count two compiles in this process cannot
-see each other. One thing below the driver is not: `Common/Position.lean`'s `Internal.sourceMap`,
-the process-global `IO.Ref` that `@@`/`posOf` use to attach spans to AST nodes by pointer address.
-`runPipelineIO` clears it per compile (`forgetSourcePositions`), which is what makes a *sequential*
-run of many fixtures behave like one fixture per process — but clearing is itself the thing that
-makes concurrency worse, not better: one worker's clear lands in the middle of another's compile
-and drops the spans it has registered so far. The result is not a crash but wrong-and-plausible
-line numbers, which is the more expensive failure for a suite that is about to start asserting on
-spans.
+the module cache all live in `DriverState` — so two compiles in this process cannot see each other
+that way. The source-position side map is not: it is a process-global `IO.Ref`, cleared per compile,
+and one worker's clear lands in the middle of another's compile and drops the spans it has
+registered. The result is wrong-but-plausible line numbers rather than a crash.
 
-Hence the default of 1. The parallelism is real and stays here — it is a flag away once positions
-are per-compile state rather than a global keyed on addresses. -/
+Hence the default of `jobs = 1`. The parallelism is a flag away once positions are per-compile
+state rather than a global keyed on addresses. -/
 private def runAll (style : ReportStyle) (jobs timeoutMs : Nat) (repoRoot : System.FilePath)
     (fxs : List Fixture) : IO (List FixtureReport) := do
   let printer ← Std.Mutex.new ()

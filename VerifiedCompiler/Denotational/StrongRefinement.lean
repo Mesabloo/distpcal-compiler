@@ -406,7 +406,8 @@ namespace StrongRefinement
           apply Trace.scPrefix_rmul_right (hpp m le_rfl)
           apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
           apply Trace.scPrefix_rmul_left T.Rτ_total hea
-        · -- NOTE: Lean style guidelines forbid this. Keep it.
+        · -- `using!`, not `using`: closing needs a local definition unfolded, which the reducible
+          -- transparency `using` matches at does not see through.
           simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
 
   /-- **Divergence refinement for a source that stutters.** The companion of
@@ -574,7 +575,8 @@ namespace StrongRefinement
           apply Trace.scPrefix_rmul_right (hpp m le_rfl)
           apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
           apply Trace.scPrefix_rmul_left T.Rτ_total hea
-        · -- NOTE: Lean style guidelines forbid this. Keep it.
+        · -- `using!`, not `using`: closing needs a local definition unfolded, which the reducible
+          -- transparency `using` matches at does not see through.
           simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
 
   /-- Divergence refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a divergence.
@@ -667,8 +669,6 @@ namespace StrongRefinement
     apply Diverging.union
     · exact Diverging.star abs ref refY
     · exact Diverging.omega Rτ_omega dvd abs ref
-
-  ------------------------------------
 
   /--
     Behavior refinement in the aborting case.
@@ -963,8 +963,8 @@ namespace StrongRefinement
   derived rather than assumed — the absorption law each preservation lemma wants is
   `Relation.star.lcomp₁_absorb` at these shapes, not a side condition on the caller.
 
-  This is where the paper's per-operator laws (arXiv 2404.17297 §7, Def. 7.22–7.26) are assembled
-  into one refinement, and it replaces induction over three fixed points. `Rτ_omega` and `dvd` stay
+  This is where the per-operator laws are assembled into one refinement, and it replaces induction
+  over three fixed points. `Rτ_omega` and `dvd` stay
   explicit for the reasons given on `Diverging.omega`.
 
   `Yₛ`/`Yₜ` are the immediate-divergence sets, kept general even though the algorithm layer has

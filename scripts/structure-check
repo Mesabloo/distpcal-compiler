@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Check `STRUCTURE.md` against the tree.
+
+    scripts/structure-check       run every check
+    scripts/structure-check -q    print nothing when clean (the hook's mode)
+
+`STRUCTURE.md` answers one question: where does X live. Four checks keep it able to:
+
+  paths exist        a path named in the map is on disk
+  tree covered       every tracked `.lean`/`.go` file appears somewhere in the map
+  one line per entry a `- ` bullet is not followed by an indented continuation that starts a
+                     second sentence's worth of explanation
+  no references      no `§`, `PLAN.md`, `OPEN_QUESTIONS.md`, `.claude/…` section pointer, `.pdf`,
+                     `prior art` or prior-art path anywhere in the file
+
+The first two are what actually rots. The last two are what makes the first two checkable: one
+line per entry means a bullet's path is unambiguous.
+
+Exit status is 1 when anything is reported, so it works as a Stop hook and as a manual check.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MAP = os.path.join(ROOT, "STRUCTURE.md")
+CAP = 10
+
+# Directories the map covers as a directory rather than file by file, plus generated paths.
+COVERED_AS_DIR = ("Tests/regression/", "Tests/examples/", "docs/diagnostics/")
+
+
+def tracked() -> list[str]:
+    out = subprocess.run(["git", "ls-files", "*.lean", "*.go"], cwd=ROOT,
+                         capture_output=True, text=True).stdout.split()
+    return sorted(out)
+
+
+def backticked(text: str) -> list[tuple[int, str, str]]:
+    """Every `…`-quoted token that looks like a path, with its line number and its section.
+
+    An entry names a file relative to the section it sits under (`Errors.lean` under
+    `## \\`Common/\\``), so the section heading is what makes a bare basename resolvable."""
+    found, sections = [], [""]
+    for i, line in enumerate(text.splitlines(), 1):
+        if line.startswith("#"):
+            # A heading may name more than one directory (`## `Core/A/`, `Core/B/``).
+            dirs = [d + "/" for d in re.findall(r'`([^`]+)/`', line)]
+            sections = dirs or [""]
+            continue
+        for tok in re.findall(r'`([^`]+)`', line):
+            if "/" in tok or tok.endswith((".lean", ".go", ".md", ".json", ".sh", ".toolchain")):
+                found.append((i, tok, sections))
+    return found
+
+
+def check_paths_exist(text: str) -> list[str]:
+    bad = []
+    for i, tok, sections in backticked(text):
+        if any(c in tok for c in "<>*⟨ "):        # `<code>.md`, glob-ish, or prose
+            continue
+        if tok.startswith(".lake/"):               # generated, absent from a clean checkout
+            continue
+        if re.fullmatch(r'(\.\w+)+', tok):         # a bare extension named in prose (`.go`)
+            continue
+        candidates = [tok] + [s + tok for s in sections]
+        if any(os.path.exists(os.path.join(ROOT, p)) for p in candidates):
+            continue
+        bad.append(f"STRUCTURE.md:{i}: names `{tok}`, which is not on disk")
+    return bad
+
+
+def mapped_paths(text: str) -> set[str]:
+    """Every path the map names, resolved through its section."""
+    out = set()
+    for _, tok, sections in backticked(text):
+        for cand in [tok] + [s + tok for s in sections]:
+            if os.path.exists(os.path.join(ROOT, cand)):
+                out.add(cand.rstrip("/"))
+    return out
+
+
+def check_tree_covered(text: str) -> list[str]:
+    mapped = mapped_paths(text)
+    bad = []
+    for path in tracked():
+        if any(path.startswith(d) for d in COVERED_AS_DIR):
+            continue
+        if path in mapped:
+            continue
+        bad.append(f"{path}: in the tree, absent from STRUCTURE.md")
+    return bad
+
+
+def check_one_line_entries(text: str) -> list[str]:
+    """A bullet may wrap, but not carry a second sentence.
+
+    Wrapping is invisible to a reader; a continuation that ends in `.` and starts a new one is the
+    entry having started to explain."""
+    bad = []
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not re.match(r'^- ', line):
+            continue
+        j, sentences = i, line.count(". ")
+        while j + 1 < len(lines) and re.match(r'^  \S', lines[j + 1]):
+            j += 1
+            sentences += lines[j].count(". ")
+        # Wrapping is free; a second sentence is the entry having started to explain.
+        if sentences >= 2:
+            bad.append(f"STRUCTURE.md:{i + 1}: entry runs past one line's worth of text")
+    return bad
+
+
+HEADER_LINES = 6   # the redirect at the top is the one pointer the map is allowed to carry
+
+
+def check_no_references(text: str) -> list[str]:
+    bad = []
+    pat = re.compile(r'§|PLAN\.md|OPEN_QUESTIONS\.md|prior art|distpcal-compiler'
+                     r'|INSTRUCTIONS\.md', re.I)
+    for i, line in enumerate(text.splitlines(), 1):
+        if i <= HEADER_LINES:
+            continue
+        # A `…`-quoted filename is the map doing its job; the same word unquoted is a citation.
+        stripped = re.sub(r'`[^`]*`', "", line)
+        if pat.search(stripped) or re.search(r'\.pdf', stripped, re.I):
+            bad.append(f"STRUCTURE.md:{i}: carries a reference — the map names files, nothing else")
+    return bad
+
+
+def main(argv: list[str]) -> int:
+    quiet = "-q" in argv
+    text = open(MAP, encoding="utf-8").read()
+    problems = (check_paths_exist(text) + check_tree_covered(text)
+                + check_one_line_entries(text) + check_no_references(text))
+    if not problems:
+        if not quiet:
+            print("STRUCTURE.md is in sync.")
+        return 0
+    for p in problems[:CAP]:
+        print(p)
+    if len(problems) > CAP:
+        print(f"… and {len(problems) - CAP} more.")
+    print("\nSTRUCTURE.md is a file map: where each file lives, one line each, no references.")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

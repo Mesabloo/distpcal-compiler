@@ -5,7 +5,7 @@ public import Network2Go.Expression
 public section
 
 /-!
-  Compiling TLA⁺ operator and function definitions into Go top-level declarations (thesis §7.2.2).
+  Compiling TLA⁺ operator and function definitions into Go top-level declarations.
 
   Four forms, and which one a declaration takes is read off its *type*, not its syntax:
 
@@ -112,8 +112,8 @@ def compileDeclaration (pos : SourceSpan) :
       throw (.internalInvariantViolated pos
         s!"operator '{f}' has {args.length} parameters but {paramTys.length} parameter types")
     let (typeParams, dictParams) := genericParams τ
-    -- Parameter names are left as written: §7.2.2 capitalizes definitions, not the variables bound
-    -- inside them, and every reference to one compiles as an ordinary binder.
+    -- Parameter names are left as written: capitalization applies to definitions, not to the
+    -- variables bound inside them, and every reference to one compiles as an ordinary binder.
     let params ← (args.zip paramTys).mapM λ ((x, _arity), τᵢ) ↦ return (binderName x, ← compileTyp τᵢ)
     return some (.function
       { name := definitionName (isLocal := false) f

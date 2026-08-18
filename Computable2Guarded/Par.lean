@@ -9,11 +9,10 @@ public section
   `𝒞_par`: eliminates parallel assignment (`r1≔e1 ‖ … ‖ rn≔en`) by hoisting every RHS, and every
   compound `Ref`'s own index expressions, into fresh `with`-bound temporaries evaluated up front,
   then re-emitting `n` ordinary single-target assignments in the original order. Same type in,
-  same type out (`ComputablePlusCal.Statement`/`.Block`/`.Branches`), same "only the producer
-  maintains the invariant" precedent `Computable2Guarded/CFlow.lean` already uses for
-  `while`-must-be-block-front — here the invariant is `GuardedPlusCal.Statement.assign` taking a
-  single `(Ref, Expr)` pair, which this pass establishes as a runtime fact about
-  `ComputablePlusCal.Statement.assign`'s `List` rather than a type-level one.
+  same type out (`ComputablePlusCal.Statement`/`.Block`/`.Branches`). The invariant it establishes —
+  `GuardedPlusCal.Statement.assign` takes a single `(Ref, Expr)` pair — is a runtime fact about
+  `ComputablePlusCal.Statement.assign`'s `List`, maintained by this pass alone rather than by the
+  type.
 
   ```
   𝒞_par(r1≔e1 ‖ … ‖ rn≔en) =
@@ -36,9 +35,8 @@ public section
   *multiple* simultaneous writes; running the general temp-var recipe on a single assignment
   would be correct but pure noise.
 
-  Every synthesized `with`'s own `ann : Typ` field survives past this pass now (`Computable2Guarded/
-  FlatReord.lean`'s walk carries it, unchanged, into `GuardedPlusCal.Statement.with`'s own `ann`
-  field — see that type's doc comment). The outer RHS bindings (`vᵢ`'s type must match `rᵢ`'s own
+  Every synthesized `with` carries its own `ann : Typ` field past this pass: `FlatReord`'s walk
+  hands it, unchanged, to `GuardedPlusCal.Statement.with`'s own `ann` field. The outer RHS bindings (`vᵢ`'s type must match `rᵢ`'s own
   result type for `rᵢ := vᵢ` to be well-typed) and the inner index-temp bindings (each index
   expression's own type) both get their real type now, via `Ref.resultType`/`.indexType`
   respectively (`Core/ComputablePlusCal/Syntax.lean`) — cheap structural recomputation from
@@ -137,7 +135,7 @@ mutual
 end
 
 /-- `𝒞_par` over a whole algorithm: applied per `(label, Block)` pair, across every thread of
-every process — mirrors `Computable2Guarded/CFlow.lean`'s own `Algorithm.cflow` exactly. -/
+every process. -/
 def ComputablePlusCal.Algorithm.par (algo : ComputablePlusCal.Algorithm) : m ComputablePlusCal.Algorithm := do
   let processes ← algo.processes.mapM λ p ↦ do
     let threads ← p.threads.mapM (·.mapM λ (label, block) ↦ (label, ·) <$> Block.par block)

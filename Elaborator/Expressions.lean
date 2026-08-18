@@ -18,14 +18,14 @@ public section
   A few constructs synthesize only in certain cases:
   - `∅` is checking-only (`lub` over zero elements is undefined); a nonempty `{e1,...,en}`
     synthesizes `Set(lub(τ1,...,τn))`.
-  - `IF`/`CASE` are both bidirectional (thesis §3.1.3.6 gives each a checking *and* a synthesis
-    rule). Checked against an expected `τ`, every branch is checked against `τ` directly, so each
+  - `IF`/`CASE` are both bidirectional: each has a checking *and* a synthesis rule. Checked against
+    an expected `τ`, every branch is checked against `τ` directly, so each
     branch picks up its own coercion from `[Subtype]`. In synthesis position they fall back to
     `lub` over the branches — which only succeeds when the join happens to *be* one of the branch
     types, `lub` being able to return only one of its two arguments (`Elaborator/Subtyping.lean`).
     Heterogeneous branches with no common branch type therefore need an expected type to flow in;
-    that is the deliberate "require an annotation instead of implementing a real `lub`" trade of
-    `PLAN.md` §5.3, and the checking rules above are what make it reachable.
+    that is the deliberate "require an annotation instead of implementing a real `lub`" trade, and
+    the checking rules above are what make it reachable.
   - `⟨e1,...,en⟩` dispatches by mode: checked against an expected `Seq(τ)` it uses the sequence
     constructor (each element checks against `τ`); everywhere else it synthesizes as a tuple. The
     elaborated term keeps the distinction (`.tuple` vs. `.seq`).

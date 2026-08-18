@@ -122,9 +122,9 @@ of type `τ` into a process-local `inbox` sequence variable (fresh per process, 
 `Guarded2Network.freshName`). A real second kind of thread, not folded into `.code`, since its body
 isn't a `List AtomicBlock` — see the module doc.
 
-`label` is the receiving loop's own block label. `reference/jlamp.pdf` §4.1 gives `.rx`'s meaning as
-the single atomic block `label : receive(chan, tmp) ; inbox := Append(inbox, tmp) ; goto label`,
-"although without the temporary variable `tmp` assigned to" — so the loop needs a label of its own
+`label` is the receiving loop's own block label. `.rx`'s meaning is the single atomic block
+`label : receive(chan, tmp) ; inbox := Append(inbox, tmp) ; goto label`, without the temporary
+variable `tmp` ever being assigned to — so the loop needs a label of its own
 to be scheduled by, and to be the target of its own terminal `goto`, whereas `tmp` is never written
 and needs no name at all. Both are freshly generated, so this one field carries the one that
 matters. -/

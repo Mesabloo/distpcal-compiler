@@ -8,16 +8,14 @@ public section
 
 /-!
   `Computable2Guarded`'s entry point — `𝒞_D→G := 𝒞_reord ∘ 𝒞_flat ∘ 𝒞_par ∘ 𝒞_cflow`, matching the
-  `<InputType>.<verb>` convention `Typed2Computable`/`WellFormedness` already use. `𝒞_cflow`/
-  `𝒞_par` run first, both whole-`Algorithm` rewrites *within* `ComputablePlusCal`'s own type
-  (their order doesn't matter); only then does the merged `𝒞_flat`/`𝒞_reord` walk (`FlatReord.
-  walkBlock`) actually change shape, applied per `(label, Block)` pair across every thread of
-  every process. `Declarations`/`Process`/`Algorithm`'s outer shape is otherwise a plain
-  structural copy — `ComputablePlusCal`'s `Typ`/`Expression` and this pass's own pinning of
-  `GuardedPlusCal`'s are the identical *types*, so only `threads` genuinely changes shape
-  (`AtomicBlock.branches` is `FlatReord.walkBlock`'s own output). `Declarations` is still a
-  distinct (if identically-shaped) `structure` between the two namespaces, so
-  `Declarations.toGuarded` below is a one-line field-for-field repackaging, not a real
+  `<InputType>.<verb>` convention the other passes use. `𝒞_cflow`/`𝒞_par` run first, both
+  whole-`Algorithm` rewrites *within* `ComputablePlusCal`'s own type (their order doesn't matter);
+  only then does the merged `𝒞_flat`/`𝒞_reord` walk change shape, applied per `(label, Block)` pair
+  across every thread of every process. `Declarations`/`Process`/`Algorithm`'s outer shape is
+  otherwise a plain structural copy — `ComputablePlusCal`'s `Typ`/`Expression` and this pass's own
+  pinning of `GuardedPlusCal`'s are the identical *types*, so only `threads` genuinely changes shape.
+  `Declarations` is still a distinct (if identically-shaped) `structure` between the two namespaces,
+  so `Declarations.toGuarded` below is a one-line field-for-field repackaging, not a real
   translation.
 -/
 

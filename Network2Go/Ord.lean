@@ -48,7 +48,7 @@ private def fieldPair (x y : String) (f : String) :
 mutual
 
 /--
-  The dictionary ordering values of a TLA⁺ type (§7.2.1.2).
+  The dictionary ordering values of a TLA⁺ type.
 
   Fails on exactly the types that have no ordering and cannot need one — see the module doc.
 -/
@@ -129,8 +129,8 @@ where
 end
 
 /-- The rigid type variables a type mentions, in first-occurrence order — the type parameters, and
-hence the dictionary parameters, a definition of that type has to bind (§7.2.2: type variables are
-propagated to the nearest enclosing function definition). -/
+hence the dictionary parameters, a definition of that type has to bind; a type variable is
+propagated to the nearest enclosing function definition. -/
 partial def Typ.typeVars : Typ → List String
   | .var a => [a]
   | .set τ | .seq τ | .channel τ => Typ.typeVars τ

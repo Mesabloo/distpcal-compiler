@@ -37,8 +37,7 @@ def Relation.lcomp₂ {α β γ δ : Type _} [Monoid β] (R₁ : Set (α × β �
 /-- The idle transition: no state change, empty trace. Unit of both compositions above
 (`lcomp₁.left_id_eq`, `lcomp₂.left_id_eq`/`.right_id_eq`), base case of a statement list's semantics
 (`GuardedPlusCal.Block.listReducing`), semantics of a branch with no precondition
-(`AtomicBranch.reducing`), and the reflexive half of `Relation.starFun` — one set, written out inline
-at every site before it had a name.
+(`AtomicBranch.reducing`), and the reflexive half of `Relation.starFun`.
 
 Exposed for the same reason the two compositions are: proofs destructure membership directly with
 `rintro ⟨rfl, rfl⟩`. -/
@@ -123,17 +122,6 @@ theorem Relation.lcomp₁.right_union_eq_union {α β γ : Type _} [Monoid β] {
       (and_intros <;> try left) <;> trivial
     · exists a, e₁, e₂
       (and_intros <;> try right) <;> trivial
-
--- theorem Relation.lcomp₁.right_inter_is_inter {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} {x y : Set (γ × β)} : R ∘ᵣ₁ (x ∩ y) = R ∘ᵣ₁ x ∩ R ∘ᵣ₁ y := by
---   ext ⟨b, e⟩
---   constructor
---   · rintro ⟨a, e₁, e₂, aRb, ⟨b_in_x, b_in_y⟩, rfl⟩
---     constructor
---     · exists a, e₁, e₂
---     · exists a, e₁, e₂
---   · rintro ⟨⟨a₁, e₁₁, e₂₁, _, _, _⟩, ⟨a₂, _, e₂₂, _, _, _⟩⟩
---     exists a₁, e₁₁, e₂₁
---     done
 
 theorem Relation.lcomp₁.subset_of_subset_right {α β γ : Type _} [Monoid β] {R : Set (α × β × γ)} {x y : Set (γ × β)} (x_sub_y : x ⊆ y) : R ∘ᵣ₁ x ⊆ R ∘ᵣ₁ y :=
   Relation.lcomp₁.mono le_rfl x_sub_y
@@ -277,13 +265,6 @@ theorem Relation.lcomp₁.commute_step {α β : Type _} [Monoid β] {Q Q' R : Se
         exact Set.union_le_union hhead le_rfl
     _ = Ra ∪ R ∘ᵣ₁ (Qa' ∪ Q' ∘ᵣ₁ Xa) := Relation.lcomp₁.union_lcomp₂
     _ ≤ Ra ∪ R ∘ᵣ₁ Ya := by gcongr
-
-
-
-
-
------------------
-
 theorem Set.ωSup_is_iUnion {α : Type _} {chain : OmegaCompletePartialOrder.Chain (Set α)} : OmegaCompletePartialOrder.ωSup chain = ⋃ i, chain i := rfl
 
 theorem Set.ωSup_is_iInter {α : Type _} {chain : OmegaCompletePartialOrder.Chain (Set α)ᵒᵈ} : OmegaCompletePartialOrder.ωSup chain = ⋂ i, chain i := rfl
@@ -345,34 +326,6 @@ theorem Relation.lcomp₂.ωcontinuous {α β γ δ : Type _} [Monoid β] (R : S
     · rw [Set.ωSup_is_iUnion, Set.mem_iUnion]
       exists i
     · rfl
-
-/- theorem Relation.lcomp₁.ωcocontinuous {α β γ : Type _} [Monoid β] (R₁ : Set (α × β × γ)) :
- -     OmegaCompletePartialOrder.ωScottContinuous (OrderHom.dual { toFun := λ X ↦ R₁ ∘ᵣ₁ X,
- -                                                                 monotone' := by intro X Y X_sub; exact Relation.lcomp₁.subset_of_subset_right X_sub
- -                                                               }) := by
- -   apply OmegaCompletePartialOrder.ωScottContinuous.of_monotone_map_ωSup
- -
- -   have : Monotone (α := (Set (γ × β))ᵒᵈ) (β := (Set (α × β))ᵒᵈ) (R₁ ∘ᵣ₁ ·) := by
- -     intros _ _ _
- -     apply Relation.lcomp₁.subset_of_subset_right
- -     assumption
- -   exists this
- -   intro chain
- -
- -   ext ⟨a, e⟩
- -   iff_rintro ⟨b, e₁, e₂, aRb, b_in_ωsup, rfl⟩ h
- -   · erw [Set.ωSup_is_iInter, Set.mem_iInter] at b_in_ωsup ⊢
- -     intro i
- -     specialize b_in_ωsup i
- -     rw [OmegaCompletePartialOrder.Chain.coe_map, OrderHom.coe_mk, Function.comp_def]
- -     exists b, e₁, e₂
- -   · erw [Set.ωSup_is_iInter] at h ⊢
- -     rw [OrderHom.dual_apply_coe, Function.comp_def, Function.comp_def, OrderDual.ofDual_toDual, OrderHom.coe_mk]
- -     erw [OmegaCompletePartialOrder.Chain.coe_map, OrderHom.coe_mk (f := ⇑(OrderHom.dual _)), Function.comp_def, Set.mem_iInter] at h
- -     conv at h =>
- -       enter [i, 1]; erw [OrderHom.dual_apply_coe, Function.comp_def, Function.comp_def, OrderHom.coe_mk (f := λ X ↦ R₁ ∘ᵣ₁ X)]
- -     beta_reduce at h ⊢
- -     admit -/
 
 
 /-! # Infinite iteration

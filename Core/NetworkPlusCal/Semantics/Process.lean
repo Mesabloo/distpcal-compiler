@@ -14,8 +14,7 @@ public import Core.GuardedPlusCal.Semantics.Process
   contribute. A `.code` thread contributes its blocks' labels and their branches, exactly as in
   Guarded PlusCal. A `.rx` thread contributes its own single label, denoting the one atomic block of
   `Thread.rxBranch` — so a receiving loop is scheduled by the same mechanism as any other block,
-  which is what makes the paper's `T_rx` treatment work rather than needing a special case in the
-  process step.
+  which is what keeps the process step free of a special case for it.
 -/
 
 namespace NetworkPlusCal
@@ -48,9 +47,11 @@ def Process.codeTable [ExprSemantics V] (p : ComputableNetworkPlusCal.Process) :
     ∪ {x | ∃ T ∈ p.threads, ∃ chan τ inbox, T = .rx chan l τ inbox ∧
       x ∈ Thread.rxBranchAborting chan inbox}
 
-/-! # Instantiating the algorithm layer — see `GuardedPlusCal.Semantics.Process`'s own section for
-why `ι = String × V`; identical reasoning here, just against this language's `codeTable`/
-`ownedLabels`/`entryLabels`. -/
+/-! # Instantiating the algorithm layer
+
+  `ι = String × V`: an instance is a declared process's name paired with the identity it runs under,
+  so every lookup below resolves the name against `algo.processes` and reads this language's
+  `codeTable`/`ownedLabels`/`entryLabels` off the process it finds. -/
 
 /-- Assembles a whole `Algorithm`'s `Algebra`. -/
 def Algorithm.algebra [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
@@ -61,14 +62,13 @@ def Algorithm.algebra [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorit
   owned := λ ⟨name, _⟩ ↦ (algo.processes.find? (·.name == name)).elim ∅ Process.ownedLabels
   self := Prod.snd
 
-/-- The instance identities a declared process contributes — see
-`GuardedPlusCal.Process.identities`, identical reasoning here. -/
+/-- The instance identities a declared process contributes, read off its `=`/`∈` form and its `id`
+expression. -/
 def Process.identities [ExprSemantics V] (p : ComputableNetworkPlusCal.Process) : Set V :=
   GuardedPlusCal.identitiesOf p.«=|∈» p.id
 
-/-- `Process.identities` reads nothing but the two fields — the same statement as
-`GuardedPlusCal.Process.identities_eq`, at the same shared function, which is what lets a pass
-preserving those two fields preserve the instances by rewriting. -/
+/-- `Process.identities` reads nothing but the two fields, which is what lets a pass preserving them
+preserve the instances by rewriting. -/
 theorem Process.identities_eq [ExprSemantics V] {p : ComputableNetworkPlusCal.Process} :
     Process.identities (V := V) p = GuardedPlusCal.identitiesOf p.«=|∈» p.id := rfl
 
@@ -77,14 +77,14 @@ def Process.inits (p : ComputableNetworkPlusCal.Process) :
     List (String × ComputablePlusCal.Expression) :=
   GuardedPlusCal.initsOf p.localState.variables
 
-/-- `Process.inits` reads nothing but the declared locals — the same statement as
-`GuardedPlusCal.Process.inits_eq`, at the same shared function, which is what lets a pass that only
+/-- `Process.inits` reads nothing but the declared locals, which is what lets a pass that only
 *extends* the locals say so. -/
 theorem Process.inits_eq {p : ComputableNetworkPlusCal.Process} :
     Process.inits p = GuardedPlusCal.initsOf p.localState.variables := rfl
 
-/-- A valid initial state — see `GuardedPlusCal.Algorithm.init`'s doc comment, identical reasoning
-here, including why this is a characterization of membership rather than an existence claim. -/
+/-- A valid initial state: the instance map holds exactly one state per declared process and
+identity, each at that process's entry labels under its declared initializers, and every declared
+channel starts empty. A characterization of membership, not an existence claim. -/
 def Algorithm.init [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
     AlgState (String × V) V → Prop
   | ⟨Ps, F⟩ =>
@@ -96,8 +96,8 @@ def Algorithm.init [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm)
         (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
           F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
 
-/-- **An initial state holds one state per instance** — `GuardedPlusCal.Algorithm.init.functional`
-at this language's `init`, and the same two halves. -/
+/-- **An initial state holds one state per instance**, provided distinct declared processes have
+distinct names. -/
 theorem Algorithm.init.functional [ExprSemantics V] {algo : ComputableNetworkPlusCal.Algorithm}
     {Ps : GuardedPlusCal.Instances (String × V) V} {F : GuardedPlusCal.FIFOs V}
     (hnames : ∀ p ∈ algo.processes, ∀ q ∈ algo.processes, p.name = q.name → p = q)

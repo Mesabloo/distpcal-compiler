@@ -10,16 +10,14 @@ public import Guarded2Network.Lemmas.Trace
   Statement-level refinement: what `Guarded2Network` does to a single action statement, and the two
   transfer lemmas every later proof leans on.
 
-  **Evaluation transfer (plan D1).** The pass introduces exactly one name, `inbox`, and it is fresh
+  **Evaluation transfer.** The pass introduces exactly one name, `inbox`, and it is fresh
   (`freshName`'s `$` separator makes collision with a source name impossible). So any source
-  expression evaluates the same in the target's memory, which differs only at `inbox`. Prior art
-  re-derives that fact inline at least eight times, as a five-line `rw`/`apply eval_ext`/
-  `List.singleton_disjoint` sandwich. Here it is `relatesTo.eval_iff`, once.
+  expression evaluates the same in the target's memory, which differs only at `inbox`: that is
+  `relatesTo.eval_iff`.
 
-  **Reference arguments (plan D2).** A reference's index path is evaluated by a `List.Forall₂` over
-  `EvalStep`, and pushing the transfer under it is what drove prior art's repeated
-  `List.forall₂_iff_forall₂_attach`/`attach` gymnastics. Naming that relation — `Ref.EvalArgs` —
-  and giving it its own congruence lemma removes the nesting from view entirely.
+  **Reference arguments.** A reference's index path is evaluated by a `List.Forall₂` over
+  `EvalStep`. Naming that relation — `Ref.EvalArgs` — and giving it its own congruence lemma keeps
+  the `Forall₂` nesting out of every use site.
 -/
 
 namespace Guarded2Network
@@ -29,7 +27,7 @@ open GuardedPlusCal (ChanKey EvalStep LocalState')
 
 variable {V : Type} [ExprSemantics V]
 
-/-! ## D1 — evaluation transfer -/
+/-! ## Evaluation transfer -/
 
 /-- Binding a name the expression cannot read leaves its value alone. The one-name case of
 `ExprSemantics.evalLocal`, which is the only case the pass ever needs: it introduces `inbox` and
@@ -75,7 +73,7 @@ theorem relatesTo.eval_iff' {mbox : Mailbox} {pref : ChanKey V → List V} {σ�
   | .none => exact h.eval_iff_none
   | .some (c, inbox) => exact h.eval_iff (fresh c inbox rfl)
 
-/-! ## D2 — reference arguments -/
+/-! ## Reference arguments -/
 
 /-- A reference's index path, evaluated. Named, rather than left as the raw `List.Forall₂` it
 unfolds to, so that transferring it between memories is one lemma about `EvalArgs` instead of a
@@ -134,8 +132,8 @@ theorem Ref.EvalArgs.not_pathAborts {M : Memory V} {r : ComputableGuardedPlusCal
     cases hstep with
     | index hv => exact hab ⟨_, hv⟩
 
-/-- Memories agreeing on everything a reference *reads* resolve its path identically. This is D2's
-point: the `List.Forall₂` nesting is discharged once, here, and no later proof sees it.
+/-- Memories agreeing on everything a reference *reads* resolve its path identically. The
+`List.Forall₂` nesting is discharged once, here, and no later proof sees it.
 
 Stated over the names read rather than over a single excepted name, because that is the form a
 *block* needs — a block writes one name per statement, so "all but one" is never the shape on offer
@@ -290,13 +288,13 @@ theorem relatesTo.mem_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σ�
     · rw [LocalState'.mem_mk, ht inbox (Ne.symm hxi)]
       exact hinbox
 
-/-! ## D4 — action statements
+/-! ## Action statements
 
   `convertActionStmt` maps each of the seven action constructors to its namesake in the target
   language, and the two `Statement.reducing` definitions agree character-for-character on those
   cases (the only differences in the whole `def` are the type name, one comment, and Guarded's extra
-  `receive` case). So the semantics is not merely preserved but *definitionally equal*, and the
-  seven-lemma port prior art writes collapses to one `cases … <;> rfl` per semantic component.
+  `receive` case). So the semantics is not merely preserved but *definitionally equal*, and one
+  `cases … <;> rfl` proves each semantic component.
 -/
 
 /-- The one name a statement writes, if any. Needed by `Fresh` below: the refinement invariant pins
@@ -744,7 +742,7 @@ theorem await_diverging'_eq {e : ComputablePlusCal.Expression} :
       GuardedPlusCal.Statement.diverging' (V := V) (.await e) :=
   rfl
 
-/-- **D4, the deliverable**: `convertActionStmt` refines, statement by statement, at this pass's
+/-- `convertActionStmt` refines, statement by statement, at this pass's
 own trace relation (equality — `Guarded2Network/Lemmas/Trace.lean`).
 
 The three components come out very differently. `terminating` is the whole of `reducing'_sim`;
@@ -779,7 +777,7 @@ theorem action_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
     GuardedPlusCal.Statement.diverging'_eq_empty]
   exact StrongRefinement.ofNonDiverging (relatesTo (V := V) mbox pref) hterm habort
 
-/-- **D4's guard-class counterpart**: a `with` or an `await` refines itself, the two languages'
+/-- A `with` or an `await` refines itself, the two languages'
 constructors denoting the same relation (`with_reducing'_eq` and friends). Stated on the *source*
 semantics for the same reason `action_refines` is stated through `convertActionStmt`: the target's
 semantics is the source's, and saying so once keeps the two languages out of the proof. -/

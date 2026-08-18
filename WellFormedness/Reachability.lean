@@ -188,10 +188,9 @@ partial def TypedPlusCal.Statement.walkReachable {b : Bool} [MonadStateOf Reacha
 
 /-- Walks every expression embedded in `d` — every `variables` entry's initializer, every
 `channels`/`fifos` entry's index-type expressions. `Declarations` has no further substructure to
-recurse into. Widened to cover this after `Typed2Computable` was found silently dropping a
-`CONSTANTS`/`VARIABLES` entry referenced only from a process's own `id`/`Declarations` and never
-from a statement body — the same root cause left a banned construct hiding in such positions
-unchecked by `Restrictions.lean` too. -/
+recurse into. Covering these positions is what keeps a `CONSTANTS`/`VARIABLES` entry referenced only
+from a process's own `id`/`Declarations`, and never from a statement body, from being reported as
+unreachable — and keeps a banned construct in such a position from going unchecked. -/
 def TypedPlusCal.Declarations.walkReachable [MonadStateOf ReachabilityClosure m]
     (visitExpr : List String → TypedPlusCal.Expression → m Unit)
     (currentModule : String) (ownDecls : List Decl)

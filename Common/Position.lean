@@ -93,27 +93,6 @@ def SourceSpan.placeholder : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
 instance : Append SourceSpan where
   append := SourceSpan.merge
 
--- /-- A piece of data is located if its span in the stream is fully known. -/
--- @[unbox]
--- structure Located (α : Type _) : Type _ where
---   segment : SourceSpan
---   data : α
---   deriving Repr, Inhabited, DecidableEq, BEq --, Hashable
-
--- instance {α : Type _} : Coe (SourceSpan × α) (Located α) where
---   coe := λ ⟨pos, x⟩ ↦ ⟨pos, x⟩
-
--- instance : Functor Located where
---   map f l := {l with data := f l.data}
-
--- instance instTraversableLocated : Traversable Located where
---   traverse f l := ({l with data := ·}) <$> f l.data
-
--- instance (priority := high) {α β} : Function.HasUncurry (SourceSpan → α → β) (Located α) β where
---   uncurry f x := f x.segment x.data
-
----------------
-
 private def Internal.initSourceMap : IO (IO.Ref (Std.HashMap USize SourceSpan)) :=
   IO.mkRef (Std.HashMap.emptyWithCapacity 60)
 
@@ -152,9 +131,8 @@ private unsafe def Internal.forgetSourcePositionsImpl : BaseIO Unit :=
   registered and has its position read anyway: `posOf` cannot distinguish "no entry" from "an entry
   left by something now dead", and it answers with the corpse's span.
 
-  **Registering is therefore an obligation on every pass, not a nicety** — see `PLAN.md` §2,
-  "Source positions", for which node kinds carry positions and what a synthesized node takes. This
-  clear is the second half of the same contract: it bounds an address's reuse to one compile, so a
+  **Registering is therefore an obligation on every pass, not a nicety.** This clear is the second
+  half of the same contract: it bounds an address's reuse to one compile, so a
   node registered by a *previous* compile can never answer for a node in this one. Across compiles
   the stale span would come from another file, where the line need not exist at all.
 
@@ -162,7 +140,7 @@ private unsafe def Internal.forgetSourcePositionsImpl : BaseIO Unit :=
   right answer, and clearing only changes which wrong answer is given. Nor does it make concurrent
   compiles safe: the map is one global `IO.Ref` and clearing is itself destructive, so a clear on
   one thread drops the spans another thread has registered so far. That is why `lake test` defaults
-  to `-j 1` (`OPEN_QUESTIONS.md` §9.24).
+  to `-j 1`.
 -/
 @[implemented_by Internal.forgetSourcePositionsImpl, never_extract]
 def forgetSourcePositions : BaseIO Unit := pure ()
@@ -196,35 +174,12 @@ open Lean Parser Term in section
       else
         Macro.throwError s!"Not enough discriminants: must have at least {num} discriminants"
 
-    -- Since `idx` can contain multiple copies of the same index, there may be several `let` introduced for the same expression.
-    -- Let's hope that Lean optimises them out.
+    -- `idx` may repeat an index, so the same expression can get more than one `let`. They bind
+    -- distinct names and are all pure, so the duplicates are harmless.
 
     let «match» : Term ← `(term| match $[(generalizing := $generalize)]? $[(motive := $motive)]? $discr,* with $alts)
     let e : Term ← lets.foldlM (init := «match») λ «match» (x, e) ↦ `(term| let $x:ident := $e; $«match»)
     return e
 end
-
--- section
---   private inductive X
---     | x (n : ℕ)
---     deriving BEq, Inhabited
-
---   set_option linter.style.nameCheck false in
---   set_option linter.constructorNameAsVariable false in
---   private unsafe def __ : Bool :=
---     let x : X := .x 0 @@ ⟨⟨1, 1⟩, ⟨1, 2⟩⟩
---     let y : X := .x 1 @@ ⟨⟨1, 3⟩, ⟨1, 4⟩⟩
-
---     -- dbg_trace "Address of x: {ptrAddrUnsafe x}; Address of y: {ptrAddrUnsafe y}"
-
---     assert! x != y
---     match_source x, y with
---     | .x _, .x _, posx, posy =>
---       assert! posx == ⟨⟨1, 1⟩, ⟨1, 2⟩⟩
---       assert! posy == ⟨⟨1, 3⟩, ⟨1, 4⟩⟩
---       true
-
---   #guard unsafe __
--- end
 
 end

@@ -9,7 +9,7 @@ public import Core.TypedPlusCal.Syntax
 
 /-!
   Substitution for `ComputableTLAPlus.Expression`, mirroring `CoreTLAPlus.Expression.subst`
-  (`Desugarer/TLAPlus.lean:73`) against this type's smaller constructor set: no temporal binders
+  against this type's smaller constructor set: no temporal binders
   (`fforall`/`eexists`), no `fnSet`/`recordSet`/`stutter`, but an extra `seq` (checking-mode
   literal sequences, distinct from synthesis-mode `tuple`) with no `CoreTLAPlus` equivalent.
 

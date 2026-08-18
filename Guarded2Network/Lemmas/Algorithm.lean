@@ -18,8 +18,8 @@ import all Guarded2Network.PlusCal
 
   So this file states what a compiled algebra owes (`AlgebraRefines`), one clause per owned label,
   and then discharges the framework's `Terminating` obligation against it. The clauses are what the
-  two per-step lemmas already ask for and nothing more; they are `Guarded2Network`'s side of D8's
-  contract, to be established once `Thread.toNetwork` exists.
+  two per-step lemmas already ask for and nothing more; they are what a compiled algebra has to
+  supply.
 
   **The source side is `Relation.star Aₛ.step`, not `Aₛ.step`.** A receiving thread's step is
   answered with *no* source step at all, so no single-step form can be stated — see
@@ -94,9 +94,9 @@ structure RxLabelRefines (Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : ι �
 /-- **What a compiled algebra owes.** One clause per owned target label — code or receiving — plus
 the two facts that hold of every instance at once.
 
-This is the interface `algRelatesTo.terminating` consumes and `Thread.toNetwork` (D8) will produce.
-Written top-down, from what the two per-step lemmas already need, so that establishing it is a
-question about the pass rather than about the proof. -/
+This is the interface `algRelatesTo.terminating` consumes and `Thread.toNetwork` produces. Written
+top-down, from what the two per-step lemmas need, so that establishing it is a question about the
+pass rather than about the proof. -/
 structure AlgebraRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : ι → Set String) : Prop where
   /-- Compilation does not change an instance's identity. -/
   self_eq : ∀ p, Aₛ.self p = Aₜ.self p
@@ -274,11 +274,7 @@ omit [SeqBuiltins V] in
 /-- **And the whole reducing semantics.** `Algebra.reducing` is `step*` by definition and
 `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort`, so this is `Terminating.starStutter` at those and
 nothing else — including its absorption side condition, which is `Relation.star.star_lcomp₁_absorb`
-at exactly this shape.
-
-The `Aborting` and `Diverging` components of `StrongRefinement` are still owed; only then does
-`StrongRefinement.sequentialOmega`'s conclusion become available, and it will want the same
-stuttering treatment on both. -/
+at exactly this shape. -/
 theorem algRelatesTo.terminating_reducing [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
     {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
     StrongRefinement.Terminating (algRelatesTo (V := V) mb rx) (algRelatesTo (V := V) mb rx)
@@ -306,9 +302,7 @@ theorem algRelatesTo.diverging [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb :
 omit [SeqBuiltins V] in
 /-- **And the whole aborting semantics.** `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort` by
 definition, so this is `Aborting.starStutter` at that — the immediate half above, lifted over the run
-that precedes it by the same per-step `Terminating` the reducing half uses.
-
-Two of `StrongRefinement`'s three components are now in hand; `Diverging` is the one left. -/
+that precedes it by the same per-step `Terminating` the reducing half uses. -/
 theorem algRelatesTo.aborting [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
     {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
     StrongRefinement.Aborting (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
@@ -320,10 +314,9 @@ omit [SeqBuiltins V] in
 /-- **The algorithm-level refinement, whole.** All three components at the closed forms
 `Algebra.reducing`/`.aborting`/`.diverging`, against one state relation.
 
-What remains for item 7 is on the other side of this statement: `AlgebraRefines` has to be
-*established* from a compiled algorithm (D8, `Thread.toNetwork`), and `Algorithm.init` has to
-establish `algRelatesTo` at the initial states. Nothing further is owed by the refinement argument
-itself. -/
+`AlgebraRefines` itself is established from a compiled algorithm by `Thread.toNetwork`, and
+`algRelatesTo` at the initial states by `Algorithm.init`; the refinement argument asks for nothing
+beyond those two. -/
 theorem algRelatesTo.refines [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
     {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
     StrongRefinement (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
@@ -334,8 +327,8 @@ theorem algRelatesTo.refines [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : �
 
 /-! # The pass at this level: the whole algorithm, compiled
 
-  D8's last rung. `Algorithm.toNetwork` maps `Process.toNetwork` over the algorithm's processes and
-  keeps the global state, so the syntactic half is `Spec.mapM_list` a fourth time and nothing more.
+  `Algorithm.toNetwork` maps `Process.toNetwork` over the algorithm's processes and keeps the
+  global state, so the syntactic half is `Spec.mapM_list` a fourth time and nothing more.
 
   The semantic half — turning the resulting `ProcessRefines` into the `AlgebraRefines` above — is a
   different kind of step and is not here. It has to go through `Algorithm.algebra`'s by-name lookup
@@ -372,7 +365,7 @@ def procRxLabels (algo' : ComputableNetworkPlusCal.Algorithm) : String × V → 
 
 /-- **What a process declares its mailbox to be, as the pass gets to assume it.** After
 `checkReceiveChannels` a `@mailbox` field is present exactly when the process has a `receive` to use
-it (`PLAN.md` §5.2a), so a mailbox assignment that says `.some` is one whose process receives.
+it, so a mailbox assignment that says `.some` is one whose process receives.
 
 Only that direction is needed, and only that direction is a front-end fact. The converse — a process
 that receives has a mailbox — is what `BranchesFresh.mbox_some` already carries down the ladder. -/
@@ -497,7 +490,7 @@ theorem procMailbox_inbox_ne_selfName (href : ProcessesRefine (V := V) mbox c₀
     obtain ⟨-, rfl⟩ := heq
     exact hpr.inbox_generated.ne_selfName
 
-/-- **The source-side half of D8's contract, at the top.** Every process of the algorithm is
+/-- **The source-side freshness obligation, at the top.** Every process of the algorithm is
 `ProcessFresh` at the channel the mailbox assignment gives its name.
 
 `c₀` and `mbox` are keyed by process *name* rather than carried per process, because that is how the
@@ -510,7 +503,7 @@ def AlgorithmFresh (mbox : String → String → Mailbox)
     ∀ p ∈ algo.processes, ProcessFresh (mbox p.name) (c₀ p.name) p
 
 omit [SeqBuiltins V] in
-/-- **D8, assembled.** The compiled algebra refines the source's, at the mailbox and receiving labels
+/-- **The compiled algebra refines** the source's, at the mailbox and receiving labels
 read off the compiled algorithm. Every clause is one lemma at the resolved instance and nothing else;
 `find?_refines` is what turns an instance into a related process pair, and the four
 `*_algebra_table`/`*_algebra_owned` lemmas are what get past the `Option.elim` to the field lemmas.
@@ -522,7 +515,7 @@ the same `procMailbox algo'`, so the mailbox the clause is stated at does not.
 
 The two hypotheses that are not the pass's are the front end's: `used` says a declared mailbox is one
 its process receives on (`checkReceiveChannels`), and `hyg` that no source label is one the pass could
-generate (§9.29's neighbour — the `$` argument, discharged for every counter value at once). -/
+generate (the `$` argument, discharged for every counter value at once). -/
 theorem algebraRefines
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
@@ -621,11 +614,9 @@ private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
       (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
       cur.prefix res⌝
   with
-  -- `Process.toNetwork_spec`'s seven implicits, answered by shape rather than by tag. Three the
-  -- context already holds; the mailbox and the channel are functions of *which* process, so they are
-  -- read off the walk's position; the last is the freshness hypothesis at that same process. One
-  -- alternative rather than seven, because the tags carry no information — they renumber whenever a
-  -- rung below gains a hypothesis, and `cur✝` is the only bare `Process` in scope either way.
+  -- `Process.toNetwork_spec`'s seven implicits, answered by shape rather than by tag: three the
+  -- context already holds, the mailbox and the channel read off the walk's position, and the
+  -- freshness hypothesis at that same process.
   | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 =>
     intro _ _
     first
@@ -643,7 +634,7 @@ private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
     exact List.rel_append hinv (List.forall₂_singleton.mpr hcur)
 
 open Std.Do in
-/-- **The whole algorithm, compiled — D8's syntactic half.** The walk over the processes, plus the
+/-- **The whole algorithm, compiled — the syntactic half.** The walk over the processes, plus the
 global state carried across unchanged.
 
 `globalState` is reported because `Algorithm.init` is stated against it: the clause fixing every
@@ -659,8 +650,7 @@ theorem Algorithm.toNetwork_spec {mbox : String → String → Mailbox}
       List.Forall₂
         (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
         algo.processes algo'.processes⌝⦄ := by
-  -- `-Spec.mapM_list` for the reason it is needed at every rung: the generic loop spec would match
-  -- the walk before `mapM_processToNetwork_spec` does
+  -- `-Spec.mapM_list`, or the generic loop spec matches the walk before `mapM_processToNetwork_spec`
   mvcgen [ComputableGuardedPlusCal.Algorithm.toNetwork, mapM_processToNetwork_spec,
     -Std.Do.Spec.mapM_list]
 
@@ -668,20 +658,19 @@ open Std.Do in
 /-- **The pass is correct.** Compiling an algorithm yields one whose algebra refines the source's,
 under `algRelatesTo` at the mailbox and receiving labels the compiled algorithm itself determines.
 
-Everything in this development meets here. `Algorithm.toNetwork_spec` is D8's syntactic half, the
+Everything in this development meets here. `Algorithm.toNetwork_spec` is the syntactic half, the
 four walks; `algebraRefines` is its semantic half, turning the per-process refinement into the
 algebra-level dispatch; `algRelatesTo.refines` is the refinement argument, `Terminating`/`Aborting`/
 `Diverging` at the three closed forms. `triple_forall` is the joint: `CodeLabelRefines.refines` is
-owed at every prefix function and the spec supplies one per instantiation.
+needed at every prefix function and the spec supplies one per instantiation.
 
 The three hypotheses are the front end's, not the pass's. `AlgorithmFresh` is the syntactic
 conditions on the source program and the generated `inbox`; `MailboxUsed` says a declared mailbox is
 one its process receives on (`checkReceiveChannels`); `LabelsHygienic` that no source label is one
 the pass could generate (the `$` argument).
 
-**What is still owed above this**: that `Algorithm.init`'s initial states are related by
-`algRelatesTo` — `Algorithm.toNetwork_spec` already reports `globalState` because that obligation is
-stated against it. Nothing further is owed by the refinement argument itself. -/
+Relating `Algorithm.init`'s initial states under `algRelatesTo` is a separate statement, and
+`Algorithm.toNetwork_spec` reports `globalState` because that is what it is stated against. -/
 theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String → Mailbox}
   {c₀ : String → ComputableGuardedPlusCal.Ref} {algo : ComputableGuardedPlusCal.Algorithm}
   (fresh : AlgorithmFresh mbox c₀ algo) (used : MailboxUsed mbox algo)

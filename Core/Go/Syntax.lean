@@ -9,56 +9,39 @@ public section
 
 
 /-!
-  The target of `Network2Go`: the fragment of Go the thesis gives a denotational semantics to
-  (§6.6, Definitions 6.6.1 and 6.6.11–6.6.20), extended with what §7.2's compilation listings
-  actually emit.
+  The target of `Network2Go`: the fragment of Go the thesis gives a denotational semantics to,
+  extended with what the compilation listings actually emit.
 
-  - **Written from the thesis, not ported.** Prior art's `GoCal`
-    (`~/Documents/distpcal-compiler/Core/Go/Syntax.lean`, same on both its `typechecker` and
-    `go-semantics` branches) has no Go type or expression AST at all: it parameterizes its
-    statement layer over TLA⁺ `TypedSetTheory.Typ`/`Expression` and reuses
-    `NetworkPlusCal.ChanRef` for references. Consequence for the pass: compiling TLA⁺ types and
-    expressions *into* the ones below is real work (§7.2.1/§7.2.2), not something parameterization
-    hands over for free.
-  - **Blocks are `List Statement`**, not §6.6's `; S` continuation style, so `var`/`make` are
+  - **Blocks are `List Statement`**, not the thesis's `; S` continuation style, so `var`/`make` are
     ordinary statements scoped by position rather than by a syntactic continuation. Nothing in the
     semantics depends on the difference — a denotation folds over the list.
-  - **Beyond §6.6:** composite literals (`structLit`/`sliceLit`/`mapLit`/`make`), function literals
-    (`funcLit`), and `Typ.named`/`Typ.var`. §7.2's listings need `Lock[struct {…}]`, `Receiver[T]`,
-    `Set[T]`, `LazyFunction[T, U]`, `Address`, `Network`; without them the generated code has to
-    route around its own runtime library.
+  - **Beyond the semantics' fragment:** composite literals (`structLit`/`sliceLit`/`mapLit`/`make`),
+    function literals (`funcLit`), and `Typ.named`/`Typ.var`. The compilation listings need
+    `Lock[struct {…}]`, `Receiver[T]`, `Set[T]`, `LazyFunction[T, U]`, `Address`, `Network`; without
+    them the generated code has to route around its own runtime library.
   - **`Expression` and `Statement` are one `mutual` family, parameterized by a single `α`** (the
     type annotations expressions carry) rather than `Statement` being generic over its expression
     type. `funcLit` forces this: every callback the runtime library takes (`SetFilter`/`SetMap`/
-    `Choose`'s predicates, `FnConstructor`/`MkRecFn`'s generators — §7.2.1.2) has a *statement*
-    body, and so does the only faithful compilation of `IF`/`CASE`, Go having no conditional
-    expression and an eager helper being wrong (`IF x # 0 THEN 1/x ELSE 0` must not evaluate both
-    arms). A `Statement` generic over `Expr` cannot tie that knot. The cost is the
-    `Bifunctor`/`Bitraversable` pair on `Statement`/`Function`, which become `Functor`/`Traversable`
-    over `α`; nothing was instantiating either parameter independently, Go being the terminal AST.
-  - `Ref` is Go's own (`_`, `x`, `r[e]`, `r.x`, Definition 6.6.11), and stays generic over `Expr`
-    alone — it is not part of the mutual family, since a reference contains expressions but no
-    statements. Unlike `GuardedPlusCal.Ref` it carries no type annotation, so it gets
-    `Functor`/`Traversable` rather than the bifunctor pair.
-  - `&&`/`||` are ordinary `BinaryOperator` cases, even though Definition 6.6.9 gives them
-    short-circuiting semantics: that is a property of their semantic rule, which case-splits on the
-    operator regardless, not of the syntax. Splitting them out bought nothing and cost a case in
-    every traversal.
-  - `switch`'s default is a required field (§6.6.15 always has a `_ → {S}` tail); `select`'s is
-    optional, since a blocking `select` with no default is exactly what §7.2.3's scheduling loops
-    emit.
-  - Instances follow `Core/CorePlusCal/Syntax.lean`'s shape for a *nested* statement type
-    (`partial def` + explicit instance) rather than `Core/NetworkPlusCal/Syntax.lean`'s
-    derived-style ones, which only work because its `Statement` is flat; the mutual family's
-    traversals are one `mutual` block of `partial def`s, mirroring the type declarations.
-  - Pinned at `Go.Typ` in `ComputableGo` below, mirroring how `Core/ComputablePlusCal/Syntax.lean`
-    pins its own shared layer. This file imports nothing from `Core/` — the Go AST doesn't mention
-    TLA⁺.
+    `Choose`'s predicates, `FnConstructor`/`MkRecFn`'s generators) has a *statement* body, and so
+    does the only faithful compilation of `IF`/`CASE`, Go having no conditional expression and an
+    eager helper being wrong (`IF x # 0 THEN 1/x ELSE 0` must not evaluate both arms). A `Statement`
+    generic over `Expr` cannot tie that knot. The cost is the `Bifunctor`/`Bitraversable` pair on
+    `Statement`/`Function`, which become `Functor`/`Traversable` over `α`.
+  - `Ref` is Go's own (`_`, `x`, `r[e]`, `r.x`), and stays generic over `Expr` alone — it is not part
+    of the mutual family, since a reference contains expressions but no statements. Unlike
+    `GuardedPlusCal.Ref` it carries no type annotation, so it gets `Functor`/`Traversable` rather
+    than the bifunctor pair.
+  - `&&`/`||` are ordinary `BinaryOperator` cases, even though their semantics short-circuits: that
+    is a property of their semantic rule, which case-splits on the operator regardless, not of the
+    syntax. Splitting them out bought nothing and cost a case in every traversal.
+  - `switch`'s default is a required field (the semantics always has a `_ → {S}` tail); `select`'s is
+    optional, since a blocking `select` with no default is exactly what the scheduling loops emit.
+  - Pinned at `Go.Typ` in `ComputableGo` below, the way `ComputablePlusCal` pins its own shared
+    layer. This file imports nothing from `Core/` — the Go AST doesn't mention TLA⁺.
 -/
-
 namespace Go
 
-/-- Go types, per the cases `𝟘⋅` is defined over (Definition 6.6.1), plus `named`/`var` for §7.2's
+/-- Go types, per the cases the semantics' zero value is defined over, plus `named`/`var` for the
 generic runtime types. -/
 inductive Typ : Type
   | int
@@ -90,7 +73,7 @@ inductive UnaryOperator : Type
   | neg
   deriving Repr, Inhabited, BEq
 
-/-- Binary operators, including the short-circuiting `&&`/`||` (Definition 6.6.9). Their
+/-- Binary operators, including the short-circuiting `&&`/`||`. Their
 non-strictness is a fact about the semantic rule for `and`/`or`, not about the syntax, so they live
 here rather than as separate `Expression` constructors — a denotation case-splits on the operator
 either way. -/
@@ -111,7 +94,7 @@ inductive Builtin : Type
   | append
   deriving Repr, Inhabited, BEq
 
-/-- An assignable reference (Definition 6.6.11). No type annotation, unlike `GuardedPlusCal.Ref`.
+/-- An assignable reference. No type annotation, unlike `GuardedPlusCal.Ref`.
 
 Generic over `Expr` rather than a member of the `Expression`/`Statement` mutual family below: a
 reference contains expressions but never statements, so nothing in it needs the knot tied. -/
@@ -125,7 +108,7 @@ inductive Ref (Expr : Type) : Type
   | field (r : Ref Expr) (name : String)
   deriving Repr, Inhabited
 
-/-- One `g → {S}` arm of a `select` (Definition 6.6.19). `guard` is itself a statement — in
+/-- One `g → {S}` arm of a `select`. `guard` is itself a statement — in
 practice a `send` or `receive`. Generic over the statement type so that `Statement` below can
 nest it. -/
 structure SelectClause (α : Type) : Type where
@@ -133,7 +116,7 @@ structure SelectClause (α : Type) : Type where
   body : List α
   deriving Repr, Inhabited
 
-/-- One `v → {S}` arm of a `switch` (Definition 6.6.15). -/
+/-- One `v → {S}` arm of a `switch`. -/
 structure SwitchClause (Expr α : Type) : Type where
   head : Expr
   body : List α
@@ -141,7 +124,7 @@ structure SwitchClause (Expr α : Type) : Type where
 
 mutual
 
-/-- Go expressions (§6.6.2), plus `funcLit`. `α` carries type annotations at the sites that need
+/-- Go expressions, plus `funcLit`. `α` carries type annotations at the sites that need
 one — the same role it plays in `ComputableTLAPlus.Expression`. -/
 inductive Expression (α : Type) : Type
   /-- An integer literal, kept as its source text (same as `ComputableTLAPlus.Expression.nat`). -/
@@ -170,7 +153,8 @@ inductive Expression (α : Type) : Type
   /-- `func(x₁ τ₁, …) (τ'₁, …) { S }` — an anonymous function, closing over whatever is in scope
   at the site it appears.
 
-  Not in §6.6, which has only top-level functions, but §7.2.1.2 cannot be compiled without it:
+  Beyond the semantics' fragment, which has only top-level functions, but expression compilation
+  cannot do without it:
   `{x ∈ S : P}`, `{e : x ∈ S}`, `CHOOSE x ∈ S : P` and `[x ∈ S ↦ e]` all compile to a runtime
   call taking a callback, and `IF`/`CASE` compile to an immediately-applied literal, Go having no
   conditional expression. Lambda-lifting these to `Function`s is not an alternative: they capture
@@ -178,18 +162,19 @@ inductive Expression (α : Type) : Type
   | funcLit (params : List (String × α)) (returns : List α) (body : List (Statement α))
   deriving Repr
 
-/-- Go statements (§6.6.3.4). Blocks are `List Statement` — see the module doc. -/
+/-- Go statements. Blocks are `List Statement` — see the module doc. -/
 inductive Statement (α : Type) : Type
   | skip
   /-- A call evaluated for its effect, `f(e₁, …)`. Go accepts only a call in this position, never
   an arbitrary expression, so nothing else should be built here.
 
-  Not in §6.6, but §7.2.3 needs it: `net.c.Send(e)` and `Release(ℓ, st)` both return nothing, so
+  Beyond the semantics' fragment, but process compilation needs it: `net.c.Send(e)` and
+  `Release(ℓ, st)` both return nothing, so
   the `_ = f(…)` form that covers a value-returning call is not available for them. -/
   | expr (e : Expression α)
   | print (e : Expression α)
   | panic (e : Expression α)
-  /-- `return e₁, …, eₙ` — Go's multi-valued return, widened from §6.6.12's single `e`. -/
+  /-- `return e₁, …, eₙ` — Go's multi-valued return, widened from the semantics' single `e`. -/
   | «return» (es : List (Expression α))
   /-- `var x τ`, zero-initialized. -/
   | var (name : String) (τ : α)
@@ -218,9 +203,9 @@ end
 instance {α} : Inhabited (Expression α) := ⟨.true⟩
 instance {α} : Inhabited (Statement α) := ⟨.skip⟩
 
-/-- A top-level function (Definition 6.6.20), plus `typeParams` for the generic functions §7.2
-emits. Each type parameter carries its constraint, which is an ordinary type: `any`,
-`comparable`, or one of the runtime library's own interfaces (`Eq[T]`, `Ord[T]` — §7.2.1.2). -/
+/-- A top-level function, plus `typeParams` for the generic functions the compiler emits. Each type
+parameter carries its constraint, which is an ordinary type: `any`, `comparable`, or one of the
+runtime library's own interfaces (`Eq[T]`, `Ord[T]`). -/
 structure Function (α : Type) : Type where
   name : String
   typeParams : List (String × α)
@@ -415,8 +400,8 @@ instance : Traversable Function where
 /--
   A top-level declaration: what a generated `.go` file is a list of.
 
-  §6.6 has only `Function`, which is enough for the statement layer, but §7.2.2 compiles a
-  parameter-less operator and *every* function definition to a package-level `var` — the former
+  `Function` alone is enough for the statement layer, but definition compilation turns a
+  parameter-less operator and *every* function definition into a package-level `var` — the former
   because Go's `const` accepts only a small class of types, none of which a TLA⁺ definition
   generally has, the latter because a function is a `LazyFunction` value rather than a Go `func`.
 
@@ -429,7 +414,8 @@ inductive Declaration (α : Type) : Type
   | var (name : String) (τ : α) (value : Option (Expression α))
   /-- `type N τ` — a *defined* type, not an alias (`type N = τ`).
 
-  Not in §6.6, which has no top-level type declarations, but §7.2.3 needs one: the `Network`
+  Beyond the semantics' fragment, which has no top-level type declarations, but process compilation
+  needs one: the `Network`
   struct every generated function takes a parameter of is an anonymous struct type otherwise, and
   Go would then require it spelled out identically at every signature that mentions it. -/
   | typ (name : String) (τ : α)

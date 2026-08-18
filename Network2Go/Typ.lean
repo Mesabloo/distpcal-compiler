@@ -7,10 +7,10 @@ public import Core.ComputableTLAPlus.Syntax
 public section
 
 /-!
-  Compiling TLA⁺ types into Go types (thesis §7.2.1.1).
+  Compiling TLA⁺ types into Go types.
 
-  Prior art got this for free by parameterizing its statement layer over TLA⁺ types directly;
-  with `Core/Go/Syntax.lean` being real Go, the translation is this pass's own work (§5.7).
+  `Core.Go.Syntax` is real Go rather than a statement layer parameterized over TLA⁺ types, so the
+  translation is this pass's own work.
 
   - **Primitives go to the runtime's newtypes, not Go's builtins.** `Bool`/`Int`/`Str` compile to
     `tlaplus.Bool`/`tlaplus.Int`/`tlaplus.Str` rather than `bool`/`int`/`string`, because every
@@ -37,7 +37,7 @@ open ComputableTLAPlus
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty N2GError m]
 
 /--
-  Compiles a TLA⁺ type into its Go representation (§7.2.1.1).
+  Compiles a TLA⁺ type into its Go representation.
 
   Fails only on types that cannot appear in a value position by the time this pass runs — see the
   module doc for `Channel(τ)`, and `Core/ComputableTLAPlus/Syntax.lean` for why no metavariable
@@ -64,7 +64,7 @@ partial def compileTyp : Typ → m Go.Typ
   -- an ordinary Go function.
   | .operator τs τ => return .func (← τs.mapM compileTyp) [← compileTyp τ]
   -- A rigid type variable becomes a Go type parameter. Binding it is the enclosing definition's
-  -- job (§7.2.2: type variables are propagated to the nearest enclosing function definition).
+  -- job: a type variable is propagated to the nearest enclosing function definition.
   | .var a => return .var (binderName a)
   -- An uninterpreted constant type is left with the name it had: the user supplies it when
   -- building a runnable system, the same boundary `CONSTANT` values themselves sit on.

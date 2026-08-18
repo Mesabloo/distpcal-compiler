@@ -8,9 +8,9 @@ public section
 
 /-!
   `TypedTLAPlus.Expression.toComputable` — translates a checked TLA⁺ expression into its
-  computable fragment (`Core/ComputableTLAPlus/Syntax.lean`'s module doc has the full
+  computable fragment (`ComputableTLAPlus.Expression`'s own module doc has the full
   per-constructor rationale). Structurally mirrors `TypedTLAPlus.Expression.traverse`'s own
-  recursion (`Core/TypedTLAPlus/Syntax.lean:162-197`), reattaching source positions the same way
+  recursion, reattaching source positions the same way
   (`@@ pos`) — total on every constructor `ComputableTLAPlus.Expression` keeps, throwing
   `ComputableError.notComputable` on `fnSet`/`recordSet`, and `.internalInvariantViolated` on
   whatever else shouldn't be reachable here at all (an unbounded quantifier domain, a bare

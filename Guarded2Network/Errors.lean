@@ -4,12 +4,10 @@ public import Common.Errors
 
 public section
 
-/-! `Guarded2Network`'s diagnostics — a single defense-in-depth catch-all, mirroring
-`Computable2Guarded/Errors.lean`'s `GuardedError.internalInvariantViolated`. Every case this pass
-can hit should be impossible given upstream guarantees: type checking already guarantees a
-`receive`'s channel reference resolves and is `Channel(_)`-shaped (`Elaborator/PlusCal.lean`'s
-`checkChannelDecl`/channel-reference checking), but no proof of that fact exists yet, so these
-stay real runtime checks, same rationale as `ComputableError.internalInvariantViolated`. -/
+/-! `Guarded2Network`'s diagnostics: a single defense-in-depth catch-all. Every case it reports is
+one an earlier pass rules out — type checking establishes that a `receive`'s channel reference
+resolves and is `Channel(_)`-shaped — but this pass has no proof of that to appeal to, so the checks
+are real ones. -/
 
 /-- `Guarded2Network`'s errors. -/
 inductive G2NError : Type

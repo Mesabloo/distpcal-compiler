@@ -14,11 +14,10 @@ public import Extra.Do
   but not for *proving things about it* — `wp⟦·⟧` and the `[spec]` lemmas that drive `mvcgen` are
   stated per stack, so a proof has to pin `m` to one. Every layer (`ExceptT`, `StateT`, `Id`)
   already has `WP`/`WPMonad` in `Std.Do`, so pinning it here needs no new metatheory: only the two
-  `MonadFresh` lifts (`Common/Fresh.lean`) and the `MonadWriter` instance below, neither of which
-  existed before this pass needed them.
+  `MonadFresh` lifts and the `MonadWriter` instance below.
 
-  Its own file rather than `Guarded2Network/Lemmas.lean`, where it started: the proof files import
-  it, and `Lemmas.lean` imports them.
+  Its own file rather than `Guarded2Network.Lemmas`: the proof files import it, and
+  `Guarded2Network.Lemmas` imports them.
 -/
 
 /-- The concrete monad a `Guarded2Network` correctness proof runs the pass at. Every theorem about

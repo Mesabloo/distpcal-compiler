@@ -7,9 +7,8 @@ public section
 
 /-!
   `GuardedPlusCal.Algorithm.WellScoped`, a **Prop** — `Guarded2Network`'s refinement proof
-  precondition (§9, phase 10 item 5), assumed as a hypothesis wherever that proof needs it, not
-  derived from `Elaborator`/`Computable2Guarded`'s own behavior (out of scope for this file, and
-  for phase 10 generally — this phase is about `Guarded2Network`, not the passes before it).
+  precondition, assumed as a hypothesis wherever that proof needs it rather than derived from
+  `Elaborator`/`Computable2Guarded`'s own behavior.
 
   Same "no duplicate / no shadow" discipline as `WellFormedness.WellScoped.CorePlusCal`'s Prop,
   adapted to `GuardedPlusCal`'s post-`Computable2Guarded` shape: every `if`/`while`/`either`/
@@ -31,8 +30,8 @@ public section
   (`GuardedPlusCal.PreconditionReceives`): one channel per process, and no `receive` target
   indexing its own channel. `WellFormedness/Restrictions.lean` checks both executably over
   `TypedPlusCal`; they are restated here as `Prop`s because `Guarded2Network`'s refinement proof
-  needs them and has no other source for them (`PLAN.md` §5.2a says as much — the checks exist so
-  the proof can assume them). That is why the structures below are concrete over
+  needs them and has no other source for them: the executable checks exist so that the proof can
+  assume them. That is why the structures below are concrete over
   `ComputableGuardedPlusCal` rather than generic in `Typ`/`Expr`: `Ref.freeVars` is.
 -/
 
@@ -111,7 +110,7 @@ theorem GuardedPlusCal.fresh_of_wellscoped_of_not_mem {inScope : List String}
 `TypedPlusCal` (`checkOneReceive`, `checkRefRestrictions`), restated as a `Prop` over one
 precondition's flat guard list — the form `Guarded2Network`'s refinement proof consumes.
 
-Neither is stylistic (`PLAN.md` §5.2a): with two channels the consumption site `x := Head(inbox)`
+Neither is stylistic: with two channels the consumption site `x := Head(inbox)`
 cannot tell which channel a message arrived on, and a `receive` whose target name indexes its own
 channel moves the `ChanKey` the refinement invariant pins out from under it. The executable checks
 exist so that this proof can assume them; this is the assumption they justify.

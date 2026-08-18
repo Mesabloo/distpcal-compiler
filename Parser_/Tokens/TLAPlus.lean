@@ -137,7 +137,8 @@ namespace SurfaceTLAPlus
       | .pcal [tk] => toString tk
       | .pcal _ => "PlusCal algorithm"
 
-  -- Why does this fail when put in the `deriving` clause?
+  -- TODO(deriving): find out why `Functor` fails inside `Token`'s own `deriving` clause and fold
+  -- this back in.
   deriving instance Functor for Token
 end SurfaceTLAPlus
 

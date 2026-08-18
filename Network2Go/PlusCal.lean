@@ -6,9 +6,8 @@ public import Network2Go.Locks
 public section
 
 /-!
-  Compiling Network PlusCal processes into Go (thesis §7.2.3), on top of the TLA⁺ half
-  (`Network2Go/{Typ,Expression,Definition}.lean`) and the lock assignment
-  (`Network2Go/Locks.lean`).
+  Compiling Network PlusCal processes into Go, on top of the TLA⁺ half
+  (`Network2Go.{Typ,Expression,Definition}`) and the lock assignment (`Network2Go.Locks`).
 
   **The shape.** An atomic block does not become a Go block. Each of its branches becomes a
   top-level function returning `bool` — "did I fire" — and the block itself becomes a scheduler
@@ -17,37 +16,36 @@ public section
   scheduler rather than calling it: a chain of blocks is unbounded, and Go's goroutine stacks are
   small and growable, so a tail call would eventually overflow one.
 
-  The loop is a busy-wait, and knowingly so (§7.2.3.1, Remark 7.2.2): a failed iteration still
+  The loop is a busy-wait, and knowingly so: a failed iteration still
   pays for its lock acquisitions and its guard evaluation. Condition variables would avoid that
   and are much harder to state a correctness property about. Go's runtime also preempts on
   channel operations, which is exactly what `Acquire`/`Release` are, so the loop does not spin
   freely in practice.
 
-  **Every function takes every lock**, whether it acquires it or not (Remark 7.2.1), because a
-  `goto` may hand control to a block with a different footprint and the lock has to reach it.
-  Which locks a piece of code *acquires* is decided per **branch**, not per block (Remark 7.2.4):
+  **Every function takes every lock**, whether it acquires it or not, because a `goto` may hand
+  control to a block with a different footprint and the lock has to reach it.
+  Which locks a piece of code *acquires* is decided per **branch**, not per block:
   two branches of one block touching disjoint variables should not serialize against each other.
 
   **Locks are storage, not just mutual exclusion.** A process-local variable exists only inside
   the struct its lock carries; a branch projects the variables out after `Acquire` and reassembles
   them before `Release`, and `INIT_LOCKS` in the process function is the only place an initial
-  value is ever written. This is why `Locks.lean` does not prune thread-confined locks.
+  value is ever written. This is why `Network2Go.Locks` does not prune thread-confined locks.
 
-  Divergences from the thesis's listings, all deliberate:
+  Four choices are this compiler's own:
 
-  - **Names.** §7.3 calls `sndPi`'s scheduler `SndPi` and the process function `Pong`, both of
-    which collide with what a user-written definition of the same name compiles to — and
-    `PingPongs.tla` really does have a process `Ping` beside a `CONSTANT Ping`. The synthesized
-    names go through `Naming.lean`'s `blockName`/`branchName`/`threadName`/`processName` instead.
-  - **Assignment through a reference.** §7.2.3.1 compiles `r ≔ e` by compiling each index of `r`
-    individually, which assumes a TLA⁺ function is a Go map. Here it is a `LazyFunction`, and a
+  - **Names.** A readable scheduler name like `SndPi`, or a process function called `Pong`, collides
+    with what a user-written definition of the same name compiles to — and `PingPongs.tla` really
+    does have a process `Ping` beside a `CONSTANT Ping`. The synthesized names go through
+    `Naming`'s `blockName`/`branchName`/`threadName`/`processName` instead.
+  - **Assignment through a reference.** Compiling `r ≔ e` index by index would assume a TLA⁺
+    function is a Go map. Here it is a `LazyFunction`, and a
     sequence is 1-indexed, so `x[i] := e` compiles the way `[x EXCEPT ![i] = e]` does — through
     `compileExcept`, which already knows all three cases (function, sequence, tuple).
   - **`LOCK`/`UNLOCK`** are `locks.Acquire`/`locks.Release` calls, not raw channel operations, so
-    that `Lock[τ] = chan τ` stays inside the runtime library (§7.3, Listing 7.2.11).
-  - **`multicast`** compiles to a single `comm.Multicast` call, the thesis having omitted it
-    entirely (it calls the construct "a simple iterated send" in prose and gives no compiled
-    form). The iteration lives in the runtime library rather than in emitted code: the
+    that `Lock[τ] = chan τ` stays inside the runtime library.
+  - **`multicast`** compiles to a single `comm.Multicast` call. The iteration lives in the runtime
+    library rather than in emitted code: the
     specification fixes no order on the sends, so there is nothing for a generated loop to say
     that the library cannot. The payload becomes a function literal from the recipient, which is
     why `ProcEnv` carries the channels' element types — Go infers a literal's parameter types
@@ -153,7 +151,7 @@ def dropCall (f : String) (args : List ComputableGo.Expression) : ComputableGo.S
 
 /-! ## Statements -/
 
-/-- A branch's guards (§7.2.3.1). `await` conjoins onto `guard`; `with x = e` introduces a real Go
+/-- A branch's guards. `await` conjoins onto `guard`; `with x = e` introduces a real Go
 variable, since later guards and the branch body both read it.
 
 A `with` is evaluated even when `guard` is already `false` — Go has no lazy declaration — so an
@@ -190,7 +188,7 @@ private def compileSend (env : ProcEnv) (pos : SourceSpan) (c : ComputableNetwor
          against")
   return .expr (.call (.field target "Send") [← compileExpr e])
 
-/-- A branch's action statements (§7.2.3.1). These run only once every guard has passed, so they
+/-- A branch's action statements. These run only once every guard has passed, so they
 are emitted inside the branch's `if guard { … }`. -/
 def compileAction (env : ProcEnv) {b} :
     ComputableNetworkPlusCal.Statement false b → m (List ComputableGo.Statement)
@@ -238,8 +236,8 @@ def compileAction (env : ProcEnv) {b} :
 /-! ## Locks around a branch -/
 
 /-- `st := Acquire(ℓ)` followed by one `var x τ; x = st.x` per variable the lock guards, so that
-the branch body can name its variables directly (§7.2.3.1, "for easiness of dealing with
-variables"). Returns the statements and the `st` name, which the matching release needs. -/
+the branch body can name its variables directly. Returns the statements and the `st` name, which the
+matching release needs. -/
 private def acquireLock (env : ProcEnv) (l : Lock) : m (List ComputableGo.Statement × String) := do
   let st := goIdent (← freshName "st")
   let mut stmts : List ComputableGo.Statement :=
@@ -262,7 +260,7 @@ private def releaseLock (env : ProcEnv) (l : Lock) : m ComputableGo.Statement :=
 
 /-! ## Branches, blocks, threads, processes -/
 
-/-- One branch of an atomic block, as its own `bool`-returning function (§7.2.3.1).
+/-- One branch of an atomic block, as its own `bool`-returning function.
 
 The order is fixed by what depends on what: `guard` first, then the locks (a guard reads locked
 variables), then the guards, then the body under `if guard`, then the releases, then `return
@@ -293,8 +291,7 @@ def compileBranch (env : ProcEnv) (label : String) (i : Nat) (br : ComputableNet
            returnType := [goBoolTyp]
            body := body ++ [.return [.var guardVar]] }
 
-/-- An atomic block: its branch functions, plus the scheduler that picks between them
-(§7.2.3.1).
+/-- An atomic block: its branch functions, plus the scheduler that picks between them.
 
 `shouldContinue = !branch(…)` is the whole protocol — a branch returns whether it fired, and the
 loop stops exactly when one did. With a single branch the `switch` is redundant (`Rand(0, 1)` is
@@ -331,7 +328,7 @@ def compileBlock (env : ProcEnv) (B : ComputableNetworkPlusCal.AtomicBlock) :
   return (branches ++ [scheduler]).map .function
 
 /-- A code thread: every block it contains, plus the function that starts the chain by calling the
-first one (§7.2.3.2). Everything after that first block happens through `goto`'s goroutines, so
+first one. Everything after that first block happens through `goto`'s goroutines, so
 this really is all a thread needs.
 
 A thread with no blocks compiles to a function that does nothing. That is not a degenerate case to
@@ -349,7 +346,7 @@ def compileCodeThread (env : ProcEnv) (k : Nat) (blocks : List ComputableNetwork
       body := start ++ [.return [unitVal]] }
   return blockDecls ++ [.function thread]
 
-/-- A receiving thread (§7.2.3.2): loop on `mailbox.Recv()`, and on each message that arrives,
+/-- A receiving thread: loop on `mailbox.Recv()`, and on each message that arrives,
 acquire the lock holding `inbox` just long enough to append.
 
 Locking only around the append is the point. `Recv` blocks — possibly forever, if no peer ever
@@ -436,7 +433,7 @@ private def localsNeeded (env : ProcEnv)
 
 /--
   A process's initialization prologue: the declaration walk, then the initial lock values
-  (`INIT_LOCKS`, §7.2.3.2 and Example 7.2.7).
+  (`INIT_LOCKS`).
 
   **The walk is in declaration order, and interleaves two different things.** A `@parameter`
   emits no local — its value comes from the caller, as a parameter of the process function, so
@@ -498,7 +495,7 @@ def initLocks (env : ProcEnv)
   return stmts
 
 /--
-  A whole process (§7.2.3.2): its threads' functions, and the function that starts them.
+  A whole process: its threads' functions, and the function that starts them.
 
   The process function returns `done` immediately rather than blocking, so its caller decides when
   to wait. Each *code* thread signals the buffered `done'` when it reaches `goto Done`; a final
@@ -576,7 +573,7 @@ def channelTyps (algo : ComputableNetworkPlusCal.Algorithm) :
     List (String × Typ × List ComputablePlusCal.Expression) :=
   (algo.globalState :: algo.processes.map (·.localState)).flatMap λ d ↦ d.channels ++ d.fifos
 
-/-- The `Network` struct type (§7.3): one field per channel of the whole specification, holding
+/-- The `Network` struct type: one field per channel of the whole specification, holding
 the *sending* end only — a process reads from its own mailbox, which it is handed directly, and
 never from the network at large.
 

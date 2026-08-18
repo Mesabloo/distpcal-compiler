@@ -12,9 +12,8 @@ public import Core.TypedTLAPlus.Syntax
   `Driver`/`Elaborator` dependency, so any pass downstream of type checking can recognize a builtin
   call without re-deriving its own string list.
 
-  `WellFormedness/Restrictions.lean`'s reserved-temporal-action check and `Typed2Computable`'s
-  "is this builtin computable?" question used to keep independent copies of this list — this file
-  is now the one place that name↔operator wiring is written down.
+  This is the one place the name↔operator wiring is written down: the reserved-temporal-action
+  check and `Typed2Computable`'s "is this builtin computable?" question both read it from here.
 
   One constructor per literal builtin rather than a lighter category-tagged table: gives
   exhaustiveness-checked `match`es to every downstream consumer, at the cost of hand-duplicating

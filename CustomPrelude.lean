@@ -9,14 +9,10 @@ public meta import Mathlib.Tactic.Conv
 public meta import Mathlib.Tactic.Clean
 public meta import Mathlib.Tactic.SimpRw
 public meta import Mathlib.Tactic.Monotonicity
--- TODO: when upgrading lean
--- import Mathlib.Tactic.ByCases
 -- NOTE: do not import `Mathlib.Tactic.DeriveTraversable`, as it creates instances whose name
 -- are not scoped in the current namespace.
 public meta import Extra.Mathlib.Tactic.DeriveTraversable
 public meta import Mathlib.Tactic.FindSyntax
--- import Mathlib.Tactic.LiftLets
--- import Mathlib.Tactic.ExtractLets
 public meta import Batteries.Tactic.SeqFocus
 public meta import Mathlib.Tactic.DefEqTransformations
 public meta import Mathlib.Tactic.GuardGoalNums
@@ -37,7 +33,7 @@ public meta import LeanSearchClient
 
 
 
--- Somehow this is not in the notations for functors??
+-- `Functor.mapConst` ships without notation of its own.
 infixl:100 " <$ " => Functor.mapConst
 
 /-- `discard e` is a synonym for `let _ ← e` in a `do` block. -/
@@ -70,7 +66,8 @@ namespace Lean.Parser.Tactic
   macro "erwa " c:optConfig s:rwRuleSeq loc:(location)? : tactic => do
     `(tactic| (rw $[$(getConfigItems c)]* (transparency := .default) $s:rwRuleSeq $(loc)?; assumption))
 
-  -- ideally, we would copy-paste the elab of `split` and plug our vars at the `intron` site
+  -- TODO(split-using): rename during elaboration, at `split`'s own `intron` site, instead of
+  -- renaming per goal afterwards.
   /-- A version of `split` that also renames the hypotheses introduced. -/
   macro "split " loc:(location)? " using " names:sepBy1((ppSpace colGt binderIdent)+, "|") : tactic => do
     let renamings : Array (TSyntax `tactic) ← names.getElems.zipIdx.mapM λ ⟨xs, i⟩ ↦
@@ -88,13 +85,11 @@ namespace Lean.Parser.Tactic
   /-- Like `trans`, but generates the subgoal in the other order. -/
   macro "trans'" : tactic => `(tactic| (trans; swap))
 
-  -- The syntax proposed by `seq_focus` is horrendous!
+  -- `seq_focus`'s own notation, respelled as `t <;> [t₁ | t₂]`.
   @[inherit_doc Batteries.Tactic.seq_focus]
   macro:1 t:tactic " <;> " "[" ts:sepBy(tactic, " | ") "]" : tactic => `(tactic| $t <;> [$[$ts];*])
 
   section
-    -- Thanks for this, Arthur
-
     open Lean Elab Term Meta Tactic
 
     declare_syntax_cat range_selector
@@ -120,7 +115,6 @@ namespace Lean.Parser.Tactic
               | `(range_selector|$n₁:num - $n₂:num) => for n in [n₁.getNat:n₂.getNat+1] do set := set.insert n
               | _ => throwUnsupportedSyntax
           return mvarIds.zipIdx 1 |>.partitionMap λ (mvar, i) ↦ if i ∈ set then .inl mvar else .inr mvar
-          --return mvarIds.zipIdx 1 |>.foldl (init := ([],[])) (fun (acc₁,acc₂) (mvar,i) => if i ∈ set then (mvar::acc₁,acc₂) else (acc₁,mvar::acc₂))
         | _ => throwUnsupportedSyntax
 
     elab_rules : tactic
@@ -157,28 +151,3 @@ namespace Lean.Parser.Tactic
       `(conv| tactic' => $sel:tac_selector : conv' => $s)
   end
 end Lean.Parser.Tactic
-
-/-
-----------------------------------------
----- Tests
-----------------------------------------
-
-private example : Nat := todo!
-private example : Nat := todo! "implement"
-private example : Nat := todo! (default := 0) "implement but return 0 for now"
-
-private example {a : Nat} : match a with | 0 => True | _ => True := by
-  split using n | n _ <;> try trivial
-private example {a : Nat} (h : match a with | 0 => False | _ => False) : False := by
-  split at h using n | n _ <;> assumption
-
-private inductive Foo where
-  | a | b | c | d | e
-
-private example (x : Foo) : Nat := by
-  cases x
-  1-3 : have n := 3
-        induction n
-        all: first | assumption | exact 0
-  all : exact 2
--/

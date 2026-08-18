@@ -197,8 +197,7 @@ private def summary : HelpTopic → String
   | .target => "Backend options: properties of the emitted code."
 
 /-- What `fugue compile --help` says about the flag: the summary, and where the names are. The
-short form is derived from the long one rather than written twice — the copies are what drifted
-before. -/
+short form is derived from the long one rather than written twice. -/
 private def flagDescription (t : HelpTopic) : String :=
   s!"{t.summary} Comma-separate to pass several. Run `fugue help -{t.flag}` for the names."
 
@@ -352,7 +351,6 @@ private def runCli (p : Parsed) : IO UInt32 := do
           IO.Process.exit 1
         IO.FS.readFile path
       | .stdin => (← IO.getStdin).readToEnd
-    -- spinner.log s!"Read {source.utf8ByteSize} bytes from '{input}'."
     let lines := source.split (· == '\n') |>.toList
 
     let discovered ← IO.mkRef (∅ : Std.HashSet String)
@@ -412,16 +410,12 @@ private def runCli (p : Parsed) : IO UInt32 := do
         if let some dir := path.parent then
           IO.FS.createDirAll dir
         IO.FS.writeFile path code
-        -- spinner.log s!"Wrote {path}."
       -- Through the spinner, not `IO.println`: standard output is not the handle the animation
       -- is drawn on, but it is the same terminal, so the emitted file has to be sequenced
       -- against the animation like any other line.
       | none => spinner.logOn (← IO.getStdout) code
 
     spinner.success s!"Build completed successfully ({(← done.get).size} job{if (← done.get).size = 1 then "" else "s"})."
-
-    -- if let some summary := result.renderSummary then
-    --   IO.eprintln summary
   return 0
 
 /-- Directory layouts `fugue explain` accepts a diagnostics corpus in, relative to some ancestor of
@@ -534,8 +528,7 @@ private def compileCmd : Cmd := `[Cli|
     t, target : Target; "Which backend to target: `go` or `join`. Defaults to `go`."
     "I", "include" : Array System.FilePath; "Add a module search path. Comma-separate to add several: `-I dir1,dir2`."
     -- Each of these names no individual option: the list lives in one place, `HelpTopic.options`,
-    -- and is printed by `fugue help` and by the error for an unknown name. A second copy here is
-    -- what drifted before.
+    -- and is printed by `fugue help` and by the error for an unknown name.
     d, debug : Array NamedOption; debugFlagDescription
     f, feature : Array NamedOption; featureFlagDescription
     "W", warn : Array WarningToggle; warnFlagDescription
