@@ -69,10 +69,10 @@ def CompilerDiagnostic.pretty {ε α : Type _} [Colorized α] [ToString α] [Com
   -- blank quoted line, not as `PANIC at List.get!Internal`.
   let line := (source[n - 1]?).getD "".toSlice
   let startCol := pos.start.col
-  let endCol := if pos.end.line > n then line.length else pos.end.col
+  let endCol := if pos.end.line > n then line.positions.length else pos.end.col
   let beginLine := line.take startCol
   let middleLine := line.drop startCol |>.take (endCol - startCol)
-  let endLine := line.takeEnd (line.length - endCol)
+  let endLine := line.takeEnd (line.positions.length - endCol)
   s!"{colorizeIf colored color <| styleIf colored .Bold s!"{header}:"} {toString (CompilerDiagnostic.msgOf err) |>.replace "\n" s!"\n{headerPadding}"}{String.join ((CompilerDiagnostic.hintsOf err).map λ s ↦ s!"\n{headerPadding}" ++ (toString s).replace "\n" s!"\n{headerPadding}")}
 {linePadding}|
  {n} | {beginLine}{colorizeIf colored color middleLine}{endLine}

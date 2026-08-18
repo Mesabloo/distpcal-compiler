@@ -170,7 +170,7 @@ open Parser hiding takeMany1
 /-- `debug name p` runs `p` unchanged. It is the single seam parser tracing is inserted at, and
 `name` is the label such a trace would carry; call sites tag themselves once and stay tagged. -/
 @[expose, never_extract, specialize, macro_inline]
-def debug {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [Repr ε] [Repr α] [Repr (Stream.Position σ)] (name : String) (p : ParserT ε σ τ m α) : ParserT ε σ τ m α := λ s ↦ do
+def debug {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [Repr ε] [Repr α] [Repr (Stream.Position σ)] (_name : String) (p : ParserT ε σ τ m α) : ParserT ε σ τ m α := λ s ↦ do
   let res ← p.run s
   return res
 

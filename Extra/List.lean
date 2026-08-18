@@ -410,7 +410,7 @@ namespace List
   its own code; a proof about that pass still has the proof, and this is what spends it. -/
   theorem dropLast_concat_getLast! [Inhabited α] {xs : List α} (h : xs ≠ []) :
       xs.dropLast.concat xs.getLast! = xs := by
-    rw [List.concat_eq_append, List.getLast!_eq_getLast?_getD, List.getLast?_eq_getLast h,
+    rw [List.concat_eq_append, List.getLast!_eq_getLast?_getD, List.getLast?_eq_some_getLast h,
       Option.getD_some, List.dropLast_concat_getLast]
 
   theorem forall₂_singleton {R : α → β → Prop} {x : α} {y : β} : List.Forall₂ R [x] [y] ↔ R x y := by

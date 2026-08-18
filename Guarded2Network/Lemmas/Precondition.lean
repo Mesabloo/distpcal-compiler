@@ -722,7 +722,7 @@ theorem PairsFresh.mono {inbox : String}
 come. This is what `stepStatement_spec`'s precondition asks for, and what the loop invariant has to
 carry — it shrinks as the suffix shrinks and has to be re-established when a `receive` extends the
 accumulator. -/
-private def AccFresh (inbox : String) (st : ReceiveState)
+private def AccFresh (_inbox : String) (st : ReceiveState)
     (suff : List (ComputableGuardedPlusCal.Statement true false)) : Prop :=
   ∀ a ∈ st.newInstrs, ∀ x ann bound e,
     GuardedPlusCal.Statement.with x ann bound e ∈ suff →
@@ -962,7 +962,7 @@ private theorem mapM_stepStatement_refines {chans : Guarded2NetworkChans} {mbox 
         AccFresh inbox stf q.1.suffix⌝, ExceptConds.true) :
       Invariant Ss (List (ComputableNetworkPlusCal.Statement true false))
         (.arg ReceiveState (.except G2NError (.arg Nat .pure)))))
-    (λ _ cur suff h bs ↦
+    (λ _ cur _suff h _bs ↦
       stepStatement_spec (V := V) (c₀ := c₀) cur
         (λ c r coe heq ↦ hmb c r coe (heq ▸ h ▸ List.mem_append_right _ List.mem_cons_self))
         (λ c r coe heq ↦ rfresh c r coe (heq ▸ h ▸ List.mem_append_right _ List.mem_cons_self))

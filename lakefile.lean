@@ -37,6 +37,7 @@ abbrev leanOptions : Array LeanOption := #[
   ⟨`weak.linter.docPrime, false⟩, -- No warning when no doc on symbol ending with `'`
   ⟨`pp.showLetValues.tactic.threshold, .ofNat 0⟩,
   ⟨`pp.showLetValues.threshold, .ofNat 0⟩,
+  ⟨`mvcgen.warning, false⟩, -- `mvcgen` used deliberately project-wide; skip experimental-tactic notice
 ]
 @[inherit_doc Package.moreServerOptions]
 abbrev moreServerOptions : Array LeanOption := #[]

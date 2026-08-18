@@ -73,7 +73,7 @@ structure SourceProgram (V : Type) [ExprSemantics V] : Type where
 
 /-- **A target program of this pass** — a compiled algorithm, indexed by the value universe its
 semantics is taken in. The index is phantom; see this file's module doc for why it is there. -/
-def TargetProgram (V : Type) : Type := ComputableNetworkPlusCal.Algorithm
+def TargetProgram (_V : Type) : Type := ComputableNetworkPlusCal.Algorithm
 
 /-! # Their semantics, as the framework indexes it -/
 
