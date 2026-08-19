@@ -6576,6 +6576,18 @@ noncomputable section Domain
         rw! [IterativeDomain.parallel_lift_right, IterativeDomain.parallel_lift_right, ← IterativeDomain.idist_cast, this]
         apply IterativeDomain.parallel_idist_le_right
 
+      theorem DomainUnion.parallel_comm {p : DomainUnion «Σ» Γ α β} {q : DomainUnion «Σ» Γ α γ} :
+          DomainUnion.parallel p q = DomainUnion.map Prod.swap (DomainUnion.parallel q p) := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q
+
+        change DomainUnion.mk (IterativeDomain.parallel p q) = DomainUnion.mk (IterativeDomain.map Prod.swap (IterativeDomain.parallel q p))
+
+        have h₁ : m + n = n + m := Nat.add_comm _ _
+
+        congr 1
+        rw [IterativeDomain.parallel_comm]
+        grind only
+
       theorem DomainUnion.parallel_lipschitz :
           LipschitzWith 2 (Function.uncurry (DomainUnion.parallel («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ))) := by
         have : (2 : NNReal) = 1 + 1 := by norm_num1
@@ -6593,8 +6605,29 @@ noncomputable section Domain
       def Domain.parallel : Domain «Σ» Γ α β → Domain «Σ» Γ α γ → Domain «Σ» Γ α (β × γ) :=
         UniformSpace.Completion.extension₂ (λ x y ↦ DomainUnion.parallel x y)
 
+      theorem Domain.parallel_coe_coe {p : DomainUnion «Σ» Γ α β} {q : DomainUnion «Σ» Γ α γ} :
+          Domain.parallel (p : Domain «Σ» Γ α β) q = (DomainUnion.parallel p q : Domain «Σ» Γ α (β × γ)) := by
+        rw [Domain.parallel, UniformSpace.Completion.extension₂_coe_coe]
+        · apply UniformContinuous.comp
+          · apply UniformSpace.Completion.uniformContinuous_coe
+          · apply DomainUnion.parallel_uniform_continuous
+
       -- def Domain.parallel' [inst : HasDefaultInit «Σ» Γ α] : Domain «Σ» Γ α β → Domain «Σ» Γ α γ → Domain «Σ» Γ α (β × γ) :=
       --   Domain.parallel inst.zero
+
+      theorem Domain.parallel_comm {p : Domain «Σ» Γ α β} {q : Domain «Σ» Γ α γ} :
+          Domain.parallel p q = Domain.map Prod.swap (Domain.parallel q p) := by
+        induction p, q using UniformSpace.Completion.induction_on₂ with
+        | hp =>
+          apply isClosed_eq
+          · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+          · apply Continuous.comp
+            · apply UniformSpace.Completion.continuous_map
+            · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+        | ih p q =>
+          rw [Domain.parallel_coe_coe, Domain.parallel_coe_coe, Domain.map_coe, DomainUnion.parallel_comm]
+          · apply LipschitzWith.prodSwap
+          · rfl
     end Parallel
   end Operators
 
