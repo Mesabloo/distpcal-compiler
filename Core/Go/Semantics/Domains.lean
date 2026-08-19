@@ -114,7 +114,8 @@ noncomputable section Domain
         idist (Branch.close («Σ» := «Σ») (α := α) c p) (Branch.close c' p') = idist c c' ⊔ idist p p' :=
       rfl
 
-    @[simp]
+
+@[simp]
     theorem Branch.idist_next_next {σ σ' : «Σ»} {p p' : Restriction γ unitInterval.half} :
         idist (Branch.next (Γ := Γ) (α := α) σ p) (Branch.next σ' p') = idist σ σ' ⊔ idist p p' :=
       rfl
@@ -5000,8 +5001,8 @@ noncomputable section Domain
           Sum.elim (λ (c', π) ↦ if c = c' then ∅ else {Branch.recv c' λ v ok ↦ Restriction.map (IterativeDomain.hide c) (π v ok)}) <|
           Sum.elim (λ (c', v, p) ↦ if c = c' then ∅ else {Branch.send c' v (Restriction.map (IterativeDomain.hide c) p)}) <|
           Sum.elim (λ (c', p) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.syncClose zero c) p)} else {Branch.close c' (Restriction.map (IterativeDomain.hide c) p)}) <|
-          Sum.elim (λ (c', p) ↦ if c = c' then ∅ else {Branch.sync c' (Restriction.map (IterativeDomain.hide c) p)}) <|
-          λ (σ, p) ↦ {Branch.next σ ⟨IterativeDomain.hide c p.val⟩}
+          Sum.elim (λ (c', p) ↦ if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide c) p)} else {Branch.sync c' (Restriction.map (IterativeDomain.hide c) p)}) <|
+          λ (σ, p) ↦ {Branch.next σ (Restriction.map (IterativeDomain.hide c) p)}
 
         def IterativeDomain.hide (c : Γ) {n} : (IterativeDomain «Σ» Γ α β n).carrier → (IterativeDomain «Σ» Γ α β n).carrier :=
           match n with
@@ -5045,7 +5046,7 @@ noncomputable section Domain
         rfl
 
       theorem Branch.hide_sync {σ : «Σ»} {c c' : Γ} {n} {p : Restriction (IterativeDomain «Σ» Γ α β n).carrier unitInterval.half} :
-          Branch.hide zero σ c (Branch.sync c' p) = if c = c' then ∅ else {Branch.sync c' (Restriction.map (IterativeDomain.hide zero c) p)} := by
+          Branch.hide zero σ c (Branch.sync c' p) = if c = c' then {Branch.next σ (Restriction.map (IterativeDomain.hide zero c) p)} else {Branch.sync c' (Restriction.map (IterativeDomain.hide zero c) p)} := by
         unfold Branch.hide
         rfl
 
@@ -5077,10 +5078,8 @@ noncomputable section Domain
             <;> simp_all only [Set.singleton_ne_empty]
         case sync.sync =>
           rw [Branch.hide_sync] at hb hb'
-          split_ifs at hb hb' with h₁ h₂ h₃ <;> try contradiction
-          · subst c
-            rw [Branch.idist_sync_sync, idist_discrete, if_neg h₂, top_sup_eq]
-          · simp_all only [Set.singleton_ne_empty]
+          split_ifs at hb hb' with h₁ h₂ h₃
+            <;> simp_all only [Set.singleton_ne_empty]
         case next.next =>
           rw [Branch.hide_next] at hb hb'
           simp_all only [Set.singleton_ne_empty]
@@ -5146,14 +5145,18 @@ noncomputable section Domain
             rw [Branch.hide_sync, Branch.hide_sync, Branch.idist_sync_sync]
             split_ifs with h₁ h₂ h₃
             · subst h₁ h₂
-              rw [IMetric.hausdorffIDist_self]
-              apply OrderBot.bot_le
+              erw [IMetric.hausdorffIDist_singleton, Branch.idist_next_next, Restriction.idist_eq, Restriction.idist_eq,
+                   idist_self, idist_self, bot_sup_eq, bot_sup_eq]
+              apply mul_le_mul_right
+              apply IterativeDomain.hide_idist_le
             · subst h₁
-              rw [IMetric.hausdorffIDist_empty_left, idist_discrete c c₂, if_neg h₂, top_sup_eq]
-              apply Set.singleton_nonempty
+              have h₃ : idist c c₂ = ⊤ := by grind only [idist_discrete]
+              erw [h₃, top_sup_eq]
+              apply OrderTop.le_top
             · subst h₃
-              rw [IMetric.hausdorffIDist_empty_right, idist_discrete c₁ c, if_neg (Ne.symm h₁), top_sup_eq]
-              apply Set.singleton_nonempty
+              have h₃ : idist c₁ c = ⊤ := by grind only [idist_discrete]
+              erw [h₃, top_sup_eq]
+              apply OrderTop.le_top
             · rw [IMetric.hausdorffIDist_singleton, Branch.idist_sync_sync, Restriction.idist_eq, Restriction.idist_eq]
               apply max_le_max_left
               apply mul_le_mul_right
@@ -5311,7 +5314,8 @@ noncomputable section Domain
           | sync c' p =>
             rw [Branch.hide_sync, Branch.map_sync, Branch.hide_sync]
             split_ifs with h₁
-            · rw [Set.image_empty]
+            · rw [Set.image_singleton, Branch.map_next, Restriction.map, Restriction.map, Restriction.map, Restriction.map,
+                  IterativeDomain.hide_lift]
             · rw [Set.image_singleton, Branch.map_sync, Restriction.map, Restriction.map, Restriction.map, Restriction.map,
                   IterativeDomain.hide_lift]
           | next σ' p =>
