@@ -81,39 +81,35 @@ def CodeTable.procDiverging (_Ξ : CodeTable V) (_owned : Set String) (_self : V
 
 /-! # Algorithms -/
 
-/-- Every process instance paired with its own state. Named apart from `AlgState` so that the
-well-formedness condition below — and the refinement invariants that have to carry it — can be
-stated about the instances alone; the channels are shared and have nothing to do with it. -/
-abbrev Instances (ι V : Type) : Type := Set (ι × ProcState V)
+/-- Every process instance paired with its own state — a partial function, not the paper's set of
+pairs `𝒫(⟨P,σ⟩)`. `P` is only ever used as a name to pair a state with, so writing it as a set costs
+a soundness obligation ("at most one state per instance") for nothing: as a function the property is
+definitional, not carried. -/
+abbrev Instances (ι V : Type) : Type := ι → Option (ProcState V)
 
-/-- **At most one state per instance.** `Instances` is a set of pairs, so nothing in the type says
-so: `Algorithm.init` produces one pair per declared instance, and `Algebra.step` *replaces* the pair
-an instance had rather than adding one, so every reachable state satisfies it.
+/-- Replacing one instance's state. A named wrapper around `Function.update` rather than raw calls
+to it at each site: `Function.update` needs `[DecidableEq ι]`, and `ι` is arbitrary here, so every
+call would otherwise resolve its own (classically-derived) instance independently. Two proof terms
+built that way are propositionally but not *definitionally* equal, which breaks the moment one has to
+match the exact term `Algebra.step` itself produces (`algRelatesTo.block_step`/`.rx_step`'s `hQs`
+hypotheses do exactly that). Naming the update pins one instance, used everywhere. -/
+noncomputable def Instances.update (Ps : Instances ι V) (p : ι) (σ : Option (ProcState V)) :
+    Instances ι V :=
+  letI : DecidableEq ι := λ a b ↦ Classical.propDecidable (a = b)
+  Function.update Ps p σ
 
-Named because a refinement invariant over an algorithm state generally cannot be stated without it.
-An invariant that accounts for anything *per instance* is outright false at a state holding two
-states for one instance: that instance's step updates the accounting, and the second state, which did not move, is
-left related against the old one. So it is carried as a clause of the invariant rather than derived
-from reachability, which would put a reachability hypothesis on every lemma below it. -/
-def Instances.Functional (Ps : Instances ι V) : Prop :=
-  ∀ p σ σ', (⟨p, σ⟩ : ι × ProcState V) ∈ Ps → (⟨p, σ'⟩ : ι × ProcState V) ∈ Ps → σ = σ'
+@[simp]
+theorem Instances.update_self (Ps : Instances ι V) (p : ι) (σ : Option (ProcState V)) :
+    Ps.update p σ p = σ := by
+  letI : DecidableEq ι := λ a b ↦ Classical.propDecidable (a = b)
+  simp only [Instances.update]
+  exact Function.update_self ..
 
-/-- Replacing one instance's state keeps it — which is what an algorithm step does, and so what
-every per-step lemma has to re-establish for its own post-state. -/
-theorem Instances.Functional.replace {Ps : Instances ι V} (h : Ps.Functional) {p : ι}
-    {σ : ProcState V} (hmem : (⟨p, σ⟩ : ι × ProcState V) ∈ Ps) (σ' : ProcState V) :
-    Instances.Functional (insert (⟨p, σ'⟩ : ι × ProcState V) (Ps \ {⟨p, σ⟩})) := by
-  intro q τ τ' hτ hτ'
-  simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hτ hτ'
-  rcases hτ with ⟨rfl, rfl⟩ | ⟨hτ, hne⟩
-  · rcases hτ' with ⟨-, rfl⟩ | ⟨hτ', hne'⟩
-    · rfl
-    · absurd hne'
-      exact ⟨rfl, h q τ' σ hτ' hmem⟩
-  · rcases hτ' with ⟨rfl, rfl⟩ | ⟨hτ', -⟩
-    · absurd hne
-      exact ⟨rfl, h q τ σ hτ hmem⟩
-    · exact h q τ τ' hτ hτ'
+theorem Instances.update_of_ne {Ps : Instances ι V} {p q : ι} (h : q ≠ p)
+    (σ : Option (ProcState V)) : Ps.update p σ q = Ps q := by
+  letI : DecidableEq ι := λ a b ↦ Classical.propDecidable (a = b)
+  simp only [Instances.update]
+  exact Function.update_of_ne h ..
 
 /-- An algorithm state: every process instance paired with its own state, plus the shared channels.
 -/
@@ -132,15 +128,15 @@ structure Algebra (ι V : Type) : Type where
 /-- The paper's `P*_red`: one step of one process, chosen non-deterministically, with every other
 process and the channels carried through. -/
 def Algebra.step (A : Algebra ι V) : Set (AlgState ι V × Trace V × AlgState ι V) :=
-  {⟨⟨Ps, F⟩, τ, ⟨Ps', F'⟩⟩ | ∃ p σ, ⟨p, σ⟩ ∈ Ps ∧ ∃ σ',
+  {⟨⟨Ps, F⟩, τ, ⟨Ps', F'⟩⟩ | ∃ p σ, Ps p = .some σ ∧ ∃ σ',
     ⟨⟨σ, F⟩, τ, ⟨σ', F'⟩⟩ ∈ (A.table p).procReducing (A.owned p) (A.self p) ∧
-    Ps' = insert ⟨p, σ'⟩ (Ps \ {⟨p, σ⟩})}
+    Ps' = Ps.update p (.some σ')}
 
 /-- Some process goes wrong *now*: the immediate half of the aborting semantics, with no steps taken
 first. Named on its own because the aborting semantics is built from it by composition rather than
 by iterating a functional that mentions it. -/
 def Algebra.immediateAbort (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
-  {⟨⟨Ps, F⟩, τ⟩ | ∃ p σ, ⟨p, σ⟩ ∈ Ps ∧
+  {⟨⟨Ps, F⟩, τ⟩ | ∃ p σ, Ps p = .some σ ∧
     ⟨⟨σ, F⟩, τ⟩ ∈ (A.table p).procAborting (A.owned p) (A.self p)}
 
 /-- Every **finite** sequence of algorithm steps, with the concatenated trace: `step*`.
@@ -222,8 +218,8 @@ theorem eval_forall₂_inj [ExprSemantics V] {M : Memory V}
 set is `entry` outright, and the memory is a fold over the initializers' values, which
 `ExprSemantics.evalUnique` pins one by one.
 
-This is what `Instances.Functional` rests on: one state per instance is a soundness condition, not
-bookkeeping. -/
+This is what makes `Algorithm.init` well-defined as a characterization of a *function* `Ps`: the
+right-hand side of its `↔` pins at most one `σ` per instance, `InitMem.inj` and this lemma being why. -/
 theorem InitProc.inj [ExprSemantics V] {self : V}
     {inits : List (String × ComputablePlusCal.Expression)} {entry : Set String}
     {σ σ' : ProcState V} (h : InitProc self inits entry σ) (h' : InitProc self inits entry σ') :
@@ -445,10 +441,9 @@ theorem Process.inits_eq {p : ComputableGuardedPlusCal.Process} :
 
 Stated as a characterization of membership rather than as "for each declared instance some state
 exists". The weaker reading does not constrain `Ps` at all — it is satisfied by an `Instances` that
-*also* holds junk pairs, or two states for one instance, since an existential is still witnessed. It
-is the membership form that makes `Instances.Functional` derivable (`init.functional` below), and
-that clause of `Guarded2Network`'s algorithm-level invariant is a soundness obligation rather than
-bookkeeping.
+*also* holds junk pairs, or two states for one instance, since an existential is still witnessed. As
+an equation on a function, "one state per instance" is not a further clause to derive — it is what
+`Ps i = .some σ ↔ …` already says, `InitProc.inj` pinning the right-hand side to at most one `σ`.
 
 Every declared channel/fifo starts with an empty queue at every index its own domain admits — not
 simply "`F` has no entries": `Statement.reducing`/`.aborting`'s `F.lookup = none` case is an
@@ -457,32 +452,12 @@ simply "`F` has no entries": `Statement.reducing`/`.aborting`'s `F.lookup = none
 def Algorithm.init [ExprSemantics V] (algo : ComputableGuardedPlusCal.Algorithm) :
     AlgState (String × V) V → Prop
   | ⟨Ps, F⟩ =>
-    (∀ (i : String × V) (σ : ProcState V), (⟨i, σ⟩ : (String × V) × ProcState V) ∈ Ps ↔
+    (∀ (i : String × V) (σ : ProcState V), Ps i = .some σ ↔
       ∃ p ∈ algo.processes, ∃ self ∈ Process.identities (V := V) p,
         i = (p.name, self) ∧ InitProc self p.inits (Process.entryLabels p) σ)
     ∧ ∀ nτd ∈ algo.globalState.channels ++ algo.globalState.fifos, ∀ idx : List V,
         (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
           F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
-
-/-- **An initial state holds one state per instance.** The two halves of the argument: membership
-pins which process an instance came from, and `InitProc.inj` pins that process's initial state.
-
-`hnames` is the front end's — no two declared processes share a name. Without it a single
-`⟨name, self⟩` could be contributed by two processes with different bodies, and the two initial
-states would genuinely differ. It is the same condition `Algorithm.algebra` already rests on, that
-one resolving an instance by `find?` on the name and so answering for the *first* process carrying
-it. -/
-theorem Algorithm.init.functional [ExprSemantics V] {algo : ComputableGuardedPlusCal.Algorithm}
-    {Ps : Instances (String × V) V} {F : FIFOs V}
-    (hnames : ∀ p ∈ algo.processes, ∀ q ∈ algo.processes, p.name = q.name → p = q)
-    (h : Algorithm.init algo ⟨Ps, F⟩) : Ps.Functional := by
-  intro i σ σ' hσ hσ'
-  obtain ⟨p, hp, self, -, rfl, hinit⟩ := (h.1 i σ).mp hσ
-  obtain ⟨q, hq, self', -, heq, hinit'⟩ := (h.1 _ σ').mp hσ'
-  simp only [Prod.mk.injEq] at heq
-  obtain ⟨hname, rfl⟩ := heq
-  obtain rfl := hnames p hp q hq hname
-  exact hinit.inj hinit'
 
 end GuardedPlusCal
 

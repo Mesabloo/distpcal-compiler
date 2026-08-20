@@ -252,7 +252,7 @@ source label and leaves at another, never at an `.rx` thread's; without that the
 set would not be the source's plus `rx p`, and the two would stop scheduling in step. Both are facts
 about the compiled process, discharged where the threads are known. -/
 theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} {rx : ι → Set String}
-    {Ps Qs Qs' : Set (ι × ProcState V)} {F₁ F₂ F₂' : FIFOs V}
+    {Ps Qs Qs' : GuardedPlusCal.Instances ι V} {F₁ F₂ F₂' : FIFOs V}
     {p : ι} {label label' : String} {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
@@ -261,18 +261,17 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
     (fresh : ∀ Br ∈ brs, ∀ c inbox, mb p = .some (c, inbox) →
       BranchesFresh (.some (c, inbox)) c inbox Br)
     (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs, F₂⟩)
-    (hS : (⟨p, ⟨M₁, L₁⟩⟩ : ι × ProcState V) ∈ Ps)
-    (hin : (⟨p, ⟨M₂, L₂⟩⟩ : ι × ProcState V) ∈ Qs)
+    (hS : Ps p = .some ⟨M₁, L₁⟩)
+    (hin : Qs p = .some ⟨M₂, L₂⟩)
     (hlabel : label ∈ L₁) (hlabel' : label' ∉ rx p)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
     (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label'⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
         NetworkPlusCal.AtomicBranch.reducing Br')
-    (hQs : Qs' = insert (⟨p, ⟨M₂', insert label' (L₂ \ {label})⟩⟩ : ι × ProcState V)
-      (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :
+    (hQs : Qs' = Qs.update p (.some ⟨M₂', insert label' (L₂ \ {label})⟩)) :
     (∃ M₁' F₁' ε',
-        (⟨insert (⟨p, ⟨M₁', insert label' (L₁ \ {label})⟩⟩ : ι × ProcState V)
-            (Ps \ {⟨p, ⟨M₁, L₁⟩⟩}), F₁'⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
+        (⟨Ps.update p (.some ⟨M₁', insert label' (L₁ \ {label})⟩), F₁'⟩ : AlgState ι V)
+            ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
         (instTrace (V := V)).Rτ ε' ε ∧
         ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε', ⟨M₁', F₁', .some label'⟩⟩ :
           LocalState V × Trace V × LocalState V) ∈
@@ -280,9 +279,26 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
         ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
           GuardedPlusCal.AtomicBranch.aborting Br) := by
-  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
-  obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
-  obtain rfl := hfs p σ₁ ⟨M₁, L₁⟩ hσ₁ hS
+  obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
+  have hfwd : ∀ q σ, Ps q = .some σ →
+      ∃ σ', Qs q = .some σ' ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+    intro q σ hq
+    have hm := hmatch q
+    rw [hq] at hm
+    rcases Option.eq_none_or_eq_some (Qs q) with hq' | ⟨σ', hq'⟩
+    · rw [hq'] at hm; exact hm.elim
+    · rw [hq'] at hm; exact ⟨σ', hq', hm⟩
+  have hbwd : ∀ q σ', Qs q = .some σ' →
+      ∃ σ, Ps q = .some σ ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+    intro q σ' hq'
+    have hm := hmatch q
+    rw [hq'] at hm
+    rcases Option.eq_none_or_eq_some (Ps q) with hq | ⟨σ, hq⟩
+    · rw [hq] at hm; exact hm.elim
+    · rw [hq] at hm; exact ⟨σ, hq, hm⟩
+  have hproc : procRelatesTo (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
+    have hm := hmatch p
+    rwa [hS, hin] at hm
   rcases blockRefines_step_indexed (href pref)
       (relatesTo_of_procRelatesTo hproc (hkey p) hfifo .none) hmem hstep with
     ⟨M₁', F₁', ε', hrel, hτ, Br, hBr, hsstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
@@ -360,44 +376,40 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
           exact Function.update_of_ne (Ne.symm (hk y rfl)) ..
     refine .inl ⟨M₁', F₁', ε', ?_, hτ, Br, hBr, hsstep⟩
     refine algRelatesTo.intro (ib := Function.update ib p ib'p) (pref := pref')
-      (hfs.replace hS _) (hft.replace hin _) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_
+      ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_
     · intro q σ hq
-      simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hq
-      rcases hq with ⟨rfl, rfl⟩ | ⟨hmemP, hne⟩
-      · refine ⟨_, Set.mem_insert _ _, ?_⟩
-        rwa [Function.update_self]
-      · by_cases hqp : q = p
-        · -- the stepped instance's old pair is exactly what was removed, so this case is empty
-          subst hqp
-          absurd hne
-          exact ⟨rfl, hfs _ σ ⟨M₁, L₁⟩ hmemP hS⟩
-        · obtain ⟨σ', hσ', hrelq⟩ := hfwd q σ hmemP
-          refine ⟨σ', Set.mem_insert_of_mem _ ⟨hσ', ?_⟩, ?_⟩
-          · simp only [Set.mem_singleton_iff, Prod.mk.injEq, not_and]
-            exact λ hq ↦ absurd hq hqp
-          · rwa [Function.update_of_ne hqp]
-    · intro q σ' hq
-      simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hq
-      rcases hq with ⟨rfl, rfl⟩ | ⟨hmemQ, hne⟩
-      · refine ⟨_, Set.mem_insert _ _, ?_⟩
-        rwa [Function.update_self]
-      · by_cases hqp : q = p
-        · subst hqp
-          absurd hne
-          exact ⟨rfl, hft _ σ' ⟨M₂, L₂⟩ hmemQ hin⟩
-        · obtain ⟨σ, hσ, hrelq⟩ := hbwd q σ' hmemQ
-          refine ⟨σ, Set.mem_insert_of_mem _ ⟨hσ, ?_⟩, ?_⟩
-          · simp only [Set.mem_singleton_iff, Prod.mk.injEq, not_and]
-            exact λ hq ↦ absurd hq hqp
-          · rwa [Function.update_of_ne hqp]
-    · intro q hq
+      dsimp only at hq ⊢
       by_cases hqp : q = p
       · subst hqp
-        exact (hq _ (Set.mem_insert _ _)).elim
-      · rw [Function.update_of_ne hqp]
-        refine habsent q (λ σ hσ ↦ hq σ (Set.mem_insert_of_mem _ ⟨hσ, ?_⟩))
-        simp only [Set.mem_singleton_iff, Prod.mk.injEq, not_and]
-        exact λ hq' ↦ absurd hq' hqp
+        rw [GuardedPlusCal.Instances.update_self] at hq
+        obtain rfl := Option.some.inj hq
+        refine ⟨_, GuardedPlusCal.Instances.update_self .., ?_⟩
+        rwa [Function.update_self]
+      · rw [GuardedPlusCal.Instances.update_of_ne hqp] at hq
+        obtain ⟨σ', hσ', hrelq⟩ := hfwd q σ hq
+        refine ⟨σ', ?_, ?_⟩
+        · rwa [GuardedPlusCal.Instances.update_of_ne hqp]
+        · rwa [Function.update_of_ne hqp]
+    · intro q σ' hq
+      dsimp only at hq ⊢
+      by_cases hqp : q = p
+      · subst hqp
+        rw [GuardedPlusCal.Instances.update_self] at hq
+        obtain rfl := Option.some.inj hq
+        refine ⟨_, GuardedPlusCal.Instances.update_self .., ?_⟩
+        rwa [Function.update_self]
+      · rw [GuardedPlusCal.Instances.update_of_ne hqp] at hq
+        obtain ⟨σ, hσ, hrelq⟩ := hbwd q σ' hq
+        exact ⟨σ, by rwa [GuardedPlusCal.Instances.update_of_ne hqp], by rwa [Function.update_of_ne hqp]⟩
+    · intro q hq
+      dsimp only at hq ⊢
+      by_cases hqp : q = p
+      · subst hqp
+        rw [GuardedPlusCal.Instances.update_self] at hq
+        exact nomatch hq
+      · rw [GuardedPlusCal.Instances.update_of_ne hqp] at hq
+        rw [Function.update_of_ne hqp]
+        exact habsent q hq
     · intro q r x y hx hy hkeq
       obtain ⟨x₀, hx₀, hxk⟩ := key_of q x hx
       obtain ⟨y₀, hy₀, hyk⟩ := key_of r y hy

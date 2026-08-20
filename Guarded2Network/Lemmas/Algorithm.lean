@@ -243,7 +243,15 @@ theorem algRelatesTo.immediateAbort [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} 
     StrongRefinement.Aborting (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
       Aₛ.immediateAbort Aₜ.immediateAbort := by
   rintro ⟨Qs, F₂⟩ ε ⟨Ps, F₁⟩ hrel ⟨p, ⟨M₂, L₂⟩, hin, l, hl, habort, hself⟩
-  obtain ⟨ib, pref, _, _, _, hbwd, _, _, hkey, _, hpresent, hfifo⟩ := hrel
+  obtain ⟨ib, pref, hmatch, -, -, hkey, -, hpresent, hfifo⟩ := hrel
+  have hbwd : ∀ q σ', Qs q = .some σ' →
+      ∃ σ, Ps q = .some σ ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+    intro q σ' hq'
+    have hm := hmatch q
+    rw [hq'] at hm
+    rcases Option.eq_none_or_eq_some (Ps q) with hq | ⟨σ, hq⟩
+    · rw [hq] at hm; exact hm.elim
+    · rw [hq] at hm; exact ⟨σ, hq, hm⟩
   obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
   have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some (Aₛ.self p) := by
     rw [href.self_eq p,
@@ -805,17 +813,6 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
   (hinit : NetworkPlusCal.Algorithm.init algo' ⟨Ps', F⟩) :
     ∃ Ps : Instances (String × V) V, GuardedPlusCal.Algorithm.init algo ⟨Ps, F⟩ ∧
       (⟨Ps, F⟩ : AlgState (String × V) V) ≋[procMailbox algo', procRxLabels algo'] ⟨Ps', F⟩ := by
-  -- the source instances: exactly the ones `init` asks for, so its first clause is definitional
-  let Ps : Instances (String × V) V :=
-    {x | ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
-      x.1 = (p.name, self) ∧
-        GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) x.2}
-  have hPs (i : String × V) (σ : ProcState V) :
-      (⟨i, σ⟩ : (String × V) × ProcState V) ∈ Ps ↔
-      ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
-        i = (p.name, self) ∧
-          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ := Iff.rfl
-  have hsrcInit : GuardedPlusCal.Algorithm.init algo ⟨Ps, F⟩ := ⟨hPs, hglobal ▸ hinit.2⟩
   -- both sides resolve an instance to the process it came from, the target's names being the
   -- source's pointwise
   have hnameEq (q : ComputableGuardedPlusCal.Process) (q' : ComputableNetworkPlusCal.Process)
@@ -830,6 +827,53 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
   have huniq' (q : ComputableNetworkPlusCal.Process) (hq : q ∈ algo'.processes)
       (r : ComputableNetworkPlusCal.Process) (hr : r ∈ algo'.processes) (h : q.name = r.name) :
       q = r := List.inj_on_of_nodup_map hnames' hq hr h
+  -- the source instances: exactly the ones `init` asks for. `InitProc.inj` plus `huniq` pin at most
+  -- one state per instance, which is what lets a classical choice of that state be a genuine
+  -- function rather than a set that might (before `huniq`'s uniqueness) hold more than one pair.
+  have hspec_unique : ∀ (i : String × V) (σ σ' : ProcState V),
+      (∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+        i = (p.name, self) ∧
+          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ) →
+      (∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+        i = (p.name, self) ∧
+          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ') →
+      σ = σ' := by
+    rintro i σ σ' ⟨p, hp, self, -, rfl, hinitσ⟩ ⟨q, hq, self', -, heq, hinitσ'⟩
+    simp only [Prod.mk.injEq] at heq
+    obtain ⟨hname, rfl⟩ := heq
+    obtain rfl := huniq p hp q hq hname
+    exact hinitσ.inj hinitσ'
+  classical
+  let Ps : Instances (String × V) V := λ i ↦
+    if h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+        i = (p.name, self) ∧
+          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ
+    then .some h.choose else .none
+  have hPs (i : String × V) (σ : ProcState V) :
+      Ps i = .some σ ↔
+      ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+        i = (p.name, self) ∧
+          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ := by
+    constructor
+    · intro hσ
+      by_cases h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+          i = (p.name, self) ∧
+            GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ
+      · have hPsi : Ps i = .some h.choose := dif_pos h
+        rw [hPsi] at hσ
+        obtain rfl := Option.some.inj hσ
+        exact h.choose_spec
+      · have hPsi : Ps i = .none := dif_neg h
+        rw [hPsi] at hσ
+        exact nomatch hσ
+    · intro hspec
+      have h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+          i = (p.name, self) ∧
+            GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ :=
+        ⟨σ, hspec⟩
+      have hPsi : Ps i = .some h.choose := dif_pos h
+      rw [hPsi, hspec_unique i h.choose σ h.choose_spec hspec]
+  have hsrcInit : GuardedPlusCal.Algorithm.init algo ⟨Ps, F⟩ := ⟨hPs, hglobal ▸ hinit.2⟩
   have hres (q : ComputableGuardedPlusCal.Process) (hq : q ∈ algo.processes) :
       ∃ q' ib, algo'.processes.find? (·.name == q.name) = .some q' ∧
         ProcessRefines (V := V) (mbox q.name ib) (c₀ q.name) ib pref q q' := by
@@ -843,13 +887,13 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
     exact ⟨q', ib, hfind, hpr⟩
   -- an instance receives on its own key, when it receives at all
   let ib : String × V → Option (InboxState V) := λ i ↦
-    if (∃ σ, (⟨i, σ⟩ : (String × V) × ProcState V) ∈ Ps) ∧ (procMailbox algo' i).isSome then
+    if (∃ σ, Ps i = .some σ) ∧ (procMailbox algo' i).isSome then
       .some ⟨key i, []⟩
     else .none
-  have hibPos (i : String × V) (h₁ : ∃ σ, (⟨i, σ⟩ : (String × V) × ProcState V) ∈ Ps)
+  have hibPos (i : String × V) (h₁ : ∃ σ, Ps i = .some σ)
       (h₂ : (procMailbox algo' i).isSome) : ib i = .some ⟨key i, []⟩ := if_pos ⟨h₁, h₂⟩
   have hibNeg (i : String × V)
-      (h : ¬ ((∃ σ, (⟨i, σ⟩ : (String × V) × ProcState V) ∈ Ps) ∧ (procMailbox algo' i).isSome)) :
+      (h : ¬ ((∃ σ, Ps i = .some σ) ∧ (procMailbox algo' i).isSome)) :
       ib i = .none := if_neg h
   -- and an instance that has a key is a receiving process's, which is what `InitKeys`' clauses are
   -- conditioned on
@@ -857,7 +901,7 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
       x = ⟨key i, []⟩ ∧
         ∃ q ∈ algo.processes, ∃ self : V, i = (q.name, self) ∧ ProcessReceives q := by
     by_cases hcond :
-        (∃ σ, (⟨i, σ⟩ : (String × V) × ProcState V) ∈ Ps) ∧ (procMailbox algo' i).isSome
+        (∃ σ, Ps i = .some σ) ∧ (procMailbox algo' i).isSome
     · rw [hibPos i hcond.1 hcond.2] at h
       refine ⟨(Option.some.inj h).symm, ?_⟩
       obtain ⟨σ, hσ⟩ := hcond.1
@@ -915,9 +959,7 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
         rw [hibsome, hmb]
         refine ⟨λ x hx ↦ (hoff x hx).symm, ?_, (key (q.name, self)).2, hpath, Prod.ext hfst rfl⟩
         exact hsome λ hnil' ↦ hmbox (hnilIff.mp hnil')
-  refine ⟨Ps, hsrcInit, ib, λ _ ↦ [], ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · exact GuardedPlusCal.Algorithm.init.functional huniq hsrcInit
-  · exact NetworkPlusCal.Algorithm.init.functional huniq' hinit
+  refine ⟨Ps, hsrcInit, algRelatesTo.intro (ib := ib) (pref := λ _ ↦ []) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_⟩
   -- every source instance has a compiled one: the pass's own initializers all evaluate, so the
   -- longer state exists wherever the shorter does
   · rintro i σ hσ
@@ -957,9 +999,11 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
       hrel q hq q' ibx hfind hpr self hself _ _ hM hσ'init⟩
   -- an index naming no instance accounts for nothing
   · intro i hi
+    dsimp only at hi
     refine hibNeg i λ hcond ↦ ?_
     obtain ⟨σ, hσ⟩ := hcond.1
-    exact hi σ hσ
+    rw [hσ] at hi
+    exact nomatch hi
   -- distinct instances get distinct keys, which is `InitKeys.inj` at the two processes they came
   -- from — and both receive, `MailboxUsed` turning each `.some` mailbox into a `ProcessReceives`
   · rintro i j x y hx hy hkey

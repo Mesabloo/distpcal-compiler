@@ -88,27 +88,12 @@ channel starts empty. A characterization of membership, not an existence claim. 
 def Algorithm.init [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
     AlgState (String × V) V → Prop
   | ⟨Ps, F⟩ =>
-    (∀ (i : String × V) (σ : GuardedPlusCal.ProcState V),
-      (⟨i, σ⟩ : (String × V) × GuardedPlusCal.ProcState V) ∈ Ps ↔
+    (∀ (i : String × V) (σ : GuardedPlusCal.ProcState V), Ps i = .some σ ↔
       ∃ p ∈ algo.processes, ∃ self ∈ Process.identities (V := V) p,
         i = (p.name, self) ∧ GuardedPlusCal.InitProc self p.inits (Process.entryLabels p) σ)
     ∧ ∀ nτd ∈ algo.globalState.channels ++ algo.globalState.fifos, ∀ idx : List V,
         (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
           F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
-
-/-- **An initial state holds one state per instance**, provided distinct declared processes have
-distinct names. -/
-theorem Algorithm.init.functional [ExprSemantics V] {algo : ComputableNetworkPlusCal.Algorithm}
-    {Ps : GuardedPlusCal.Instances (String × V) V} {F : GuardedPlusCal.FIFOs V}
-    (hnames : ∀ p ∈ algo.processes, ∀ q ∈ algo.processes, p.name = q.name → p = q)
-    (h : Algorithm.init algo ⟨Ps, F⟩) : Ps.Functional := by
-  intro i σ σ' hσ hσ'
-  obtain ⟨p, hp, self, -, rfl, hinit⟩ := (h.1 i σ).mp hσ
-  obtain ⟨q, hq, self', -, heq, hinit'⟩ := (h.1 _ σ').mp hσ'
-  simp only [Prod.mk.injEq] at heq
-  obtain ⟨hname, rfl⟩ := heq
-  obtain rfl := hnames p hp q hq hname
-  exact hinit.inj hinit'
 
 end NetworkPlusCal
 

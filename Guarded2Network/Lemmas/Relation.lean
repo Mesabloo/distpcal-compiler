@@ -344,26 +344,23 @@ thread to abort with — so at a state where an instance's key is absent the abo
 refinement is false. Nothing removes a key (`NetworkPlusCal.AtomicBranch.reducing_fifos_mem`), so
 this rides along; establishing it initially is `Algorithm.init`'s business.
 
-**Both sides are `Instances.Functional`**, and that is not bookkeeping. `ib` gives one `InboxState`
-per instance, so an algorithm state holding two states for one instance would account both against
-one inbox; the instance's step then updates that accounting while the second state, which did not
-move, is left related against the old one. The per-step obligation is *false* at such a state, not
-merely unprovable. Carried here rather than as a reachability side condition, so that the framework's
-own `Terminating`/`star` laws propagate it with everything else — `relatesTo` being both pre- and
-post-relation, a clause of it is exactly an invariant. -/
+**No functionality clause.** `Instances` is `ι → Option (ProcState V)`, so "at most one state per
+instance" is definitional on both sides — nothing to carry. The one clause that *does* still need
+stating is that the two sides agree on which instances exist and how they relate, which is the
+`match` below: `Ps p`/`Qs p` are either both absent or both present and `procRelatesTo`-related. -/
 def algRelatesTo {ι : Type} (mb : ι → Mailbox) (rx : ι → Set String) :
     Rel (AlgState ι V) (AlgState ι V) :=
   λ ⟨Ps, F₁⟩ ⟨Qs, F₂⟩ ↦
     ∃ (ib : ι → Option (InboxState V)) (pref : ChanKey V → List V),
-      -- one state per instance, on both sides
-      Ps.Functional ∧ Qs.Functional ∧
       -- the same instances on both sides, pairwise related
-      (∀ p σ, ⟨p, σ⟩ ∈ Ps → ∃ σ', ⟨p, σ'⟩ ∈ Qs ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
-      (∀ p σ', ⟨p, σ'⟩ ∈ Qs → ∃ σ, ⟨p, σ⟩ ∈ Ps ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
+      (∀ p, match Ps p, Qs p with
+        | .none, .none => True
+        | .some σ, .some σ' => procRelatesTo (mb p) (rx p) (ib p) σ σ'
+        | _, _ => False) ∧
       -- an index that names no instance of this state accounts for nothing: without this the
       -- witness could invent an inbox for an absent instance and the FIFO clauses below would
       -- demand a split no state satisfies
-      (∀ p, (∀ σ, ⟨p, σ⟩ ∉ Ps) → ib p = .none) ∧
+      (∀ p, Ps p = .none → ib p = .none) ∧
       -- no two instances receive on the same key
       (∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q) ∧
       -- a key someone receives on carries that instance's inbox
@@ -382,25 +379,30 @@ namespace algRelatesTo
 
 variable {ι : Type} {mb : ι → Mailbox} {rx : ι → Set String} {Sₛ Sₜ : AlgState ι V}
 
-/-- Each side holds one state per instance. -/
-theorem functional (h : Sₛ ≋[mb, rx] Sₜ) : Sₛ.1.Functional ∧ Sₜ.1.Functional := by
-  obtain ⟨-, -, hfs, hft, -, -, -, -, -, -, -, -⟩ := h
-  exact ⟨hfs, hft⟩
-
 /-- Every source instance has a related target instance. -/
 theorem forward (h : Sₛ ≋[mb, rx] Sₜ) :
-    ∃ ib : ι → Option (InboxState V), ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 →
-      ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
-  obtain ⟨ib, -, -, -, hfwd, -, -, -, -, -, -, -⟩ := h
-  exact ⟨ib, hfwd⟩
+    ∃ ib : ι → Option (InboxState V), ∀ p σ, Sₛ.1 p = .some σ →
+      ∃ σ', Sₜ.1 p = .some σ' ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
+  obtain ⟨ib, pref, hmatch, -, -, -, -, -, -⟩ := h
+  refine ⟨ib, λ p σ hσ ↦ ?_⟩
+  have hm := hmatch p
+  rw [hσ] at hm
+  rcases Option.eq_none_or_eq_some (Sₜ.1 p) with hq | ⟨σ', hq⟩
+  · rw [hq] at hm; exact hm.elim
+  · rw [hq] at hm; exact ⟨σ', hq, hm⟩
 
 /-- Every target instance has a related source instance — the direction that rules out the target
 inventing an instance the source never had. -/
 theorem backward (h : Sₛ ≋[mb, rx] Sₜ) :
-    ∃ ib : ι → Option (InboxState V), ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 →
-      ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
-  obtain ⟨ib, -, -, -, -, hbwd, -, -, -, -, -, -⟩ := h
-  exact ⟨ib, hbwd⟩
+    ∃ ib : ι → Option (InboxState V), ∀ p σ', Sₜ.1 p = .some σ' →
+      ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ' := by
+  obtain ⟨ib, pref, hmatch, -, -, -, -, -, -⟩ := h
+  refine ⟨ib, λ p σ' hσ' ↦ ?_⟩
+  have hm := hmatch p
+  rw [hσ'] at hm
+  rcases Option.eq_none_or_eq_some (Sₛ.1 p) with hp | ⟨σ, hp⟩
+  · rw [hp] at hm; exact hm.elim
+  · rw [hp] at hm; exact ⟨σ, hp, hm⟩
 
 /-- The whole FIFO map, in one statement: every key is the target's queue with `pref` in front, and
 `pref` is the inbox of the one instance receiving on that key, or empty. The `ib` witness is shared
@@ -412,31 +414,49 @@ theorem fifos (h : Sₛ ≋[mb, rx] Sₜ) :
       (∀ p x, ib p = .some x → pref x.key = x.contents) ∧
       (∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = []) ∧
       (∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) := by
-  obtain ⟨ib, pref, -, -, -, -, -, hinj, hkey, hoff, -, hfifo⟩ := h
+  obtain ⟨ib, pref, -, -, hinj, hkey, hoff, -, hfifo⟩ := h
   exact ⟨ib, pref, hinj, hkey, hoff, hfifo⟩
 
 /-- Every key an instance receives on is a channel that exists. Separate from `fifos` because it is
 consumed on its own: it is what says the target's receiving thread cannot abort. -/
 theorem chan_exists (h : Sₛ ≋[mb, rx] Sₜ) :
-    ∃ ib : ι → Option (InboxState V), (∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 →
-        ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
+    ∃ ib : ι → Option (InboxState V), (∀ p σ', Sₜ.1 p = .some σ' →
+        ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ') ∧
       ∀ p x, ib p = .some x → Sₜ.2.lookup x.key ≠ .none := by
-  obtain ⟨ib, -, -, -, -, hbwd, -, -, -, -, hpresent, -⟩ := h
-  exact ⟨ib, hbwd, hpresent⟩
+  obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
+  refine ⟨ib, λ p σ' hσ' ↦ ?_, hpresent⟩
+  have hm := hmatch p
+  rw [hσ'] at hm
+  rcases Option.eq_none_or_eq_some (Sₛ.1 p) with hp | ⟨σ, hp⟩
+  · rw [hp] at hm; exact hm.elim
+  · rw [hp] at hm; exact ⟨σ, hp, hm⟩
 
-/-- The introduction form: one hypothesis per clause, against a single choice of witnesses. -/
+/-- The introduction form: one hypothesis per clause, against a single choice of witnesses. Needs no
+`Functional` hypothesis on either side — `Instances` being a function, that holds definitionally. -/
 theorem intro {ib : ι → Option (InboxState V)} {pref : ChanKey V → List V}
-    (hfs : Sₛ.1.Functional) (hft : Sₜ.1.Functional)
-    (hfwd : ∀ p σ, ⟨p, σ⟩ ∈ Sₛ.1 → ∃ σ', ⟨p, σ'⟩ ∈ Sₜ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
-    (hbwd : ∀ p σ', ⟨p, σ'⟩ ∈ Sₜ.1 → ∃ σ, ⟨p, σ⟩ ∈ Sₛ.1 ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
-    (habsent : ∀ p, (∀ σ, ⟨p, σ⟩ ∉ Sₛ.1) → ib p = .none)
+    (hfwd : ∀ p σ, Sₛ.1 p = .some σ → ∃ σ', Sₜ.1 p = .some σ' ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
+    (hbwd : ∀ p σ', Sₜ.1 p = .some σ' → ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo (mb p) (rx p) (ib p) σ σ')
+    (habsent : ∀ p, Sₛ.1 p = .none → ib p = .none)
     (hinj : ∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q)
     (hkey : ∀ p x, ib p = .some x → pref x.key = x.contents)
     (hoff : ∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = [])
     (hpresent : ∀ p x, ib p = .some x → Sₜ.2.lookup x.key ≠ .none)
     (hfifo : ∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) :
-    Sₛ ≋[mb, rx] Sₜ :=
-  ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩
+    Sₛ ≋[mb, rx] Sₜ := by
+  refine ⟨ib, pref, λ p ↦ ?_, habsent, hinj, hkey, hoff, hpresent, hfifo⟩
+  match hp : Sₛ.1 p, hq : Sₜ.1 p with
+  | .none, .none => trivial
+  | .none, .some σ' =>
+    obtain ⟨σ, hσ, -⟩ := hbwd p σ' hq
+    rw [hp] at hσ; exact nomatch hσ
+  | .some σ, .none =>
+    obtain ⟨σ', hσ', -⟩ := hfwd p σ hp
+    rw [hq] at hσ'; exact nomatch hσ'
+  | .some σ, .some σ' =>
+    obtain ⟨σ'', hσ'', hrel⟩ := hfwd p σ hp
+    rw [hq] at hσ''
+    obtain rfl := Option.some.inj hσ''
+    exact hrel
 
 /-- An instance whose process contains no `receive` has no inbox to account for — so the mailbox
 being `none` (a syntactic fact about the compiled process) forces the witness to be `none` too, and

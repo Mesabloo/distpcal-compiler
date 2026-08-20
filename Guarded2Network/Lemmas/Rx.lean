@@ -129,27 +129,26 @@ answered with *zero* source steps — `Relation.star.refl` — which is why the 
 refinement has to be `Relation.star Aₛ.step` rather than `Aₛ.step`: `GuardedPlusCal.Algebra.reducing`
 is defined as that star, so this is the goal's own shape rather than a weakening of it. -/
 theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} {rx : ι → Set String}
-    {Ps Qs Qs' : Set (ι × ProcState V)} {F₁ F₂ F₂' : FIFOs V}
+    {Ps Qs Qs' : GuardedPlusCal.Instances ι V} {F₁ F₂ F₂' : FIFOs V}
     {p : ι} {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
     {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
     (hmb : mb p = .some (c, inbox))
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
     (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs, F₂⟩)
-    (hS : (⟨p, ⟨M₁, L₁⟩⟩ : ι × ProcState V) ∈ Ps)
-    (hin : (⟨p, ⟨M₂, L₂⟩⟩ : ι × ProcState V) ∈ Qs)
+    (hS : Ps p = .some ⟨M₁, L₁⟩)
+    (hin : Qs p = .some ⟨M₂, L₂⟩)
     (hlabel : label ∈ L₂)
     (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
         NetworkPlusCal.Thread.rxBranch c label inbox)
-    (hQs : Qs' = insert (⟨p, ⟨M₂', insert label (L₂ \ {label})⟩⟩ : ι × ProcState V)
-      (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :
+    (hQs : Qs' = Qs.update p (.some ⟨M₂', insert label (L₂ \ {label})⟩)) :
     ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
       GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
-  obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
-  obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
-  -- an instance holds one state at a time, on both sides: the step replaces exactly one pair, so a
-  -- second state for `p` would be left behind relating to the *old* inbox
-  obtain rfl := hfs p σ₁ ⟨M₁, L₁⟩ hσ₁ hS
+  obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
+  -- `Ps`/`Qs` are functions, so `hS`/`hin` already pin the one state each holds at `p`
+  have hproc : procRelatesTo (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
+    have hm := hmatch p
+    rwa [hS, hin] at hm
   -- the instance receives, so it has an inbox to account for
   obtain ⟨ibp, hibp⟩ : ∃ ibp, ib p = .some ibp := by
     match hib : ib p with
@@ -163,6 +162,24 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
   obtain ⟨v, rfl, hproc', hoff', hsplit', hkeep, hsize⟩ :=
     procRelatesTo.rx_step hfresh (hmb ▸ hproc) hsplitp hlabel hstep
   subst hQs
+  -- every other instance's clause survives unchanged: derived from `hmatch` directly, so it shares
+  -- the same `ib` witness the goal below is stated against
+  have hfwd : ∀ q σ, Ps q = .some σ →
+      ∃ σ', Qs q = .some σ' ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+    intro q σ hq
+    have hm := hmatch q
+    rw [hq] at hm
+    rcases Option.eq_none_or_eq_some (Qs q) with hq' | ⟨σ', hq'⟩
+    · rw [hq'] at hm; exact hm.elim
+    · rw [hq'] at hm; exact ⟨σ', hq', hm⟩
+  have hbwd : ∀ q σ', Qs q = .some σ' →
+      ∃ σ, Ps q = .some σ ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+    intro q σ' hq'
+    have hm := hmatch q
+    rw [hq'] at hm
+    rcases Option.eq_none_or_eq_some (Ps q) with hq | ⟨σ, hq⟩
+    · rw [hq] at hm; exact hm.elim
+    · rw [hq] at hm; exact ⟨σ, hq, hm⟩
   -- the update changes what `p` accounts for, never *which key* it accounts for, so every clause
   -- phrased in terms of keys transfers from the old witness unchanged
   have key_of : ∀ q x, Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩) q = .some x →
@@ -175,38 +192,39 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     · rw [Function.update_of_ne hqp] at hx
       exact ⟨x, hx, rfl⟩
   refine ⟨rfl, ?_, hsize⟩
-  refine ⟨Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩),
-    Function.update pref ibp.key (ibp.contents ++ [v]), hfs, hft.replace hin _,
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine algRelatesTo.intro (ib := Function.update ib p (.some ⟨ibp.key, ibp.contents ++ [v]⟩))
+    (pref := Function.update pref ibp.key (ibp.contents ++ [v])) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_
   · intro q σ hq
+    dsimp only at hq ⊢
     by_cases hqp : q = p
     · subst hqp
-      obtain rfl := hfs _ σ ⟨M₁, L₁⟩ hq hS
-      refine ⟨_, Set.mem_insert _ _, ?_⟩
+      rw [hS] at hq
+      obtain rfl := Option.some.inj hq
+      refine ⟨_, GuardedPlusCal.Instances.update_self .., ?_⟩
       rw [Function.update_self, hmb]
       exact hproc'
     · obtain ⟨σ', hσ', hrel⟩ := hfwd q σ hq
-      refine ⟨σ', Set.mem_insert_of_mem _ ⟨hσ', ?_⟩, ?_⟩
-      · simp only [Set.mem_singleton_iff, Prod.mk.injEq, not_and]
-        exact λ h ↦ absurd h hqp
+      refine ⟨σ', ?_, ?_⟩
+      · rwa [GuardedPlusCal.Instances.update_of_ne hqp]
       · rwa [Function.update_of_ne hqp]
   · intro q σ' hq
-    simp only [Set.mem_insert_iff, Set.mem_sdiff, Set.mem_singleton_iff, Prod.mk.injEq] at hq
-    rcases hq with ⟨rfl, rfl⟩ | ⟨hmem, hne⟩
-    · refine ⟨⟨M₁, L₁⟩, hS, ?_⟩
-      rw [Function.update_self, hmb]
-      exact hproc'
-    · obtain ⟨σ, hσ, hrel⟩ := hbwd q σ' hmem
-      by_cases hqp : q = p
-      · -- the stepped instance's old pair is exactly what was removed, so this case is empty
-        subst hqp
-        absurd hne
-        exact ⟨rfl, hft _ σ' ⟨M₂, L₂⟩ hmem hin⟩
-      · exact ⟨σ, hσ, by rwa [Function.update_of_ne hqp]⟩
-  · intro q hq
+    dsimp only at hq ⊢
     by_cases hqp : q = p
     · subst hqp
-      exact (hq _ hS).elim
+      rw [GuardedPlusCal.Instances.update_self] at hq
+      obtain rfl := Option.some.inj hq
+      refine ⟨⟨M₁, L₁⟩, hS, ?_⟩
+      rw [Function.update_self, hmb]
+      exact hproc'
+    · rw [GuardedPlusCal.Instances.update_of_ne hqp] at hq
+      obtain ⟨σ, hσ, hrel⟩ := hbwd q σ' hq
+      exact ⟨σ, hσ, by rwa [Function.update_of_ne hqp]⟩
+  · intro q hq
+    dsimp only at hq ⊢
+    by_cases hqp : q = p
+    · subst hqp
+      rw [hS] at hq
+      exact nomatch hq
     · rw [Function.update_of_ne hqp]
       exact habsent q hq
   · intro q r x y hx hy hkey
