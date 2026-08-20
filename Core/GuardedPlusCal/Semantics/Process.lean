@@ -48,9 +48,9 @@ non-terminating semantics is empty, every statement being a single step).
 A label with no block maps to `∅` in both, which makes it unschedulable rather than an error. -/
 structure CodeTable (V : Type) : Type where
   /-- Where the block at this label can step to, and what it emits. -/
-  reducing : String → Set (LocalState V false × Trace V × LocalState V true)
+  reducing : String → Set (LocalState V × Trace V × LocalState V)
   /-- Where the block at this label goes wrong. -/
-  aborting : String → Set (LocalState V false × Trace V)
+  aborting : String → Set (LocalState V × Trace V)
 
 /-! # Processes -/
 
@@ -63,7 +63,7 @@ and no step disturbs. -/
 def CodeTable.procReducing (Ξ : CodeTable V) (owned : Set String) (self : V) :
     Set (ProcConfig V × Trace V × ProcConfig V) :=
   {⟨⟨⟨M, L⟩, F⟩, τ, ⟨⟨M', L'⟩, F'⟩⟩ | ∃ l ∈ L ∩ owned, ∃ l',
-    ⟨LocalState.running M F, τ, LocalState.done M' F' l'⟩ ∈ Ξ.reducing l ∧
+    ⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ ∈ Ξ.reducing l ∧
     M.lookup selfName = .some self ∧
     L' = insert l' (L \ {l})}
 
@@ -71,7 +71,7 @@ def CodeTable.procReducing (Ξ : CodeTable V) (owned : Set String) (self : V) :
 def CodeTable.procAborting (Ξ : CodeTable V) (owned : Set String) (self : V) :
     Set (ProcConfig V × Trace V) :=
   {⟨⟨⟨M, L⟩, F⟩, τ⟩ | ∃ l ∈ L ∩ owned,
-    ⟨LocalState.running M F, τ⟩ ∈ Ξ.aborting l ∧ M.lookup selfName = .some self}
+    ⟨⟨M, F, .none⟩, τ⟩ ∈ Ξ.aborting l ∧ M.lookup selfName = .some self}
 
 /-- A process never diverges *in one step*: its semantics is one execution of one atomic block, and
 an atomic block's non-terminating semantics is empty. Divergence is an algorithm-level notion, and

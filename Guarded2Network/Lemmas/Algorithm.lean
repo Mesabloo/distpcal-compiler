@@ -55,8 +55,8 @@ structure CodeLabelRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx 
   /-- And the source process owns it too. -/
   owned : l ∈ Aₛ.owned p
   /-- Nor is any label the block can leave at. -/
-  exits : ∀ M F τ M' F' l', (⟨.running M F, τ, .done M' F' l'⟩ :
-    LocalState V false × Trace V × LocalState V true) ∈ (Aₜ.table p).reducing l → l' ∉ rx p
+  exits : ∀ M F τ M' F' l', (⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ :
+    LocalState V × Trace V × LocalState V) ∈ (Aₜ.table p).reducing l → l' ∉ rx p
   /-- The branches refine pairwise, at every prefix function. -/
   refines : ∀ pref : ChanKey V → List V,
     BranchesRefine (V := V) (mb p) pref brs brs'
@@ -211,14 +211,14 @@ theorem rxBranch_not_aborting {c : ComputableGuardedPlusCal.Ref} {inbox : String
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
     (h : procRelatesTo (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hpresent : F₂.lookup ib.key ≠ .none) :
-    (⟨.running M₂ F₂, ε⟩ : LocalState V false × Trace V) ∉
+    (⟨⟨M₂, F₂, .none⟩, ε⟩ : LocalState V × Trace V) ∉
       NetworkPlusCal.Thread.rxBranchAborting c inbox := by
   obtain ⟨_, _, hmem, hinbox, cpath, hpath, hibkey⟩ := h
   have hpath₂ : Ref.EvalArgs M₂ c cpath := (Ref.EvalArgs.congr_of_fresh hmem hfresh).mp hpath
   obtain ⟨sv, hsv, hseq⟩ := hinbox
   rintro (((⟨M, F, hpa, hrun, _⟩ | ⟨M, F, cpath', hpath', hlk, hrun, _⟩) |
     ⟨M, F, hnone, hrun, _⟩) | ⟨M, F, cpath', v, _, old, hpath', _, hold, happ, hrun, _⟩) <;>
-    injection hrun with hM hF <;> subst hM <;> subst hF
+    simp only [Prod.mk.injEq] at hrun <;> obtain ⟨rfl, rfl, -⟩ := hrun
   · exact Ref.EvalArgs.not_pathAborts hpath₂ hpa
   · obtain rfl := Ref.EvalArgs.inj hpath' hpath₂
     exact hpresent (hibkey ▸ hlk)

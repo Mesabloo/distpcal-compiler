@@ -46,14 +46,14 @@ reference could resolve to a different key under the target's memory than under 
 the two sides' `ChanKey`s would not be the one the invariant names. -/
 theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
     {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ib : InboxState V} {ε : Trace V}
-    {σ' : LocalState V true}
+    {σ' : LocalState V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
     (hmem : ∀ x ≠ inbox, M₁.lookup x = M₂.lookup x)
     (hinbox : ∃ sv, M₂.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv ib.contents)
     (hkey : ∃ cpath, List.Forall₂ (EvalStep M₁) c.args cpath ∧ ib.key = ⟨c.name, cpath⟩)
     (hsplit : F₁.lookup ib.key = (ib.contents ++ ·) <$> F₂.lookup ib.key)
-    (step : ⟨.running M₂ F₂, ε, σ'⟩ ∈ NetworkPlusCal.Thread.rxBranch c label inbox) :
-    ∃ v M₂' F₂', ε = 1 ∧ σ' = .done M₂' F₂' label ∧
+    (step : ⟨⟨M₂, F₂, .none⟩, ε, σ'⟩ ∈ NetworkPlusCal.Thread.rxBranch c label inbox) :
+    ∃ v M₂' F₂', ε = 1 ∧ σ' = ⟨M₂', F₂', .some label⟩ ∧
       (∀ x ≠ inbox, M₁.lookup x = M₂'.lookup x) ∧
       (∃ sv, M₂'.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv (ib.contents ++ [v])) ∧
       (∀ k ≠ ib.key, F₂'.lookup k = F₂.lookup k) ∧
@@ -61,7 +61,8 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
       F₂'.lookup ib.key ≠ .none ∧
       GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
   obtain ⟨M, F, cpath, v, vs, old, new, hpath, hfifo, hold, happ, hrun, hdone, rfl⟩ := step
-  injection hrun with hM hF
+  injection hrun with hM hrun'
+  injection hrun' with hF _
   subst hM; subst hF
   obtain ⟨cpath₁, hpath₁, hibkey⟩ := hkey
   -- the two sides resolve the channel to the same key: the reference cannot mention `inbox`, which
@@ -100,8 +101,8 @@ theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox label : 
     (h : procRelatesTo (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hsplit : F₁.lookup ib.key = (ib.contents ++ ·) <$> F₂.lookup ib.key)
     (hlabel : label ∈ L₂)
-    (step : (⟨.running M₂ F₂, ε, .done M₂' F₂' label⟩ :
-      LocalState V false × Trace V × LocalState V true) ∈
+    (step : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
+      LocalState V × Trace V × LocalState V) ∈
         NetworkPlusCal.Thread.rxBranch c label inbox) :
     ∃ v, ε = 1 ∧
       procRelatesTo (.some (c, inbox)) rx (.some ⟨ib.key, ib.contents ++ [v]⟩)
@@ -113,7 +114,8 @@ theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox label : 
   obtain ⟨hlabels, hdisj, hmem, hinbox, hkey⟩ := h
   obtain ⟨v, M₂'', F₂'', rfl, hdone, hmem', hinbox', hoff, hsplit', hkeep, hsize⟩ :=
     rxBranch_step hfresh hmem hinbox hkey hsplit step
-  injection hdone with hM hF _
+  injection hdone with hM hrest
+  injection hrest with hF _
   subst hM; subst hF
   rw [Set.insert_sdiff_self_of_mem hlabel]
   exact ⟨v, rfl, ⟨hlabels, hdisj, hmem', hinbox', hkey⟩, hoff, hsplit', hkeep, hsize⟩
@@ -136,8 +138,8 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     (hS : (⟨p, ⟨M₁, L₁⟩⟩ : ι × ProcState V) ∈ Ps)
     (hin : (⟨p, ⟨M₂, L₂⟩⟩ : ι × ProcState V) ∈ Qs)
     (hlabel : label ∈ L₂)
-    (hstep : (⟨.running M₂ F₂, ε, .done M₂' F₂' label⟩ :
-      LocalState V false × Trace V × LocalState V true) ∈
+    (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
+      LocalState V × Trace V × LocalState V) ∈
         NetworkPlusCal.Thread.rxBranch c label inbox)
     (hQs : Qs' = insert (⟨p, ⟨M₂', insert label (L₂ \ {label})⟩⟩ : ι × ProcState V)
       (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :

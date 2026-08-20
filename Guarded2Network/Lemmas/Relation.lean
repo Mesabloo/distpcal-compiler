@@ -34,7 +34,7 @@ public import Core.NetworkPlusCal.Semantics.Process
 namespace Guarded2Network
 
 open ComputableTLAPlus (ExprSemantics Memory)
-open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState' ProcState)
+open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState ProcState)
 
 variable {V : Type} [ExprSemantics V]
 
@@ -60,7 +60,7 @@ shrinking it. Keeping it out of `pref` is what leaves the relation closed under 
 block layer's refinement stays a single-relation `StrongRefinement`.
 
 A `send` is insensitive to either — it appends at the *back*, behind whatever prefix is in front. -/
-def relatesTo (mbox : Mailbox) (pref : ChanKey V → List V) : Rel (LocalState' V) (LocalState' V) :=
+def relatesTo (mbox : Mailbox) (pref : ChanKey V → List V) : Rel (LocalState V) (LocalState V) :=
   λ σₛ σₜ ↦
     σₛ.label = σₜ.label ∧
     match mbox with
@@ -84,7 +84,7 @@ scoped notation:60 σₛ:60 " ∼[" mbox:0 ", " pref:0 "] " σₜ:60 =>
 
 /-- A process with no `receive` has a memory equal to the source's. Its channels still carry the
 prefixes *other* instances have drained, which is why the FIFO hypothesis is not equality. -/
-theorem relatesTo.none_intro {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.none_intro {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (hl : σₛ.label = σₜ.label) (hm : σₛ.mem = σₜ.mem)
     (hf : ∀ k : ChanKey V, σₛ.fifos.lookup k = (pref k ++ ·) <$> σₜ.fifos.lookup k) :
     σₛ ∼[.none, pref] σₜ :=
@@ -92,7 +92,7 @@ theorem relatesTo.none_intro {pref : ChanKey V → List V} {σₛ σₜ : LocalS
 
 /-- The receiving case, one hypothesis per conjunct — the introduction form every construction site
 uses instead of assembling the nested anonymous constructor by hand. -/
-theorem relatesTo.chan_intro {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.chan_intro {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     {c : ComputableGuardedPlusCal.Ref}
     {inbox : String} {cpath : List (ComputableTLAPlus.PathStep V)} {sv : V} {vs : List V}
     (hl : σₛ.label = σₜ.label)
@@ -113,22 +113,22 @@ theorem relatesTo.chan_intro {pref : ChanKey V → List V} {σₛ σₜ : LocalS
 -/
 
 /-- Source and target agree on which label the block ended at — in both cases of `mbox`. -/
-theorem relatesTo.label_eq {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.label_eq {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) : σₛ.label = σₜ.label := h.1
 
 /-- With no mailbox, the memories are equal. -/
-theorem relatesTo.mem_eq {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.mem_eq {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[.none, pref] σₜ) : σₛ.mem = σₜ.mem := h.2.1
 
 /-- With no mailbox there is no own channel to except, so every key carries `pref`. -/
-theorem relatesTo.none_fifo_split {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.none_fifo_split {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[.none, pref] σₜ) (k : ChanKey V) :
     σₛ.fifos.lookup k = (pref k ++ ·) <$> σₜ.fifos.lookup k := h.2.2 k
 
 /-- Memory agreement in both cases at once: away from the generated `inbox` — of which there is none
 when the process never receives — the memories agree. This is what lets a simulation over an
 arbitrary `mbox` stop case-splitting on the mailbox to read the memory half. -/
-theorem relatesTo.mem_agree' {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.mem_agree' {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) :
     ∀ x, (∀ c inbox, mbox = .some (c, inbox) → x ≠ inbox) →
       σₛ.mem.lookup x = σₜ.mem.lookup x := by
@@ -144,7 +144,7 @@ out of a channel is still accounted for.
 The prefix is existential because which of the two clauses applies depends on the key, and no
 statement below `receive` cares which. Where a proof needs the prefix pinned it takes the clause it
 wants directly, through `inbox_seq`. -/
-theorem relatesTo.fifo_prefix {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.fifo_prefix {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) (k : ChanKey V) :
     ∃ ws, σₛ.fifos.lookup k = (ws ++ ·) <$> σₜ.fifos.lookup k := by
   match mbox with
@@ -166,12 +166,12 @@ theorem relatesTo.fifo_prefix {mbox : Mailbox} {pref : ChanKey V → List V} {σ
 /-- **Transporting the FIFO half.** A change that keeps every key's prefix working keeps the
 relation: the hypothesis is stated over an arbitrary prefix so that one instance of it serves both
 FIFO clauses — `pref k` away from this process's channel, its `inbox` at it. -/
-theorem relatesTo.fifo_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.fifo_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) {F₁ F₂ : FIFOs V}
     (hf : ∀ (k : ChanKey V) (ws : List V),
       σₛ.fifos.lookup k = (ws ++ ·) <$> σₜ.fifos.lookup k →
       F₁.lookup k = (ws ++ ·) <$> F₂.lookup k) (l : Option String) :
-    (⟨σₛ.mem, F₁, l⟩ : LocalState' V) ∼[mbox, pref] ⟨σₜ.mem, F₂, l⟩ := by
+    (⟨σₛ.mem, F₁, l⟩ : LocalState V) ∼[mbox, pref] ⟨σₜ.mem, F₂, l⟩ := by
   refine ⟨rfl, ?_⟩
   match mbox with
   | .none => exact ⟨h.mem_eq, λ k ↦ hf k (pref k) (h.none_fifo_split k)⟩
@@ -183,14 +183,14 @@ theorem relatesTo.fifo_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σ�
 /-- Moving both states to the same label. The label sits outside the `match` precisely so that this
 holds without knowing whether the process receives, and the statements that neither write memory nor
 push a queue are exactly this lemma. -/
-theorem relatesTo.label_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.label_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) (l : Option String) :
-    (⟨σₛ.mem, σₛ.fifos, l⟩ : LocalState' V) ∼[mbox, pref] ⟨σₜ.mem, σₜ.fifos, l⟩ :=
+    (⟨σₛ.mem, σₛ.fifos, l⟩ : LocalState V) ∼[mbox, pref] ⟨σₜ.mem, σₜ.fifos, l⟩ :=
   h.fifo_congr (λ _ _ hk ↦ hk) l
 
 /-- The queue a `send` writes to exists in the source exactly when it exists in the target, and
 holds the target's contents behind whatever this key's prefix is. Supplies `fifo_push`'s `ws`. -/
-theorem relatesTo.fifo_lookup {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.fifo_lookup {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) {k : ChanKey V} {vs : List V}
     (hlk : σₜ.fifos.lookup k = .some vs) : ∃ ws, σₛ.fifos.lookup k = .some (ws ++ vs) := by
   obtain ⟨ws, hws⟩ := h.fifo_prefix k
@@ -200,7 +200,7 @@ theorem relatesTo.fifo_lookup {mbox : Mailbox} {pref : ChanKey V → List V} {σ
 /-- And the aborting direction: a queue missing in the target is missing in the source, which is
 what carries `send`'s "no such channel" abort across the pass. -/
 theorem relatesTo.fifo_lookup_none {mbox : Mailbox} {pref : ChanKey V → List V}
-    {σₛ σₜ : LocalState' V} (h : σₛ ∼[mbox, pref] σₜ) {k : ChanKey V}
+    {σₛ σₜ : LocalState V} (h : σₛ ∼[mbox, pref] σₜ) {k : ChanKey V}
     (hlk : σₜ.fifos.lookup k = .none) : σₛ.fifos.lookup k = .none := by
   obtain ⟨ws, hws⟩ := h.fifo_prefix k
   rwa [hlk] at hws
@@ -209,11 +209,11 @@ theorem relatesTo.fifo_lookup_none {mbox : Mailbox} {pref : ChanKey V → List V
 whatever has been drained off the front, so the same value lands after the same prefix on both
 sides. The key sent to needs no comparison with this process's own channel — the prefix `ws` is
 whichever of the two clauses applies, and the two lookups pin it. -/
-theorem relatesTo.fifo_push {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState' V}
+theorem relatesTo.fifo_push {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
     (h : σₛ ∼[mbox, pref] σₜ) {k : ChanKey V} {ws vs : List V}
     (hlk : σₜ.fifos.lookup k = .some vs) (hlk₁ : σₛ.fifos.lookup k = .some (ws ++ vs)) (v : V)
     (l : Option String) :
-    (⟨σₛ.mem, σₛ.fifos.insert k ((ws ++ vs).concat v), l⟩ : LocalState' V) ∼[mbox, pref]
+    (⟨σₛ.mem, σₛ.fifos.insert k ((ws ++ vs).concat v), l⟩ : LocalState V) ∼[mbox, pref]
       ⟨σₜ.mem, σₜ.fifos.insert k (vs.concat v), l⟩ := by
   refine h.fifo_congr (λ k' us hus ↦ ?_) l
   by_cases hk : k' = k
@@ -227,7 +227,7 @@ theorem relatesTo.fifo_push {mbox : Mailbox} {pref : ChanKey V → List V} {σ�
 
 section Chan
 
-variable {σₛ σₜ : LocalState' V} {c : ComputableGuardedPlusCal.Ref} {inbox : String}
+variable {σₛ σₜ : LocalState V} {c : ComputableGuardedPlusCal.Ref} {inbox : String}
   {pref : ChanKey V → List V}
 
 /-- The memories agree on every name but `inbox` — the pass introduces exactly one variable, and
@@ -341,7 +341,7 @@ its own `inbox` instead — which is exactly the clause `ib` already pins.
 **A key an instance receives on names a channel that exists**, and that is not bookkeeping either.
 The target's receiving thread *aborts* on a channel resolving to no FIFO, and the source has no such
 thread to abort with — so at a state where an instance's key is absent the aborting half of the
-refinement is false. Nothing removes a key (`NetworkPlusCal.AtomicBranch.reducing'_fifos_mem`), so
+refinement is false. Nothing removes a key (`NetworkPlusCal.AtomicBranch.reducing_fifos_mem`), so
 this rides along; establishing it initially is `Algorithm.init`'s business.
 
 **Both sides are `Instances.Functional`**, and that is not bookkeeping. `ib` gives one `InboxState`

@@ -30,7 +30,7 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open GuardedPlusCal (Block ChanKey LocalState' Trace)
+open GuardedPlusCal (Block ChanKey LocalState Trace)
 
 variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
 
@@ -59,22 +59,22 @@ theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : 
     {A : Block (ComputableGuardedPlusCal.Statement false) b}
     (fresh : ∀ S ∈ A.begin, Fresh mbox S) (freshLast : Fresh mbox A.last) :
     StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-      (Block.reducing (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') A)
-      (Block.aborting (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting')
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') A)
-      (Block.diverging (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.diverging')
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing') A)
-      (Block.reducing (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing') (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
-      (Block.aborting (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting')
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing') (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
-      (Block.diverging (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.diverging')
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing') (A.map (λ ⦃_⦄ ↦ convertActionStmt))) := by
+      (Block.reducing
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) A)
+      (Block.aborting
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) A)
+      (Block.diverging
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.diverging)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) A)
+      (Block.reducing
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
+      (Block.aborting
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting)
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
+      (Block.diverging
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.diverging)
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing) (A.map (λ ⦃_⦄ ↦ convertActionStmt))) := by
   induction A using Block.cons_end_induct with
   | «end» S =>
     rw [Block.map_end, Block.reducing_end, Block.reducing_end, Block.aborting_end,
@@ -101,37 +101,39 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
     (hpre : StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-      (Br.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
-      (Br.precondition.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting')
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
+      (Br.precondition.elim Relation.Idle (Block.reducing
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing)))
+      (Br.precondition.elim ∅ (Block.aborting
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing)))
       ∅
-      (pre'.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing' assigns)
-      (pre'.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting')
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∪
-        pre'.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting' assigns)
+      (pre'.elim Relation.Idle (Block.reducing
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing assigns)
+      (pre'.elim ∅ (Block.aborting
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting)
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∪
+        pre'.elim Relation.Idle (Block.reducing
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting assigns)
       ∅)
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S) (alast : Fresh mbox Br.action.last) :
     StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-      (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
-      (NetworkPlusCal.AtomicBranch.reducing' ⟨pre',
+      (GuardedPlusCal.AtomicBranch.reducing Br) (GuardedPlusCal.AtomicBranch.aborting Br) ∅
+      (NetworkPlusCal.AtomicBranch.reducing ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
-      (NetworkPlusCal.AtomicBranch.aborting' ⟨pre',
+      (NetworkPlusCal.AtomicBranch.aborting ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
       ∅ := by
   have hcomp := StrongRefinement.Comp _ hpre (actionBlock_refines (V := V) afresh alast)
   -- `union_lcomp₂` normalizes `Comp`'s output, not the goal: the goal is already in its right-hand
   -- form once `Block.aborting_prepend` has split the prepended assignments off
-  simp only [GuardedPlusCal.Block.diverging'_eq_empty, NetworkPlusCal.Block.diverging'_eq_empty,
+  simp only [GuardedPlusCal.Statement.blockDiverging_eq_empty, NetworkPlusCal.Statement.blockDiverging_eq_empty,
     Relation.lcomp₁.right_empty_eq_empty, Set.union_self, Relation.lcomp₁.union_lcomp₂] at hcomp
-  simp only [GuardedPlusCal.AtomicBranch.reducing', GuardedPlusCal.AtomicBranch.aborting'_eq,
-    NetworkPlusCal.AtomicBranch.reducing', NetworkPlusCal.AtomicBranch.aborting'_eq,
+  simp only [GuardedPlusCal.AtomicBranch.reducing, GuardedPlusCal.AtomicBranch.aborting_eq,
+    NetworkPlusCal.AtomicBranch.reducing, NetworkPlusCal.AtomicBranch.aborting_eq,
+    GuardedPlusCal.Statement.blockReducing, GuardedPlusCal.Statement.blockAborting,
+    NetworkPlusCal.Statement.blockReducing, NetworkPlusCal.Statement.blockAborting,
     Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
   exact hcomp
 
@@ -237,8 +239,8 @@ structure BranchRefines (mbox : Mailbox) (pref : ChanKey V → List V)
     (Br' : ComputableNetworkPlusCal.AtomicBranch) : Prop where
   /-- The branch refines its source, precondition and action block together. -/
   refines : StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-    (GuardedPlusCal.AtomicBranch.reducing' Br) (GuardedPlusCal.AtomicBranch.aborting' Br) ∅
-    (NetworkPlusCal.AtomicBranch.reducing' Br') (NetworkPlusCal.AtomicBranch.aborting' Br') ∅
+    (GuardedPlusCal.AtomicBranch.reducing Br) (GuardedPlusCal.AtomicBranch.aborting Br) ∅
+    (NetworkPlusCal.AtomicBranch.reducing Br') (NetworkPlusCal.AtomicBranch.aborting Br') ∅
   /-- And it leaves for the same place: `Block.prepend` does not touch `last`, and
   `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
   last_eq : Br'.action.last = convertActionStmt Br.action.last

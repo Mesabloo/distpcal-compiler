@@ -26,30 +26,30 @@ import all Guarded2Network.PlusCal
   (`Lemmas/Relation.lean`).
 
   The indexed/flat boundary is crossed here too. `CodeTable.reducing` is stated at the indexed
-  `LocalState`, every refinement lemma at the flat `LocalState'`, and
+  `LocalState`, every refinement lemma at the flat `LocalState`, and
   `GuardedPlusCal.LocalState.sem_glue₃`/`.abort_glue₂` are what say those are the same fact.
 -/
 
 namespace Guarded2Network
 
 open ComputableTLAPlus (ExprSemantics Memory PathStep)
-open GuardedPlusCal (AlgState Block ChanKey FIFOs LocalState LocalState' ProcState Trace)
+open GuardedPlusCal (AlgState Block ChanKey FIFOs LocalState LocalState ProcState Trace)
 
 variable {V : Type} [ExprSemantics V]
 
-/-- **`AtomicBranch.reducing'_evalArgs` against the freshness bundle the block level already
+/-- **`AtomicBranch.reducing_evalArgs` against the freshness bundle the block level already
 carries.** `BranchesFresh` quantifies its precondition clause over `preconditionList`, the locality
 argument over the `Block.toList` of a precondition that is present; the two are the same list, and
 saying so is the whole of this lemma. -/
 theorem BranchesFresh.evalArgs {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     (hf : BranchesFresh (.some (c₀, inbox)) c₀ inbox Br)
-    {σ σ' : LocalState' V} {ε : Trace V}
-    (step : (⟨σ, ε, σ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-      GuardedPlusCal.AtomicBranch.reducing' Br)
+    {σ σ' : LocalState V} {ε : Trace V}
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      GuardedPlusCal.AtomicBranch.reducing Br)
     {path : List (PathStep V)} :
     Ref.EvalArgs σ.mem c₀ path ↔ Ref.EvalArgs σ'.mem c₀ path := by
-  refine AtomicBranch.reducing'_evalArgs rfl (λ B' hB' S hS ↦ hf.gfresh S ?_) hf.afresh hf.alast step
+  refine AtomicBranch.reducing_evalArgs rfl (λ B' hB' S hS ↦ hf.gfresh S ?_) hf.afresh hf.alast step
   rw [preconditionList, hB']
   exact hS
 
@@ -69,14 +69,14 @@ theorem relatesTo_of_procRelatesTo {mb : Mailbox} {rx : Set String} {pref : Chan
     (hkey : ∀ x, ib = .some x → pref x.key = x.contents)
     (hfifo : ∀ k : ChanKey V, F₁.lookup k = (pref k ++ ·) <$> F₂.lookup k)
     (l : Option String) :
-    (⟨M₁, F₁, l⟩ : LocalState' V) ∼[mb, pref] ⟨M₂, F₂, l⟩ := by
+    (⟨M₁, F₁, l⟩ : LocalState V) ∼[mb, pref] ⟨M₂, F₂, l⟩ := by
   obtain ⟨-, -, hmatch⟩ := h
   match mb, ib with
   | .none, .none => exact relatesTo.none_intro rfl hmatch hfifo
   | .some (c, inbox), .some ibp =>
     obtain ⟨hmem, ⟨sv, hsv, hseq⟩, cpath, hpath, hibkey⟩ := hmatch
     refine relatesTo.chan_intro rfl hmem hpath hsv hseq (λ k _ ↦ hfifo k) ?_
-    rw [LocalState'.fifos_mk, LocalState'.fifos_mk, ← hibkey, hfifo ibp.key, hkey ibp rfl]
+    rw [LocalState.fifos_mk, LocalState.fifos_mk, ← hibkey, hfifo ibp.key, hkey ibp rfl]
   | .none, .some _ => exact hmatch.elim
   | .some _, .none => exact hmatch.elim
 
@@ -99,7 +99,7 @@ theorem procRelatesTo_of_relatesTo {mb : Mailbox} {rx : Set String} {pref : Chan
     (hold : procRelatesTo mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hstable : ∀ (c : ComputableGuardedPlusCal.Ref) (inbox : String), mb = .some (c, inbox) →
       ∀ path : List (PathStep V), Ref.EvalArgs M₁ c path → Ref.EvalArgs M₁' c path)
-    (hrel : (⟨M₁', F₁', l⟩ : LocalState' V) ∼[mb, pref] ⟨M₂', F₂', l⟩)
+    (hrel : (⟨M₁', F₁', l⟩ : LocalState V) ∼[mb, pref] ⟨M₂', F₂', l⟩)
     (hdisj : Disjoint L₁' rx) :
     ∃ ib' : Option (InboxState V),
       procRelatesTo mb rx ib' ⟨M₁', L₁'⟩ ⟨M₂', L₁' ∪ rx⟩ ∧
@@ -150,16 +150,16 @@ theorem blockRefines_step {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
     (h : BranchesRefine (V := V) mbox pref brs brs')
-    {σₛ σₜ σₜ' : LocalState' V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
+    {σₛ σₜ σₜ' : LocalState V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
-    (step : (⟨σₜ, ε, σₜ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-      NetworkPlusCal.AtomicBranch.reducing' Br') :
+    (step : (⟨σₜ, ε, σₜ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      NetworkPlusCal.AtomicBranch.reducing Br') :
     (∃ σₛ' ε', σₛ' ∼[mbox, pref] σₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
-        ∃ Br ∈ brs, (⟨σₛ, ε', σₛ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-          GuardedPlusCal.AtomicBranch.reducing' Br) ∨
+        ∃ Br ∈ brs, (⟨σₛ, ε', σₛ'⟩ : LocalState V × Trace V × LocalState V) ∈
+          GuardedPlusCal.AtomicBranch.reducing Br) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
-        ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState' V × Trace V) ∈
-          GuardedPlusCal.AtomicBranch.aborting' Br) := by
+        ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState V × Trace V) ∈
+          GuardedPlusCal.AtomicBranch.aborting Br) := by
   obtain ⟨Br, hBr, href⟩ := h _ hmem
   rcases href.refines.terminating σₜ σₜ' ε σₛ sim step with
     ⟨σₛ', ε', hrel, hτ, hstep⟩ | ⟨ε', hpfx, habort⟩
@@ -170,7 +170,7 @@ theorem blockRefines_step {mbox : Mailbox} {pref : ChanKey V → List V}
 `GuardedPlusCal.LocalState.sem_glue₃`/`.abort_glue₂` and their `NetworkPlusCal` twins are the whole
 of the difference; nothing about the refinement changes.
 
-The target's post-state is `.done M₂' F₂' l'`, so the flat one carries `some l'` — and
+The target's post-state is `⟨M₂', F₂', .some l'`⟩, so the flat one carries `some l'` — and
 `relatesTo.label_eq` then hands the source the *same* `l'`, which is what makes the two processes
 schedule the same label next. That agreement is the reason `BranchRefines` carries `last_eq` at
 all. -/
@@ -179,25 +179,25 @@ theorem blockRefines_step_indexed {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
     (h : BranchesRefine (V := V) mbox pref brs brs')
     {M₁ M₂ M₂' : Memory V} {F₁ F₂ F₂' : FIFOs V} {l' : String} {ε : Trace V}
-    (sim : (⟨M₁, F₁, none⟩ : LocalState' V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
+    (sim : (⟨M₁, F₁, none⟩ : LocalState V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
-    (step : (⟨.running M₂ F₂, ε, .done M₂' F₂' l'⟩ :
-      LocalState V false × Trace V × LocalState V true) ∈
+    (step : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some l'⟩⟩ :
+      LocalState V × Trace V × LocalState V) ∈
         NetworkPlusCal.AtomicBranch.reducing Br') :
-    (∃ M₁' F₁' ε', (⟨M₁', F₁', some l'⟩ : LocalState' V) ∼[mbox, pref] ⟨M₂', F₂', some l'⟩ ∧
+    (∃ M₁' F₁' ε', (⟨M₁', F₁', some l'⟩ : LocalState V) ∼[mbox, pref] ⟨M₂', F₂', some l'⟩ ∧
         (instTrace (V := V)).Rτ ε' ε ∧
-        ∃ Br ∈ brs, (⟨.running M₁ F₁, ε', .done M₁' F₁' l'⟩ :
-          LocalState V false × Trace V × LocalState V true) ∈
+        ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε', ⟨M₁', F₁', .some l'⟩⟩ :
+          LocalState V × Trace V × LocalState V) ∈
           GuardedPlusCal.AtomicBranch.reducing Br) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
-        ∃ Br ∈ brs, (⟨.running M₁ F₁, ε'⟩ : LocalState V false × Trace V) ∈
+        ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
           GuardedPlusCal.AtomicBranch.aborting Br) := by
-  rcases blockRefines_step h sim hmem (NetworkPlusCal.LocalState.sem_glue₃.mp step) with
+  rcases blockRefines_step h sim hmem step with
     ⟨⟨M₁', F₁', l₁⟩, ε', hrel, hτ, Br, hBr, hstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
   · -- the source ends at the label the target ended at, which is `relatesTo`'s own first clause
     obtain rfl : l₁ = some l' := hrel.label_eq
-    exact .inl ⟨M₁', F₁', ε', hrel, hτ, Br, hBr, GuardedPlusCal.LocalState.sem_glue₃.mpr hstep⟩
-  · exact .inr ⟨ε', hpfx, Br, hBr, GuardedPlusCal.LocalState.abort_glue₂.mpr habort⟩
+    exact .inl ⟨M₁', F₁', ε', hrel, hτ, Br, hBr, hstep⟩
+  · exact .inr ⟨ε', hpfx, Br, hBr, habort⟩
 
 /-- **And where a compiled block goes wrong, the source block does too.** `blockRefines_step`'s
 twin, and simpler for the same reason `Aborting` is simpler than `Terminating`: an abort has no
@@ -206,12 +206,12 @@ theorem blockRefines_abort {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
     (h : BranchesRefine (V := V) mbox pref brs brs')
-    {σₛ σₜ : LocalState' V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
+    {σₛ σₜ : LocalState V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
-    (habort : (⟨σₜ, ε⟩ : LocalState' V × Trace V) ∈ NetworkPlusCal.AtomicBranch.aborting' Br') :
+    (habort : (⟨σₜ, ε⟩ : LocalState V × Trace V) ∈ NetworkPlusCal.AtomicBranch.aborting Br') :
     ∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
-      ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState' V × Trace V) ∈
-        GuardedPlusCal.AtomicBranch.aborting' Br := by
+      ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState V × Trace V) ∈
+        GuardedPlusCal.AtomicBranch.aborting Br := by
   obtain ⟨Br, hBr, href⟩ := h _ hmem
   obtain ⟨ε', hpfx, hsabort⟩ := href.refines.aborting σₜ ε σₛ sim habort
   exact ⟨ε', hpfx, Br, hBr, hsabort⟩
@@ -223,16 +223,15 @@ theorem blockRefines_abort_indexed {mbox : Mailbox} {pref : ChanKey V → List V
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
     (h : BranchesRefine (V := V) mbox pref brs brs')
     {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V}
-    (sim : (⟨M₁, F₁, none⟩ : LocalState' V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
+    (sim : (⟨M₁, F₁, none⟩ : LocalState V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
-    (habort : (⟨.running M₂ F₂, ε⟩ : LocalState V false × Trace V) ∈
+    (habort : (⟨⟨M₂, F₂, .none⟩, ε⟩ : LocalState V × Trace V) ∈
       NetworkPlusCal.AtomicBranch.aborting Br') :
     ∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
-      ∃ Br ∈ brs, (⟨.running M₁ F₁, ε'⟩ : LocalState V false × Trace V) ∈
+      ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
         GuardedPlusCal.AtomicBranch.aborting Br := by
-  obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ :=
-    blockRefines_abort h sim hmem (NetworkPlusCal.LocalState.abort_glue₂.mp habort)
-  exact ⟨ε', hpfx, Br, hBr, GuardedPlusCal.LocalState.abort_glue₂.mpr hsabort⟩
+  obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ := blockRefines_abort h sim hmem habort
+  exact ⟨ε', hpfx, Br, hBr, hsabort⟩
 
 /-- **The block half of the algorithm-level per-step obligation.** One instance takes a step of a
 compiled *code* thread's block; the source instance answers with a step of the block it was compiled
@@ -266,8 +265,8 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
     (hin : (⟨p, ⟨M₂, L₂⟩⟩ : ι × ProcState V) ∈ Qs)
     (hlabel : label ∈ L₁) (hlabel' : label' ∉ rx p)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
-    (hstep : (⟨.running M₂ F₂, ε, .done M₂' F₂' label'⟩ :
-      LocalState V false × Trace V × LocalState V true) ∈
+    (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label'⟩⟩ :
+      LocalState V × Trace V × LocalState V) ∈
         NetworkPlusCal.AtomicBranch.reducing Br')
     (hQs : Qs' = insert (⟨p, ⟨M₂', insert label' (L₂ \ {label})⟩⟩ : ι × ProcState V)
       (Qs \ {⟨p, ⟨M₂, L₂⟩⟩})) :
@@ -275,11 +274,11 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
         (⟨insert (⟨p, ⟨M₁', insert label' (L₁ \ {label})⟩⟩ : ι × ProcState V)
             (Ps \ {⟨p, ⟨M₁, L₁⟩⟩}), F₁'⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
         (instTrace (V := V)).Rτ ε' ε ∧
-        ∃ Br ∈ brs, (⟨.running M₁ F₁, ε', .done M₁' F₁' label'⟩ :
-          LocalState V false × Trace V × LocalState V true) ∈
+        ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε', ⟨M₁', F₁', .some label'⟩⟩ :
+          LocalState V × Trace V × LocalState V) ∈
           GuardedPlusCal.AtomicBranch.reducing Br) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
-        ∃ Br ∈ brs, (⟨.running M₁ F₁, ε'⟩ : LocalState V false × Trace V) ∈
+        ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
           GuardedPlusCal.AtomicBranch.aborting Br) := by
   obtain ⟨ib, pref, hfs, hft, hfwd, hbwd, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   obtain ⟨σ₁, hσ₁, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
@@ -301,10 +300,10 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
     have hstable : ∀ (c : ComputableGuardedPlusCal.Ref) (inbox : String), mb p = .some (c, inbox) →
         ∀ path : List (PathStep V), Ref.EvalArgs M₁ c path → Ref.EvalArgs M₁' c path := by
       intro c inbox hmb path hp
-      have hflat : (⟨(⟨M₁, F₁, .none⟩ : LocalState' V), ε', ⟨M₁', F₁', .some label'⟩⟩ :
-          LocalState' V × Trace V × LocalState' V) ∈
-          GuardedPlusCal.AtomicBranch.reducing' Br :=
-        GuardedPlusCal.LocalState.sem_glue₃.mp hsstep
+      have hflat : (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε', ⟨M₁', F₁', .some label'⟩⟩ :
+          LocalState V × Trace V × LocalState V) ∈
+          GuardedPlusCal.AtomicBranch.reducing Br :=
+        hsstep
       exact ((fresh Br hBr c inbox hmb).evalArgs hflat).mp hp
     subst hQs
     rw [hT]
@@ -421,8 +420,7 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
     · -- a step never removes a channel, and every new key is an old one
       intro q x hx
       obtain ⟨x₀, hx₀, hxk⟩ := key_of q x hx
-      refine hxk ▸ NetworkPlusCal.AtomicBranch.reducing'_fifos_mem
-        (NetworkPlusCal.LocalState.sem_glue₃.mp hstep) (hpresent q x₀ hx₀)
+      refine hxk ▸ NetworkPlusCal.AtomicBranch.reducing_fifos_mem hstep (hpresent q x₀ hx₀)
     · intro k
       by_cases! hk : ∀ y, ib'p = .some y → y.key ≠ k
       · rw [hpref_off k hk]
@@ -896,8 +894,8 @@ accepts it — there is no other branch to write. -/
 theorem ProcessRefines.exits (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) {l : String} (hl : l ∉ rxLabels p')
     {M M' : Memory V} {F F' : FIFOs V} {l' : String} {τ : Trace V}
-    (hstep : (⟨.running M F, τ, .done M' F' l'⟩ :
-      LocalState V false × Trace V × LocalState V true) ∈
+    (hstep : (⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ :
+      LocalState V × Trace V × LocalState V) ∈
         (NetworkPlusCal.Process.codeTable (V := V) p').reducing l) :
     l' ∉ rxLabels p' := by
   obtain ⟨Br', hBr', hx⟩ := tgt_reducing_le hl _ hstep

@@ -184,21 +184,21 @@ section Intro
 
 variable {V : Type} [ExprSemantics V]
 
-theorem Statement.reducing.with.intro {σ σ' : LocalState V false} {ε : Trace V}
+theorem Statement.reducing.with.intro {σ σ' : LocalState V} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = .running M F ∧ ε = 1 ∧
+    (h : ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
       match bound with
-        | true => σ' = .running (M.insert name v) F
-        | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = .running (M.insert name v') F) :
+        | true => σ' = ⟨M.insert name v, F, .none⟩
+        | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = ⟨M.insert name v', F, .none⟩) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.with name ann bound e) :=
   h
 
-theorem Statement.reducing.await.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
+theorem Statement.reducing.await.intro {σ σ' : LocalState V} {ε : Trace V} {e}
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.await e) :=
   h
 
-theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : Trace V}
+theorem Statement.reducing.receive.intro {σ σ' : LocalState V} {ε : Trace V}
     {c r coe}
     (h : ∃ M F M' cpath rpath v v' vs,
       List.Forall₂ (EvalStep M) c.args cpath ∧
@@ -206,75 +206,75 @@ theorem Statement.reducing.receive.intro {σ σ' : LocalState V false} {ε : Tra
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' (F.insert ⟨c.name, cpath⟩ vs) ∧
+      σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M', F.insert ⟨c.name, cpath⟩ vs, .none⟩ ∧
       ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.receive c r coe) :=
   h
 
-theorem Statement.reducing.skip.intro {σ σ' : LocalState V false} {ε : Trace V}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ ε = 1) :
+theorem Statement.reducing.skip.intro {σ σ' : LocalState V} {ε : Trace V}
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing GuardedPlusCal.Statement.skip :=
   h
 
-theorem Statement.reducing.goto.intro {σ : LocalState V false} {σ' : LocalState V true}
+theorem Statement.reducing.goto.intro {σ : LocalState V} {σ' : LocalState V}
     {ε : Trace V} {label}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .done M F label ∧ ε = 1) :
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .some label⟩ ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.goto label) :=
   h
 
-theorem Statement.reducing.print.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
-    (h : ∃ M F v p, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+theorem Statement.reducing.print.intro {σ σ' : LocalState V} {ε : Trace V} {e}
+    (h : ∃ M F v p, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
       ε = Stream'.Seq.cons (.print p v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.print e) :=
   h
 
-theorem Statement.reducing.assert.intro {σ σ' : LocalState V false} {ε : Trace V} {e}
-    (h : ∃ M F, σ = .running M F ∧ σ' = .running M F ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
+theorem Statement.reducing.assert.intro {σ σ' : LocalState V} {ε : Trace V} {e}
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assert e) :=
   h
 
-theorem Statement.reducing.send.intro {σ σ' : LocalState V false} {ε : Trace V} {c e}
+theorem Statement.reducing.send.intro {σ σ' : LocalState V} {ε : Trace V} {c e}
     (h : ∃ M F v cpath vs p,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
-      σ = .running M F ∧ σ' = .running M (F.insert ⟨c.name, cpath⟩ (vs.concat v)) ∧
+      σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F.insert ⟨c.name, cpath⟩ (vs.concat v), .none⟩ ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.send c e) :=
   h
 
-theorem Statement.reducing.assign.intro {σ σ' : LocalState V false} {ε : Trace V} {r e}
+theorem Statement.reducing.assign.intro {σ σ' : LocalState V} {ε : Trace V} {r e}
     (h : ∃ M F M' v rpath,
       M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
-      σ = .running M F ∧ σ' = .running M' F ∧ ε = 1) :
+      σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M', F, .none⟩ ∧ ε = 1) :
     ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assign r e) :=
   h
 
-theorem Statement.aborting.with.intro {σ : LocalState V false} {ε : Trace V}
+theorem Statement.aborting.with.intro {σ : LocalState V} {ε : Trace V}
     {name ann bound e}
-    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1 ∧ match bound with
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
           | true => False
           | false => ¬ ExprSemantics.isSet v}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.with name ann bound e) :=
   h
 
-theorem Statement.aborting.await.intro {σ : LocalState V false} {ε : Trace V} {e}
-    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}) :
+theorem Statement.aborting.await.intro {σ : LocalState V} {ε : Trace V} {e}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.await e) :=
   h
 
-theorem Statement.aborting.receive.intro {σ : LocalState V false} {ε : Trace V} {c r coe}
-    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ ({⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
-        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = 1 ∧ Ref.pathAborts M c}
-        ∪ {⟨σ, ε⟩ | ∃ M F, σ = .running M F ∧ ε = 1 ∧ Ref.pathAborts M r}
-        ∪ {⟨σ, ε⟩ | ∃ M F cpath, σ = .running M F ∧ ε = 1 ∧
+theorem Statement.aborting.receive.intro {σ : LocalState V} {ε : Trace V} {c r coe}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ ({⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ Ref.pathAborts M c}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ Ref.pathAborts M r}
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
             List.Forall₂ (EvalStep M) c.args cpath ∧ F.lookup ⟨c.name, cpath⟩ = .none}
-        ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs, σ = .running M F ∧ ε = 1 ∧
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
             List.Forall₂ (EvalStep M) c.args cpath ∧
             F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ¬ ∃ v', ExprSemantics.coerce coe v v'}
-        ∪ {⟨σ, ε⟩ | ∃ M F cpath rpath v v' vs, σ = .running M F ∧ ε = 1 ∧
+        ∪ {⟨σ, ε⟩ | ∃ M F cpath rpath v v' vs, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
             List.Forall₂ (EvalStep M) c.args cpath ∧
             List.Forall₂ (EvalStep M) r.args rpath ∧
             F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ExprSemantics.coerce coe v v' ∧
@@ -282,32 +282,32 @@ theorem Statement.aborting.receive.intro {σ : LocalState V false} {ε : Trace V
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.receive c r coe) :=
   h
 
-theorem Statement.aborting.print.intro {σ : LocalState V false} {ε : Trace V} {e}
-    (h : ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1) :
+theorem Statement.aborting.print.intro {σ : LocalState V} {ε : Trace V} {e}
+    (h : ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.print e) :=
   h
 
-theorem Statement.aborting.assert.intro {σ : LocalState V false} {ε : Trace V} {e}
-    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = .running M F ∧ ε = 1}) :
+theorem Statement.aborting.assert.intro {σ : LocalState V} {ε : Trace V} {e}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assert e) :=
   h
 
-theorem Statement.aborting.send.intro {σ : LocalState V false} {ε : Trace V} {c e}
-    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = .running M F ∧ ε = 1}
+theorem Statement.aborting.send.intro {σ : LocalState V} {ε : Trace V} {c e}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
-          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = .running M F ∧ ε = 1}) :
+          F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.send c e) :=
   h
 
-theorem Statement.aborting.assign.intro {σ : LocalState V false} {ε : Trace V} {r e}
-    (h : (⟨σ, ε⟩ : LocalState V false × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = .running M F ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = .running M F ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = .running M F ∧ ε = 1}
+theorem Statement.aborting.assign.intro {σ : LocalState V} {ε : Trace V} {r e}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
           M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
-          Memory.update M r.name rpath v = .none ∧ σ = .running M F ∧ ε = 1}) :
+          Memory.update M r.name rpath v = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
     ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assign r e) :=
   h
 
@@ -326,8 +326,8 @@ attribute [aesop safe apply (rule_sets := [sem])]
 
 section Reducing
 
-variable {α β : Bool → Type} {γ : Type} [Monoid γ]
-  (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
+variable {α : Bool → Type} {β γ : Type} [Monoid γ]
+  (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
 @[aesop safe apply (rule_sets := [sem])]
 theorem Block.listReducing_nil : Block.listReducing f [] = Relation.Idle := rfl
@@ -389,9 +389,9 @@ attribute [aesop safe apply (rule_sets := [sem])]
 
 section Aborting
 
-variable {α β : Bool → Type} {γ : Type} [Monoid γ]
-  (g : ⦃b : Bool⦄ → α b → Set (β false × γ))
-  (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
+variable {α : Bool → Type} {β γ : Type} [Monoid γ]
+  (g : ⦃b : Bool⦄ → α b → Set (β × γ))
+  (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
 @[aesop safe apply (rule_sets := [sem])]
 theorem Block.listAborting_nil : Block.listAborting g f [] = ∅ := rfl
@@ -454,9 +454,9 @@ end Aborting
 
 section Diverging
 
-variable {α β : Bool → Type} {γ : Type} [Monoid γ]
-  (d : ⦃b : Bool⦄ → α b → Set (β false × γ))
-  (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b))
+variable {α : Bool → Type} {β γ : Type} [Monoid γ]
+  (d : ⦃b : Bool⦄ → α b → Set (β × γ))
+  (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
 /-- **`Block.diverging` *is* `Block.aborting`.** "This element goes wrong, or it steps and the rest
 does" is one shape, and the two definitions spell it identically. Saying it as an equation is what
@@ -489,493 +489,106 @@ theorem Block.diverging_prepend {b : Bool} {A : List (α false)} {B : Block α b
       Block.listAborting d f A ∪ Block.listReducing f A ∘ᵣ₁ Block.diverging d f B :=
   Block.aborting_prepend d f
 
+/-- If nothing at the leaf diverges, nothing built from it does either — propagated through the
+fold. What lets a language whose statements never diverge (`Statement.diverging = ∅`, both
+`GuardedPlusCal` and `NetworkPlusCal`) conclude the same fact at block shape without restating the
+induction once per language. -/
+theorem Block.diverging_eq_empty {b : Bool} {B : Block α b} (hd : ∀ ⦃b⦄ (x : α b), d x = ∅) :
+    Block.diverging d f B = ∅ := by
+  rw [Block.diverging_eq_aborting]
+  induction B using Block.cons_end_induct with
+  | «end» S => rw [Block.aborting_end, hd]
+  | cons S B IH =>
+    rw [Block.aborting_cons, hd, IH, Set.empty_union, Relation.lcomp₁.right_empty_eq_empty]
+
 end Diverging
 
-/-! # Relabelling the state type
+/-! # What the flat encoding used to bridge
 
-  Item 7 needs to move between the `Bool`-indexed `LocalState` and a flat, unindexed encoding of it,
-  so that source and target states inhabit one type and `StrongRefinement`'s relation can be stated.
-  These three lemmas are what make that move sound: an injective relabelling of states commutes with
-  taking a block's semantics. Injectivity is genuinely needed — without it, two distinct
-  intermediate states could be identified and a composite step invented that the original relation
-  never had.
--/
+  Now that `LocalState` itself is flat, a refinement proof needs no translation between an indexed
+  and a flat state — `Statement.reducing`/`.aborting` already are the shape `StrongRefinement` wants.
+  What survives from the old bridging section are the facts genuinely about this language: no
+  statement or block diverges, and a branch's `aborting` in the uniform composed shape a
+  `StrongRefinement.Comp` produces. -/
 
-theorem Block.reducing_map {α β δ : Bool → Type} {γ : Type} [Monoid γ] {b : Bool} {B : Block α b}
-    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (g : ⦃b : Bool⦄ → β b → δ b)
-    (g_inj : ∀ ⦃b⦄, Function.Injective (@g b)) :
-    Prod.map₃ (@g _) id (@g _) '' Block.reducing f B =
-      Block.reducing (λ ⦃_⦄ x ↦ Prod.map₃ (@g _) id (@g _) '' f x) B := by
-  induction B using Block.cons_end_induct with
-  | «end» S => rw [Block.reducing_end, Block.reducing_end]
-  | cons S B IH =>
-    rw [Block.reducing_cons, Block.reducing_cons, ← IH, Relation.lcomp₂.image (g_inj (b := false))]
+section Unprimed
 
-theorem Block.aborting_map {α β δ : Bool → Type} {γ : Type} [Monoid γ] {b : Bool} {B : Block α b}
-    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (g : ⦃b : Bool⦄ → α b → Set (β false × γ))
-    (h : ⦃b : Bool⦄ → β b → δ b) (h_inj : ∀ ⦃b⦄, Function.Injective (@h b)) :
-    Prod.map (@h _) id '' Block.aborting g f B =
-      Block.aborting (λ ⦃_⦄ x ↦ Prod.map (@h _) id '' g x)
-        (λ ⦃_⦄ x ↦ Prod.map₃ (@h _) id (@h _) '' f x) B := by
-  induction B using Block.cons_end_induct with
-  | «end» S => rw [Block.aborting_end, Block.aborting_end]
-  | cons S B IH =>
-    rw [Block.aborting_cons, Block.aborting_cons, ← IH, Set.image_union,
-      Relation.lcomp₁.image (h_inj (b := false))]
-
-@[inherit_doc Block.diverging_eq_aborting]
-theorem Block.diverging_map {α β δ : Bool → Type} {γ : Type} [Monoid γ] {b : Bool} {B : Block α b}
-    (f : ⦃b : Bool⦄ → α b → Set (β false × γ × β b)) (d : ⦃b : Bool⦄ → α b → Set (β false × γ))
-    (h : ⦃b : Bool⦄ → β b → δ b) (h_inj : ∀ ⦃b⦄, Function.Injective (@h b)) :
-    Prod.map (@h _) id '' Block.diverging d f B =
-      Block.diverging (λ ⦃_⦄ x ↦ Prod.map (@h _) id '' d x)
-        (λ ⦃_⦄ x ↦ Prod.map₃ (@h _) id (@h _) '' f x) B :=
-  Block.aborting_map f d h h_inj
-
-/-! # The flat state encoding
-
-  `LocalState` is indexed by whether the state is terminal, which is what makes the block semantics
-  typecheck: only a terminal statement may produce a `done`. `StrongRefinement` cannot use an
-  indexed state type — its relation has to hold source and target states of one fixed type — so item
-  7 works over `LocalState'`, where the index becomes an ordinary `Option String` field: `none` for
-  running, `some l` for done at label `l`.
-
-  `toLocalState'` is the translation, `toLocalState'_inj` its injectivity, and the `*_eq_map` lemmas
-  below say the two encodings give the same block semantics up to that translation. The `*_glue`
-  lemmas are the membership-level corollaries, which is the form a refinement proof rewrites with.
--/
-
-section Flat
-
-variable {V : Type}
-
-/-- `LocalState` with the terminality index traded for an `Option String` field. -/
-abbrev LocalState' (V : Type) : Type := Memory V × FIFOs V × Option String
-
-/-! Named projections of `LocalState'`. It is a nested anonymous product, so its components are
-otherwise reachable only as `σ.1`/`σ.2.1`/`σ.2.2` or by destructuring at every binding site. Named
-projections let a proof `intro σₜ σₜ' ε σₛ` with no pattern at all and reach components by name,
-destructuring only where it genuinely case-splits on the label. Kept an `abbrev` rather
-than promoted to a structure so `toLocalState'_inj` and the `*_eq_map` lemmas below are unaffected;
-the `@[simp]` equations put each projection back into component form on demand. -/
-
-/-- The memory component. -/
-def LocalState'.mem (σ : LocalState' V) : Memory V := σ.1
-
-/-- The FIFO component. -/
-def LocalState'.fifos (σ : LocalState' V) : FIFOs V := σ.2.1
-
-/-- The label component: `none` while running, `some l` once the block has jumped to `l`. -/
-def LocalState'.label (σ : LocalState' V) : Option String := σ.2.2
-
-@[simp] theorem LocalState'.mem_mk (M : Memory V) (F : FIFOs V) (l : Option String) :
-    LocalState'.mem ⟨M, F, l⟩ = M := rfl
-
-@[simp] theorem LocalState'.fifos_mk (M : Memory V) (F : FIFOs V) (l : Option String) :
-    LocalState'.fifos ⟨M, F, l⟩ = F := rfl
-
-@[simp] theorem LocalState'.label_mk (M : Memory V) (F : FIFOs V) (l : Option String) :
-    LocalState'.label ⟨M, F, l⟩ = l := rfl
-
-@[simp] theorem LocalState'.mk_mem_fifos_label (σ : LocalState' V) :
-    (⟨σ.mem, σ.fifos, σ.label⟩ : LocalState' V) = σ := rfl
-
-/-- `LocalState` in the flat encoding. -/
-def LocalState.toLocalState' : {b : Bool} → LocalState V b → LocalState' V
-  | false, .running M F => ⟨M, F, .none⟩
-  | true, .done M F l => ⟨M, F, .some l⟩
-
-theorem LocalState.toLocalState'_inj ⦃b : Bool⦄ :
-    Function.Injective (@LocalState.toLocalState' V b) := by
-  cases b with
-  | false => rintro ⟨M, F⟩ ⟨M', F'⟩ (_|_); rfl
-  | true => rintro (_|⟨M, F, l⟩) (_|⟨M', F', l'⟩) (_|_); rfl
-
-variable [ExprSemantics V]
-
-/-- `Statement.reducing` in the flat encoding. A step is only taken from a *running* state, so the
-source's label field must be `none`; the target's records whether the statement was terminal. -/
-def Statement.reducing' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b b') :
-    Set (LocalState' V × Trace V × LocalState' V) :=
-  {⟨⟨M, F, l⟩, ε, ⟨M', F', l'⟩⟩ | ∃ σ' : LocalState V b',
-    l = Option.none ∧ ⟨LocalState.running M F, ε, σ'⟩ ∈ Statement.reducing S ∧ match b', σ' with
-      | true, σ' => ∃ l'', σ' = LocalState.done M' F' l'' ∧ l' = Option.some l''
-      | false, σ' => σ' = LocalState.running M' F' ∧ l' = Option.none}
-
-@[inherit_doc Statement.reducing']
-def Statement.aborting' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b b') :
-    Set (LocalState' V × Trace V) :=
-  {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.aborting S}
-
-@[inherit_doc Statement.reducing']
-def Statement.diverging' {b b' : Bool} (S : ComputableGuardedPlusCal.Statement b b') :
-    Set (LocalState' V × Trace V) :=
-  {⟨⟨M, F, l⟩, ε⟩ | l = Option.none ∧ ⟨LocalState.running M F, ε⟩ ∈ Statement.diverging S}
+variable {V : Type} [ExprSemantics V]
 
 omit [ExprSemantics V] in
-/-- No statement diverges, in the flat encoding as in the indexed one. Stated rather than left
-implicit because it is what lets a statement-level refinement be discharged by
-`StrongRefinement.ofNonDiverging` instead of by an inlined "the target cannot diverge" argument. -/
-@[simp] theorem Statement.diverging'_eq_empty {b b' : Bool}
-    (S : ComputableGuardedPlusCal.Statement b b') :
-    Statement.diverging' (V := V) S = ∅ := by
-  ext ⟨⟨M, F, l⟩, ε⟩
-  iff_rintro ⟨-, hd⟩ hd
-  · exact hd.elim
-  · exact hd.elim
+/-- No statement diverges. -/
+@[simp] theorem Statement.diverging_eq_empty {b b' : Bool}
+    (S : ComputableGuardedPlusCal.Statement b b') : Statement.diverging (V := V) S = ∅ := rfl
 
-/-! `Statement.listReducing'`/`.listAborting'`/`.listDiverging'` — the flat-encoding list forms, the
-twins of `NetworkPlusCal`'s. Item 7 relates a *list* of source guards to a target composite, so the
-source needs the same shape the target has. -/
+/-- No block diverges either — `Statement.diverging_eq_empty` propagated through the fold. -/
+@[simp] theorem Statement.blockDiverging_eq_empty {g b : Bool}
+    {B : Block (ComputableGuardedPlusCal.Statement g) b} :
+    Block.diverging (λ ⦃_⦄ ↦ (Statement.diverging (V := V))) (λ ⦃_⦄ ↦ Statement.reducing) B = ∅ := by
+  apply Block.diverging_eq_empty
+  intro _ _; rfl
 
-@[inherit_doc Statement.reducing']
-def Statement.listReducing' {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
-    Set (LocalState' V × Trace V × LocalState' V) :=
-  Block.listReducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') A
+/-- A possibly-empty *list* of Guarded statements — see `NetworkPlusCal.Statement.listReducing`,
+which this mirrors. `Guarded2Network`'s per-statement reorder lemmas lift to a list of consumption
+assignments through this wrapper, on the Guarded side exactly as on the Network one. -/
+def Statement.listReducing {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+    Set (LocalState V × Trace V × LocalState V) :=
+  Block.listReducing (λ ⦃_⦄ ↦ Statement.reducing) A
 
-@[inherit_doc Statement.reducing']
-def Statement.listAborting' {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
-    Set (LocalState' V × Trace V) :=
-  Block.listAborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-    (λ ⦃_⦄ ↦ Statement.reducing') A
-
-@[inherit_doc Statement.reducing']
-def Statement.listDiverging' {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
-    Set (LocalState' V × Trace V) :=
-  Block.listAborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-    (λ ⦃_⦄ ↦ Statement.reducing') A
+@[inherit_doc Statement.listReducing]
+def Statement.listAborting {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+    Set (LocalState V × Trace V) :=
+  Block.listAborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) A
 
 @[aesop safe apply (rule_sets := [sem])]
-theorem Statement.listReducing'_nil {g : Bool} :
-    Statement.listReducing' (V := V) (g := g) [] = Relation.Idle := rfl
+theorem Statement.listReducing_nil {g : Bool} :
+    Statement.listReducing (V := V) (g := g) [] = Relation.Idle := rfl
 
 @[aesop safe apply (rule_sets := [sem])]
-theorem Statement.listReducing'_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
+theorem Statement.listReducing_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listReducing' (V := V) (S :: A) =
-      Statement.reducing' S ∘ᵣ₂ Statement.listReducing' A := rfl
+    Statement.listReducing (V := V) (S :: A) =
+      Statement.reducing S ∘ᵣ₂ Statement.listReducing A := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
-theorem Statement.listAborting'_nil {g : Bool} :
-    Statement.listAborting' (V := V) (g := g) [] = ∅ := rfl
-
-@[aesop safe apply (rule_sets := [sem])]
-theorem Statement.listAborting'_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
-    {A : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listAborting' (V := V) (S :: A) =
-      Statement.aborting' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listAborting' A := rfl
-
-/-- A run splits wherever its list does — `Block.listReducing_append` at a statement list. -/
-theorem Statement.listReducing'_append {g : Bool}
+/-- A statement run splits wherever its list does — `Block.listReducing_append` at a statement
+list. -/
+theorem Statement.listReducing_append {g : Bool}
     {A B : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listReducing' (V := V) (A ++ B) =
-      Statement.listReducing' A ∘ᵣ₂ Statement.listReducing' B :=
+    Statement.listReducing (V := V) (A ++ B) =
+      Statement.listReducing A ∘ᵣ₂ Statement.listReducing B :=
   Block.listReducing_append _
 
-@[inherit_doc Statement.listReducing'_append]
-theorem Statement.listAborting'_append {g : Bool}
-    {A B : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listAborting' (V := V) (A ++ B) =
-      Statement.listAborting' A ∪ Statement.listReducing' A ∘ᵣ₁ Statement.listAborting' B :=
-  Block.listAborting_append _ _
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listAborting_nil {g : Bool} :
+    Statement.listAborting (V := V) (g := g) [] = ∅ := rfl
 
-/-- No *list* of statements diverges either — `Statement.diverging'_eq_empty` propagated through the
-fold. -/
-@[simp] theorem Statement.listDiverging'_eq_empty {g : Bool}
+@[aesop safe apply (rule_sets := [sem])]
+theorem Statement.listAborting_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listDiverging' (V := V) A = ∅ := by
-  induction A with
-  | nil => rfl
-  | cons S A IH =>
-    show Statement.diverging' S ∪ Statement.reducing' S ∘ᵣ₁ Statement.listDiverging' A = ∅
-    rw [Statement.diverging'_eq_empty, IH, Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
+    Statement.listAborting (V := V) (S :: A) =
+      Statement.aborting S ∪ Statement.reducing S ∘ᵣ₁ Statement.listAborting A := rfl
 
-/-- No *block* diverges either — the same fact at block shape, which is how a branch-level
-refinement gets its diverging component as `∅` rather than as something to carry. -/
-@[simp] theorem Block.diverging'_eq_empty {g b : Bool}
-    {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-        (λ ⦃_⦄ ↦ Statement.reducing') B = ∅ := by
-  show Statement.listDiverging' B.begin ∪ _ ∘ᵣ₁ Statement.diverging' B.last = ∅
-  rw [Statement.listDiverging'_eq_empty, Statement.diverging'_eq_empty,
-    Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
-
-private theorem Statement.reducing'_eq_map {b b' : Bool}
-    (S : ComputableGuardedPlusCal.Statement b b') :
-    Statement.reducing' (V := V) S =
-      Prod.map₃ LocalState.toLocalState' id LocalState.toLocalState' '' Statement.reducing S := by
-  ext ⟨⟨M, F, l⟩, e, ⟨M', F', l'⟩⟩
-  constructor
-  · cases b' with
-    | false =>
-      rintro ⟨⟨M'', F''⟩, rfl, sem, _|_, rfl⟩
-      exists _, sem
-    | true =>
-      rintro ⟨⟨M'', F'', l''⟩, rfl, sem, _, _|_, rfl⟩
-      exists _, sem
-  · cases b' with
-    | false =>
-      rintro ⟨⟨⟨_, _⟩, _, ⟨_, _⟩⟩, sem, _|_⟩
-      exists _, rfl, sem
-    | true =>
-      rintro ⟨⟨⟨_, _⟩, _, _|⟨_, _, l⟩⟩, sem, _|_⟩
-      exists _, rfl, sem, l
-
-private theorem Statement.aborting'_eq_map {b b' : Bool}
-    (S : ComputableGuardedPlusCal.Statement b b') :
-    Statement.aborting' (V := V) S =
-      Prod.map LocalState.toLocalState' id '' Statement.aborting S := by
-  ext ⟨⟨M, F, l⟩, e⟩
-  iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
-  · exists _, sem
-  · trivial
-
--- `Statement.diverging` is `∅` regardless of the expression semantics, so this one does not use it.
-omit [ExprSemantics V] in
-private theorem Statement.diverging'_eq_map {b b' : Bool}
-    (S : ComputableGuardedPlusCal.Statement b b') :
-    Statement.diverging' (V := V) S =
-      Prod.map LocalState.toLocalState' id '' Statement.diverging S := by
-  ext ⟨⟨M, F, l⟩, e⟩
-  iff_rintro ⟨rfl, sem⟩ ⟨⟨⟨_⟩, _⟩, _, _|_⟩
-  · exists _, sem
-  · trivial
-
-theorem Block.reducing'_eq_map {g b : Bool}
-    {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B =
-      Prod.map₃ LocalState.toLocalState' id LocalState.toLocalState' ''
-        Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B := by
-  rw [Block.reducing_map _ _ LocalState.toLocalState'_inj]
-  conv_rhs => enter [1, b, S]; rw [← Statement.reducing'_eq_map S]
-
-theorem Block.aborting'_eq_map {g b : Bool}
-    {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-        (λ ⦃_⦄ ↦ Statement.reducing') B =
-      Prod.map LocalState.toLocalState' id ''
-        Block.aborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) B := by
-  rw [Block.aborting_map _ _ _ LocalState.toLocalState'_inj]
-  conv_rhs => enter [1, b, S]; rw [← Statement.aborting'_eq_map S]
-  conv_rhs => enter [2, b, S]; rw [← Statement.reducing'_eq_map S]
-
-theorem Block.diverging'_eq_map {g b : Bool}
-    {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-        (λ ⦃_⦄ ↦ Statement.reducing') B =
-      Prod.map LocalState.toLocalState' id ''
-        Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) B := by
-  rw [Block.diverging_map _ _ _ LocalState.toLocalState'_inj]
-  conv_rhs => enter [1, b, S]; rw [← Statement.diverging'_eq_map S]
-  conv_rhs => enter [2, b, S]; rw [← Statement.reducing'_eq_map S]
-
-/-! The four membership-level corollaries a refinement proof rewrites with. Each says that a
-concrete indexed step is the same fact as the corresponding flat one — the direction that matters is
-`mp`, which lets an indexed hypothesis be fed to a `StrongRefinement` goal stated over
-`LocalState'`. -/
-
-theorem LocalState.sem_glue₁ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
-    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) true} :
-    ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈
-        Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B ↔
-      ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈
-        Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B := by
-  rw [Block.reducing'_eq_map, Set.mem_image]
-  iff_rintro sem ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩
-  · exists _, sem
-  · exact sem
-
-theorem LocalState.sem_glue₂ {g : Bool} {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V}
-    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) false} :
-    ⟨LocalState.running M₁ F₁, ε, LocalState.running M₂ F₂⟩ ∈
-        Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B ↔
-      ⟨(M₁, F₁, none), ε, (M₂, F₂, none)⟩ ∈
-        Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B := by
-  rw [Block.reducing'_eq_map, Set.mem_image]
-  iff_rintro sem ⟨⟨⟨_, _⟩, _, _|⟨_, _⟩⟩, sem, _|_⟩
-  · exists _, sem
-  · exact sem
-
-theorem LocalState.abort_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
-    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    ⟨LocalState.running M₁ F₁, ε⟩ ∈
-        Block.aborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) B ↔
-      ⟨(M₁, F₁, none), ε⟩ ∈
-        Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-          (λ ⦃_⦄ ↦ Statement.reducing') B := by
-  rw [Block.aborting'_eq_map, Set.mem_image]
-  iff_rintro sem ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩
-  · exists _, sem
-  · exact sem
-
-theorem LocalState.div_glue {g b : Bool} {M₁ : Memory V} {F₁ : FIFOs V}
-    {ε : Trace V} {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    ⟨LocalState.running M₁ F₁, ε⟩ ∈
-        Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing) B ↔
-      ⟨(M₁, F₁, none), ε⟩ ∈
-        Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-          (λ ⦃_⦄ ↦ Statement.reducing') B := by
-  rw [Block.diverging'_eq_map, Set.mem_image]
-  iff_rintro sem ⟨⟨⟨_, _⟩, _⟩, sem, _|_⟩
-  · exists _, sem
-  · exact sem
-
--- Leaf discharge for `sem_side`. `simp` builder, not `apply`: these are `↔`, and an `apply`
--- builder only ever tries one direction.
-attribute [aesop norm simp (rule_sets := [sem])]
-  LocalState.sem_glue₁ LocalState.sem_glue₂ LocalState.abort_glue LocalState.div_glue
-
-/-! # `AtomicBranch`, flat
-
-  Mirrors `AtomicBranch.reducing`/`.aborting`/`.diverging` (`Semantics/Denotational.lean`) at the
-  flat encoding, built from the primed leaf functions above rather than proved equal to an image of
-  the indexed version after the fact — the indexed ones are already exactly "precondition, then
-  action" by definition, so there is nothing to transport.
-
-  No `AtomicBlock` layer here, for the reason `Core/NetworkPlusCal/Semantics/Denotational.lean`'s
-  module doc gives: a source block is only ever existentially quantified, never required to match a
-  target's type.
--/
-
-/-- `AtomicBranch.reducing` in the flat encoding. -/
-def AtomicBranch.reducing' (B : ComputableGuardedPlusCal.AtomicBranch) :
-    Set (LocalState' V × Trace V × LocalState' V) :=
-  B.precondition.elim Relation.Idle
-    (Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₂
-    Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B.action
-
-@[inherit_doc AtomicBranch.reducing']
-def AtomicBranch.aborting' (B : ComputableGuardedPlusCal.AtomicBranch) :
-    Set (LocalState' V × Trace V) :=
-  match B.precondition with
-  | .none => Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-      (λ ⦃_⦄ ↦ Statement.reducing') B.action
-  | .some B' =>
-    Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-        (λ ⦃_⦄ ↦ Statement.reducing') B' ∪
-      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
-        Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-          (λ ⦃_⦄ ↦ Statement.reducing') B.action
-
-@[inherit_doc AtomicBranch.reducing']
-def AtomicBranch.diverging' (B : ComputableGuardedPlusCal.AtomicBranch) :
-    Set (LocalState' V × Trace V) :=
-  match B.precondition with
-  | .none => Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-      (λ ⦃_⦄ ↦ Statement.reducing') B.action
-  | .some B' =>
-    Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-        (λ ⦃_⦄ ↦ Statement.reducing') B' ∪
-      Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B' ∘ᵣ₁
-        Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-          (λ ⦃_⦄ ↦ Statement.reducing') B.action
+@[inherit_doc Statement.listReducing_append]
+theorem Statement.listAborting_append {g : Bool}
+    {A B : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listAborting (V := V) (A ++ B) =
+      Statement.listAborting A ∪ Statement.listReducing A ∘ᵣ₁ Statement.listAborting B :=
+  Block.listAborting_append _ _
 
 /-- The `match` on the precondition, discharged: `.none` composes with the identity relation and
 contributes no aborting runs of its own, which is exactly what `Option.elim` says. The uniform form
-is what a `StrongRefinement.Comp` of the two halves produces, so this is the bridge between the
-definition above and every proof about it. -/
-theorem AtomicBranch.aborting'_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
-    AtomicBranch.aborting' (V := V) B =
-      B.precondition.elim ∅ (Block.aborting (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ Statement.aborting') (λ ⦃_⦄ ↦ Statement.reducing')) ∪
-        B.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₁
-          Block.aborting (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.aborting')
-            (λ ⦃_⦄ ↦ Statement.reducing') B.action := by
-  rw [AtomicBranch.aborting']
+is what a `StrongRefinement.Comp` of a precondition half and an action half produces, so this is the
+bridge between the definition and every proof about it. -/
+theorem AtomicBranch.aborting_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
+    AtomicBranch.aborting (V := V) B =
+      B.precondition.elim ∅ Statement.blockAborting ∪
+        B.precondition.elim Relation.Idle Statement.blockReducing ∘ᵣ₁
+          Statement.blockAborting B.action := by
+  rw [AtomicBranch.aborting]
   cases B.precondition with
   | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
   | some => rfl
 
-@[inherit_doc AtomicBranch.aborting'_eq]
-theorem AtomicBranch.diverging'_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
-    AtomicBranch.diverging' (V := V) B =
-      B.precondition.elim ∅ (Block.diverging (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ Statement.diverging') (λ ⦃_⦄ ↦ Statement.reducing')) ∪
-        B.precondition.elim Relation.Idle (Block.reducing (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ Statement.reducing')) ∘ᵣ₁
-          Block.diverging (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.diverging')
-            (λ ⦃_⦄ ↦ Statement.reducing') B.action := by
-  rw [AtomicBranch.diverging']
-  cases B.precondition with
-  | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
-  | some => rfl
-
-/-- No `GuardedPlusCal` statement diverges, so no branch does either. -/
-@[simp] theorem AtomicBranch.diverging'_eq_empty (B : ComputableGuardedPlusCal.AtomicBranch) :
-    AtomicBranch.diverging' (V := V) B = ∅ := by
-  rw [AtomicBranch.diverging'_eq, Block.diverging'_eq_empty, Relation.lcomp₁.right_empty_eq_empty,
-    Set.union_empty]
-  cases B.precondition with
-  | none => rfl
-  | some => exact Block.diverging'_eq_empty
-
-/-! The same membership-level corollaries one level up, at `AtomicBranch` rather than `Block`.
-Twins of `NetworkPlusCal`'s `sem_glue₃`/`abort_glue₂` and needed for the same reason: the process
-layer states a step against the *indexed* `AtomicBranch.reducing`, while every refinement lemma is
-stated against the flat `reducing'`.
-
-The extra work over the `Block`-level glue is the composition boundary. A branch is its precondition
-composed with its action, and the intermediate state is a `.running` constructor on the indexed side
-against a flat triple on the other — whose label field has to be known to be `none` before the two
-can be matched up. `LocalState'.sem_label_eq` is what supplies that. -/
-
-/-- Every flat `Block.reducing` membership has `none` in both endpoints' label fields: that field
-changes only at the `AtomicBranch`-composition boundary, never inside a `Block` built from
-`Statement.reducing'`. -/
-theorem LocalState'.sem_label_eq {g : Bool} {B : Block (ComputableGuardedPlusCal.Statement g) false}
-    {σ σ' : LocalState' V} {ε : Trace V}
-    (h : ⟨σ, ε, σ'⟩ ∈ Block.reducing (β := λ _ ↦ LocalState' V) (λ ⦃_⦄ ↦ Statement.reducing') B) :
-    σ.2.2 = none ∧ σ'.2.2 = none := by
-  rw [Block.reducing'_eq_map, Set.mem_image] at h
-  obtain ⟨⟨⟨_, _⟩, _, ⟨_, _⟩⟩, _, rfl, rfl⟩ := h
-  exact ⟨rfl, rfl⟩
-
-theorem LocalState.sem_glue₃ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {l : String}
-    {ε : Trace V} {Br : ComputableGuardedPlusCal.AtomicBranch} :
-    ⟨LocalState.running M₁ F₁, ε, LocalState.done M₂ F₂ l⟩ ∈ AtomicBranch.reducing Br ↔
-      ⟨(M₁, F₁, none), ε, (M₂, F₂, some l)⟩ ∈ AtomicBranch.reducing' (V := V) Br := by
-  unfold AtomicBranch.reducing AtomicBranch.reducing' Statement.blockReducing
-  cases hpre : Br.precondition with
-  | none =>
-    simp only [Option.elim]
-    rw [Relation.lcomp₂.left_id_eq, Relation.lcomp₂.left_id_eq]
-    exact LocalState.sem_glue₁
-  | some B' =>
-    simp only [Option.elim]
-    iff_rintro ⟨⟨M', F'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
-      ⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, red_act, rfl⟩
-    · exact ⟨(M', F', none), ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mp red_pre,
-        (LocalState.sem_glue₁ (B := Br.action)).mp red_act, rfl⟩
-    · obtain rfl : l' = none :=
-        (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-          (σ' := (M', F', l')) red_pre).2
-      exact ⟨LocalState.running M' F', ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mpr red_pre,
-        (LocalState.sem_glue₁ (B := Br.action)).mpr red_act, rfl⟩
-
-@[inherit_doc LocalState.sem_glue₃]
-theorem LocalState.abort_glue₂ {M₁ : Memory V} {F₁ : FIFOs V} {ε : Trace V}
-    {Br : ComputableGuardedPlusCal.AtomicBranch} :
-    ⟨LocalState.running M₁ F₁, ε⟩ ∈ AtomicBranch.aborting Br ↔
-      ⟨(M₁, F₁, none), ε⟩ ∈ AtomicBranch.aborting' (V := V) Br := by
-  unfold AtomicBranch.aborting AtomicBranch.aborting' Statement.blockReducing
-    Statement.blockAborting
-  cases hpre : Br.precondition with
-  | none => exact LocalState.abort_glue
-  | some B' =>
-    iff_rintro (h|⟨⟨M', F'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
-      (h|⟨⟨M', F', l'⟩, ε₁, ε₂, red_pre, abort_act, rfl⟩)
-    · exact .inl ((LocalState.abort_glue (B := B')).mp h)
-    · exact .inr ⟨(M', F', none), ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mp red_pre,
-        (LocalState.abort_glue (B := Br.action)).mp abort_act, rfl⟩
-    · exact .inl ((LocalState.abort_glue (B := B')).mpr h)
-    · obtain rfl : l' = none :=
-        (LocalState'.sem_label_eq (B := B') (σ := ((M₁, F₁, none) : LocalState' V))
-          (σ' := (M', F', l')) red_pre).2
-      exact .inr ⟨LocalState.running M' F', ε₁, ε₂, (LocalState.sem_glue₂ (B := B')).mpr red_pre,
-        (LocalState.abort_glue (B := Br.action)).mpr abort_act, rfl⟩
-
-end Flat
+end Unprimed
 
 end GuardedPlusCal
 

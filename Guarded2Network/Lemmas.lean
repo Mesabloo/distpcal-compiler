@@ -55,8 +55,7 @@ leaves the existential body; `sem_side` supplies the witnesses from `hv`/`hp` al
 via the `sem` rule set. -/
 example {V} [ExprSemantics V] {M : ComputableTLAPlus.Memory V} {F v p} {e}
     (hv : M ⊢ e ⇒ v) (hp : M.lookup GuardedPlusCal.selfName = some p) :
-    ⟨GuardedPlusCal.LocalState.running M F, Stream'.Seq.cons (.print p v) 1,
-      GuardedPlusCal.LocalState.running M F⟩ ∈
+    ⟨(M, F, .none), Stream'.Seq.cons (.print p v) 1, (M, F, .none)⟩ ∈
       GuardedPlusCal.Statement.reducing (GuardedPlusCal.Statement.print e) := by
   sem_red
   sem_side

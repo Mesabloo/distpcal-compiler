@@ -31,7 +31,7 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open GuardedPlusCal (Block ChanKey LocalState' Trace)
+open GuardedPlusCal (Block ChanKey LocalState Trace)
 
 variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
 

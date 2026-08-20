@@ -40,7 +40,7 @@ import Extra.Do
 namespace Guarded2Network
 
 open ComputableTLAPlus (ExprSemantics Expression Memory PathStep)
-open GuardedPlusCal (ChanKey EvalStep FIFOs LocalState LocalState' Trace)
+open GuardedPlusCal (ChanKey EvalStep FIFOs LocalState LocalState Trace)
 
 variable {V : Type} [ExprSemantics V] [SeqBuiltins V]
 
@@ -88,24 +88,20 @@ def ReceiveFresh (c r : ComputableGuardedPlusCal.Ref) (inbox : String) : Prop :=
 /-- The compiled guard's step: it changes nothing, emits nothing, and is enabled exactly when the
 inbox holds more than `n` elements. -/
 theorem await_lenGt_iff {inbox : String} {τ : ComputableTLAPlus.Typ} {n : Nat} {M : Memory V}
-    {F : FIFOs V} {sv : V} {vs : List V} {σ' : LocalState' V} {ε : Trace V}
+    {F : FIFOs V} {sv : V} {vs : List V} {σ' : LocalState V} {ε : Trace V}
     (hlk : M.lookup inbox = .some sv) (hseq : ExprSemantics.isSeq sv vs) :
-    (⟨(M, F, .none), ε, σ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-        NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) n)) ↔
+    (⟨(M, F, .none), ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+        NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) n)) ↔
       σ' = (M, F, .none) ∧ ε = 1 ∧ n < vs.length := by
   obtain ⟨b, hb, -, hiff⟩ := eval_lenGt_inbox (τ := τ) (n := n) hlk hseq
   iff_rintro h ⟨rfl, rfl, hlen⟩
-  · obtain ⟨M₀, F₀, l₀⟩ := σ'
-    obtain ⟨_, -, ⟨M', F', hM, hσ', htru, rfl⟩, hpost, rfl⟩ := h
-    injection hM with hM hF
-    subst hM; subst hF; subst hσ'
-    injection hpost with hM' hF'
-    subst hM'; subst hF'
+  · obtain ⟨M', F', hσ, rfl, htru, rfl⟩ := h
+    simp only [Prod.mk.injEq] at hσ
+    obtain ⟨rfl, rfl, -⟩ := hσ
     obtain rfl := ExprSemantics.evalUnique hb htru
     exact ⟨rfl, rfl, hiff.mp rfl⟩
   · obtain rfl := hiff.mpr hlen
-    exact ⟨.running M F, rfl,
-      NetworkPlusCal.Statement.reducing.await.intro ⟨M, F, rfl, rfl, hb, rfl⟩, rfl, rfl⟩
+    exact NetworkPlusCal.Statement.reducing.await.intro ⟨M, F, rfl, rfl, hb, rfl⟩
 
 /-- One `receive`'s two consumption assignments, as a single step: the inbox must hold at least one
 element, the coerced head lands under the reference, and the tail is written back. Note what the pair
@@ -114,31 +110,23 @@ the assignments at exactly the same two memories. Only `r.name ≠ inbox` matter
 first assignment leaves the inbox for the second to read. -/
 theorem consumption_pair_iff {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
     {inbox : String} {τ : ComputableTLAPlus.Typ} (hne : r.name ≠ inbox)
-    {σ σ' : LocalState' V} {ε : Trace V} :
-    (⟨σ, ε, σ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-        NetworkPlusCal.Statement.reducing'
+    {σ σ' : LocalState V} {ε : Trace V} :
+    (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+        NetworkPlusCal.Statement.reducing
             (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
-          NetworkPlusCal.Statement.reducing'
+          NetworkPlusCal.Statement.reducing
             (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))) ↔
       ∃ M F M' sv t v v' vs rpath,
         σ = (M, F, .none) ∧ σ' = (M'.insert inbox t, F, .none) ∧ ε = 1 ∧
         M.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv (v :: vs) ∧
         ExprSemantics.isSeq t vs ∧ ExprSemantics.coerce coe v v' ∧ Ref.EvalArgs M r rpath ∧
         ComputableTLAPlus.Memory.update M r.name rpath v' = .some M' := by
-  iff_rintro ⟨⟨Mₘ, Fₘ, lₘ⟩, ε₁, ε₂, hR, hI, rfl⟩
+  iff_rintro ⟨mid, ε₁, ε₂, hR, hI, rfl⟩
     ⟨M, F, M', sv, t, v, v', vs, rpath, rfl, rfl, rfl, hsv, hseq, ht, hcoe, hrpath, hupd⟩
-  · obtain ⟨M₁, F₁, l₁⟩ := σ
-    obtain ⟨M₂, F₂, l₂⟩ := σ'
-    obtain ⟨_, rfl, ⟨M, F, M', v', rpath, hv', hrpath, hupd, hM, hσ', rfl⟩, hpost, rfl⟩ := hR
-    injection hM with hM hF
-    subst hM; subst hF; subst hσ'
-    injection hpost with hM' hF'
-    subst hM'; subst hF'
-    obtain ⟨_, -, ⟨M, F, M₄, t, ipath, htail, hipath, hupdI, hM, hσ', rfl⟩, hpost, rfl⟩ := hI
-    injection hM with hM hF
-    subst hM; subst hF; subst hσ'
-    injection hpost with hM' hF'
-    subst hM'; subst hF'
+  · obtain ⟨M₁, F₁, M', v', rpath, hv', hrpath, hupd, rfl, rfl, rfl⟩ := hR
+    obtain ⟨M, F, M₄, t, ipath, htail, hipath, hupdI, hσ, rfl, rfl⟩ := hI
+    simp only [Prod.mk.injEq] at hσ
+    obtain ⟨rfl, rfl, -⟩ := hσ
     cases hipath
     rw [inboxRef_name] at hupdI
     obtain rfl := ComputableTLAPlus.Memory.update_nil hupdI
@@ -152,15 +140,14 @@ theorem consumption_pair_iff {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAP
       (eval_tail_inbox hsv' hseq).mp htail, hcoe, hrpath, hupd⟩
   · have hsv' : M'.lookup inbox = .some sv :=
       (Memory.lookup_update_ne hupd (Ne.symm hne)).trans hsv
-    refine ⟨(M', F, .none), 1, 1, ⟨.running M' F, rfl,
+    refine ⟨(M', F, .none), 1, 1,
       NetworkPlusCal.Statement.reducing.assign.intro
         ⟨M, F, M', v', rpath, ExprSemantics.evalCoerce.mpr
           ⟨v, (eval_head_inbox hsv hseq).mpr rfl, hcoe⟩, hrpath, hupd, rfl, rfl, rfl⟩,
-      rfl, rfl⟩, ⟨.running (M'.insert inbox t) F, rfl,
       NetworkPlusCal.Statement.reducing.assign.intro
         ⟨M', F, M'.insert inbox t, t, [], (eval_tail_inbox hsv' hseq).mpr ht, .nil, ?_,
           rfl, rfl, rfl⟩,
-      rfl, rfl⟩, by simp⟩
+      by simp⟩
     rw [inboxRef_name]
     exact ComputableTLAPlus.Memory.update_eq_some_iff.mpr
       ⟨sv, t, hsv', ExprSemantics.updatePath_nil, rfl⟩
@@ -178,46 +165,38 @@ update transferred across the `inbox`-difference by `Ref.EvalArgs.congr_of_fresh
 `Memory.update_transfer`. -/
 theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
     {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
-    (fresh : ReceiveFresh c r inbox) {σₛ σₜ σₜ' : LocalState' V} {ε : Trace V}
+    (fresh : ReceiveFresh c r inbox) {σₛ σₜ σₜ' : LocalState V} {ε : Trace V}
     (sim : σₛ ∼[.some (c, inbox), pref] σₜ)
-    (step : (⟨σₜ, ε, σₜ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-      NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
-      NetworkPlusCal.Statement.reducing'
+    (step : (⟨σₜ, ε, σₜ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
+      NetworkPlusCal.Statement.reducing
         (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
-      NetworkPlusCal.Statement.reducing' (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))) :
+      NetworkPlusCal.Statement.reducing (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))) :
     ε = 1 ∧
       ((∃ σₛ', σₛ' ∼[.some (c, inbox), pref] σₜ' ∧
-        (⟨σₛ, 1, σₛ'⟩ : LocalState' V × Trace V × LocalState' V) ∈
-          GuardedPlusCal.Statement.reducing' (.receive c r coe)) ∨
-      (⟨σₛ, 1⟩ : LocalState' V × Trace V) ∈
-        GuardedPlusCal.Statement.aborting' (.receive c r coe)) := by
+        (⟨σₛ, 1, σₛ'⟩ : LocalState V × Trace V × LocalState V) ∈
+          GuardedPlusCal.Statement.reducing (.receive c r coe)) ∨
+      (⟨σₛ, 1⟩ : LocalState V × Trace V) ∈
+        GuardedPlusCal.Statement.aborting (.receive c r coe)) := by
   obtain ⟨hfc, hfr, hfw⟩ := fresh
   have hrname : r.name ≠ inbox := Ne.symm (ne_name_of_fresh hfr)
   obtain ⟨cpath, sv, vs, hpath, hinbox, hseq, hoff, hsplit⟩ := sim.inbox_seq
   have hagree := sim.mem_agree
   have hlabel := sim.label_eq
   obtain ⟨M₁, F₁, l₁⟩ := σₛ
-  obtain ⟨M₂, F₂, l₂⟩ := σₜ
-  obtain ⟨M₄, F₄, l₄⟩ := σₜ'
-  simp only [LocalState'.mem_mk, LocalState'.fifos_mk, LocalState'.label_mk]
+  simp only [LocalState.mem_mk, LocalState.fifos_mk, LocalState.label_mk]
     at hpath hinbox hoff hsplit hagree hlabel
   -- the target's three steps
-  obtain ⟨⟨Mₘ, Fₘ, lₘ⟩, ε₁, ε₂, hawait, ⟨⟨Mₙ, Fₙ, lₙ⟩, ε₃, ε₄, hassignR, hassignI, rfl⟩, rfl⟩ := step
-  obtain ⟨_, rfl, ⟨M, F, hM, hσ', htru, rfl⟩, hpost, rfl⟩ := hawait
-  injection hM with hM hF
-  subst hM; subst hF; subst hσ'
-  injection hpost with hM' hF'
-  subst hM'; subst hF'
-  obtain ⟨_, -, ⟨M, F, M₃, v', rpath, hv', hrpath, hupd, hM, hσ', rfl⟩, hpost, rfl⟩ := hassignR
-  injection hM with hM hF
-  subst hM; subst hF; subst hσ'
-  injection hpost with hM' hF'
-  subst hM'; subst hF'
-  obtain ⟨_, -, ⟨M, F, M₄', t, ipath, ht, hipath, hupdI, hM, hσ', rfl⟩, hpost, rfl⟩ := hassignI
-  injection hM with hM hF
-  subst hM; subst hF; subst hσ'
-  injection hpost with hM' hF'
-  subst hM'; subst hF'
+  obtain ⟨mid1, ε₁, ε₂, hawait, ⟨mid2, ε₃, ε₄, hassignR, hassignI, rfl⟩, rfl⟩ := step
+  obtain ⟨M, F, rfl, rfl, htru, rfl⟩ := hawait
+  simp only [LocalState.label_mk] at hlabel
+  subst hlabel
+  obtain ⟨M₀, F₀, M₃, v', rpath, hv', hrpath, hupd, hσ, rfl, rfl⟩ := hassignR
+  simp only [Prod.mk.injEq] at hσ
+  obtain ⟨rfl, rfl, -⟩ := hσ
+  obtain ⟨M₁', F₁', M₄', t, ipath, ht, hipath, hupdI, hσ, rfl, rfl⟩ := hassignI
+  simp only [Prod.mk.injEq] at hσ
+  obtain ⟨rfl, rfl, -⟩ := hσ
   refine ⟨by simp, ?_⟩
   -- the guard says the inbox is non-empty, so the drained prefix has a head
   obtain ⟨b, hb, -, hiff⟩ := eval_lenGt_inbox (τ := τ) (n := 0) hinbox hseq
@@ -234,16 +213,18 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
   cases hipath
   rw [inboxRef_name] at hupdI
   obtain rfl := ComputableTLAPlus.Memory.update_nil hupdI
-  cases hlk : F₂.lookup ((c.name, cpath) : ChanKey V) with
+  cases hlk : F.lookup ((c.name, cpath) : ChanKey V) with
   | none =>
     -- the invariant permits an `inbox` holding messages over a channel the source has no FIFO for
     -- at all; there the source aborts rather than matching
-    refine .inr ⟨hlabel, GuardedPlusCal.Statement.aborting.receive.intro
-      (.inl (.inl (.inr ⟨M₁, F₁, cpath, rfl, rfl, hpath, ?_⟩)))⟩
+    refine .inr (GuardedPlusCal.Statement.aborting.receive.intro
+      (.inl (.inl (.inr ⟨M₁, F₁, cpath, rfl, rfl, hpath, ?_⟩))))
+    simp only [LocalState.fifos_mk] at hsplit
     rw [hsplit, hlk]
     rfl
   | some ws =>
     have hlk₁ : F₁.lookup ((c.name, cpath) : ChanKey V) = .some (v :: (vs' ++ ws)) := by
+      simp only [LocalState.fifos_mk] at hsplit
       rw [hsplit, hlk]
       rfl
     obtain ⟨M₁', hupd₁, hx⟩ := Memory.update_transfer (hagree r.name hrname).symm hupd
@@ -258,23 +239,21 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
         exact hagree y hy
     refine .inl ⟨⟨M₁', F₁.insert (c.name, cpath) (vs' ++ ws), .none⟩,
       relatesTo.chan_intro (cpath := cpath) rfl ?_ ?_ (Finmap.lookup_insert _) ht' ?_ ?_,
-      ⟨.running M₁' (F₁.insert (c.name, cpath) (vs' ++ ws)), hlabel,
-        GuardedPlusCal.Statement.reducing.receive.intro
-          ⟨M₁, F₁, M₁', cpath, rpath, v, v', vs' ++ ws, hpath,
-            (Ref.EvalArgs.congr_of_fresh hagree hfr).mpr hrpath, hlk₁, hcoe, hupd₁,
-            rfl, rfl, rfl⟩,
-        rfl, rfl⟩⟩
+      GuardedPlusCal.Statement.reducing.receive.intro
+        ⟨M₁, F₁, M₁', cpath, rpath, v, v', vs' ++ ws, hpath,
+          (Ref.EvalArgs.congr_of_fresh hagree hfr).mpr hrpath, hlk₁, hcoe, hupd₁,
+          rfl, rfl, rfl⟩⟩
     · intro y hy
-      simp only [LocalState'.mem_mk]
+      simp only [LocalState.mem_mk]
       rw [Finmap.lookup_insert_of_ne _ hy]
       exact hagree₁ y hy
     · exact (Ref.EvalArgs.congr_of_fresh
         (λ y hy ↦ (Memory.lookup_update_ne hupd₁ hy).symm) hfw).mp hpath
     · intro k hk
-      simp only [LocalState'.fifos_mk]
+      simp only [LocalState.fifos_mk]
       rw [Finmap.lookup_insert_of_ne _ hk]
       exact hoff k hk
-    · simp only [LocalState'.fifos_mk]
+    · simp only [LocalState.fifos_mk]
       rw [Finmap.lookup_insert _, hlk]
       rfl
 
@@ -290,109 +269,101 @@ fail. What is left is the first assignment's four clauses, which map onto four o
 six. -/
 theorem receive_aborting_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
     {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
-    (fresh : ReceiveFresh c r inbox) {σₛ σₜ : LocalState' V} {ε : Trace V}
+    (fresh : ReceiveFresh c r inbox) {σₛ σₜ : LocalState V} {ε : Trace V}
     (sim : σₛ ∼[.some (c, inbox), pref] σₜ)
-    (step : (⟨σₜ, ε⟩ : LocalState' V × Trace V) ∈
-      NetworkPlusCal.Statement.aborting' (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
-      NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
-        (NetworkPlusCal.Statement.aborting'
+    (step : (⟨σₜ, ε⟩ : LocalState V × Trace V) ∈
+      NetworkPlusCal.Statement.aborting (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
+      NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
+        (NetworkPlusCal.Statement.aborting
             (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∪
-          NetworkPlusCal.Statement.reducing'
+          NetworkPlusCal.Statement.reducing
               (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₁
-            NetworkPlusCal.Statement.aborting'
+            NetworkPlusCal.Statement.aborting
               (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))))) :
-    (⟨σₛ, 1⟩ : LocalState' V × Trace V) ∈
-      GuardedPlusCal.Statement.aborting' (.receive c r coe) := by
+    (⟨σₛ, 1⟩ : LocalState V × Trace V) ∈
+      GuardedPlusCal.Statement.aborting (.receive c r coe) := by
   obtain ⟨hfc, hfr, hfw⟩ := fresh
   have hrname : r.name ≠ inbox := Ne.symm (ne_name_of_fresh hfr)
   obtain ⟨cpath, sv, vs, hpath, hinbox, hseq, hoff, hsplit⟩ := sim.inbox_seq
   have hagree := sim.mem_agree
   have hlabel := sim.label_eq
   obtain ⟨M₁, F₁, l₁⟩ := σₛ
-  obtain ⟨M₂, F₂, l₂⟩ := σₜ
-  simp only [LocalState'.mem_mk, LocalState'.fifos_mk, LocalState'.label_mk]
+  simp only [LocalState.mem_mk, LocalState.fifos_mk, LocalState.label_mk]
     at hpath hinbox hoff hsplit hagree hlabel
   obtain ⟨b, hb, hbool, hiff⟩ := eval_lenGt_inbox (τ := τ) (n := 0) hinbox hseq
-  rcases step with ⟨-, hab⟩ | ⟨⟨Mₘ, Fₘ, lₘ⟩, ε₁, ε₂, hred, hrest, -⟩
+  rcases step with hab | ⟨mid, ε₁, ε₂, hred, hrest, -⟩
   · -- the guard has a value and is a boolean, so neither `await` abort clause is reachable
-    rcases hab with ⟨M, F, habort, hM, -⟩ | ⟨M, F, w, hw, hwv, hM, -⟩
-    · injection hM with hM _
-      subst hM
-      have hex : ∃ u, M₂ ⊢ lenGt τ (inboxVar inbox τ) 0 ⇒ u := ⟨b, hb⟩
+    rcases hab with ⟨M, F, habort, rfl, -⟩ | ⟨M, F, w, hw, hwv, rfl, -⟩
+    · have hex : ∃ u, M ⊢ lenGt τ (inboxVar inbox τ) 0 ⇒ u := ⟨b, hb⟩
       absurd hex
       exact habort
-    · injection hM with hM _
-      subst hM
-      obtain rfl := ExprSemantics.evalUnique hb hwv
+    · obtain rfl := ExprSemantics.evalUnique hb hwv
       absurd hbool
       exact hw
   · -- the guard held, so the drained prefix has a head
-    obtain ⟨_, rfl, ⟨M, F, hM, hσ', htru, -⟩, hpost, -⟩ := hred
-    injection hM with hM hF
-    subst hM; subst hF; subst hσ'
-    injection hpost with hM' hF'
-    subst hM'; subst hF'
+    obtain ⟨M, F, rfl, rfl, htru, -⟩ := hred
+    simp only [LocalState.label_mk] at hlabel
+    subst hlabel
     obtain rfl := ExprSemantics.evalUnique hb htru
     obtain ⟨v, vs', rfl⟩ := List.exists_cons_of_ne_nil (List.ne_nil_of_length_pos (hiff.mp rfl))
     -- the source's queue may be absent altogether, and then the source aborts on the channel itself
-    have habsent : F₂.lookup ((c.name, cpath) : ChanKey V) = .none →
-        (⟨(M₁, F₁, l₁), (1 : Trace V)⟩ : LocalState' V × Trace V) ∈
-          GuardedPlusCal.Statement.aborting' (.receive c r coe) := by
+    have habsent : F.lookup ((c.name, cpath) : ChanKey V) = .none →
+        (⟨(M₁, F₁, .none), (1 : Trace V)⟩ : LocalState V × Trace V) ∈
+          GuardedPlusCal.Statement.aborting (.receive c r coe) := by
       intro hlk
-      refine ⟨hlabel, GuardedPlusCal.Statement.aborting.receive.intro
-        (.inl (.inl (.inr ⟨M₁, F₁, cpath, rfl, rfl, hpath, ?_⟩)))⟩
+      refine GuardedPlusCal.Statement.aborting.receive.intro
+        (.inl (.inl (.inr ⟨M₁, F₁, cpath, rfl, rfl, hpath, ?_⟩)))
+      simp only [LocalState.fifos_mk] at hsplit
       rw [hsplit, hlk]
       rfl
-    rcases hrest with hab | ⟨⟨Mₙ, Fₙ, lₙ⟩, ε₃, ε₄, hredR, habI, -⟩
-    · obtain ⟨-, hab⟩ := hab
-      obtain ⟨M, F, hM, -, hd⟩ := NetworkPlusCal.Statement.aborting.assign.iff.mp hab
-      injection hM with hM hF
-      subst hM; subst hF
+    rcases hrest with hab | ⟨mid2, ε₃, ε₄, hredR, habI, -⟩
+    · obtain ⟨M, F, hM, rfl, hd⟩ := NetworkPlusCal.Statement.aborting.assign.iff.mp hab
+      simp only [Prod.mk.injEq] at hM
+      obtain ⟨rfl, rfl, -⟩ := hM
       rcases hd with hname | habort | hrp | ⟨v', rpath, hv', hrpath, hupd⟩
       · -- the assignment's target is unbound in the target, so it is in the source too
-        refine ⟨hlabel, GuardedPlusCal.Statement.aborting.receive.intro
-          (.inl (.inl (.inl (.inl (.inl ⟨M₁, F₁, ?_, rfl, rfl⟩)))))⟩
+        refine GuardedPlusCal.Statement.aborting.receive.intro
+          (.inl (.inl (.inl (.inl (.inl ⟨M₁, F₁, ?_, rfl, rfl⟩)))))
         rw [← Finmap.lookup_eq_none, hagree r.name hrname, Finmap.lookup_eq_none]
         exact hname
       · -- `Head` has a value, so what fails is the coercion
-        cases hlk : F₂.lookup ((c.name, cpath) : ChanKey V) with
+        cases hlk : F.lookup ((c.name, cpath) : ChanKey V) with
         | none => exact habsent hlk
         | some ws =>
-          refine ⟨hlabel, GuardedPlusCal.Statement.aborting.receive.intro
-            (.inl (.inr ⟨M₁, F₁, cpath, v, vs' ++ ws, rfl, rfl, hpath, ?_, ?_⟩))⟩
-          · rw [hsplit, hlk]
+          refine GuardedPlusCal.Statement.aborting.receive.intro
+            (.inl (.inr ⟨M₁, F₁, cpath, v, vs' ++ ws, rfl, rfl, hpath, ?_, ?_⟩))
+          · simp only [LocalState.fifos_mk] at hsplit
+            rw [hsplit, hlk]
             rfl
           · rintro ⟨v', hv'⟩
             exact habort ⟨v', ExprSemantics.evalCoerce.mpr
               ⟨v, (eval_head_inbox hinbox hseq).mpr rfl, hv'⟩⟩
       · -- the assignment's reference does not resolve, and it reads no name the two memories differ on
-        exact ⟨hlabel, GuardedPlusCal.Statement.aborting.receive.intro
-          (.inl (.inl (.inl (.inr ⟨M₁, F₁, rfl, rfl, (pathAborts_congr hagree hfr).mpr hrp⟩))))⟩
+        exact GuardedPlusCal.Statement.aborting.receive.intro
+          (.inl (.inl (.inl (.inr ⟨M₁, F₁, rfl, rfl, (pathAborts_congr hagree hfr).mpr hrp⟩))))
       · -- the update itself fails, at a value the source computes the same way
         obtain ⟨w, hw, hcoe⟩ := ExprSemantics.evalCoerce.mp hv'
         obtain rfl := ((eval_head_inbox hinbox hseq).mp hw).symm
-        cases hlk : F₂.lookup ((c.name, cpath) : ChanKey V) with
+        cases hlk : F.lookup ((c.name, cpath) : ChanKey V) with
         | none => exact habsent hlk
         | some ws =>
-          refine ⟨hlabel, GuardedPlusCal.Statement.aborting.receive.intro
+          refine GuardedPlusCal.Statement.aborting.receive.intro
             (.inr ⟨M₁, F₁, cpath, rpath, v, v', vs' ++ ws, rfl, rfl, hpath,
-              (Ref.EvalArgs.congr_of_fresh hagree hfr).mpr hrpath, ?_, hcoe, ?_⟩)⟩
-          · rw [hsplit, hlk]
+              (Ref.EvalArgs.congr_of_fresh hagree hfr).mpr hrpath, ?_, hcoe, ?_⟩)
+          · simp only [LocalState.fifos_mk] at hsplit
+            rw [hsplit, hlk]
             rfl
           · exact Memory.update_none_transfer (hagree r.name hrname) hupd
     · -- the second assignment cannot abort: `inbox` is bound, `Tail` has a value, and an empty-path
       -- update cannot fail
-      obtain ⟨_, -, ⟨M, F, M₃, v', rpath, -, -, hupd, hM, hσ', -⟩, hpost, -⟩ := hredR
-      injection hM with hM hF
-      subst hM; subst hF; subst hσ'
-      injection hpost with hM' hF'
-      subst hM'; subst hF'
+      obtain ⟨M, F, M₃, v', rpath, -, -, hupd, hσ, rfl, -⟩ := hredR
+      simp only [Prod.mk.injEq] at hσ
+      obtain ⟨rfl, rfl, -⟩ := hσ
       have hinbox₃ : M₃.lookup inbox = .some sv :=
         (Memory.lookup_update_ne hupd (Ne.symm hrname)).trans hinbox
-      obtain ⟨-, habI⟩ := habI
-      obtain ⟨M, F, hM, -, hd⟩ := NetworkPlusCal.Statement.aborting.assign.iff.mp habI
-      injection hM with hM hF
-      subst hM; subst hF
+      obtain ⟨M, F, hM, rfl, hd⟩ := NetworkPlusCal.Statement.aborting.assign.iff.mp habI
+      simp only [Prod.mk.injEq] at hM
+      obtain ⟨rfl, rfl, -⟩ := hM
       obtain ⟨t, ht'⟩ := ExprSemantics.isSeq_tail hseq
       rcases hd with hname | habort | hrp | ⟨u, ipath, -, hipath, hupdI⟩
       · rw [inboxRef_name, ← Finmap.lookup_eq_none, hinbox₃] at hname
@@ -423,20 +394,20 @@ theorem receive_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus
     {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
     (fresh : ReceiveFresh c r inbox) :
     StrongRefinement (relatesTo (V := V) (.some (c, inbox)) pref) (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Statement.reducing' (.receive c r coe))
-      (GuardedPlusCal.Statement.aborting' (.receive c r coe))
-      (GuardedPlusCal.Statement.diverging' (.receive c r coe))
-      (NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing'
+      (GuardedPlusCal.Statement.reducing (.receive c r coe))
+      (GuardedPlusCal.Statement.aborting (.receive c r coe))
+      (GuardedPlusCal.Statement.diverging (.receive c r coe))
+      (NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing
           (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing' (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))))
-      (NetworkPlusCal.Statement.aborting' (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
-        NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
-          (NetworkPlusCal.Statement.aborting'
+        NetworkPlusCal.Statement.reducing (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))))
+      (NetworkPlusCal.Statement.aborting (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
+        NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
+          (NetworkPlusCal.Statement.aborting
               (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∪
-            NetworkPlusCal.Statement.reducing'
+            NetworkPlusCal.Statement.reducing
                 (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₁
-              NetworkPlusCal.Statement.aborting'
+              NetworkPlusCal.Statement.aborting
                 (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))))
       ∅ := by
   refine StrongRefinement.ofNonDiverging _ ?_ ?_
@@ -476,15 +447,15 @@ element type of *its own* channel, and the pending pairs carry theirs. Nothing i
 them — the type annotation rides along inside the expressions and never reaches the memory. -/
 theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
     {inbox : String} {τ τ' : ComputableTLAPlus.Typ} {n : Nat} (hne : r.name ≠ inbox) :
-    (NetworkPlusCal.Statement.reducing' (V := V)
+    (NetworkPlusCal.Statement.reducing (V := V)
           (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing'
+        NetworkPlusCal.Statement.reducing
           (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))) ∘ᵣ₂
-      NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') n)) =
-    NetworkPlusCal.Statement.reducing' (V := V) (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∘ᵣ₂
-      (NetworkPlusCal.Statement.reducing'
+      NetworkPlusCal.Statement.reducing (.await (lenGt τ' (inboxVar inbox τ') n)) =
+    NetworkPlusCal.Statement.reducing (V := V) (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∘ᵣ₂
+      (NetworkPlusCal.Statement.reducing
           (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing'
+        NetworkPlusCal.Statement.reducing
           (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))) := by
   ext ⟨σ, ε, σ'⟩
   iff_rintro ⟨σₘ, ε₁, ε₂, hpair, hguard, rfl⟩ ⟨σₘ, ε₁, ε₂, hguard, hpair, rfl⟩
@@ -498,12 +469,9 @@ theorem reorder_consumption_lenGt {r : ComputableGuardedPlusCal.Ref} {coe : Type
   · obtain ⟨M, F, M', sv, t, v, v', vs, rpath, rfl, rfl, rfl, hsv, hseq, ht, hcoe, hrpath, hupd⟩ :=
       (consumption_pair_iff hne).mp hpair
     -- the guard changes nothing, so it starts where the pair does
-    obtain ⟨Ma, Fa, la⟩ := σ
-    obtain ⟨_, rfl, ⟨Mb, Fb, hMb, hσ'', htru, rfl⟩, hpost, -⟩ := hguard
-    injection hMb with hMb hFb
-    subst hMb; subst hFb; subst hσ''
-    injection hpost with hpM hpF
-    subst hpM; subst hpF
+    obtain ⟨Mb, Fb, rfl, hσm, htru, rfl⟩ := hguard
+    simp only [Prod.mk.injEq] at hσm
+    obtain ⟨rfl, rfl, -⟩ := hσm
     obtain ⟨b, hb, -, hiff⟩ := eval_lenGt_inbox (τ := τ') (n := n + 1) hsv hseq
     obtain rfl := ExprSemantics.evalUnique hb htru
     have hlen := hiff.mp rfl
@@ -525,15 +493,15 @@ The pair's element type `τ` and the guard's `τ'` stay independent here for the
 memory cell. -/
 theorem await_lenGt_aborting_le {r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus.Coercion}
     {inbox : String} {τ τ' : ComputableTLAPlus.Typ} {n : Nat} :
-    NetworkPlusCal.Statement.aborting' (V := V) (.await (lenGt τ' (inboxVar inbox τ') n)) ≤
-      NetworkPlusCal.Statement.aborting' (V := V)
+    NetworkPlusCal.Statement.aborting (V := V) (.await (lenGt τ' (inboxVar inbox τ') n)) ≤
+      NetworkPlusCal.Statement.aborting (V := V)
         (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) := by
-  rintro ⟨⟨M, F, l⟩, ε⟩ ⟨rfl, hguard⟩
+  rintro ⟨⟨M, F, l⟩, ε⟩ hguard
   obtain ⟨M₀, F₀, hM, rfl, hd⟩ := NetworkPlusCal.Statement.aborting.await.iff.mp hguard
-  injection hM with hM hF
-  subst hM; subst hF
-  refine ⟨rfl, NetworkPlusCal.Statement.aborting.assign.iff.mpr
-    ⟨_, _, rfl, rfl, .inr (.inl ?_)⟩⟩
+  simp only [Prod.mk.injEq] at hM
+  obtain ⟨rfl, rfl, rfl⟩ := hM
+  refine NetworkPlusCal.Statement.aborting.assign.iff.mpr
+    ⟨_, _, rfl, rfl, .inr (.inl ?_)⟩
   rintro ⟨v', hv'⟩
   obtain ⟨v, hv, -⟩ := ExprSemantics.evalCoerce.mp hv'
   obtain ⟨s, vs, hs, hseq⟩ := SeqBuiltins.evalHead.mp hv
@@ -551,22 +519,22 @@ about indices at all. The guard is a no-op on the runs where it fires, so every 
 on the far side is then free, because the far side is never reached. -/
 theorem reorder_consumption_lenGt_abort {r : ComputableGuardedPlusCal.Ref}
     {coe : TypedTLAPlus.Coercion} {inbox : String} {τ τ' : ComputableTLAPlus.Typ} {n : Nat} :
-    NetworkPlusCal.Statement.aborting' (V := V) (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∪
-        NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting'
+    NetworkPlusCal.Statement.aborting (V := V) (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∪
+        NetworkPlusCal.Statement.reducing (.await (lenGt τ' (inboxVar inbox τ') (n + 1))) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting
             [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
               .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ≤
-      NetworkPlusCal.Statement.listAborting' (V := V)
+      NetworkPlusCal.Statement.listAborting (V := V)
           [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
             .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ∪
-        NetworkPlusCal.Statement.listReducing'
+        NetworkPlusCal.Statement.listReducing
             [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
               .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting' (.await (lenGt τ' (inboxVar inbox τ') n)) := by
+          NetworkPlusCal.Statement.aborting (.await (lenGt τ' (inboxVar inbox τ') n)) := by
   refine le_trans (Set.union_subset ?_ ?_) Set.subset_union_left
-  · rw [NetworkPlusCal.Statement.listAborting'_cons]
+  · rw [NetworkPlusCal.Statement.listAborting_cons]
     exact le_trans await_lenGt_aborting_le Set.subset_union_left
-  · exact Relation.lcomp₁.le_of_left_le_idle NetworkPlusCal.Statement.reducing'_await_le_idle
+  · exact Relation.lcomp₁.le_of_left_le_idle NetworkPlusCal.Statement.reducing_await_le_idle
 
 /-! ## Every pending assignment moved past a compiled guard at once
 
@@ -610,19 +578,19 @@ bumped. -/
 theorem reorder_pairs_lenGt {inbox : String} {τ' : ComputableTLAPlus.Typ} {k : Nat}
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     (h : ConsumptionPairs inbox k A) {n : Nat} :
-    NetworkPlusCal.Statement.listReducing' (V := V) (consumptions A) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') n)) =
-      NetworkPlusCal.Statement.reducing' (V := V)
+    NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing (.await (lenGt τ' (inboxVar inbox τ') n)) =
+      NetworkPlusCal.Statement.reducing (V := V)
           (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing' (consumptions A) := by
+        NetworkPlusCal.Statement.listReducing (consumptions A) := by
   induction h generalizing n with
   | nil =>
-    rw [consumptions_nil, NetworkPlusCal.Statement.listReducing'_nil, Nat.add_zero,
+    rw [consumptions_nil, NetworkPlusCal.Statement.listReducing_nil, Nat.add_zero,
       Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
   | snoc _ hne IH =>
-    rw [consumptions_append, NetworkPlusCal.Statement.listReducing'_append,
-      consumptions_receiveInstrs, NetworkPlusCal.Statement.listReducing'_cons,
-      NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
+    rw [consumptions_append, NetworkPlusCal.Statement.listReducing_append,
+      consumptions_receiveInstrs, NetworkPlusCal.Statement.listReducing_cons,
+      NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
       Relation.lcomp₂.right_id_eq, ← Relation.lcomp₂.assoc,
       reorder_consumption_lenGt hne, Relation.lcomp₂.assoc, IH, ← Relation.lcomp₂.assoc,
       Nat.add_assoc, Nat.add_comm 1]
@@ -637,21 +605,21 @@ its successor `n + 1`, which is why `n` is generalized. -/
 theorem reorder_pairs_lenGt_abort {inbox : String} {τ' : ComputableTLAPlus.Typ} {k : Nat}
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     (h : ConsumptionPairs inbox k A) {n : Nat} :
-    NetworkPlusCal.Statement.aborting' (V := V)
+    NetworkPlusCal.Statement.aborting (V := V)
           (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∪
-        NetworkPlusCal.Statement.reducing' (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting' (consumptions A) ≤
-      NetworkPlusCal.Statement.listAborting' (V := V) (consumptions A) ∪
-        NetworkPlusCal.Statement.listReducing' (consumptions A) ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting' (.await (lenGt τ' (inboxVar inbox τ') n)) := by
+        NetworkPlusCal.Statement.reducing (.await (lenGt τ' (inboxVar inbox τ') (n + k))) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting (consumptions A) ≤
+      NetworkPlusCal.Statement.listAborting (V := V) (consumptions A) ∪
+        NetworkPlusCal.Statement.listReducing (consumptions A) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting (.await (lenGt τ' (inboxVar inbox τ') n)) := by
   induction h generalizing n with
   | nil =>
-    rw [consumptions_nil, NetworkPlusCal.Statement.listAborting'_nil,
-      NetworkPlusCal.Statement.listReducing'_nil, Relation.lcomp₁.right_empty_eq_empty,
+    rw [consumptions_nil, NetworkPlusCal.Statement.listAborting_nil,
+      NetworkPlusCal.Statement.listReducing_nil, Relation.lcomp₁.right_empty_eq_empty,
       Relation.lcomp₁.left_id_eq, Set.union_empty, Set.empty_union, Nat.add_zero]
   | snoc pairs _ IH =>
-    rw [consumptions_append, NetworkPlusCal.Statement.listAborting'_append,
-      NetworkPlusCal.Statement.listReducing'_append, Relation.lcomp₁.union_lcomp₂,
+    rw [consumptions_append, NetworkPlusCal.Statement.listAborting_append,
+      NetworkPlusCal.Statement.listReducing_append, Relation.lcomp₁.union_lcomp₂,
       consumptions_receiveInstrs, ← Nat.add_assoc, Nat.add_right_comm]
     exact Relation.lcomp₁.commute_step (reorder_pairs_lenGt pairs).symm IH le_rfl
       reorder_consumption_lenGt_abort
@@ -660,18 +628,18 @@ theorem reorder_pairs_lenGt_abort {inbox : String} {τ' : ComputableTLAPlus.Typ}
 it contributes. Named because the walk's `receive` step meets it twice — once reducing, once
 aborting — and because it is `receive_refines`'s target. -/
 def receiveGroup (r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.Coercion) (inbox : String)
-    (τ : ComputableTLAPlus.Typ) : Set (LocalState' V × Trace V × LocalState' V) :=
-  NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
-    NetworkPlusCal.Statement.listReducing'
+    (τ : ComputableTLAPlus.Typ) : Set (LocalState V × Trace V × LocalState V) :=
+  NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₂
+    NetworkPlusCal.Statement.listReducing
       [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
         .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))]
 
 @[inherit_doc receiveGroup]
 def receiveGroupAborting (r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.Coercion)
-    (inbox : String) (τ : ComputableTLAPlus.Typ) : Set (LocalState' V × Trace V) :=
-  NetworkPlusCal.Statement.aborting' (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
-    NetworkPlusCal.Statement.reducing' (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
-      NetworkPlusCal.Statement.listAborting'
+    (inbox : String) (τ : ComputableTLAPlus.Typ) : Set (LocalState V × Trace V) :=
+  NetworkPlusCal.Statement.aborting (.await (lenGt τ (inboxVar inbox τ) 0)) ∪
+    NetworkPlusCal.Statement.reducing (.await (lenGt τ (inboxVar inbox τ) 0)) ∘ᵣ₁
+      NetworkPlusCal.Statement.listAborting
         [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
           .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))]
 
@@ -681,14 +649,14 @@ theorem receiveGroup_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
     {inbox : String} {τ : ComputableTLAPlus.Typ} {pref : ChanKey V → List V}
     (fresh : ReceiveFresh c r inbox) :
     StrongRefinement (relatesTo (V := V) (.some (c, inbox)) pref) (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Statement.reducing' (.receive c r coe))
-      (GuardedPlusCal.Statement.aborting' (.receive c r coe))
-      (GuardedPlusCal.Statement.diverging' (.receive c r coe))
+      (GuardedPlusCal.Statement.reducing (.receive c r coe))
+      (GuardedPlusCal.Statement.aborting (.receive c r coe))
+      (GuardedPlusCal.Statement.diverging (.receive c r coe))
       (receiveGroup r coe inbox τ) (receiveGroupAborting r coe inbox τ) ∅ := by
-  rw [receiveGroup, receiveGroupAborting, NetworkPlusCal.Statement.listReducing'_cons,
-    NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
-    Relation.lcomp₂.right_id_eq, NetworkPlusCal.Statement.listAborting'_cons,
-    NetworkPlusCal.Statement.listAborting'_cons, NetworkPlusCal.Statement.listAborting'_nil,
+  rw [receiveGroup, receiveGroupAborting, NetworkPlusCal.Statement.listReducing_cons,
+    NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
+    Relation.lcomp₂.right_id_eq, NetworkPlusCal.Statement.listAborting_cons,
+    NetworkPlusCal.Statement.listAborting_cons, NetworkPlusCal.Statement.listAborting_nil,
     Relation.lcomp₁.right_empty_eq_empty, Set.union_empty]
   exact receive_refines fresh
 
@@ -758,14 +726,14 @@ private def WalkInv (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbo
     (∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ walked → st.rxs ≠ []) ∧
     StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Statement.listReducing' walked)
-      (GuardedPlusCal.Statement.listAborting' walked)
+      (GuardedPlusCal.Statement.listReducing walked)
+      (GuardedPlusCal.Statement.listAborting walked)
       ∅
-      (NetworkPlusCal.Statement.listReducing' results ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing' (consumptions st.newInstrs))
-      (NetworkPlusCal.Statement.listAborting' results ∪
-        NetworkPlusCal.Statement.listReducing' results ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting' (consumptions st.newInstrs))
+      (NetworkPlusCal.Statement.listReducing results ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing (consumptions st.newInstrs))
+      (NetworkPlusCal.Statement.listAborting results ∪
+        NetworkPlusCal.Statement.listReducing results ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting (consumptions st.newInstrs))
       ∅
 
 omit [SeqBuiltins V] in
@@ -776,9 +744,9 @@ private theorem WalkInv.nil {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Re
   refine ⟨.nil, rfl, nofun, nofun, ?_⟩
   -- `simp only`, not `rw`: `({} : ReceiveState).newInstrs` is a projection out of a structure
   -- literal, and `rw`'s syntactic match never gets past it to `consumptions_nil`
-  simp only [GuardedPlusCal.Statement.listReducing'_nil, GuardedPlusCal.Statement.listAborting'_nil,
-    consumptions_nil, NetworkPlusCal.Statement.listReducing'_nil,
-    NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₂.left_id_eq,
+  simp only [GuardedPlusCal.Statement.listReducing_nil, GuardedPlusCal.Statement.listAborting_nil,
+    consumptions_nil, NetworkPlusCal.Statement.listReducing_nil,
+    NetworkPlusCal.Statement.listAborting_nil, Relation.lcomp₂.left_id_eq,
     Relation.lcomp₁.right_empty_eq_empty, Set.union_self]
   exact StrongRefinement.ofNonDiverging _ (StrongRefinement.Terminating.Id _)
     (StrongRefinement.Aborting.Empty _)
@@ -829,14 +797,14 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
       injection heq with hx _ _ _
       subst hx
       exact gf' a ha _ _ _ _ List.mem_cons_self
-    simp only [GuardedPlusCal.Statement.listReducing'_append,
-      GuardedPlusCal.Statement.listAborting'_append,
-      NetworkPlusCal.Statement.listReducing'_append,
-      NetworkPlusCal.Statement.listAborting'_append,
-      GuardedPlusCal.Statement.listReducing'_cons, GuardedPlusCal.Statement.listReducing'_nil,
-      GuardedPlusCal.Statement.listAborting'_cons, GuardedPlusCal.Statement.listAborting'_nil,
-      NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
-      NetworkPlusCal.Statement.listAborting'_cons, NetworkPlusCal.Statement.listAborting'_nil,
+    simp only [GuardedPlusCal.Statement.listReducing_append,
+      GuardedPlusCal.Statement.listAborting_append,
+      NetworkPlusCal.Statement.listReducing_append,
+      NetworkPlusCal.Statement.listAborting_append,
+      GuardedPlusCal.Statement.listReducing_cons, GuardedPlusCal.Statement.listReducing_nil,
+      GuardedPlusCal.Statement.listAborting_cons, GuardedPlusCal.Statement.listAborting_nil,
+      NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
+      NetworkPlusCal.Statement.listAborting_cons, NetworkPlusCal.Statement.listAborting_nil,
       Relation.lcomp₂.right_id_eq, Relation.lcomp₁.right_empty_eq_empty, Set.union_empty,
       Relation.lcomp₁.union_lcomp₂]
     rw [← Relation.lcomp₂.assoc, ← reorder_assigns_guard' hfresh, Relation.lcomp₂.assoc,
@@ -844,7 +812,7 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
     have hcomp := StrongRefinement.Comp _ ref
       (guard_refines (GuardedPlusCal.Statement.with name ann bound e)
         (λ _ _ _ h ↦ nomatch h) gfresh)
-    simp only [GuardedPlusCal.Statement.diverging'_eq_empty,
+    simp only [GuardedPlusCal.Statement.diverging_eq_empty,
       Relation.lcomp₁.right_empty_eq_empty, Set.union_self] at hcomp
     refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl ?_ le_rfl hcomp
     rw [Relation.lcomp₁.union_lcomp₂, ← with_aborting'_eq]
@@ -862,21 +830,21 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
     -- an `await` binds nothing, so its freshness against the accumulator is unconditional
     have hfresh : ∀ a ∈ st.newInstrs,
         GuardFresh a.1 a.2.1 (NetworkPlusCal.Statement.await e) := λ _ _ ↦ GuardFresh.await
-    simp only [GuardedPlusCal.Statement.listReducing'_append,
-      GuardedPlusCal.Statement.listAborting'_append,
-      NetworkPlusCal.Statement.listReducing'_append,
-      NetworkPlusCal.Statement.listAborting'_append,
-      GuardedPlusCal.Statement.listReducing'_cons, GuardedPlusCal.Statement.listReducing'_nil,
-      GuardedPlusCal.Statement.listAborting'_cons, GuardedPlusCal.Statement.listAborting'_nil,
-      NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
-      NetworkPlusCal.Statement.listAborting'_cons, NetworkPlusCal.Statement.listAborting'_nil,
+    simp only [GuardedPlusCal.Statement.listReducing_append,
+      GuardedPlusCal.Statement.listAborting_append,
+      NetworkPlusCal.Statement.listReducing_append,
+      NetworkPlusCal.Statement.listAborting_append,
+      GuardedPlusCal.Statement.listReducing_cons, GuardedPlusCal.Statement.listReducing_nil,
+      GuardedPlusCal.Statement.listAborting_cons, GuardedPlusCal.Statement.listAborting_nil,
+      NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
+      NetworkPlusCal.Statement.listAborting_cons, NetworkPlusCal.Statement.listAborting_nil,
       Relation.lcomp₂.right_id_eq, Relation.lcomp₁.right_empty_eq_empty, Set.union_empty,
       Relation.lcomp₁.union_lcomp₂]
     rw [← Relation.lcomp₂.assoc, ← reorder_assigns_guard' hfresh, Relation.lcomp₂.assoc,
       await_reducing'_eq]
     have hcomp := StrongRefinement.Comp _ ref
       (guard_refines (GuardedPlusCal.Statement.await e) (λ _ _ _ h ↦ nomatch h) gfresh)
-    simp only [GuardedPlusCal.Statement.diverging'_eq_empty,
+    simp only [GuardedPlusCal.Statement.diverging_eq_empty,
       Relation.lcomp₁.right_empty_eq_empty, Set.union_self] at hcomp
     refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl ?_ le_rfl hcomp
     rw [Relation.lcomp₁.union_lcomp₂, ← await_aborting'_eq]
@@ -904,14 +872,14 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
       rcases List.mem_append.mp ha with h' | h'
       · exact gf' a h' x ann bound e (List.mem_cons_of_mem _ hm)
       · exact pfresh x ann bound e (List.mem_cons_of_mem _ hm) c r coe List.mem_cons_self _ _ a h'
-    simp only [GuardedPlusCal.Statement.listReducing'_append,
-      GuardedPlusCal.Statement.listAborting'_append,
-      NetworkPlusCal.Statement.listReducing'_append,
-      NetworkPlusCal.Statement.listAborting'_append,
-      GuardedPlusCal.Statement.listReducing'_cons, GuardedPlusCal.Statement.listReducing'_nil,
-      GuardedPlusCal.Statement.listAborting'_cons, GuardedPlusCal.Statement.listAborting'_nil,
-      NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
-      NetworkPlusCal.Statement.listAborting'_cons, NetworkPlusCal.Statement.listAborting'_nil,
+    simp only [GuardedPlusCal.Statement.listReducing_append,
+      GuardedPlusCal.Statement.listAborting_append,
+      NetworkPlusCal.Statement.listReducing_append,
+      NetworkPlusCal.Statement.listAborting_append,
+      GuardedPlusCal.Statement.listReducing_cons, GuardedPlusCal.Statement.listReducing_nil,
+      GuardedPlusCal.Statement.listAborting_cons, GuardedPlusCal.Statement.listAborting_nil,
+      NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
+      NetworkPlusCal.Statement.listAborting_cons, NetworkPlusCal.Statement.listAborting_nil,
       Relation.lcomp₂.right_id_eq, Relation.lcomp₁.right_empty_eq_empty, Set.union_empty,
       Relation.lcomp₁.union_lcomp₂, consumptions_append, consumptions_cons, consumptions_nil]
     -- the walk emits this guard at `st.i`; both reorder lemmas state that index as `0 + st.i`
@@ -920,17 +888,17 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
     rw [Nat.zero_add] at hQ hQa
     have hcomp := StrongRefinement.Comp _ ref
       (receiveGroup_refines (V := V) (coe := coe) (τ := τ) hfr)
-    simp only [GuardedPlusCal.Statement.diverging'_eq_empty,
+    simp only [GuardedPlusCal.Statement.diverging_eq_empty,
       Relation.lcomp₁.right_empty_eq_empty, Set.union_self, receiveGroup, receiveGroupAborting,
-      NetworkPlusCal.Statement.listReducing'_cons, NetworkPlusCal.Statement.listReducing'_nil,
-      NetworkPlusCal.Statement.listAborting'_cons, NetworkPlusCal.Statement.listAborting'_nil,
+      NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
+      NetworkPlusCal.Statement.listAborting_cons, NetworkPlusCal.Statement.listAborting_nil,
       Relation.lcomp₂.right_id_eq, Set.union_empty] at hcomp
     refine StrongRefinement.Mono le_rfl le_rfl le_rfl ?_ ?_ le_rfl hcomp
     · refine le_of_eq ?_
       -- `@@` is `registerSource`, invisible to defeq but not to `rw`'s syntactic match
       simp only [registerSource, inboxVar, ← Relation.lcomp₂.assoc] at hQ ⊢
       rw [Relation.lcomp₂.assoc (R₁ := (NetworkPlusCal.Statement.await
-          (lenGt τ (.var inbox (.seq τ) .binder) st.i)).reducing'),
+          (lenGt τ (.var inbox (.seq τ) .binder) st.i)).reducing),
         ← hQ, ← Relation.lcomp₂.assoc]
       rfl
     · simp only [registerSource, inboxVar, inboxRef] at hQ hQa ⊢
@@ -1029,7 +997,7 @@ assignments and no receives, so both sides are `Relation.Idle` and the refinemen
 the identity relation rather than with `∅`.
 
 Divergence is `∅` on both sides rather than `Block.diverging`, the form every composition site wants:
-no statement of either language diverges (`Block.diverging'_eq_empty`). -/
+no statement of either language diverges (`Statement.blockDiverging_eq_empty`). -/
 private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
     {pre : Option (GuardedPlusCal.Block (ComputableGuardedPlusCal.Statement true) false)}
@@ -1049,29 +1017,29 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : 
         (∀ (c r : ComputableGuardedPlusCal.Ref) coe,
           GuardedPlusCal.Statement.receive c r coe ∈ preconditionList pre → rxs ≠ []) ∧
         StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-        (pre.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
-        (pre.elim ∅ (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting')
-          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing')))
+        (pre.elim Relation.Idle (GuardedPlusCal.Block.reducing
+          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing)))
+        (pre.elim ∅ (GuardedPlusCal.Block.aborting
+          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting)
+          (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing)))
         ∅
-        (pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₂
-          NetworkPlusCal.Statement.listReducing' assigns)
-        (pre'.elim ∅ (GuardedPlusCal.Block.aborting (β := λ _ ↦ LocalState' V)
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting')
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∪
-          pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing (β := λ _ ↦ LocalState' V)
-              (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing')) ∘ᵣ₁
-            NetworkPlusCal.Statement.listAborting' assigns)
+        (pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∘ᵣ₂
+          NetworkPlusCal.Statement.listReducing assigns)
+        (pre'.elim ∅ (GuardedPlusCal.Block.aborting
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting)
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∪
+          pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing
+              (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∘ᵣ₁
+            NetworkPlusCal.Statement.listAborting assigns)
         ∅⌝⦄ := by
     mvcgen [processPrecondition, -StateT.run]
     with | hmb | rfresh | gfresh | pfresh => subst pre; assumption
 
     case h_1 =>
       refine ⟨nofun, nofun, ?_⟩
-      simp only [Option.elim, NetworkPlusCal.Statement.listReducing'_nil,
-        NetworkPlusCal.Statement.listAborting'_nil, Relation.lcomp₂.left_id_eq,
+      simp only [Option.elim, NetworkPlusCal.Statement.listReducing_nil,
+        NetworkPlusCal.Statement.listAborting_nil, Relation.lcomp₂.left_id_eq,
         Relation.lcomp₁.right_empty_eq_empty, Set.empty_union]
       exact StrongRefinement.ofNonDiverging _ (StrongRefinement.Terminating.Id _)
         (StrongRefinement.Aborting.Empty _)
