@@ -446,8 +446,9 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
 
   The other half of the process layer, above `Thread.toNetwork`. Everything above is about a
   process *step*; everything below is about
-  `Process.toNetwork` — what a compiled process owes its source syntactically, so that the algorithm
-  level can read `AlgebraRefines` off it.
+  `Process.toNetwork` — what a compiled process owes its source syntactically, so that
+  `algRelatesTo.step_or_stutter`/`.immediateAbort` can dispatch a target label off it into a code
+  thread's or a receiving thread's.
 
   This is the rung where `freshName` first matters. `Thread.toNetwork` is *handed* its `inbox`;
   `Process.toNetwork` invents it, one per process and shared by every thread. So a freshness
@@ -472,9 +473,10 @@ def ProcessFresh (mbox : String → Mailbox) (c₀ : ComputableGuardedPlusCal.Re
     ∀ inbox, Generated "inbox" inbox →
       ∀ T ∈ p.threads, ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh (mbox inbox) c₀ inbox Br
 
-/-- **A generated `inbox` is never `self`** — `AlgebraRefines.inbox_ne_self`, which is load-bearing
-rather than hygiene: `CodeTable.procReducing` requires the memory to bind `selfName`, and the source
-memory agrees with the target's only *away* from the generated name.
+/-- **A generated `inbox` is never `self`**, which is load-bearing rather than hygiene:
+`CodeTable.procReducing` requires the memory to bind `selfName`, and the source memory agrees with
+the target's only *away* from the generated name — `algRelatesTo.step_or_stutter`/`.immediateAbort`
+spend this to rewrite that lookup through unchanged (`procMailbox_inbox_ne_selfName`).
 
 Pure arithmetic on the shape of the name, needing nothing from the source program: `selfName` is
 `"self"`, four characters, and any generated name is its six-character prefix plus a counter. -/
@@ -511,17 +513,18 @@ def ProcessReceives (p : ComputableGuardedPlusCal.Process) : Prop :=
 
 `threads` is the refinement: a compiled process's threads are the receiving loops the pass
 registered, followed by the compiled code threads, and those refine the source's pairwise. The split
-is what `AlgebraRefines.labels` dispatches on, and `RxOnly`'s `Generated` conjunct is what keeps the
-two groups' labels apart.
+is what `label_cases` dispatches on, and `RxOnly`'s `Generated` conjunct is what keeps the two
+groups' labels apart.
 
-`name_eq` is load-bearing rather than bookkeeping. `Algorithm.algebra` resolves both `owned` and
-`table` by looking the process up under its *name*, so a compiled process found under a different
-name would own no labels at all. `self` needs nothing from here — it is `Prod.snd` on both sides.
+`name_eq` is load-bearing rather than bookkeeping. `Algorithm.algebra` resolves its table by looking
+the process up under its *name*, so a compiled process found under a different name would answer
+with the empty table for every label. `self` needs nothing from here — it is `Prod.snd` on both
+sides.
 
-`id_eq`/`idShape_eq` are owed to `Algorithm.init` rather than to `AlgebraRefines`: they are what say
-the compiled algorithm has the same instances. The rest of what `init` wants — the entry labels a
-receiving thread adds, and the `inbox` local the pass declares — is not here, and is the initial-state
-obligation's own business. -/
+`id_eq`/`idShape_eq` are owed to `Algorithm.init` rather than to the per-step refinement argument:
+they are what say the compiled algorithm has the same instances. The rest of what `init` wants — the
+entry labels a receiving thread adds, and the `inbox` local the pass declares — is not here, and is
+the initial-state obligation's own business. -/
 structure ProcessRefines (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
   (pref : ChanKey V → List V) (p : ComputableGuardedPlusCal.Process)
   (p' : ComputableNetworkPlusCal.Process) : Prop where
@@ -558,10 +561,11 @@ at once. Stated at `"rx"` because that is the only generated name a *label* is e
 — `inbox` is a variable, and `Fresh` is what keeps it apart from those.
 
 Both fields are needed and they are different facts. `blocks` is what makes a receiving thread's
-label unschedulable as a code label (`CodeLabelRefines.not_rx`, and the collapse of
-`Process.codeTable`'s union in `RxLabelRefines.target_le`); `exits` is what stops a compiled block
-from *jumping into* a receiving thread (`CodeLabelRefines.exits`). A `goto` is the only terminal
-statement (`Core/GuardedPlusCal/Syntax.lean`), so `Br.action.last` is where every exit is. -/
+label unschedulable as a code label — the `not_rx` half of `ProcessRefines.label_cases`'s dispatch,
+and the collapse of `Process.codeTable`'s union that `ProcessRefines.rx_target_le` spends; `exits` is
+what stops a compiled block from *jumping into* a receiving thread (`ProcessRefines.exits`). A `goto`
+is the only terminal statement (`Core/GuardedPlusCal/Syntax.lean`), so `Br.action.last` is where
+every exit is. -/
 structure LabelsHygienic (p : ComputableGuardedPlusCal.Process) : Prop where
   /-- No block of the process is labelled with a name the pass could generate. -/
   blocks : ∀ T ∈ p.threads, ∀ blk ∈ T, ¬ Generated "rx" blk.label
@@ -569,13 +573,13 @@ structure LabelsHygienic (p : ComputableGuardedPlusCal.Process) : Prop where
   exits : ∀ T ∈ p.threads, ∀ blk ∈ T, ∀ Br ∈ blk.branches, ∀ l,
     Br.action.last = .goto l → ¬ Generated "rx" l
 
-/-- The labels a compiled process's receiving threads own — `AlgebraRefines`' `rx p`, read off the
-compiled process rather than supplied alongside it. -/
+/-- The labels a compiled process's receiving threads own — `procRxLabels`' answer at a resolved
+instance, read off the compiled process rather than supplied alongside it. -/
 def rxLabels (p' : ComputableNetworkPlusCal.Process) : Set String :=
   {l | ∃ chan τ inbox, NetworkPlusCal.Thread.rx chan l τ inbox ∈ p'.threads}
 
-/-- **The mailbox a compiled process's receiving threads drain** — `AlgebraRefines`' `mb p`, read the
-same way `rxLabels` is.
+/-- **The mailbox a compiled process's receiving threads drain** — `procMailbox`'s answer at a
+resolved instance, read the same way `rxLabels` is.
 
 **Why not `p'.mailbox`.** The process does carry a declared mailbox, and `Process.toNetwork` copies
 it across; it is just not a `Mailbox`. Two of the three things this type holds are missing from it.
@@ -616,8 +620,8 @@ theorem ProcessRefines.rxLabels_generated
   · obtain ⟨_, _, _, hcodeq, _⟩ := hcode.exists_left hin
     exact nomatch hcodeq
 
-/-- **A receiving thread's label is never a source label.** The disjointness every clause of
-`AlgebraRefines.labels` is a corollary of: it is what makes the dispatch a dispatch rather than a
+/-- **A receiving thread's label is never a source label.** The disjointness `ProcessRefines.
+label_cases`'s dispatch is a corollary of: it is what makes the dispatch a dispatch rather than a
 choice, and what `procRelatesTo`'s `Disjoint L₁ (rx p)` needs at the algorithm level.
 
 Two facts meet here, one from each side, and neither alone says anything about the other's labels:
@@ -634,8 +638,8 @@ theorem ProcessRefines.rx_disjoint (h : ProcessRefines (V := V) mbox c₀ inbox 
 its receiving threads' or one the source process already owned — and both directions hold, so this is
 an equation rather than a containment.
 
-That is `AlgebraRefines.labels`' case analysis, before any refinement is mentioned: `labels` has to
-dispatch on a target label it is handed, and this is what says the two cases are exhaustive.
+That is `ProcessRefines.label_cases`' case analysis, before any refinement is mentioned: `label_cases`
+has to dispatch on a target label it is handed, and this is what says the two cases are exhaustive.
 `rx_disjoint` is what says they do not overlap. The two together make `Process.ownedLabels p'` a
 genuine disjoint union, which is what `procRelatesTo`'s `L₂ = L₁ ∪ rx` is stated against.
 
@@ -668,10 +672,10 @@ theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) mbox c₀ inb
 /-- **The entry labels split the same way the owned ones do** — every receiving thread's label, plus
 the source's own.
 
-Owed to `Algorithm.init` rather than to `AlgebraRefines`: a compiled instance starts at
-`Process.entryLabels p'`, and `procRelatesTo` wants that to be the source's label set together with
-`rx p`. A receiving thread is one block long, so its entry label *is* its only label, which is what
-makes the receiving half of this `rxLabels` rather than a subset of it.
+Owed to `Algorithm.init` rather than to the per-step refinement argument: a compiled instance starts
+at `Process.entryLabels p'`, and `procRelatesTo` wants that to be the source's label set together
+with `rx p`. A receiving thread is one block long, so its entry label *is* its only label, which is
+what makes the receiving half of this `rxLabels` rather than a subset of it.
 
 The code half needs the two lists' heads to correspond, not just their elements — that is
 `List.Forall₂`'s `nil`/`cons` split, and `BlockRefines` carries the label agreement at each. -/
@@ -762,8 +766,8 @@ theorem ProcessRefines.inits_eq (h : ProcessRefines (V := V) mbox c₀ inbox pre
         contradiction
 
 /-- **And a compiled block never leaves for one.** The same two facts at a branch's terminal `goto`
-rather than at a block's own label — `CodeLabelRefines.exits`, which is what stops a code thread
-from jumping into a receiving loop. -/
+rather than at a block's own label — what stops a code thread from jumping into a receiving loop,
+spent by `ProcessRefines.exits`. -/
 theorem ProcessRefines.exit_not_rx (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) {T : ComputableGuardedPlusCal.Thread} (hT : T ∈ p.threads)
     {blk : ComputableGuardedPlusCal.AtomicBlock} (hblk : blk ∈ T)
@@ -774,9 +778,10 @@ theorem ProcessRefines.exit_not_rx (h : ProcessRefines (V := V) mbox c₀ inbox 
 
 /-! ## The branches at a label
 
-  `CodeLabelRefines` wants two branch *lists* — the source's at a label and the target's — and
-  `Process.codeTable` lets a label denote the union of every block carrying it. Nothing in the front
-  end rejects two blocks with one label (`WellFormedness/Labelling.lean` checks only that every
+  `ProcessRefines.branchesRefine` wants two branch *lists* — the source's at a label and the
+  target's — and `Process.codeTable` lets a label denote the union of every block carrying it.
+  Nothing in the front end rejects two blocks with one label (`WellFormedness/Labelling.lean` checks
+  only that every
   `goto` target exists), so these are concatenations over all such blocks rather than one block's
   branches. That is the whole reason `BranchesRefine` is weaker than `List.Forall₂`.
 -/
@@ -786,7 +791,8 @@ def srcBlocksAt (p : ComputableGuardedPlusCal.Process) (l : String) :
     List ComputableGuardedPlusCal.AtomicBlock :=
   p.threads.flatten.filter (·.label == l)
 
-/-- And every branch of those blocks — `CodeLabelRefines`' `brs`. -/
+/-- And every branch of those blocks — the source side `ProcessRefines.branchesRefine` and
+`tgt_reducing_le`'s siblings are stated against. -/
 def srcBranchesAt (p : ComputableGuardedPlusCal.Process) (l : String) :
     List ComputableGuardedPlusCal.AtomicBranch :=
   (srcBlocksAt p l).flatMap (·.branches)
@@ -797,7 +803,8 @@ def codeBlocks (p' : ComputableNetworkPlusCal.Process) :
     List ComputableNetworkPlusCal.AtomicBlock :=
   p'.threads.flatMap λ T ↦ match T with | .code blocks => blocks | .rx .. => []
 
-/-- Every branch of the compiled blocks labelled `l` — `CodeLabelRefines`' `brs'`. -/
+/-- Every branch of the compiled blocks labelled `l` — the target side `ProcessRefines.branchesRefine`
+and `tgt_reducing_le`'s siblings are stated against. -/
 def tgtBranchesAt (p' : ComputableNetworkPlusCal.Process) (l : String) :
     List ComputableNetworkPlusCal.AtomicBranch :=
   ((codeBlocks p').filter (·.label == l)).flatMap (·.branches)
@@ -826,12 +833,12 @@ theorem mem_tgtBranchesAt {p' : ComputableNetworkPlusCal.Process} {l : String}
     | .code blocks, hblk' => exact ⟨blocks, hT, blk', hblk', hlab, hBr'⟩
   · exact ⟨blk', ⟨⟨.code blocks, hblocks, hblk'⟩, hlab⟩, hBr'⟩
 
-/-- **A compiled step at a code label is a step of one of that label's compiled branches** —
-`CodeLabelRefines.target_le`.
+/-- **A compiled step at a code label is a step of one of that label's compiled branches.**
 
 `l ∉ rxLabels p'` is what kills `Process.codeTable`'s second summand. Without it a receiving thread's
 relay at this label would have to be attributed to a compiled branch, and there is no compiled branch
-it came from — which is the whole reason the dispatch needs `label_cases`' negative half. -/
+it came from — which is the whole reason `algRelatesTo.step_or_stutter`/`.immediateAbort` need
+`label_cases`' negative half before they can call this. -/
 theorem tgt_reducing_le {p' : ComputableNetworkPlusCal.Process} {l : String}
     (hl : l ∉ rxLabels p') :
     ∀ x ∈ (NetworkPlusCal.Process.codeTable (V := V) p').reducing l,
@@ -840,7 +847,7 @@ theorem tgt_reducing_le {p' : ComputableNetworkPlusCal.Process} {l : String}
   · exact ⟨Br', mem_tgtBranchesAt.mpr ⟨blocks, hT, blk', hblk', hlab, hBr'⟩, hx⟩
   · exact (hl ⟨chan, τ, ib, hT⟩).elim
 
-/-- The same where it goes wrong — `CodeLabelRefines.target_abort_le`. -/
+/-- The same where it goes wrong. -/
 theorem tgt_aborting_le {p' : ComputableNetworkPlusCal.Process} {l : String}
     (hl : l ∉ rxLabels p') :
     ∀ x ∈ (NetworkPlusCal.Process.codeTable (V := V) p').aborting l,
@@ -849,9 +856,8 @@ theorem tgt_aborting_le {p' : ComputableNetworkPlusCal.Process} {l : String}
   · exact ⟨Br', mem_tgtBranchesAt.mpr ⟨blocks, hT, blk', hblk', hlab, hBr'⟩, hx⟩
   · exact (hl ⟨chan, τ, ib, hT⟩).elim
 
-/-- **And a source branch at a label is schedulable at it** — `CodeLabelRefines.source_reducing`.
-The converse direction of the same unfolding, and it needs no side condition: the source language has
-no second summand to rule out. -/
+/-- **And a source branch at a label is schedulable at it.** The converse direction of the same
+unfolding, and it needs no side condition: the source language has no second summand to rule out. -/
 theorem src_reducing_le {p : ComputableGuardedPlusCal.Process} {l : String}
     {Br : ComputableGuardedPlusCal.AtomicBranch} (h : Br ∈ srcBranchesAt p l) :
     GuardedPlusCal.AtomicBranch.reducing (V := V) Br ⊆
@@ -859,7 +865,7 @@ theorem src_reducing_le {p : ComputableGuardedPlusCal.Process} {l : String}
   obtain ⟨T, hT, blk, hblk, hlab, hBr⟩ := mem_srcBranchesAt.mp h
   exact λ _ hx ↦ ⟨T, hT, blk, hblk, hlab, Br, hBr, hx⟩
 
-/-- The same where it goes wrong — `CodeLabelRefines.source_aborting`. -/
+/-- The same where it goes wrong. -/
 theorem src_aborting_le {p : ComputableGuardedPlusCal.Process} {l : String}
     {Br : ComputableGuardedPlusCal.AtomicBranch} (h : Br ∈ srcBranchesAt p l) :
     GuardedPlusCal.AtomicBranch.aborting (V := V) Br ⊆
@@ -867,7 +873,8 @@ theorem src_aborting_le {p : ComputableGuardedPlusCal.Process} {l : String}
   obtain ⟨T, hT, blk, hblk, hlab, hBr⟩ := mem_srcBranchesAt.mp h
   exact λ _ hx ↦ ⟨T, hT, blk, hblk, hlab, Br, hBr, hx⟩
 
-/-- **The refinement, at a label rather than at a block** — `CodeLabelRefines.refines`.
+/-- **The refinement, at a label rather than at a block** — what `algRelatesTo.step_or_stutter`
+resolves at every prefix function to build a `BranchesRefine` fact for the code case.
 
 Three `exists_left`s stacked: a compiled branch sits in a compiled block, which sits in a compiled
 code thread, which is some source thread's; the block correspondence carries `blk'.label = blk.label`,
@@ -891,8 +898,9 @@ theorem ProcessRefines.branchesRefine (h : ProcessRefines (V := V) mbox c₀ inb
     obtain ⟨Br, hBr, href⟩ := hbranches.exists_left hmem
     exact ⟨Br, mem_srcBranchesAt.mpr ⟨T₀, hT₀, blk, hblk, hlabeq ▸ hlab, hBr⟩, href⟩
 
-/-- **A compiled block never leaves for a receiving thread's label** — `CodeLabelRefines.exits`, the
-last of its fields.
+/-- **A compiled block never leaves for a receiving thread's label.** What
+`algRelatesTo.step_or_stutter` needs before it can hand a code-branch step to `algRelatesTo.
+block_step`, which requires the label the source lands on not to be one a receiving thread owns.
 
 Four steps, and each is a lemma already in hand. The step is one of the label's compiled branches
 (`tgt_reducing_le`); that branch refines some source branch (`branchesRefine`), which fixes its
@@ -931,8 +939,8 @@ theorem ProcessRefines.exits (h : ProcessRefines (V := V) mbox c₀ inbox pref p
 process's own channel and `inbox` — which in turn means the process has a mailbox naming both.
 
 The primitive the receiving side is built from, and it is stated at a thread membership rather than
-at `l ∈ rxLabels p'` because that is what both callers hold. `RxLabelRefines`' `mailbox` and
-`chan_fresh` are its first two components. -/
+at `l ∈ rxLabels p'` because that is what both callers hold. `algRelatesTo.step_or_stutter`/
+`.immediateAbort` read the mailbox and its freshness off its first two components. -/
 theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     {chan : ComputableNetworkPlusCal.Ref} {l ib : String} {τ : ComputableTLAPlus.Typ}
     (hT : NetworkPlusCal.Thread.rx chan l τ ib ∈ p'.threads) :
@@ -946,9 +954,9 @@ theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) mbox c₀ inbox pre
   · obtain ⟨_, _, _, hcodeq, _⟩ := hcode.exists_left hin
     exact nomatch hcodeq
 
-/-- **A step at a receiving label is the relay** — `RxLabelRefines.target_le`. `l ∉ ownedLabels p`
-kills `Process.codeTable`'s *code* summand: a compiled block carrying this label would have to be the
-compilation of a source block carrying it, and the source owns no such label. -/
+/-- **A step at a receiving label is the relay.** `l ∉ ownedLabels p` kills `Process.codeTable`'s
+*code* summand: a compiled block carrying this label would have to be the compilation of a source
+block carrying it, and the source owns no such label. -/
 theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
     (NetworkPlusCal.Process.codeTable (V := V) p').reducing l ⊆
@@ -968,10 +976,10 @@ theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) mbox c₀ inbox
     obtain ⟨_, _, rfl, rfl⟩ := h.rxThread hT
     exact hx
 
-/-- The same where it goes wrong — `RxLabelRefines.target_abort_le`. Identical shape: the code
-summand is ruled out by the source owning no such label, and what is left is the relay's own aborting
-set. That set is not empty, and the algorithm-level invariant is what rules it out
-(`algRelatesTo`'s channel-presence clause); ruling it out is not this lemma's job. -/
+/-- The same where it goes wrong. Identical shape: the code summand is ruled out by the source owning
+no such label, and what is left is the relay's own aborting set. That set is not empty, and the
+algorithm-level invariant is what rules it out (`algRelatesTo`'s channel-presence clause); ruling it
+out is not this lemma's job — `algRelatesTo.immediateAbort` does it with `rxBranch_not_aborting`. -/
 theorem ProcessRefines.rx_target_abort_le (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
     (NetworkPlusCal.Process.codeTable (V := V) p').aborting l ⊆
@@ -993,9 +1001,10 @@ theorem ProcessRefines.rx_target_abort_le (h : ProcessRefines (V := V) mbox c₀
 groups, and the case analysis carries the *negative* fact as well as the positive one.
 
 `ownedLabels_eq` gives exhaustiveness and `rx_disjoint` exclusivity; this is the two packaged in the
-shape `AlgebraRefines.labels` consumes. The negative halves are not decoration —
-`CodeLabelRefines.not_rx` is one of them, and the other is what collapses `Process.codeTable`'s union
-at a receiving label. -/
+shape `algRelatesTo.step_or_stutter`/`.immediateAbort` consume once they know `l` is owned
+(`Process.ownedLabels_of_reducing`/`.ownedLabels_of_aborting`). The negative halves are not
+decoration — the code case's is what closes off a receiving thread's label at `block_step`, and the
+other is what collapses `Process.codeTable`'s union at a receiving label. -/
 theorem ProcessRefines.label_cases (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) {l : String}
     (hl : l ∈ NetworkPlusCal.Process.ownedLabels p') :
@@ -1011,7 +1020,7 @@ needs that, `Fresh .none` being vacuous and `mbox` a parameter throughout. A pro
 receives does say it: the thread it registered is an `.rx` on exactly those two (`IsRxThread`), and
 `threads`' registration clause is what says there is one to look at.
 
-Wanted wherever a `.some` mailbox has to be taken apart — `AlgebraRefines.inbox_ne_self` needs the
+Wanted wherever a `.some` mailbox has to be taken apart — `procMailbox_inbox_ne_selfName` needs the
 `inbox` to be the generated one, which is a field of this structure and not of an arbitrary
 `Mailbox`. -/
 theorem ProcessRefines.mailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
@@ -1023,7 +1032,7 @@ theorem ProcessRefines.mailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox p
   · exact (hrx T List.mem_cons_self).1
 
 /-- **The mailbox the refinement was proved at is the one the compiled process wears.** What lets
-`AlgebraRefines`' `mb` be *computed* from the compiled algorithm rather than witnessed alongside it.
+`procMailbox` be *computed* from the compiled algorithm rather than witnessed alongside it.
 
 Both directions of the pass's mailbox contract meet here, and neither is free. `RxOnly` gives one:
 it forces `mbox = .some` on every registered thread, so a process related at `.none` has none

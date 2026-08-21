@@ -385,7 +385,7 @@ all (it is the only terminal constructor, `Core/GuardedPlusCal/Syntax.lean`).
 Stated with the `goto`'s target supplied rather than existentially, because every caller already
 knows it: it is read off the *source* branch through `BranchRefines.last_eq`, and what is wanted is
 that the step agrees with it. This is what lets a caller rule out where a compiled block can jump to
-without inspecting the run — `Guarded2Network`'s `CodeLabelRefines.exits`, which needs a compiled
+without inspecting the run — `Guarded2Network`'s `ProcessRefines.exits`, which needs a compiled
 code thread never to land on a receiving thread's label. -/
 theorem AtomicBranch.reducing_label {M M' : Memory V} {F F' : FIFOs V} {l label : String}
     {ε : Trace V} {Br : ComputableNetworkPlusCal.AtomicBranch}

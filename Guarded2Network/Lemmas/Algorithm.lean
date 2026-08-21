@@ -16,10 +16,13 @@ import all Guarded2Network.PlusCal
   receiving thread's relay. What is left is the *dispatch* — deciding which of the two a target step
   is — and that is a question about the compiled algebra, not about any state.
 
-  So this file states what a compiled algebra owes (`AlgebraRefines`), one clause per owned label,
-  and then discharges the framework's `Terminating` obligation against it. The clauses are what the
-  two per-step lemmas already ask for and nothing more; they are what a compiled algebra has to
-  supply.
+  There is no interface for it. Each of the two obligations below resolves the stepping instance
+  against the compiled algebra pair `GuardedPlusCal.Algorithm.algebra algo` /
+  `NetworkPlusCal.Algorithm.algebra algo'` itself, splits the label with
+  `ProcessRefines.label_cases`, and reads what it needs off the `ProcessRefines` in hand at the point
+  it needs it. The step it is holding is what proves the label is owned, so the unschedulable case
+  never arises. The pass's per-process refinement (`ProcessesRefine`) plus the front-end facts
+  (`MailboxUsed`, `AlgorithmFresh`, `LabelsHygienic`) are what that needs and nothing more.
 
   **The source side is `Relation.star Aₛ.step`, not `Aₛ.step`.** A receiving thread's step is
   answered with *no* source step at all, so no single-step form can be stated — see
@@ -33,167 +36,6 @@ open ComputableTLAPlus (ExprSemantics Memory)
 open GuardedPlusCal (Algebra AlgState ChanKey CodeTable FIFOs Instances LocalState ProcState Trace)
 
 variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {ι : Type}
-
-/-! # What a compiled algebra owes -/
-
-/-- A label a compiled **code** thread owns, against the branches its block has on each side. Their
-block denotes the union of those branches, and they are pairwise `BranchRefines` — at every `pref`,
-since which prefix function the algorithm level hands down is not known here.
-
-The two `⊆` clauses run in opposite directions on purpose. The target's block must be *contained* in
-its branches, because a target step has to be attributed to one of them; the source's branches must
-be contained in *its* block, because a source step is being built. Neither direction needs the
-converse.
-
-`not_rx` and `exits` are the label-agreement side (`algRelatesTo.block_step`): a code thread is
-scheduled at a source label and leaves at another, never at a receiving thread's. -/
-structure CodeLabelRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : ι → Set String)
-    (p : ι) (l : String) (brs : List ComputableGuardedPlusCal.AtomicBranch)
-    (brs' : List ComputableNetworkPlusCal.AtomicBranch) : Prop where
-  /-- The label is not a receiving thread's. -/
-  not_rx : l ∉ rx p
-  /-- And the source process owns it too. -/
-  owned : l ∈ Aₛ.owned p
-  /-- Nor is any label the block can leave at. -/
-  exits : ∀ M F τ M' F' l', (⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ :
-    LocalState V × Trace V × LocalState V) ∈ (Aₜ.table p).reducing l → l' ∉ rx p
-  /-- The branches refine pairwise, at every prefix function. -/
-  refines : ∀ pref : ChanKey V → List V,
-    BranchesRefine (V := V) (mb p) pref brs brs'
-  /-- Every source branch avoids the generated `inbox`. -/
-  fresh : ∀ Br ∈ brs, ∀ c inbox, mb p = .some (c, inbox) →
-    BranchesFresh (.some (c, inbox)) c inbox Br
-  /-- A target step at this label is a step of one compiled branch. -/
-  target_le : ∀ x ∈ (Aₜ.table p).reducing l,
-    ∃ Br' ∈ brs', x ∈ NetworkPlusCal.AtomicBranch.reducing Br'
-  /-- And a target abort at this label is one compiled branch going wrong. -/
-  target_abort_le : ∀ x ∈ (Aₜ.table p).aborting l,
-    ∃ Br' ∈ brs', x ∈ NetworkPlusCal.AtomicBranch.aborting Br'
-  /-- A step of any source branch is a step at this label. -/
-  source_reducing : ∀ Br ∈ brs, GuardedPlusCal.AtomicBranch.reducing Br ⊆ (Aₛ.table p).reducing l
-  /-- And likewise where it goes wrong. -/
-  source_aborting : ∀ Br ∈ brs, GuardedPlusCal.AtomicBranch.aborting Br ⊆ (Aₛ.table p).aborting l
-
-/-- A label a **receiving** thread owns. It has no source counterpart at all — that is the point of
-the pass — so all this says is that the block behind it is the relay, on the instance's own channel
-and into the `inbox` the pass generated for it. -/
-structure RxLabelRefines (Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : ι → Set String)
-    (p : ι) (l : String) (chan : ComputableGuardedPlusCal.Ref) (inbox : String) : Prop where
-  /-- The label belongs to a receiving thread. -/
-  mem_rx : l ∈ rx p
-  /-- The channel and `inbox` are the ones the invariant is stated against. -/
-  mailbox : mb p = .some (chan, inbox)
-  /-- The generated name is not one the channel is indexed by. -/
-  chan_fresh : inbox ∉ GuardedPlusCal.Ref.freeVars chan
-  /-- And the block behind the label is the relay. -/
-  target_le : (Aₜ.table p).reducing l ⊆ NetworkPlusCal.Thread.rxBranch chan l inbox
-  /-- Including where it goes wrong — which the invariant then rules out entirely, the source having
-  no receiving thread to answer with. -/
-  target_abort_le : (Aₜ.table p).aborting l ⊆ NetworkPlusCal.Thread.rxBranchAborting chan inbox
-
-/-- **What a compiled algebra owes.** One clause per owned target label — code or receiving — plus
-the two facts that hold of every instance at once.
-
-This is the interface `algRelatesTo.terminating` consumes and `Thread.toNetwork` produces. Written
-top-down, from what the two per-step lemmas need, so that establishing it is a question about the
-pass rather than about the proof. -/
-structure AlgebraRefines (Aₛ Aₜ : Algebra ι V) (mb : ι → Mailbox) (rx : ι → Set String) : Prop where
-  /-- Compilation does not change an instance's identity. -/
-  self_eq : ∀ p, Aₛ.self p = Aₜ.self p
-  /-- The generated `inbox` is not `self` — a `freshName` fact, and what lets the source memory be
-  read at `selfName` through the invariant's memory agreement. -/
-  inbox_ne_self : ∀ p c inbox, mb p = .some (c, inbox) → inbox ≠ GuardedPlusCal.selfName
-  /-- And every label the target owns is one kind or the other. -/
-  labels : ∀ p, ∀ l ∈ Aₜ.owned p,
-    (∃ brs brs', CodeLabelRefines Aₛ Aₜ mb rx p l brs brs') ∨
-      ∃ chan inbox, RxLabelRefines Aₜ mb rx p l chan inbox
-
-/-! # The per-step obligation, and the whole reducing semantics -/
-
-omit [SeqBuiltins V] in
-/-- **One target step, answered — and never answered by nothing forever.** The per-step obligation
-in the three-way form a stuttering simulation needs: the source takes *one* step, or it takes none
-and the target's queued-message count strictly drops, or it aborts.
-
-The middle disjunct is what a divergence argument needs and `Terminating` cannot express. A
-receiving thread's step is answered with no source step at all, so an infinite target run could in
-principle be answered by a source that never moves — except that a relay moves a message *out* of a
-channel, and `FIFOs.size` counts exactly those. Only a `send` puts one back, and a `send` is a code
-thread's step, which does move the source. So the target cannot relay forever without the source
-keeping pace.
-
-The proof is dispatch and plumbing: read the target step apart into an instance and a label, ask
-`AlgebraRefines` which kind of label it is, and hand the pieces to whichever per-step lemma applies.
-Everything difficult already happened in those two.
-
-Reassembling the *source's* step is the only thing here that is not dispatch. `Algebra.step` wants a
-`CodeTable.procReducing`, which wants the scheduled label to be one the source process owns and has
-scheduled, and the memory to bind `selfName`. The first comes from `CodeLabelRefines` together with
-`procRelatesTo`'s `L₂ = L₁ ∪ rx p`; the second from memory agreement away from the generated
-`inbox`, which is not `self`. -/
-theorem algRelatesTo.step_or_stutter [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx)
-    {Sₜ Sₜ' Sₛ : AlgState ι V} {ε : Trace V} (hrel : Sₛ ≋[mb, rx] Sₜ)
-    (hstep : (⟨Sₜ, ε, Sₜ'⟩ : AlgState ι V × Trace V × AlgState ι V) ∈ Aₜ.step) :
-    (∃ Sₛ' ε', Sₛ' ≋[mb, rx] Sₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
-        (⟨Sₛ, ε', Sₛ'⟩ : AlgState ι V × Trace V × AlgState ι V) ∈ Aₛ.step) ∨
-      (Sₛ ≋[mb, rx] Sₜ' ∧ ε = 1 ∧
-        GuardedPlusCal.FIFOs.size Sₜ'.2 < GuardedPlusCal.FIFOs.size Sₜ.2) ∨
-      (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧ (⟨Sₛ, ε'⟩ : AlgState ι V × Trace V) ∈
-        Aₛ.aborting) := by
-  obtain ⟨Qs, F₂⟩ := Sₜ
-  obtain ⟨Qs', F₂'⟩ := Sₜ'
-  obtain ⟨Ps, F₁⟩ := Sₛ
-  obtain ⟨p, ⟨M₂, L₂⟩, hin, ⟨M₂', L₂'⟩, hproc, hQs⟩ := hstep
-  obtain ⟨l, hl, l', hred, hself, rfl⟩ := hproc
-  obtain ⟨ib, hbwd⟩ := hrel.backward
-  obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
-  -- a process only steps in a memory binding its own identity; the source's does because it agrees
-  -- with the target's away from the generated `inbox`, which is not `self`
-  have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some (Aₛ.self p) := by
-    rw [href.self_eq p,
-      hproc.mem_agree' _ (λ c inbox hmb ↦ (href.inbox_ne_self p c inbox hmb).symm)]
-    exact hself
-  rcases href.labels p l hl.2 with ⟨brs, brs', hcode⟩ | ⟨c, inbox, hrx⟩
-  · -- a code thread moved, and the source block at the same label answers
-    have hlabel : l ∈ L₁ := by
-      rcases (hproc.1 ▸ hl.1 : l ∈ L₁ ∪ rx p) with hmem | hmem
-      · exact hmem
-      · exact (hcode.not_rx hmem).elim
-    obtain ⟨Br', hBr', hstep'⟩ := hcode.target_le _ hred
-    rcases algRelatesTo.block_step hcode.refines hcode.fresh hrel hS hin hlabel
-        (hcode.exits _ _ _ _ _ _ hred) hBr' hstep' hQs with
-      ⟨M₁', F₁', ε', hrel', hτ, Br, hBr, hsstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
-    · refine .inl ⟨_, ε', hrel', hτ, ?_⟩
-      exact ⟨p, ⟨M₁, L₁⟩, hS, ⟨M₁', insert l' (L₁ \ {l})⟩,
-        ⟨l, ⟨hlabel, hcode.owned⟩, l', hcode.source_reducing Br hBr hsstep, hself', rfl⟩, rfl⟩
-    · refine .inr (.inr ⟨ε', hpfx, Relation.star.le_lcomp₁ ?_⟩)
-      exact ⟨p, ⟨M₁, L₁⟩, hS, l, ⟨hlabel, hcode.owned⟩,
-        hcode.source_aborting Br hBr habort, hself'⟩
-  · -- a receiving thread moved, and the source does not move at all
-    obtain rfl := NetworkPlusCal.Thread.rxBranch_label (hrx.target_le hred)
-    obtain ⟨rfl, hrel', hsize⟩ := algRelatesTo.rx_step hrx.mailbox hrx.chan_fresh hrel hS hin hl.1
-      (hrx.target_le hred) hQs
-    refine .inr (.inl ⟨hrel', rfl, ?_⟩)
-    show GuardedPlusCal.FIFOs.size F₂' < GuardedPlusCal.FIFOs.size F₂
-    omega
-
-omit [SeqBuiltins V] in
-/-- **The algorithm-level `Terminating`**, read off `step_or_stutter`: a source step is a one-step
-run, a stutter is the empty one, and the abort disjunct passes through unchanged. The measure is
-dropped here — `Terminating` has nowhere to put it, which is exactly why the divergence half needs
-`step_or_stutter` directly. -/
-theorem algRelatesTo.terminating [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement.Terminating (algRelatesTo (V := V) mb rx) (algRelatesTo (V := V) mb rx)
-      (instTrace (V := V)).Rτ (Relation.star Aₛ.step) Aₛ.aborting Aₜ.step := by
-  intro Sₜ Sₜ' ε Sₛ hrel hstep
-  rcases algRelatesTo.step_or_stutter href hrel hstep with
-    ⟨Sₛ', ε', hrel', hτ, hsstep⟩ | ⟨hrel', rfl, _⟩ | habort
-  · exact .inl ⟨Sₛ', ε', hrel', hτ, Relation.star.single hsstep⟩
-  · refine .inl ⟨Sₛ, 1, hrel', ?_, Relation.star.refl _⟩
-    trace_rel
-  · exact .inr habort
 
 omit [SeqBuiltins V] in
 /-- **A receiving thread cannot go wrong at a related state**, and it has to be so: the source has no
@@ -230,123 +72,20 @@ theorem rxBranch_not_aborting {c : ComputableGuardedPlusCal.Ref} {inbox : String
     rw [happ] at happ'
     contradiction
 
-omit [SeqBuiltins V] in
-/-- **Where the target goes wrong, so does the source.** The aborting counterpart of
-`algRelatesTo.terminating`, and the same dispatch — except that only one branch of it produces
-anything. A code thread's abort is answered by the source block's, through `blockRefines_abort`; a
-receiving thread's abort cannot happen at all (`rxBranch_not_aborting`).
-
-Simpler than the terminating case throughout, because an abort has no post-state: no `algRelatesTo`
-witness is rebuilt, so none of the key bookkeeping appears. -/
-theorem algRelatesTo.immediateAbort [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement.Aborting (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
-      Aₛ.immediateAbort Aₜ.immediateAbort := by
-  rintro ⟨Qs, F₂⟩ ε ⟨Ps, F₁⟩ hrel ⟨p, ⟨M₂, L₂⟩, hin, l, hl, habort, hself⟩
-  obtain ⟨ib, pref, hmatch, -, -, hkey, -, hpresent, hfifo⟩ := hrel
-  have hbwd : ∀ q σ', Qs q = .some σ' →
-      ∃ σ, Ps q = .some σ ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
-    intro q σ' hq'
-    have hm := hmatch q
-    rw [hq'] at hm
-    rcases Option.eq_none_or_eq_some (Ps q) with hq | ⟨σ, hq⟩
-    · rw [hq] at hm; exact hm.elim
-    · rw [hq] at hm; exact ⟨σ, hq, hm⟩
-  obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd p ⟨M₂, L₂⟩ hin
-  have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some (Aₛ.self p) := by
-    rw [href.self_eq p,
-      hproc.mem_agree' _ (λ c inbox hmb ↦ (href.inbox_ne_self p c inbox hmb).symm)]
-    exact hself
-  rcases href.labels p l hl.2 with ⟨brs, brs', hcode⟩ | ⟨c, inbox, hrx⟩
-  · have hlabel : l ∈ L₁ := by
-      rcases (hproc.1 ▸ hl.1 : l ∈ L₁ ∪ rx p) with hmem | hmem
-      · exact hmem
-      · exact (hcode.not_rx hmem).elim
-    obtain ⟨Br', hBr', habort'⟩ := hcode.target_abort_le _ habort
-    obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ :=
-      blockRefines_abort_indexed (hcode.refines pref)
-        (relatesTo_of_procRelatesTo hproc (hkey p) hfifo .none) hBr' habort'
-    exact ⟨ε', hpfx, p, ⟨M₁, L₁⟩, hS, l, ⟨hlabel, hcode.owned⟩,
-      hcode.source_aborting Br hBr hsabort, hself'⟩
-  · -- the instance receives, so it has an inbox, and then the relay cannot go wrong
-    obtain ⟨ibp, hibp⟩ : ∃ ibp, ib p = .some ibp := by
-      refine Option.ne_none_iff_exists'.mp ?_
-      intro hnn
-      rw [hrx.mailbox, hnn] at hproc
-      nomatch hproc.2.2
-    rw [hrx.mailbox, hibp] at hproc
-    absurd rxBranch_not_aborting (ε := ε) hrx.chan_fresh hproc (hpresent p ibp hibp)
-    exact hrx.target_abort_le habort
-
-omit [SeqBuiltins V] in
-/-- **And the whole reducing semantics.** `Algebra.reducing` is `step*` by definition and
-`Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort`, so this is `Terminating.starStutter` at those and
-nothing else — including its absorption side condition, which is `Relation.star.star_lcomp₁_absorb`
-at exactly this shape. -/
-theorem algRelatesTo.terminating_reducing [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement.Terminating (algRelatesTo (V := V) mb rx) (algRelatesTo (V := V) mb rx)
-      (instTrace (V := V)).Rτ Aₛ.reducing Aₛ.aborting Aₜ.reducing :=
-  StrongRefinement.Terminating.starStutter Relation.star.star_lcomp₁_absorb
-    (algRelatesTo.terminating href)
-
-omit [SeqBuiltins V] in
-/-- **And the whole diverging semantics.** `Algebra.diverging` is `step^∞` by definition, so this is
-`Diverging.omegaStutter` at `step_or_stutter` — the same three-way obligation the other two halves
-are built from, here with its measure disjunct finally load-bearing.
-
-`FIFOs.size` is the measure: a receiving thread's relay moves one message out of a channel, and only
-a `send` puts one back — and a `send` is a code thread's step, which *does* move the source. So the
-target cannot relay forever while the source stands still, the source's steps are cofinal in the
-target's, and deleting the idle indices leaves a genuine infinite source run. -/
-theorem algRelatesTo.diverging [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement.Diverging (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
-      Aₛ.diverging Aₛ.aborting Aₜ.diverging :=
-  StrongRefinement.Diverging.omegaStutter (μ := λ S ↦ GuardedPlusCal.FIFOs.size S.2)
-    rτ_omega ωProd_comp Stream'.Seq.hasPartialProdDvd Relation.star.lcomp₁_absorb
-    (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter href hrel hstep)
-
-omit [SeqBuiltins V] in
-/-- **And the whole aborting semantics.** `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort` by
-definition, so this is `Aborting.starStutter` at that — the immediate half above, lifted over the run
-that precedes it by the same per-step `Terminating` the reducing half uses. -/
-theorem algRelatesTo.aborting [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement.Aborting (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
-      Aₛ.aborting Aₜ.aborting :=
-  StrongRefinement.Aborting.starStutter (algRelatesTo.terminating href)
-    (algRelatesTo.immediateAbort href)
-
-omit [SeqBuiltins V] in
-/-- **The algorithm-level refinement, whole.** All three components at the closed forms
-`Algebra.reducing`/`.aborting`/`.diverging`, against one state relation.
-
-`AlgebraRefines` itself is established from a compiled algorithm by `Thread.toNetwork`, and
-`algRelatesTo` at the initial states by `Algorithm.init`; the refinement argument asks for nothing
-beyond those two. -/
-theorem algRelatesTo.refines [DecidableEq ι] {Aₛ Aₜ : Algebra ι V} {mb : ι → Mailbox}
-    {rx : ι → Set String} (href : AlgebraRefines Aₛ Aₜ mb rx) :
-    StrongRefinement (algRelatesTo (V := V) mb rx) (instTrace (V := V)).Rτ
-      Aₛ.reducing Aₛ.aborting Aₛ.diverging Aₜ.reducing Aₜ.aborting Aₜ.diverging where
-  terminating := algRelatesTo.terminating_reducing href
-  aborting := algRelatesTo.aborting href
-  diverging := algRelatesTo.diverging href
-
 /-! # The pass at this level: the whole algorithm, compiled
 
   `Algorithm.toNetwork` maps `Process.toNetwork` over the algorithm's processes and keeps the
   global state, so the syntactic half is `Spec.mapM_list` a fourth time and nothing more.
 
-  The semantic half — turning the resulting `ProcessRefines` into the `AlgebraRefines` above — is a
-  different kind of step and is not here. It has to go through `Algorithm.algebra`'s by-name lookup
-  on both sides, and it is the first place the two languages' `Process.codeTable`s are compared
-  rather than their syntax.
+  The semantic half — turning the resulting `ProcessRefines` into the label dispatch
+  `algRelatesTo.step_or_stutter` and `.immediateAbort` run — is a different kind of step and is not
+  here. It has to go through `Algorithm.algebra`'s by-name lookup on both sides, and it is the first
+  place the two languages' `Process.codeTable`s are compared rather than their syntax.
 -/
 
 /-! ## `mb` and `rx`, read off the compiled processes
 
-  `AlgebraRefines` is indexed by instances (`ι = String × V`) while the pass's data is positional in
+  `algRelatesTo` is indexed by instances (`ι = String × V`) while the pass's data is positional in
   a list, and `Algorithm.algebra` bridges the two by looking a process up under its *name*. So both
   functions are that lookup composed with something local to the compiled process — no existential,
   no choice, and `.none` for a process that has no receiving thread, which is exactly the mailbox a
@@ -403,7 +142,8 @@ resolve an instance `⟨name, self⟩` by exactly this lookup.
 `List.Forall₂.find?_right` is what makes it work: the two `find?`s walk their lists in step, so
 agreement on the *predicate* at related pairs is enough, and `ProcessRefines.name_eq` is that
 agreement. The target side is the hypothesis rather than the source's because that is the direction
-the clauses need — `AlgebraRefines` quantifies over labels the *target* owns. -/
+`algRelatesTo.step_or_stutter` and `.immediateAbort` need it — a target step names a target label,
+and resolving that label's owning process is the first thing either proof does. -/
 theorem find?_refines (href : ProcessesRefine (V := V) mbox c₀ pref algo algo')
     (hfind : algo'.processes.find? (·.name == name) = some p') :
     ∃ p inbox, algo.processes.find? (·.name == name) = some p ∧ p.name = name ∧
@@ -435,48 +175,35 @@ theorem procMailbox_eq (hfind : algo'.processes.find? (·.name == name) = some p
 
 omit [SeqBuiltins V] in
 /-- **Both algebras answer a resolved instance from the process itself.** `Algorithm.algebra`'s
-`table`/`owned` are the by-name lookup composed with the process's own `codeTable`/`ownedLabels`, and
-every `ProcessRefines` field lemma is stated against those bare forms — so each of the four is one
-`Option.elim` in the way. -/
+`table` is the by-name lookup composed with the process's own `codeTable`, and every `ProcessRefines`
+field lemma is stated against that bare form — so each is one `Option.elim` in the way. -/
 theorem tgt_algebra_table (hfind : algo'.processes.find? (·.name == name) = some p') :
-    (NetworkPlusCal.Algorithm.algebra algo').table (name, v) =
+    (NetworkPlusCal.Algorithm.algebra algo') (name, v) =
       NetworkPlusCal.Process.codeTable p' := by
   simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_some]
 
 omit [SeqBuiltins V] in
 @[inherit_doc tgt_algebra_table]
-theorem tgt_algebra_owned (hfind : algo'.processes.find? (·.name == name) = some p') :
-    (NetworkPlusCal.Algorithm.algebra algo').owned (name, v) =
-      NetworkPlusCal.Process.ownedLabels p' := by
-  simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_some]
-
-omit [SeqBuiltins V] in
-@[inherit_doc tgt_algebra_table]
 theorem src_algebra_table (hfind : algo.processes.find? (·.name == name) = some p) :
-    (GuardedPlusCal.Algorithm.algebra algo).table (name, v) =
+    (GuardedPlusCal.Algorithm.algebra algo) (name, v) =
       GuardedPlusCal.Process.codeTable p := by
-  simp only [GuardedPlusCal.Algorithm.algebra, hfind, Option.elim_some]
-
-omit [SeqBuiltins V] in
-@[inherit_doc tgt_algebra_table]
-theorem src_algebra_owned (hfind : algo.processes.find? (·.name == name) = some p) :
-    (GuardedPlusCal.Algorithm.algebra algo).owned (name, v) =
-      GuardedPlusCal.Process.ownedLabels p := by
   simp only [GuardedPlusCal.Algorithm.algebra, hfind, Option.elim_some]
 
 omit [SeqBuiltins V] [ExprSemantics V] in
 /-- **`procRxLabels` is the resolved process's own receiving labels.** The lookup and nothing else —
 no refinement is involved, `rxLabels` being a fact about the compiled process alone. Stated anyway
-because every `AlgebraRefines` clause mentioning `rx p` has to get past the `Option.elim` first, and
-`ProcessRefines`' six `rxLabels` lemmas are all phrased against the bare process. -/
+because every clause `algRelatesTo.step_or_stutter`/`.immediateAbort` state against
+`procRxLabels algo' (name, v)` has to get past the `Option.elim` first, and `ProcessRefines`' six
+`rxLabels` lemmas are all phrased against the bare process. -/
 theorem procRxLabels_eq (hfind : algo'.processes.find? (·.name == name) = some p') :
     procRxLabels algo' (name, v) = rxLabels p' := by
   simp only [procRxLabels, hfind, Option.elim_some]
 
 omit [SeqBuiltins V] in
-/-- **`AlgebraRefines.inbox_ne_self`, discharged.** A mailbox `procMailbox` reports is one a process
+/-- **A generated `inbox` is never `self`.** A mailbox `procMailbox` reports is one a process
 registered a thread for, so its `inbox` is a name `freshName` generated, and no generated name is
-`self` (`Generated.ne_selfName`).
+`self` (`Generated.ne_selfName`). Spent inside `algRelatesTo.step_or_stutter`/`.immediateAbort` to
+rewrite the source memory's `selfName` lookup through `procRelatesTo.mem_agree'` unchanged.
 
 Load-bearing rather than hygiene: `CodeTable.procReducing` requires the memory to bind `selfName`,
 and the source memory agrees with the target's only *away* from the generated name. -/
@@ -511,100 +238,315 @@ def AlgorithmFresh (mbox : String → String → Mailbox)
     ∀ p ∈ algo.processes, ProcessFresh (mbox p.name) (c₀ p.name) p
 
 omit [SeqBuiltins V] in
-/-- **The compiled algebra refines** the source's, at the mailbox and receiving labels
-read off the compiled algorithm. Every clause is one lemma at the resolved instance and nothing else;
-`find?_refines` is what turns an instance into a related process pair, and the four
-`*_algebra_table`/`*_algebra_owned` lemmas are what get past the `Option.elim` to the field lemmas.
+/-- **One target step, answered — and never answered by nothing forever.** The per-step obligation
+in the three-way form a stuttering simulation needs: the source takes *one* step, or it takes none
+and the target's queued-message count strictly drops, or it aborts.
 
-`href` quantifies over `pref` because `CodeLabelRefines.refines` does. Which prefix function the
-algorithm level hands down is not known per process, and `Algorithm.toNetwork_spec` holds at every
-one — the `inbox` each instantiation witnesses may differ, but `procMailbox_eq` pins all of them to
-the same `procMailbox algo'`, so the mailbox the clause is stated at does not.
+The middle disjunct is what a divergence argument needs and `Terminating` cannot express. A
+receiving thread's step is answered with no source step at all, so an infinite target run could in
+principle be answered by a source that never moves — except that a relay moves a message *out* of a
+channel, and `FIFOs.size` counts exactly those. Only a `send` puts one back, and a `send` is a code
+thread's step, which does move the source. So the target cannot relay forever without the source
+keeping pace.
 
-The two hypotheses that are not the pass's are the front end's: `used` says a declared mailbox is one
-its process receives on (`checkReceiveChannels`), and `hyg` that no source label is one the pass could
-generate (the `$` argument, discharged for every counter value at once). -/
-theorem algebraRefines
+The proof reads the target step apart into an instance and a label, resolves the label's owning
+process (`find?_refines`), and asks `ProcessRefines.label_cases` which kind of label it is — a
+compiled code thread's or a receiving thread's — before handing the pieces to whichever per-step
+lemma applies. `Process.ownedLabels_of_reducing` is what lets that dispatch start from the step
+already in hand rather than from a separate membership hypothesis: the step's own target block being
+nonempty at `l` is exactly what it means for the compiled process to own `l`. A name that resolves to
+no process at all is dispatched first, and separately — its table is `∅` by construction.
+
+Reassembling the *source's* step is the only thing here that is not dispatch. `Algebra.step` wants a
+`CodeTable.procReducing`, which wants the scheduled label to be one the source process owns and has
+scheduled, and the memory to bind `selfName`. The first comes from the code branch's label agreement
+together with `procRelatesTo`'s `L₂ = L₁ ∪ rx p`; the second from memory agreement away from the
+generated `inbox`, which is not `self` — and since both algebras read `self` off the instance's own
+identity, that memory fact needs no translation between the two sides. -/
+theorem algRelatesTo.step_or_stutter [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
+    (hyg : ∀ p ∈ algo.processes, LabelsHygienic p)
+    {Sₜ Sₜ' Sₛ : AlgState (String × V) V} {ε : Trace V}
+    (hrel : Sₛ ≋[procMailbox algo', procRxLabels algo'] Sₜ)
+    (hstep : (⟨Sₜ, ε, Sₜ'⟩ : AlgState (String × V) V × Trace V × AlgState (String × V) V) ∈
+      (NetworkPlusCal.Algorithm.algebra algo').step) :
+    (∃ Sₛ' ε', Sₛ' ≋[procMailbox algo', procRxLabels algo'] Sₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
+        (⟨Sₛ, ε', Sₛ'⟩ : AlgState (String × V) V × Trace V × AlgState (String × V) V) ∈
+          (GuardedPlusCal.Algorithm.algebra algo).step) ∨
+      (Sₛ ≋[procMailbox algo', procRxLabels algo'] Sₜ' ∧ ε = 1 ∧
+        GuardedPlusCal.FIFOs.size Sₜ'.2 < GuardedPlusCal.FIFOs.size Sₜ.2) ∨
+      (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧ (⟨Sₛ, ε'⟩ : AlgState (String × V) V × Trace V) ∈
+        (GuardedPlusCal.Algorithm.algebra algo).aborting) := by
+  obtain ⟨Qs, F₂⟩ := Sₜ
+  obtain ⟨Qs', F₂'⟩ := Sₜ'
+  obtain ⟨Ps, F₁⟩ := Sₛ
+  obtain ⟨⟨name, v⟩, ⟨M₂, L₂⟩, hin, ⟨M₂', L₂'⟩, hproc, hQs⟩ := hstep
+  obtain ⟨l, hl, l', hred, hself, rfl⟩ := hproc
+  obtain ⟨ib, hbwd⟩ := hrel.backward
+  obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd (name, v) ⟨M₂, L₂⟩ hin
+  -- a process only steps in a memory binding its own identity; the source's does because it agrees
+  -- with the target's away from the generated `inbox`, which is not `self`
+  have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some v := by
+    rw [hproc.mem_agree' _ (λ c inbox hmb ↦
+      (procMailbox_inbox_ne_selfName (href λ _ ↦ []) used hmb).symm)]
+    exact hself
+  -- a name resolving to no process has an empty table, contradicting the step in hand
+  cases hfind : algo'.processes.find? (·.name == name) with
+  | none =>
+    simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_none] at hred
+    exact hred.elim
+  | some p' =>
+    rw [tgt_algebra_table hfind] at hred
+    obtain ⟨p, inbox, hfinds, -, hpr⟩ := find?_refines (href λ _ ↦ []) hfind
+    have hmem : p ∈ algo.processes := List.mem_of_find?_eq_some hfinds
+    have hused := used p hmem inbox
+    have hmb := procMailbox_eq (v := v) hfind hpr hused
+    -- the step's own target block is nonempty at `l`, so the compiled process owns `l`
+    have hlown := NetworkPlusCal.Process.ownedLabels_of_reducing hred
+    rcases hpr.label_cases (hyg p hmem) hlown with ⟨hsrc, hnrx⟩ | ⟨hrx, hnsrc⟩
+    · -- a code thread moved, and the source block at the same label answers
+      have hlabel : l ∈ L₁ := by
+        rcases (hproc.1 ▸ hl : l ∈ L₁ ∪ procRxLabels algo' (name, v)) with hmem' | hmem'
+        · exact hmem'
+        · rw [procRxLabels_eq hfind] at hmem'
+          exact (hnrx hmem').elim
+      obtain ⟨Br', hBr', hstep'⟩ := tgt_reducing_le hnrx _ hred
+      have hexits : ∀ M F τ M' F' l', (⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ :
+          LocalState V × Trace V × LocalState V) ∈
+          (NetworkPlusCal.Process.codeTable p').reducing l → l' ∉ procRxLabels algo' (name, v) := by
+        intro M F τ M' F' l' hstep
+        rw [procRxLabels_eq hfind]
+        exact hpr.exits (hyg p hmem) hnrx hstep
+      have hbref : ∀ pref' : ChanKey V → List V, BranchesRefine (V := V)
+          (procMailbox algo' (name, v)) pref' (srcBranchesAt p l) (tgtBranchesAt p' l) := by
+        -- the refinement is owed at every prefix function, so the walk is re-resolved at each; the
+        -- `inbox` it witnesses need not be the one above, but the mailbox it names is
+        intro pref'
+        obtain ⟨p₂, inbox₂, hfinds₂, -, hpr₂⟩ := find?_refines (href pref') hfind
+        rw [hfinds] at hfinds₂
+        obtain rfl := Option.some.inj hfinds₂
+        rw [procMailbox_eq (v := v) hfind hpr₂ (used _ hmem inbox₂)]
+        exact hpr₂.branchesRefine l
+      have hbfresh : ∀ Br ∈ srcBranchesAt p l, ∀ c ib, procMailbox algo' (name, v) = .some (c, ib) →
+          BranchesFresh (.some (c, ib)) c ib Br := by
+        intro Br hBr c ib hmbeq
+        rw [hmb] at hmbeq
+        have hne : mbox p.name inbox ≠ .none := by rw [hmbeq]; nofun
+        have heq := hpr.mailbox_eq hused hne
+        -- so the pair the clause was handed is the one the ladder is stated against
+        rewrite [heq] at hmbeq
+        simp only [Option.some.injEq, Prod.mk.injEq] at hmbeq
+        obtain ⟨rfl, rfl⟩ := hmbeq
+        rw [← heq]
+        obtain ⟨T, hT, blk, hblk, -, hBrmem⟩ := mem_srcBranchesAt.mp hBr
+        exact fresh p hmem inbox hpr.inbox_generated T hT blk hblk Br hBrmem
+      rcases algRelatesTo.block_step hbref hbfresh hrel hS hin hlabel
+          (hexits _ _ _ _ _ _ hred) hBr' hstep' hQs with
+        ⟨M₁', F₁', ε', hrel', hτ, Br, hBr, hsstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
+      · have hsrc_reducing := src_reducing_le hBr hsstep
+        rw [← src_algebra_table hfinds] at hsrc_reducing
+        refine .inl ⟨_, ε', hrel', hτ, ?_⟩
+        exact ⟨(name, v), ⟨M₁, L₁⟩, hS, ⟨M₁', insert l' (L₁ \ {l})⟩,
+          ⟨l, hlabel, l', hsrc_reducing, hself', rfl⟩, rfl⟩
+      · have hsrc_aborting := src_aborting_le hBr habort
+        rw [← src_algebra_table hfinds] at hsrc_aborting
+        refine .inr (.inr ⟨ε', hpfx, Relation.star.le_lcomp₁ ?_⟩)
+        exact ⟨(name, v), ⟨M₁, L₁⟩, hS, l, hlabel, hsrc_aborting, hself'⟩
+    · -- a receiving thread moved, and the source does not move at all
+      obtain ⟨_, _, _, hT⟩ := hrx
+      have hmailbox : procMailbox algo' (name, v) = .some (c₀ p.name, inbox) := by
+        rw [hmb]; exact (hpr.rxThread hT).1
+      have hchan_fresh : inbox ∉ GuardedPlusCal.Ref.freeVars (c₀ p.name) := (hpr.rxThread hT).2.1
+      have htarget_le := hpr.rx_target_le hnsrc
+      obtain rfl := NetworkPlusCal.Thread.rxBranch_label (htarget_le hred)
+      obtain ⟨rfl, hrel', hsize⟩ := algRelatesTo.rx_step hmailbox hchan_fresh hrel hS hin hl
+        (htarget_le hred) hQs
+      refine .inr (.inl ⟨hrel', rfl, ?_⟩)
+      show GuardedPlusCal.FIFOs.size F₂' < GuardedPlusCal.FIFOs.size F₂
+      omega
+
+omit [SeqBuiltins V] in
+/-- **The algorithm-level `Terminating`**, read off `step_or_stutter`: a source step is a one-step
+run, a stutter is the empty one, and the abort disjunct passes through unchanged. The measure is
+dropped here — `Terminating` has nowhere to put it, which is exactly why the divergence half needs
+`step_or_stutter` directly. -/
+theorem algRelatesTo.terminating [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    AlgebraRefines (V := V) (GuardedPlusCal.Algorithm.algebra algo)
-      (NetworkPlusCal.Algorithm.algebra algo') (procMailbox algo') (procRxLabels algo') where
-  self_eq _ := rfl
-  inbox_ne_self := λ ⟨_, _⟩ _ _ hm ↦ procMailbox_inbox_ne_selfName (href λ _ ↦ []) used hm
-  labels := by
-    rintro ⟨name, v⟩ l hl
-    -- an instance whose name resolves to no process owns no label at all
-    cases hfind : algo'.processes.find? (·.name == name) with
-    | none =>
-      simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_none,
-        Set.mem_empty_iff_false] at hl
-    | some p' =>
-      obtain ⟨p, inbox, hfinds, -, hpr⟩ := find?_refines (href λ _ ↦ []) hfind
-      have hmem : p ∈ algo.processes := List.mem_of_find?_eq_some hfinds
-      have hused := used p hmem inbox
-      have hmb := procMailbox_eq (v := v) hfind hpr hused
-      rw [tgt_algebra_owned hfind] at hl
-      rcases hpr.label_cases (hyg p hmem) hl with ⟨hsrc, hnrx⟩ | ⟨hrx, hnsrc⟩
-      -- a code label: the branches its block has on each side
-      · refine .inl ⟨srcBranchesAt p l, tgtBranchesAt p' l, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-        · rw [procRxLabels_eq hfind]
-          exact hnrx
-        · rw [src_algebra_owned hfinds]
-          exact hsrc
-        · intro _ _ _ _ _ _ hstep
-          rw [tgt_algebra_table hfind] at hstep
-          rw [procRxLabels_eq hfind]
-          exact hpr.exits (hyg p hmem) hnrx hstep
-        -- the refinement is owed at every prefix function, so the walk is re-resolved at each; the
-        -- `inbox` it witnesses need not be the one above, but the mailbox it names is
-        · intro pref'
-          obtain ⟨p₂, inbox₂, hfinds₂, -, hpr₂⟩ := find?_refines (href pref') hfind
-          rw [hfinds] at hfinds₂
-          obtain rfl := Option.some.inj hfinds₂
-          rw [procMailbox_eq (v := v) hfind hpr₂ (used _ hmem inbox₂)]
-          exact hpr₂.branchesRefine l
-        · intro Br hBr c ib hmbeq
-          rw [hmb] at hmbeq
-          have hne : mbox p.name inbox ≠ .none := by rw [hmbeq]; nofun
-          have heq := hpr.mailbox_eq hused hne
-          -- so the pair the clause was handed is the one the ladder is stated against
-          rewrite [heq] at hmbeq
-          simp only [Option.some.injEq, Prod.mk.injEq] at hmbeq
-          obtain ⟨rfl, rfl⟩ := hmbeq
-          rw [← heq]
-          obtain ⟨T, hT, blk, hblk, -, hBrmem⟩ := mem_srcBranchesAt.mp hBr
-          exact fresh p hmem inbox hpr.inbox_generated T hT blk hblk Br hBrmem
-        · rw [tgt_algebra_table hfind]
-          exact tgt_reducing_le hnrx
-        · rw [tgt_algebra_table hfind]
-          exact tgt_aborting_le hnrx
-        · intro _ hBr
-          rw [src_algebra_table hfinds]
-          exact src_reducing_le hBr
-        · intro _ hBr
-          rw [src_algebra_table hfinds]
-          exact src_aborting_le hBr
-      -- a receiving label: no source counterpart at all, only the relay
-      · obtain ⟨_, _, _, hT⟩ := hrx
-        refine .inr ⟨c₀ p.name, inbox, ?_, ?_, ?_, ?_, ?_⟩
-        · rw [procRxLabels_eq hfind]
-          exact ⟨_, _, _, hT⟩
-        · rw [hmb]
-          exact (hpr.rxThread hT).1
-        · exact (hpr.rxThread hT).2.1
-        -- the relay bound is stated at "the source owns no such label", `label_cases`' negative half
-        · rw [tgt_algebra_table hfind]
-          exact hpr.rx_target_le hnsrc
-        · rw [tgt_algebra_table hfind]
-          exact hpr.rx_target_abort_le hnsrc
+    StrongRefinement.Terminating (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (Relation.star (GuardedPlusCal.Algorithm.algebra algo).step)
+      (GuardedPlusCal.Algorithm.algebra algo).aborting
+      (NetworkPlusCal.Algorithm.algebra algo').step := by
+  intro Sₜ Sₜ' ε Sₛ hrel hstep
+  rcases algRelatesTo.step_or_stutter href used fresh hyg hrel hstep with
+    ⟨Sₛ', ε', hrel', hτ, hsstep⟩ | ⟨hrel', rfl, _⟩ | habort
+  · exact .inl ⟨Sₛ', ε', hrel', hτ, Relation.star.single hsstep⟩
+  · refine .inl ⟨Sₛ, 1, hrel', ?_, Relation.star.refl _⟩
+    trace_rel
+  · exact .inr habort
+
+omit [SeqBuiltins V] in
+/-- **Where the target goes wrong, so does the source.** The aborting counterpart of
+`algRelatesTo.terminating`, and the same dispatch — except that only one branch of it produces
+anything. A code thread's abort is answered by the source block's, through `blockRefines_abort`; a
+receiving thread's abort cannot happen at all (`rxBranch_not_aborting`).
+
+Simpler than the terminating case throughout, because an abort has no post-state: no `algRelatesTo`
+witness is rebuilt, so none of the key bookkeeping appears. -/
+theorem algRelatesTo.immediateAbort [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (_fresh : AlgorithmFresh mbox c₀ algo)
+    (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
+    StrongRefinement.Aborting (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Algorithm.algebra algo).immediateAbort
+      (NetworkPlusCal.Algorithm.algebra algo').immediateAbort := by
+  rintro ⟨Qs, F₂⟩ ε ⟨Ps, F₁⟩ hrel ⟨⟨name, v⟩, ⟨M₂, L₂⟩, hin, l, hl, habort, hself⟩
+  obtain ⟨ib, pref, hmatch, -, -, hkey, -, hpresent, hfifo⟩ := hrel
+  have hbwd : ∀ q σ', Qs q = .some σ' →
+      ∃ σ, Ps q = .some σ ∧
+        procRelatesTo (procMailbox algo' q) (procRxLabels algo' q) (ib q) σ σ' := by
+    intro q σ' hq'
+    have hm := hmatch q
+    rw [hq'] at hm
+    rcases Option.eq_none_or_eq_some (Ps q) with hq | ⟨σ, hq⟩
+    · rw [hq] at hm; exact hm.elim
+    · rw [hq] at hm; exact ⟨σ, hq, hm⟩
+  obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd (name, v) ⟨M₂, L₂⟩ hin
+  have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some v := by
+    rw [hproc.mem_agree' _ (λ c inbox hmb ↦
+      (procMailbox_inbox_ne_selfName (href λ _ ↦ []) used hmb).symm)]
+    exact hself
+  cases hfind : algo'.processes.find? (·.name == name) with
+  | none =>
+    simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_none] at habort
+    exact habort.elim
+  | some p' =>
+    rw [tgt_algebra_table hfind] at habort
+    obtain ⟨p, inbox, hfinds, -, hpr⟩ := find?_refines (href λ _ ↦ []) hfind
+    have hmem : p ∈ algo.processes := List.mem_of_find?_eq_some hfinds
+    have hused := used p hmem inbox
+    have hmb := procMailbox_eq (v := v) hfind hpr hused
+    have hlown := NetworkPlusCal.Process.ownedLabels_of_aborting habort
+    rcases hpr.label_cases (hyg p hmem) hlown with ⟨hsrc, hnrx⟩ | ⟨hrx, hnsrc⟩
+    · have hlabel : l ∈ L₁ := by
+        rcases (hproc.1 ▸ hl : l ∈ L₁ ∪ procRxLabels algo' (name, v)) with hmem' | hmem'
+        · exact hmem'
+        · rw [procRxLabels_eq hfind] at hmem'
+          exact (hnrx hmem').elim
+      obtain ⟨Br', hBr', habort'⟩ := tgt_aborting_le hnrx _ habort
+      obtain ⟨p₂, inbox₂, hfinds₂, -, hpr₂⟩ := find?_refines (href pref) hfind
+      rw [hfinds] at hfinds₂
+      obtain rfl := Option.some.inj hfinds₂
+      have hbref : BranchesRefine (V := V) (procMailbox algo' (name, v)) pref
+          (srcBranchesAt p l) (tgtBranchesAt p' l) := by
+        rw [procMailbox_eq (v := v) hfind hpr₂ (used _ hmem inbox₂)]
+        exact hpr₂.branchesRefine l
+      obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ :=
+        blockRefines_abort_indexed hbref
+          (relatesTo_of_procRelatesTo hproc (hkey (name, v)) hfifo .none) hBr' habort'
+      have hsrc_aborting := src_aborting_le hBr hsabort
+      rw [← src_algebra_table hfinds] at hsrc_aborting
+      exact ⟨ε', hpfx, (name, v), ⟨M₁, L₁⟩, hS, l, hlabel, hsrc_aborting, hself'⟩
+    · -- the instance receives, so it has an inbox, and then the relay cannot go wrong
+      obtain ⟨_, _, _, hT⟩ := hrx
+      have hmailbox : procMailbox algo' (name, v) = .some (c₀ p.name, inbox) := by
+        rw [hmb]; exact (hpr.rxThread hT).1
+      have hchan_fresh : inbox ∉ GuardedPlusCal.Ref.freeVars (c₀ p.name) := (hpr.rxThread hT).2.1
+      have htarget_abort_le := hpr.rx_target_abort_le hnsrc
+      obtain ⟨ibp, hibp⟩ : ∃ ibp, ib (name, v) = .some ibp := by
+        refine Option.ne_none_iff_exists'.mp ?_
+        intro hnn
+        rw [hmailbox, hnn] at hproc
+        nomatch hproc.2.2
+      rw [hmailbox, hibp] at hproc
+      absurd rxBranch_not_aborting (ε := ε) hchan_fresh hproc (hpresent (name, v) ibp hibp)
+      exact htarget_abort_le habort
+
+omit [SeqBuiltins V] in
+/-- **And the whole reducing semantics.** `Algebra.reducing` is `step*` by definition and
+`Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort`, so this is `Terminating.starStutter` at those and
+nothing else — including its absorption side condition, which is `Relation.star.star_lcomp₁_absorb`
+at exactly this shape. -/
+theorem algRelatesTo.terminating_reducing [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
+    (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
+    StrongRefinement.Terminating (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).reducing
+      (GuardedPlusCal.Algorithm.algebra algo).aborting
+      (NetworkPlusCal.Algorithm.algebra algo').reducing :=
+  StrongRefinement.Terminating.starStutter Relation.star.star_lcomp₁_absorb
+    (algRelatesTo.terminating href used fresh hyg)
+
+omit [SeqBuiltins V] in
+/-- **And the whole diverging semantics.** `Algebra.diverging` is `step^∞` by definition, so this is
+`Diverging.omegaStutter` at `step_or_stutter` — the same three-way obligation the other two halves
+are built from, here with its measure disjunct finally load-bearing.
+
+`FIFOs.size` is the measure: a receiving thread's relay moves one message out of a channel, and only
+a `send` puts one back — and a `send` is a code thread's step, which *does* move the source. So the
+target cannot relay forever while the source stands still, the source's steps are cofinal in the
+target's, and deleting the idle indices leaves a genuine infinite source run. -/
+theorem algRelatesTo.diverging [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
+    (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
+    StrongRefinement.Diverging (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).diverging
+      (GuardedPlusCal.Algorithm.algebra algo).aborting
+      (NetworkPlusCal.Algorithm.algebra algo').diverging :=
+  StrongRefinement.Diverging.omegaStutter (μ := λ S ↦ GuardedPlusCal.FIFOs.size S.2)
+    rτ_omega ωProd_comp Stream'.Seq.hasPartialProdDvd Relation.star.lcomp₁_absorb
+    (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter href used fresh hyg hrel hstep)
+
+omit [SeqBuiltins V] in
+/-- **And the whole aborting semantics.** `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort` by
+definition, so this is `Aborting.starStutter` at that — the immediate half above, lifted over the run
+that precedes it by the same per-step `Terminating` the reducing half uses. -/
+theorem algRelatesTo.aborting [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
+    (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
+    StrongRefinement.Aborting (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).aborting
+      (NetworkPlusCal.Algorithm.algebra algo').aborting :=
+  StrongRefinement.Aborting.starStutter (algRelatesTo.terminating href used fresh hyg)
+    (algRelatesTo.immediateAbort href used fresh hyg)
+
+omit [SeqBuiltins V] in
+/-- **The algorithm-level refinement, whole.** All three components at the closed forms
+`Algebra.reducing`/`.aborting`/`.diverging`, against one state relation.
+
+`href`/`used`/`fresh`/`hyg` are established from a compiled algorithm by `Algorithm.toNetwork_spec`
+and the front end, and `algRelatesTo` at the initial states by `Algorithm.init`; the refinement
+argument asks for nothing beyond those. -/
+theorem algRelatesTo.refines [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
+    (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
+    StrongRefinement (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Algorithm.algebra algo).reducing
+      (GuardedPlusCal.Algorithm.algebra algo).aborting
+      (GuardedPlusCal.Algorithm.algebra algo).diverging
+      (NetworkPlusCal.Algorithm.algebra algo').reducing
+      (NetworkPlusCal.Algorithm.algebra algo').aborting
+      (NetworkPlusCal.Algorithm.algebra algo').diverging where
+  terminating := algRelatesTo.terminating_reducing href used fresh hyg
+  aborting := algRelatesTo.aborting href used fresh hyg
+  diverging := algRelatesTo.diverging href used fresh hyg
 
 open Std.Do in
 /-- **The walk over an algorithm's processes.** `Process.toNetwork_spec` iterated by
 `Spec.mapM_list`.
 
 The per-process `inbox` stays existential inside the `Forall₂` rather than being collected into a
-function. Turning it into the `mb : ι → Mailbox` that `AlgebraRefines` wants is the semantic half's
+function. Turning it into the `mb : ι → Mailbox` that `algRelatesTo` wants is the semantic half's
 business, and it needs the by-name lookup anyway. -/
 private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
   {mbox : String → String → Mailbox} {c₀ : String → ComputableGuardedPlusCal.Ref}
@@ -648,7 +590,7 @@ global state carried across unchanged.
 `globalState` is reported because `Algorithm.init` is stated against it: the clause fixing every
 declared channel's initial queue quantifies over `algo.globalState.channels ++ .fifos`, and the
 initial-state obligation needs those to be the same two lists on both sides. Nothing in
-`AlgebraRefines` wants it. -/
+`algRelatesTo.refines` wants it. -/
 theorem Algorithm.toNetwork_spec {mbox : String → String → Mailbox}
   {c₀ : String → ComputableGuardedPlusCal.Ref} {pref : ChanKey V → List V}
   {algo : ComputableGuardedPlusCal.Algorithm} (fresh : AlgorithmFresh mbox c₀ algo) :
@@ -667,10 +609,10 @@ open Std.Do in
 under `algRelatesTo` at the mailbox and receiving labels the compiled algorithm itself determines.
 
 Everything in this development meets here. `Algorithm.toNetwork_spec` is the syntactic half, the
-four walks; `algebraRefines` is its semantic half, turning the per-process refinement into the
-algebra-level dispatch; `algRelatesTo.refines` is the refinement argument, `Terminating`/`Aborting`/
-`Diverging` at the three closed forms. `triple_forall` is the joint: `CodeLabelRefines.refines` is
-needed at every prefix function and the spec supplies one per instantiation.
+four walks; `algRelatesTo.refines` is the refinement argument, `Terminating`/`Aborting`/`Diverging`
+at the three closed forms, each resolving the per-process refinement into the algebra-level label
+dispatch inline. `triple_forall` is the joint: `BranchesRefine` is needed
+at every prefix function and the spec supplies one per instantiation.
 
 The three hypotheses are the front end's, not the pass's. `AlgorithmFresh` is the syntactic
 conditions on the source program and the generated `inbox`; `MailboxUsed` says a declared mailbox is
@@ -697,8 +639,8 @@ theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String �
   refine triple_forall (ι := ChanKey V → List V)
     (λ pref ↦ Algorithm.toNetwork_spec (V := V) (pref := pref) fresh) ?_
   intro algo' h
-  refine ⟨(h λ _ ↦ []).1, algRelatesTo.refines ?_⟩
-  exact algebraRefines (λ pref ↦ (h pref).2) used fresh hyg
+  exact ⟨(h λ _ ↦ []).1,
+    algRelatesTo.refines (λ pref ↦ (h pref).2) used fresh hyg⟩
 
 /-! # The initial state
 

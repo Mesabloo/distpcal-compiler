@@ -122,14 +122,13 @@ theorem correct [DecidableEq V] :
     refine triple_forall (ι := ChanKey V → List V)
       (λ pref ↦ Algorithm.toNetwork_spec (V := V) (pref := pref) s.wellFormed.fresh) ?_
     intro algo' h
-    refine ⟨?_, algRelatesTo.refines ?_⟩
-    · rintro ⟨Ps', F⟩ hinit
-      obtain ⟨key, hkeys⟩ := s.wellFormed.keys F
-      obtain ⟨Ps, hsrc, hrel⟩ := Algorithm.init_refines (h λ _ ↦ []).2 (h λ _ ↦ []).1
-        s.wellFormed.used s.wellFormed.hygienic s.wellFormed.names hkeys hinit
-      exact ⟨⟨Ps, F⟩, hsrc, hrel⟩
-    · exact algebraRefines (λ pref ↦ (h pref).2) s.wellFormed.used s.wellFormed.fresh
-        s.wellFormed.hygienic
+    refine ⟨?_, algRelatesTo.refines (λ pref ↦ (h pref).2) s.wellFormed.used s.wellFormed.fresh
+      s.wellFormed.hygienic⟩
+    rintro ⟨Ps', F⟩ hinit
+    obtain ⟨key, hkeys⟩ := s.wellFormed.keys F
+    obtain ⟨Ps, hsrc, hrel⟩ := Algorithm.init_refines (h λ _ ↦ []).2 (h λ _ ↦ []).1
+      s.wellFormed.used s.wellFormed.hygienic s.wellFormed.names hkeys hinit
+    exact ⟨⟨Ps, F⟩, hsrc, hrel⟩
 
 /-- And so it is correct in the composable form, which is what a whole-pipeline statement chains
 (`Compiler.Correct.comp`). -/

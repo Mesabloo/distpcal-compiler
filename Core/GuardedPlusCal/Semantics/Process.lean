@@ -9,15 +9,20 @@ public import Mathlib.Tactic.Monotonicity
   The process and algorithm layers.
 
   Nothing here mentions either language's AST. A thread has no denotation of its own — it only owns
-  labels — and a process is scheduled entirely by label, so the whole layer is parameterized by two
-  things: a **code table** saying what the block at each label does, and, per process, the set of
-  labels that process owns. Both `GuardedPlusCal` and `NetworkPlusCal` build those from their own
-  syntax and instantiate what follows; `NetworkPlusCal`'s table additionally answers for its `.rx`
-  threads' labels, which is the only way the two languages differ at this level.
+  labels — and a process is scheduled entirely by label, so the whole layer is parameterized by one
+  thing: a **code table** saying what the block at each label does. A label the process does not own
+  is simply absent from its table, mapping to `∅` in both components, so nothing downstream needs a
+  separate notion of ownership to know a label is unschedulable. Both `GuardedPlusCal` and
+  `NetworkPlusCal` build their table from their own syntax and instantiate what follows;
+  `NetworkPlusCal`'s table additionally answers for its `.rx` threads' labels, which is the only way
+  the two languages differ at this level.
 
-  Processes are indexed by an arbitrary `ι` rather than by a `Process` value. The paper writes the
-  algorithm state as a set of pairs `⟨P, σ⟩` and updates it with `Ps \ {⟨P,σ⟩} ∪ {⟨P,σ'⟩}`, which
-  needs `P` only as a name to pair the state with.
+  `Instances`/`AlgState` are indexed by an arbitrary `ι` rather than by a `Process` value. The paper
+  writes the algorithm state as a set of pairs `⟨P, σ⟩` and updates it with
+  `Ps \ {⟨P,σ⟩} ∪ {⟨P,σ'⟩}`, which needs `P` only as a name to pair the state with. `Algebra` itself
+  is not generic: both languages index a process instance by its declaring `Process`'s own name
+  paired with the identity it runs under, so `ι = String × V` at every use, and a compiled
+  algorithm's code table is exactly the function `String × V → CodeTable V` that reads.
 
   The three algorithm-level semantics are closed forms over the algorithm step — `step*`,
   `step* ∘ᵣ₁ immediateAbort`, `step^∞` — rather than fixed points of endofunctions. The refinement
@@ -60,23 +65,23 @@ replace the label with the one the block's terminal `goto` reached.
 `self` is the process instance's identity. The paper's `self ↦ p ∈ M` side condition appears here as
 a lookup: a process only steps in a memory that binds its own identity, which `initProc` establishes
 and no step disturbs. -/
-def CodeTable.procReducing (Ξ : CodeTable V) (owned : Set String) (self : V) :
+def CodeTable.procReducing (Ξ : CodeTable V) (self : V) :
     Set (ProcConfig V × Trace V × ProcConfig V) :=
-  {⟨⟨⟨M, L⟩, F⟩, τ, ⟨⟨M', L'⟩, F'⟩⟩ | ∃ l ∈ L ∩ owned, ∃ l',
+  {⟨⟨⟨M, L⟩, F⟩, τ, ⟨⟨M', L'⟩, F'⟩⟩ | ∃ l ∈ L, ∃ l',
     ⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ ∈ Ξ.reducing l ∧
     M.lookup selfName = .some self ∧
     L' = insert l' (L \ {l})}
 
 /-- A process goes wrong when the block at one of its scheduled labels does. -/
-def CodeTable.procAborting (Ξ : CodeTable V) (owned : Set String) (self : V) :
+def CodeTable.procAborting (Ξ : CodeTable V) (self : V) :
     Set (ProcConfig V × Trace V) :=
-  {⟨⟨⟨M, L⟩, F⟩, τ⟩ | ∃ l ∈ L ∩ owned,
+  {⟨⟨⟨M, L⟩, F⟩, τ⟩ | ∃ l ∈ L,
     ⟨⟨M, F, .none⟩, τ⟩ ∈ Ξ.aborting l ∧ M.lookup selfName = .some self}
 
 /-- A process never diverges *in one step*: its semantics is one execution of one atomic block, and
 an atomic block's non-terminating semantics is empty. Divergence is an algorithm-level notion, and
 appears below as the infinite iteration of the process step. -/
-def CodeTable.procDiverging (_Ξ : CodeTable V) (_owned : Set String) (_self : V) :
+def CodeTable.procDiverging (_Ξ : CodeTable V) (_self : V) :
     Set (ProcConfig V × Trace V) := ∅
 
 /-! # Algorithms -/
@@ -115,29 +120,26 @@ theorem Instances.update_of_ne {Ps : Instances ι V} {p q : ι} (h : q ≠ p)
 -/
 abbrev AlgState (ι V : Type) : Type := Instances ι V × FIFOs V
 
-/-- Everything the algorithm layer needs to know about its processes: which labels each owns, what
-the block at each label does, and each instance's identity. -/
-structure Algebra (ι V : Type) : Type where
-  /-- The code table in force for a given process instance. -/
-  table : ι → CodeTable V
-  /-- The labels a given process instance owns, across all of its threads. -/
-  owned : ι → Set String
-  /-- A given process instance's identity, the value bound to `self`. -/
-  self : ι → V
+/-- Everything the algorithm layer needs to know about its processes: what the block at each label
+does. A process instance's identity is read off its own index — `self`, the paper's `P*_red` side
+condition, is `p.2` throughout, since `ι = String × V` pairs a declaring `Process`'s name with the
+specific identity it runs under. -/
+abbrev Algebra (V : Type) : Type := String × V → CodeTable V
 
 /-- The paper's `P*_red`: one step of one process, chosen non-deterministically, with every other
 process and the channels carried through. -/
-def Algebra.step (A : Algebra ι V) : Set (AlgState ι V × Trace V × AlgState ι V) :=
+def Algebra.step (A : Algebra V) :
+    Set (AlgState (String × V) V × Trace V × AlgState (String × V) V) :=
   {⟨⟨Ps, F⟩, τ, ⟨Ps', F'⟩⟩ | ∃ p σ, Ps p = .some σ ∧ ∃ σ',
-    ⟨⟨σ, F⟩, τ, ⟨σ', F'⟩⟩ ∈ (A.table p).procReducing (A.owned p) (A.self p) ∧
+    ⟨⟨σ, F⟩, τ, ⟨σ', F'⟩⟩ ∈ (A p).procReducing p.2 ∧
     Ps' = Ps.update p (.some σ')}
 
 /-- Some process goes wrong *now*: the immediate half of the aborting semantics, with no steps taken
 first. Named on its own because the aborting semantics is built from it by composition rather than
 by iterating a functional that mentions it. -/
-def Algebra.immediateAbort (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
+def Algebra.immediateAbort (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
   {⟨⟨Ps, F⟩, τ⟩ | ∃ p σ, Ps p = .some σ ∧
-    ⟨⟨σ, F⟩, τ⟩ ∈ (A.table p).procAborting (A.owned p) (A.self p)}
+    ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procAborting p.2}
 
 /-- Every **finite** sequence of algorithm steps, with the concatenated trace: `step*`.
 
@@ -146,11 +148,12 @@ Given directly rather than as `μX. Id ∪ X ∘ᵣ₂ step`, for the same reaso
 operator-preservation lemmas are stated at, so no proof has to unfold a fixed point before it can
 say anything. The empty execution is `Relation.star.refl`, not a disjunct to be supplied.
 `VerifiedCompiler/ClosedForm.lean` carries the identity with the least fixed point. -/
-def Algebra.reducing (A : Algebra ι V) : Set (AlgState ι V × Trace V × AlgState ι V) :=
+def Algebra.reducing (A : Algebra V) :
+    Set (AlgState (String × V) V × Trace V × AlgState (String × V) V) :=
   Relation.star A.step
 
 /-- Every finite sequence of steps ending in a process going wrong: `step* ∘ᵣ₁ immediateAbort`. -/
-def Algebra.aborting (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
+def Algebra.aborting (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
   Relation.star A.step ∘ᵣ₁ A.immediateAbort
 
 /-- Every infinite sequence of steps, each execution paired with the infinite product of the traces
@@ -165,7 +168,7 @@ of what the steps emit and gets this right by construction.
 
 The two agree exactly when `Relation.Productive step` holds, which `Algebra.step` does not satisfy;
 `Relation.gfp_eq_closedForm` states that boundary. -/
-def Algebra.diverging (A : Algebra ι V) : Set (AlgState ι V × Trace V) :=
+def Algebra.diverging (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
   Relation.omega A.step
 
 /-! # Restricting to executions from the initial state
@@ -309,18 +312,18 @@ theorem InitProc.append_of [ExprSemantics V] {self : V}
   rw [hmem, InitMem.append hvs.length_eq]
 
 /-- Executions of `A` from an initial state satisfying `init`. -/
-def Algebra.reducingFrom (A : Algebra ι V) (init : AlgState ι V → Prop) :
-    Set (AlgState ι V × Trace V × AlgState ι V) :=
+def Algebra.reducingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
+    Set (AlgState (String × V) V × Trace V × AlgState (String × V) V) :=
   {x ∈ A.reducing | init x.1}
 
 @[inherit_doc Algebra.reducingFrom]
-def Algebra.abortingFrom (A : Algebra ι V) (init : AlgState ι V → Prop) :
-    Set (AlgState ι V × Trace V) :=
+def Algebra.abortingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
+    Set (AlgState (String × V) V × Trace V) :=
   {x ∈ A.aborting | init x.1}
 
 @[inherit_doc Algebra.reducingFrom]
-def Algebra.divergingFrom (A : Algebra ι V) (init : AlgState ι V → Prop) :
-    Set (AlgState ι V × Trace V) :=
+def Algebra.divergingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
+    Set (AlgState (String × V) V × Trace V) :=
   {x ∈ A.diverging | init x.1}
 
 /-! # Instantiating for Guarded PlusCal
@@ -357,20 +360,18 @@ def Process.codeTable [ExprSemantics V] (p : ComputableGuardedPlusCal.Process) :
 /-! # Instantiating the algorithm layer
 
   Processes are indexed by `String × V` — the declaring `Process`'s own name together with a
-  specific instance's identity. `table`/`owned` don't depend on *which* instance, only on the
-  `Process` the name resolves to, so both look the name up and answer from that `Process`'s own
-  `codeTable`/`ownedLabels`; a name with no matching `Process` (unreachable for any `ι` an actual
-  `Algorithm.init`-satisfying state ever contains) answers with the empty table, same "absent
-  label is just unschedulable" convention `codeTable` itself already uses. -/
+  specific instance's identity. `Algebra`'s answer does not depend on *which* instance, only on the
+  `Process` the name resolves to, so it looks the name up and answers from that `Process`'s own
+  `codeTable`; a name with no matching `Process` (unreachable for any state an actual
+  `Algorithm.init` ever produces) answers with the empty table, same "absent label is just
+  unschedulable" convention `codeTable` itself already uses. -/
 
 /-- Assembles a whole `Algorithm`'s `Algebra`, per the module doc above. -/
 def Algorithm.algebra [ExprSemantics V] (algo : ComputableGuardedPlusCal.Algorithm) :
-    Algebra (String × V) V where
-  table := λ ⟨name, _⟩ ↦
+    Algebra V :=
+  λ ⟨name, _⟩ ↦
     (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
       Process.codeTable
-  owned := λ ⟨name, _⟩ ↦ (algo.processes.find? (·.name == name)).elim ∅ Process.ownedLabels
-  self := Prod.snd
 
 /-- The instance identities an `«=|∈»`/`id` pair contributes: `id`'s own value for `=`, each member
 of `id`'s (set) value for `∈`. Evaluated under the empty memory — `WellFormedness/Restrictions.lean`

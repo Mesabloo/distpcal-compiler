@@ -47,6 +47,25 @@ def Process.codeTable [ExprSemantics V] (p : ComputableNetworkPlusCal.Process) :
     ∪ {x | ∃ T ∈ p.threads, ∃ chan τ inbox, T = .rx chan l τ inbox ∧
       x ∈ Thread.rxBranchAborting chan inbox}
 
+/-- A step at a label is a step of some thread's own block, so the label is one the process owns —
+`codeTable`'s "absent label is unschedulable" convention, read the other way round. Used at the
+algorithm level to derive `l ∈ ownedLabels p'` straight from the step in hand, rather than carrying
+ownership as a separate hypothesis to case on. -/
+theorem Process.ownedLabels_of_reducing [ExprSemantics V] {p : ComputableNetworkPlusCal.Process}
+    {l : String} {x} (hx : x ∈ (Process.codeTable (V := V) p).reducing l) :
+    l ∈ Process.ownedLabels p := by
+  rcases hx with ⟨T, hT, blocks, rfl, B, hB, rfl, -⟩ | ⟨T, hT, chan, τ, inbox, rfl, -⟩
+  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_map_of_mem hB⟩
+  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_singleton_self l⟩
+
+@[inherit_doc Process.ownedLabels_of_reducing]
+theorem Process.ownedLabels_of_aborting [ExprSemantics V] {p : ComputableNetworkPlusCal.Process}
+    {l : String} {x} (hx : x ∈ (Process.codeTable (V := V) p).aborting l) :
+    l ∈ Process.ownedLabels p := by
+  rcases hx with ⟨T, hT, blocks, rfl, B, hB, rfl, -⟩ | ⟨T, hT, chan, τ, inbox, rfl, -⟩
+  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_map_of_mem hB⟩
+  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_singleton_self l⟩
+
 /-! # Instantiating the algorithm layer
 
   `ι = String × V`: an instance is a declared process's name paired with the identity it runs under,
@@ -55,12 +74,10 @@ def Process.codeTable [ExprSemantics V] (p : ComputableNetworkPlusCal.Process) :
 
 /-- Assembles a whole `Algorithm`'s `Algebra`. -/
 def Algorithm.algebra [ExprSemantics V] (algo : ComputableNetworkPlusCal.Algorithm) :
-    Algebra (String × V) V where
-  table := λ ⟨name, _⟩ ↦
+    Algebra V :=
+  λ ⟨name, _⟩ ↦
     (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
       Process.codeTable
-  owned := λ ⟨name, _⟩ ↦ (algo.processes.find? (·.name == name)).elim ∅ Process.ownedLabels
-  self := Prod.snd
 
 /-- The instance identities a declared process contributes, read off its `=`/`∈` form and its `id`
 expression. -/

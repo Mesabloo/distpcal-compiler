@@ -34,7 +34,7 @@ are pairwise `BlockRefines`.
 The `.code` half is not bookkeeping. A source thread is a list of blocks and a target thread is
 either that or a receive loop, so "the compiled thread is not itself an `.rx`" is a real thing to
 say — and it is what lets the process level split a compiled process's threads into the two groups
-`AlgebraRefines` dispatches on. -/
+`ProcessRefines.label_cases` dispatches a label into, code or receiving. -/
 def ThreadRefines (mbox : Mailbox) (pref : ChanKey V → List V)
   (T : ComputableGuardedPlusCal.Thread) (T' : ComputableNetworkPlusCal.Thread) : Prop :=
     ∃ blocks, T' = .code blocks ∧ List.Forall₂ (BlockRefines (V := V) mbox pref) T blocks

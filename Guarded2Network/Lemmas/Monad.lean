@@ -57,8 +57,9 @@ def Generated (namePrefix s : String) : Prop := ∃ n : Nat, s = s!"{namePrefix}
 open Std.Do in
 /-- **A family of triples for one program is one triple for the family.** The postcondition may be
 quantified over an arbitrary index after the fact, which is what lets a fact owed "at every `x`" be
-assembled from the specs proved at each — `AlgebraRefines` wants the pass's output related at every
-prefix function, and `Algorithm.toNetwork_spec` supplies one prefix function per instantiation.
+assembled from the specs proved at each — `Algorithm.toNetwork_refines` wants the pass's output
+related at every prefix function, and `Algorithm.toNetwork_spec` supplies one prefix function per
+instantiation.
 
 Not derivable from `Std.Do`: a `PredTrans` carries *binary* conjunctivity only
 (`PredTrans.conjunctive`, which `Triple.and` spends), and there is no infinitary version to appeal
