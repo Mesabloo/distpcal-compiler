@@ -99,6 +99,15 @@ class Trace (εₛ εₜ : Type _) [Monoid εₛ] [Monoid εₜ] where
   is what a divergence refinement uses to place an abort reached after `n` steps. -/
   Rτ_one : Rτ 1 1
 
+/-- `Trace` extended with the infinite-product law the divergence lemmas need: two sequences related
+pointwise by `Rτ` have related products. Separate from `Trace` because `Terminating`/`Aborting`
+need only `Trace` and have nothing to do with infinite products. -/
+class ωTrace (εₛ εₜ : Type _) [Monoid εₛ] [Monoid εₜ] [ωMonoid εₛ] [ωMonoid εₜ]
+    extends Trace εₛ εₜ where
+  /-- Pointwise `Rτ` lifts to the infinite product. -/
+  Rτ_omega : ∀ (e' : ℕ → εₛ) (e : ℕ → εₜ), (∀ i, Rτ (e' i) (e i)) →
+    Rτ (ωMonoid.ωProd e') (ωMonoid.ωProd e)
+
 @[reducible, expose]
 def Trace.comp {εₛ εₜ εᵤ} [Monoid εₛ] [Monoid εₜ] [Monoid εᵤ] [inst₁ : Trace εₛ εₜ] [inst₂ : Trace εₜ εᵤ] : Trace εₛ εᵤ where
   Rτ := inst₁.Rτ ∘ᵣ inst₂.Rτ

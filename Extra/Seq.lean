@@ -198,12 +198,6 @@ namespace Stream'.Seq
       intro n
       rw [hp n, one_eq_nil, get?_nil]
     rw [hk, one_eq_nil, get?_nil]
-  /-- `Seq` products make it an `OmegaProd`. -/
-  noncomputable instance : OmegaProd (Seq α) where
-    ωProd := ωProduct
-
-  @[simp] theorem ωProd_eq_ωProduct {e : ℕ → Seq α} : OmegaProd.ωProd e = ωProduct e := rfl
-
   /-! ## Factoring out a prefix
 
   What the aborting branch of a divergence refinement needs: the trace emitted before the abort is
@@ -276,7 +270,7 @@ namespace Stream'.Seq
 
   /-- Every finite prefix of a `Seq` product is a left factor of it.
 
-  Stated without naming `OmegaProd.HasPartialProdDvd`: the predicate belongs to the refinement
+  Stated without naming `ωMonoid.partialProd_dvd`: the law belongs to the refinement
   framework (`VerifiedCompiler/ClosedForm.lean`), which discharges it from this lemma. Keeping the
   mathematics predicate-free is what stops `Extra/` from importing that library. -/
   theorem exists_mul_ωProduct (e : ℕ → Seq α) (n : ℕ) :
@@ -480,6 +474,16 @@ namespace Stream'.Seq
       obtain ⟨r, hr⟩ := hx n
       rw [hr]
       exact get?_mul_of_get? _ hn
+  /-- `Seq` products, with the laws refinement proofs consume. -/
+  noncomputable instance : ωMonoid (Seq α) where
+    ωProd := ωProduct
+    partialProd_dvd := exists_mul_ωProduct
+    unfold := ωProduct_succ
+    productLimit := λ _ r _ hx hne ↦ ωProduct_eq_of_forall_dvd (λ n ↦ ⟨r n, hx n⟩) hne
+    ωProd_comp := λ _ _ ↦ ωProduct_comp_of_ones
+
+  @[simp] theorem ωProd_eq_ωProduct {e : ℕ → Seq α} : ωMonoid.ωProd e = ωProduct e := rfl
+
 end Stream'.Seq
 
 end

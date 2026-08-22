@@ -359,27 +359,34 @@ theorem Monoid.partialProd_eq_of_ones {ε : Type _} [Monoid ε] {e : ℕ → ε}
     exact h (a + i) (Nat.le_add_right _ _) (Nat.add_lt_add_left hi a)
   rw [Monoid.partialProd_add, hones, mul_one]
 
-/-- A monoid in which an infinite sequence of factors has a product.
-
-A mixin over `Monoid` rather than an extension of it, so that the existing `[Monoid ε]` binders
-throughout the refinement framework are untouched and no instance diamond arises.
-
-Deliberately carries no laws, so that registering an instance costs nothing. The laws refinement
-proofs consume are stated as separate predicates over this class and passed explicitly to the
-lemmas that need them — `OmegaProd.HasPartialProdDvd` and friends, in
-`VerifiedCompiler/ClosedForm.lean`, which is downstream of every semantics file. -/
-class OmegaProd (ε : Type _) [Monoid ε] where
+/-- A monoid in which an infinite sequence of factors has a well-behaved product. A mixin over
+`Monoid` rather than an extension of it, so that the existing `[Monoid ε]` binders throughout the
+refinement framework are untouched and no instance diamond arises. Carries the five laws refinement
+proofs consume, so that they read them from the instance instead of threading them as explicit
+hypotheses. -/
+class ωMonoid (ε : Type _) [Monoid ε] where
   /-- The product of infinitely many factors. -/
   ωProd : (ℕ → ε) → ε
+  /-- Every finite prefix of an infinite product divides it. -/
+  partialProd_dvd : ∀ (e : ℕ → ε) (n : ℕ), ∃ r, ωProd e = Monoid.partialProd e n * r
+  /-- The first factor of an infinite product comes out in front. -/
+  unfold : ∀ e : ℕ → ε, ωProd e = e 0 * ωProd (λ i ↦ e (i + 1))
+  /-- An element having every partial product as a left factor *is* the infinite product, provided
+  the sequence keeps contributing. -/
+  productLimit : ∀ (e r : ℕ → ε) (x : ε), (∀ n, x = Monoid.partialProd e n * r n) →
+    (∀ n, ∃ m, n ≤ m ∧ e m ≠ 1) → x = ωProd e
+  /-- Deleting factors that are `1` does not change the product. -/
+  ωProd_comp : ∀ (e : ℕ → ε) (n : ℕ → ℕ), StrictMono n →
+    (∀ i, (∀ j, n j ≠ i) → e i = 1) → ωProd e = ωProd (e ∘ n)
 
 /-- `R^∞` — the states from which `R` can step forever, paired with the trace the whole infinite
 run emits. -/
 @[expose]
-def Relation.omega {α ε : Type _} [Monoid ε] [OmegaProd ε] (R : Set (α × ε × α)) : Set (α × ε) :=
+def Relation.omega {α ε : Type _} [Monoid ε] [ωMonoid ε] (R : Set (α × ε × α)) : Set (α × ε) :=
   {x | ∃ (σs : ℕ → α) (es : ℕ → ε),
-    σs 0 = x.1 ∧ (∀ i, (σs i, es i, σs (i + 1)) ∈ R) ∧ x.2 = OmegaProd.ωProd es}
+    σs 0 = x.1 ∧ (∀ i, (σs i, es i, σs (i + 1)) ∈ R) ∧ x.2 = ωMonoid.ωProd es}
 
-theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [OmegaProd ε] {R S : Set (α × ε × α)}
+theorem Relation.omega.mono {α ε : Type _} [Monoid ε] [ωMonoid ε] {R S : Set (α × ε × α)}
     (h : R ≤ S) : Relation.omega R ≤ Relation.omega S := by
   rintro ⟨σ, ε⟩ ⟨σs, es, h₀, hstep, hε⟩
   exact ⟨σs, es, h₀, λ i ↦ h (hstep i), hε⟩
@@ -394,16 +401,13 @@ This is what a stuttering simulation needs and cannot get from `Relation.omega.m
 witness of the left and of nothing on the right. Cofinality is exactly the missing side condition,
 and a caller supplies it from whatever well-founded measure forbids an infinite idle tail.
 
-`ωProd_comp` is the trace half, assumed rather than proved because `OmegaProd` says nothing about
-how products behave: the compressed run is indexed by the *moving* indices, so its product is the
-original's with the idle factors deleted. `Stream'.Seq.ωProduct_comp_of_ones` discharges it. -/
-theorem Relation.omega.of_idle {α ε : Type _} [Monoid ε] [OmegaProd ε] {R : Set (α × ε × α)}
-    (ωProd_comp : ∀ (e : ℕ → ε) (n : ℕ → ℕ), StrictMono n →
-      (∀ i, (∀ j, n j ≠ i) → e i = 1) → OmegaProd.ωProd e = OmegaProd.ωProd (e ∘ n))
+The compressed run is indexed by the *moving* indices, so its product is the original's with the
+idle factors deleted; `ωMonoid.ωProd_comp` handles that. -/
+theorem Relation.omega.of_idle {α ε : Type _} [Monoid ε] [ωMonoid ε] {R : Set (α × ε × α)}
     {σs : ℕ → α} {es : ℕ → ε}
     (hstep : ∀ i, (σs i, es i, σs (i + 1)) ∈ R ∨ (σs (i + 1) = σs i ∧ es i = 1))
     (hinf : ∀ N, ∃ i, N ≤ i ∧ (σs i, es i, σs (i + 1)) ∈ R) :
-    (σs 0, OmegaProd.ωProd es) ∈ Relation.omega R := by
+    (σs 0, ωMonoid.ωProd es) ∈ Relation.omega R := by
   -- the moving indices, enumerated in order: the least one, then the least one after each
   let Moves (i : ℕ) : Prop := (σs i, es i, σs (i + 1)) ∈ R
   have hex (N : ℕ) : ∃ i, N ≤ i ∧ Moves i := hinf N
@@ -470,14 +474,14 @@ theorem Relation.omega.of_idle {α ε : Type _} [Monoid ε] [OmegaProd ε] {R : 
     show (σs (n j), es (n j), σs (n (j + 1))) ∈ R
     rw [hgap]
     exact hmoves j
-  · exact ωProd_comp es n hmono (λ i hi ↦ (hidle i hi).2)
+  · exact ωMonoid.ωProd_comp es n hmono (λ i hi ↦ (hidle i hi).2)
 
 /-- Dropping the first step of an infinite run leaves an infinite run. Every proof that
 destructures a `Relation.omega` membership and then has to put the tail back together needs this,
 so it is stated once here rather than re-instantiated at each site. -/
-theorem Relation.omega.tail {α ε : Type _} [Monoid ε] [OmegaProd ε] {R : Set (α × ε × α)}
+theorem Relation.omega.tail {α ε : Type _} [Monoid ε] [ωMonoid ε] {R : Set (α × ε × α)}
     {σs : ℕ → α} {es : ℕ → ε} (hstep : ∀ i, (σs i, es i, σs (i + 1)) ∈ R) :
-    (σs 1, OmegaProd.ωProd (λ i ↦ es (i + 1))) ∈ Relation.omega R :=
+    (σs 1, ωMonoid.ωProd (λ i ↦ es (i + 1))) ∈ Relation.omega R :=
   ⟨λ i ↦ σs (i + 1), λ i ↦ es (i + 1), rfl, λ i ↦ hstep (i + 1), rfl⟩
 
 

@@ -26,57 +26,27 @@ exact hypothesis it
 needs is what justifies not taking the greatest fixed point as the definition in the first place.
 
 Split from `Extra/Rel.lean` on the same principle as the rest of this library: `Extra/` carries what
-the *semantics* need — `∘ᵣ₁`, `Monoid.partialProd`, `OmegaProd`, `Relation.omega` — and everything
+the *semantics* need — `∘ᵣ₁`, `Monoid.partialProd`, `ωMonoid`, `Relation.omega` — and everything
 whose only consumer is a refinement proof lives here.
 -/
-
-/-! ## Laws of the infinite product
-
-`OmegaProd` (`Extra/Rel.lean`) carries the product and no laws, so that registering an instance
-costs nothing. The laws refinement proofs actually consume are these three predicates, each passed
-explicitly to the lemma that needs it.
--/
-
-/-- Every finite prefix of an infinite product divides it. What the aborting branch of a divergence
-refinement consumes: the trace emitted before the abort is a factor of the whole product, so a `≼`
-obligation against the product can be discharged against that factor. -/
-@[expose]
-def OmegaProd.HasPartialProdDvd (ε : Type _) [Monoid ε] [OmegaProd ε] : Prop :=
-  ∀ (e : ℕ → ε) (n : ℕ), ∃ r, OmegaProd.ωProd e = Monoid.partialProd e n * r
-
-/-- The first factor of an infinite product comes out in front. -/
-@[expose]
-def OmegaProd.HasUnfold (ε : Type _) [Monoid ε] [OmegaProd ε] : Prop :=
-  ∀ e : ℕ → ε, OmegaProd.ωProd e = e 0 * OmegaProd.ωProd (λ i ↦ e (i + 1))
-
-/-- An element having every partial product of a sequence as a left factor *is* that sequence's
-infinite product, provided the sequence keeps contributing.
-
-The proviso is essential and is where productivity enters: without it the partial products stabilize
-at some finite `p`, every element of the form `p * r` has them all as left factors, and the infinite
-product is not pinned down. -/
-@[expose]
-def OmegaProd.HasProductLimit (ε : Type _) [Monoid ε] [OmegaProd ε] : Prop :=
-  ∀ (e r : ℕ → ε) (x : ε), (∀ n, x = Monoid.partialProd e n * r n) →
-    (∀ n, ∃ m, n ≤ m ∧ e m ≠ 1) → x = OmegaProd.ωProd e
 
 /-! ## Unfolding the infinite iteration
 
 `R^∞ = R ∘ᵣ₁ R^∞` is the one recursion equation `Relation.omega` might be expected to satisfy for
-free, and it does not: neither inclusion holds without `OmegaProd.HasUnfold`. The states and steps
-line up on both sides regardless — the whole content is the trace, and `OmegaProd` says nothing
-about how the infinite product relates to its own tail. Taking `ωProd _ := 1` on `Multiplicative ℕ`
-and `R = {((), ofAdd 1, ())}` makes the two sides `{((), 1)}` and `{((), ofAdd 1)}`, disjoint.
+free, and it does not: neither inclusion holds without `ωMonoid.unfold`. The states and steps
+line up on both sides regardless — the whole content is the trace, and a bare product operation says
+nothing about how the infinite product relates to its own tail. Taking `ωProd _ := 1` on
+`Multiplicative ℕ` and `R = {((), ofAdd 1, ())}` makes the two sides `{((), 1)}` and
+`{((), ofAdd 1)}`, disjoint.
 -/
 
 /-- The infinite iteration unfolds by one step. Both inclusions need the unfold law; see the section
 comment for the counterexample without it. -/
-theorem Relation.omega_unfold {α ε : Type _} [Monoid ε] [OmegaProd ε]
-    (hunfold : OmegaProd.HasUnfold ε) (R : Set (α × ε × α)) :
+theorem Relation.omega_unfold {α ε : Type _} [Monoid ε] [ωMonoid ε] (R : Set (α × ε × α)) :
     Relation.omega R = R ∘ᵣ₁ Relation.omega R := by
   ext ⟨a, e⟩
   iff_rintro ⟨σs, es, rfl, hstep, rfl⟩ ⟨b, e₁, e₂, hR, ⟨σs, es, rfl, hstep, rfl⟩, rfl⟩
-  · rw [hunfold es]
+  · rw [ωMonoid.unfold es]
     apply Relation.lcomp₁.intro (hstep 0)
     exact Relation.omega.tail hstep
   · refine ⟨λ i ↦ Nat.rec a (λ j _ ↦ σs j) i, λ i ↦ Nat.rec e₁ (λ j _ ↦ es j) i, rfl, ?_, ?_⟩
@@ -84,7 +54,7 @@ theorem Relation.omega_unfold {α ε : Type _} [Monoid ε] [OmegaProd ε]
       cases i with
       | zero => exact hR
       | succ i => exact hstep i
-    · exact (hunfold (λ i ↦ Nat.rec e₁ (λ j _ ↦ es j) i)).symm
+    · exact (ωMonoid.unfold (ε := ε) (Nat.rec e₁ (λ j _ ↦ es j))).symm
 
 /-! ## The identity, and the hypothesis it needs
 
@@ -124,8 +94,8 @@ def Relation.divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × α)) (Y :
 
 /-- The closed form is below the greatest fixed point, unconditionally: it is a post-fixed point.
 This is the half of the identity that always holds. -/
-theorem Relation.closedForm_le_gfp {α ε : Type _} [Monoid ε] [OmegaProd ε]
-    (hunfold : OmegaProd.HasUnfold ε) {X : Set (α × ε × α)} {Y : Set (α × ε)} :
+theorem Relation.closedForm_le_gfp {α ε : Type _} [Monoid ε] [ωMonoid ε]
+    {X : Set (α × ε × α)} {Y : Set (α × ε)} :
     (Relation.star X ∘ᵣ₁ Y) ∪ Relation.omega X ≤ OrderHom.gfp (Relation.divFun X Y) := by
   apply OrderHom.le_gfp
   rintro ⟨σ, e⟩ (⟨σ', e₁, e₂, hstar, hY, rfl⟩ | ⟨σs, es, h₀, hstep, rfl⟩)
@@ -136,7 +106,8 @@ theorem Relation.closedForm_le_gfp {α ε : Type _} [Monoid ε] [OmegaProd ε]
       rw [mul_assoc]
   · dsimp only at h₀ ⊢
     subst h₀
-    refine Or.inr ⟨σs 1, es 0, OmegaProd.ωProd (λ i ↦ es (i + 1)), hstep 0, Or.inr ?_, hunfold es⟩
+    refine Or.inr ⟨σs 1, es 0, ωMonoid.ωProd (λ i ↦ es (i + 1)), hstep 0, Or.inr ?_,
+      ωMonoid.unfold es⟩
     exact Relation.omega.tail hstep
 
 /-- The converse inclusion, under productivity. Unfolding the fixed point greedily either reaches
@@ -144,8 +115,8 @@ theorem Relation.closedForm_le_gfp {α ε : Type _} [Monoid ε] [OmegaProd ε]
 run whose partial products are all left factors of the trace. Productivity turns that into an
 equality with the infinite product; without it the trace is never pinned down, which is exactly the
 counterexample. -/
-theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [OmegaProd ε]
-    (lim : OmegaProd.HasProductLimit ε) {X : Set (α × ε × α)} {Y : Set (α × ε)}
+theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [ωMonoid ε]
+    {X : Set (α × ε × α)} {Y : Set (α × ε)}
     (prod : Relation.Productive X) :
     OrderHom.gfp (Relation.divFun X Y) ≤ (Relation.star X ∘ᵣ₁ Y) ∪ Relation.omega X := by classical
   rintro ⟨σ, e⟩ hmem
@@ -197,14 +168,13 @@ theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [OmegaProd ε]
       have hs := (hall (n + i + 1)).2.2 (n + i) (by omega)
       rwa [hc (n + i) (by omega)] at hs
     refine Or.inr ⟨λ i ↦ (P i).1, es, rfl, λ i ↦ (hall (i + 1)).2.2 i (by omega), ?_⟩
-    exact lim es (λ n ↦ (P n).2) e (λ n ↦ (hall n).2.1) hne
+    exact ωMonoid.productLimit es (λ n ↦ (P n).2) e (λ n ↦ (hall n).2.1) hne
 
 /-- The paper's identity, with the hypothesis it needs. -/
-theorem Relation.gfp_eq_closedForm {α ε : Type _} [Monoid ε] [OmegaProd ε]
-    (hunfold : OmegaProd.HasUnfold ε) (lim : OmegaProd.HasProductLimit ε)
+theorem Relation.gfp_eq_closedForm {α ε : Type _} [Monoid ε] [ωMonoid ε]
     {X : Set (α × ε × α)} {Y : Set (α × ε)} (prod : Relation.Productive X) :
     OrderHom.gfp (Relation.divFun X Y) = (Relation.star X ∘ᵣ₁ Y) ∪ Relation.omega X :=
-  le_antisymm (Relation.gfp_le_closedForm lim prod) (Relation.closedForm_le_gfp hunfold)
+  le_antisymm (Relation.gfp_le_closedForm prod) (Relation.closedForm_le_gfp)
 
 /-! ## Checks against the least fixed points
 
@@ -290,27 +260,5 @@ theorem Relation.lfp_divFun {α ε : Type _} [Monoid ε] (X : Set (α × ε × �
       apply Or.inr
       apply Relation.lcomp₁.intro (hsteps 0 (by omega))
       exact ih (λ i ↦ σs (i + 1)) (λ i ↦ es (i + 1)) (λ i hi ↦ hsteps (i + 1) (by omega)) hY
-
-/-! ## The trace monoid satisfies all three
-
-`Stream'.Seq` is the trace type (`Extra/Seq.lean`), and the mathematics behind these three lines
-lives there, stated without mentioning a refinement predicate. Only the discharges are here, so that
-`Extra/` never has to import this library.
--/
-
-namespace Stream'.Seq
-  variable {α : Type _}
-
-  /-- Every finite prefix of a `Seq` product divides it. -/
-  theorem hasPartialProdDvd : OmegaProd.HasPartialProdDvd (Seq α) := exists_mul_ωProduct
-
-  /-- `Seq` products unfold. -/
-  theorem hasUnfold : OmegaProd.HasUnfold (Seq α) := ωProduct_succ
-
-  /-- A `Seq` sharing every partial product as a left factor is the product, once the factors keep
-  coming. -/
-  theorem hasProductLimit : OmegaProd.HasProductLimit (Seq α) :=
-    λ _ r _ hx hne ↦ ωProduct_eq_of_forall_dvd (λ n ↦ ⟨r n, hx n⟩) hne
-end Stream'.Seq
 
 end

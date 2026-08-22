@@ -480,8 +480,7 @@ theorem algRelatesTo.terminating_reducing [DecidableEq V]
       (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).reducing
       (GuardedPlusCal.Algorithm.algebra algo).aborting
       (NetworkPlusCal.Algorithm.algebra algo').reducing :=
-  StrongRefinement.Terminating.starStutter Relation.star.star_lcomp₁_absorb
-    (algRelatesTo.terminating href used fresh hyg)
+  StrongRefinement.Terminating.starStutter (algRelatesTo.terminating href used fresh hyg)
 
 omit [SeqBuiltins V] in
 /-- **And the whole diverging semantics.** `Algebra.diverging` is `step^∞` by definition, so this is
@@ -501,7 +500,6 @@ theorem algRelatesTo.diverging [DecidableEq V]
       (GuardedPlusCal.Algorithm.algebra algo).aborting
       (NetworkPlusCal.Algorithm.algebra algo').diverging :=
   StrongRefinement.Diverging.omegaStutter (μ := λ S ↦ GuardedPlusCal.FIFOs.size S.2)
-    rτ_omega ωProd_comp Stream'.Seq.hasPartialProdDvd Relation.star.lcomp₁_absorb
     (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter href used fresh hyg hrel hstep)
 
 omit [SeqBuiltins V] in
