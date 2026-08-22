@@ -17,6 +17,10 @@ instance {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] [IsUltrametricI
       · apply idist_triangle_max
       · apply idist_triangle_max
 
+theorem Prod.idist_eq {α β} [PseudoIMetricSpace α] [PseudoIMetricSpace β] {x y : α × β} :
+    idist x y = idist x.1 y.1 ⊔ idist x.2 y.2 := by
+  rfl
+
 instance Prod.instIMetricSpace {α β} [IMetricSpace α] [IMetricSpace β] : IMetricSpace (α × β) :=
   .of_metric_space_of_dist_le_one (inst := Prod.metricSpaceMax) λ x y ↦ by
     change max (idist x.1 y.1) (idist x.2 y.2) ≤ 1

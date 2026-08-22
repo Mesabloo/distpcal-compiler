@@ -7240,6 +7240,18 @@ noncomputable section Domain
         rw [IterativeDomain.parallel_comm]
         grind only
 
+      theorem DomainUnion.parallel_assoc [IMetricSpace δ] {p : DomainUnion «Σ» Γ α β} {q : DomainUnion «Σ» Γ α γ} {r : DomainUnion «Σ» Γ α δ} :
+          DomainUnion.parallel (DomainUnion.parallel p q) r = DomainUnion.map (λ (x, y, z) ↦ ((x, y), z)) (DomainUnion.parallel p (DomainUnion.parallel q r)) := by
+        let ⟨m, p⟩ := p; let ⟨n, q⟩ := q; let ⟨o, r⟩ := r
+
+        change DomainUnion.mk _ = DomainUnion.mk _
+
+        have : m + n + o = m + (n + o) := Nat.add_assoc ..
+
+        congr 1
+        rw [IterativeDomain.parallel_assoc]
+        grind only [= parallel.eq_def]
+
       theorem DomainUnion.parallel_lipschitz :
           LipschitzWith 2 (Function.uncurry (DomainUnion.parallel («Σ» := «Σ») (Γ := Γ) (α := α) (β := β) (γ := γ))) := by
         have : (2 : NNReal) = 1 + 1 := by norm_num1
@@ -7279,6 +7291,30 @@ noncomputable section Domain
         | ih p q =>
           rw [Domain.parallel_coe_coe, Domain.parallel_coe_coe, Domain.map_coe, DomainUnion.parallel_comm]
           · apply LipschitzWith.prodSwap
+          · rfl
+
+      theorem Domain.parallel_assoc [IMetricSpace δ] {p : Domain «Σ» Γ α β} {q : Domain «Σ» Γ α γ} {r : Domain «Σ» Γ α δ} :
+          Domain.parallel (Domain.parallel p q) r = Domain.map (λ (x, y, z) ↦ ((x, y), z)) (Domain.parallel p (Domain.parallel q r)) := by
+        induction p, q, r using UniformSpace.Completion.induction_on₃ with
+        | hp =>
+          apply isClosed_eq
+          · apply UniformSpace.Completion.continuous_map₂
+            · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+            · fun_prop
+          · apply Continuous.comp
+            · apply UniformSpace.Completion.continuous_map
+            · apply UniformSpace.Completion.continuous_map₂
+              · fun_prop
+              · apply UniformSpace.Completion.continuous_map₂ <;> fun_prop
+        | ih p q r =>
+          rw [Domain.parallel_coe_coe, Domain.parallel_coe_coe, Domain.parallel_coe_coe, Domain.parallel_coe_coe,
+              Domain.map_coe, DomainUnion.parallel_assoc]
+          · refine LipschitzWith.of_idist_le (K := 1) λ ⟨x₁, y₁, z₁⟩ ⟨x₂, y₂, z₂⟩ ↦ ?_
+
+            erw [one_mul, Subtype.coe_le_coe]
+            change idist ((x₁, y₁), z₁) ((x₂, y₂), z₂) ≤ idist (x₁, y₁, z₁) (x₂, y₂, z₂)
+
+            rw [Prod.idist_eq, Prod.idist_eq, Prod.idist_eq, Prod.idist_eq, max_assoc]
           · rfl
     end Parallel
   end Operators
