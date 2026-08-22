@@ -352,6 +352,29 @@ noncomputable section Domain
           injections
 
       omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] in
+      theorem Branch.map_eq_recv' {γ'} {c : Γ} {π : α →ᵤ Bool →ᵤ Restriction γ' unitInterval.half} {f : γ → γ'}
+        {b : Branch «Σ» Γ α γ} (h : Branch.map f b = Branch.recv c π) :
+          ∃ π', b = Branch.recv c π' ∧ π = (λ v ok ↦ Restriction.map f (π' v ok)) := by
+        cases b with
+        | recv c π' =>
+          rw [Branch.map_recv] at h
+          injections _ c_eq π_eq
+          subst c π
+          exists π'
+        | send c v p =>
+          rw [Branch.map_send] at h
+          injections
+        | close c p =>
+          rw [Branch.map_close] at h
+          injections
+        | sync c p =>
+          rw [Branch.map_sync] at h
+          injections
+        | next σ p =>
+          rw [Branch.map_next] at h
+          injections
+
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] in
       theorem Branch.map_eq_send {γ'} {c : Γ} {v : α} {p : Restriction γ' unitInterval.half} {f : γ → γ'}
         {b : Branch «Σ» Γ α γ} (h : Branch.map f b = Branch.send c v p) :
           ∃ p', b = Branch.send c v p' := by
@@ -371,6 +394,29 @@ noncomputable section Domain
           rw [Branch.map_sync] at h
           injections
         | next σ p' =>
+          rw [Branch.map_next] at h
+          injections
+
+      omit [PseudoIMetricSpace «Σ»] [PseudoIMetricSpace Γ] [PseudoIMetricSpace α] [PseudoIMetricSpace γ] in
+      theorem Branch.map_eq_send' {γ'} {c : Γ} {v : α} {p : Restriction γ' unitInterval.half} {f : γ → γ'}
+        {b : Branch «Σ» Γ α γ} (h : Branch.map f b = Branch.send c v p) :
+          ∃ p', b = Branch.send c v p' ∧ p = Restriction.map f p' := by
+        cases b with
+        | recv c π =>
+          rw [Branch.map_recv] at h
+          injections
+        | send c v p =>
+          rw [Branch.map_send] at h
+          injections _ _ c_eq _ v_eq p_eq
+          subst c v
+          use p, rfl, p_eq.symm
+        | close c p =>
+          rw [Branch.map_close] at h
+          injections
+        | sync c p =>
+          rw [Branch.map_sync] at h
+          injections
+        | next σ p =>
           rw [Branch.map_next] at h
           injections
 
@@ -2330,6 +2376,11 @@ noncomputable section Domain
 
       private theorem cast_image {m n} {f : δ → Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} {s : Set δ} (h : m = n) :
           h ▸ f '' s = (λ x ↦ h ▸ f x) '' s := by
+        cases h
+        rfl
+
+      private theorem cast_setOf {m n} {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier → Prop} (h : m = n) :
+          h ▸ {x | p x} = {x | p (h.symm ▸ x)} := by
         cases h
         rfl
 
@@ -6532,6 +6583,12 @@ noncomputable section Domain
             --       grind only
             --     · grind only
 
+      theorem IterativeDomain.parallel_lift_left' {m n o} (h : m ≤ o) {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          IterativeDomain.lift (Nat.add_le_add_right h n) (IterativeDomain.parallel p q) =
+            IterativeDomain.parallel (IterativeDomain.lift h p) q := by
+        rw [IterativeDomain.parallel_lift_left]
+        grind only
+
       theorem IterativeDomain.parallel_lift_right {m n o} (h : m + n ≤ o) {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
           IterativeDomain.lift h (IterativeDomain.parallel p q) =
             (by grind only : m + (o - m) = o) ▸
@@ -6540,6 +6597,601 @@ noncomputable section Domain
         rw! [← Nat.add_comm n m]
         erw [IterativeDomain.map_lift, IterativeDomain.parallel_lift_left]
         grind only
+
+      theorem IterativeDomain.parallel_lift_right' {m n o} (h : n ≤ o) {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          IterativeDomain.lift (Nat.add_le_add_left h m) (IterativeDomain.parallel p q) =
+            IterativeDomain.parallel p (IterativeDomain.lift h q) := by
+        rw [IterativeDomain.parallel_lift_right]
+        grind only
+
+      theorem IterativeDomain.parallel_map_left [IMetricSpace δ] {f : β → δ} {m n}
+        {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          IterativeDomain.parallel (IterativeDomain.map f p) q = IterativeDomain.map (Prod.map f id) (IterativeDomain.parallel p q) := by
+        match m, p with
+        | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.map_leaf, IterativeDomain.leaf_parallel, IterativeDomain.leaf_parallel, IterativeDomain.map_lift, IterativeDomain.map_lift,
+              IterativeDomain.map_map]
+          rfl
+        | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.map_abort, IterativeDomain.abort_parallel, IterativeDomain.abort_parallel, IterativeDomain.map_abort]
+        | m + 1, IterativeDomain.branch g =>
+          match n, q with
+          | 0, IterativeDomain.leaf v | n + 1, IterativeDomain.leaf v =>
+            rw [IterativeDomain.parallel_leaf, IterativeDomain.parallel_leaf, IterativeDomain.map_map, IterativeDomain.map_lift,
+                IterativeDomain.map_lift, IterativeDomain.map_map]
+            rfl
+          | 0, IterativeDomain.abort | n + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.parallel_abort, IterativeDomain.parallel_abort, IterativeDomain.map_abort]
+          | n + 1, IterativeDomain.branch g' =>
+            rw [IterativeDomain.map_branch, IterativeDomain.parallel_branch_branch, IterativeDomain.parallel_branch_branch]
+            conv_rhs => apply IterativeDomain.map_branch
+            congr 1 with σ : 1
+            simp only [Set.image_union, Branch.parallel_left_eq_map, Branch.parallel_right_eq_map, Set.mem_image, Nat.succ_eq_add_one,
+                       exists_exists_and_eq_and, exists_and_left]
+            congr 3 <;> ext b
+            · iff_rintro ⟨b', b'_in, rfl⟩ ⟨b', ⟨b'', b''_in, rfl⟩, rfl⟩
+              · simp only [Set.mem_image, Set.mem_setOf_eq, exists_exists_and_eq_and]
+                exists b', b'_in
+                rw [Branch.map_cast_right, Branch.map_comp', Branch.map_comp', Function.comp_def, Function.comp_def, Branch.map_cast_right]
+                congr with p
+                rw [IterativeDomain.parallel_map_left, IterativeDomain.map_cast]
+              · simp only [Set.mem_setOf_eq, Branch.map_comp', Function.comp_def, Branch.map_cast_right]
+                exists b'', b''_in
+                congr with p
+                rw [IterativeDomain.parallel_map_left, IterativeDomain.map_cast]
+            · iff_rintro ⟨b', b'_in, rfl⟩ ⟨b', ⟨b'', b''_in, rfl⟩, rfl⟩
+              · exists Branch.map (IterativeDomain.parallel (IterativeDomain.branch g)) b', ⟨b', b'_in, rfl⟩
+                rw [Branch.map_comp', Function.comp_def, ← IterativeDomain.map_branch]
+                congr with p
+                rw [← IterativeDomain.parallel_map_left]
+              · exists b'', b''_in
+                rw [← IterativeDomain.map_branch, Branch.map_comp', Function.comp_def]
+                congr with p
+                rw [IterativeDomain.parallel_map_left]
+            · iff_rintro ⟨v', c, p', ⟨b', b'_in, map_eq_send⟩, π, recv_in, rfl⟩ ⟨b', ⟨v', c, p', send_in, π, recv_in, rfl⟩, rfl⟩
+              · obtain ⟨⟨p''⟩, rfl, _|_⟩ := Branch.map_eq_send' map_eq_send
+                use Branch.sync c ⟨IterativeDomain.lift (by grind only) (IterativeDomain.parallel p'' (π v' true).val)⟩, ⟨v', c, p'', b'_in, π, recv_in, rfl⟩, ?_
+                rw [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift]
+                congr 3
+                rw [IterativeDomain.parallel_map_left]
+              · use v', c, IterativeDomain.map f p', ⟨Branch.send c v' ⟨p'⟩, send_in, rfl⟩, π, recv_in, ?_
+                rw [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift]
+                congr 3
+                rw [IterativeDomain.parallel_map_left]
+            · iff_rintro ⟨v', c, p', send_in, π, ⟨b'', b''_in, map_eq_recv⟩, rfl⟩ ⟨b', ⟨v', c, p', send_in, π, recv_in, rfl⟩, rfl⟩
+              · obtain ⟨π, rfl, rfl⟩ := Branch.map_eq_recv' map_eq_recv
+                use Branch.sync c ⟨IterativeDomain.lift (by grind only) (IterativeDomain.parallel (π v' true).val p')⟩, ⟨v', c, p', send_in, π, b''_in, rfl⟩, ?_
+                rw [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift]
+                congr 3
+                rw [IterativeDomain.parallel_map_left]
+              · use v', c, p', send_in, λ v ok ↦ Restriction.map (IterativeDomain.map f) (π v ok), ⟨Branch.recv c π, recv_in, rfl⟩, ?_
+                rw [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift]
+                congr 3
+                rw [IterativeDomain.parallel_map_left]
+
+      omit [IMetricSpace β] [IMetricSpace γ] [DecidableEq α] in
+      private theorem _root_.Prod.swap_map {f : α → β} {g : γ → δ} {x : α × γ} :
+          (Prod.map f g x).swap = Prod.map g f x.swap := by
+        rfl
+
+      theorem IterativeDomain.parallel_map_right [IMetricSpace δ] {f : γ → δ} {m n}
+        {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} :
+          IterativeDomain.parallel p (IterativeDomain.map f q) = IterativeDomain.map (Prod.map id f) (IterativeDomain.parallel p q) := by
+        rw [IterativeDomain.parallel_comm, IterativeDomain.parallel_map_left, IterativeDomain.parallel_comm, IterativeDomain.map_map,
+            IterativeDomain.map_cast, IterativeDomain.map_map]
+        conv_lhs => enter [1, 1, 1]; simp only [Function.comp_def, Prod.swap_map, Prod.swap_swap]
+        grind only
+
+      private theorem left_cast_eq_iff_right_cast_eq {m n} (h : m = n) {p : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier} {q : Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier} :
+          (h ▸ p) = q ↔ p = (h ▸ q) := by
+        cases h
+        rfl
+
+      private theorem left_cast_eq_iff_right_cast_eq' {m n} (h : m = n) {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α β n).carrier} :
+          (h ▸ p) = q ↔ p = (h ▸ q) := by
+        cases h
+        rfl
+
+
+      section
+      private theorem _root_.Set.exists_mem_union {α} {p : α → Prop} {s t : Set α} :
+          (∃ x ∈ s ∪ t, p x) ↔ (∃ x ∈ s, p x) ∨ (∃ x ∈ t, p x) := by
+        simp_rw [Set.mem_union, or_and_right, exists_or]
+
+      private def Il {m n} (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) (S : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+          Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier) :=
+        {(Nat.succ_add_eq_add_succ m n).symm ▸ Branch.parallel_left (IterativeDomain.branch f) b | b ∈ S}
+
+      private theorem Il_eq {m n} (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) (S : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+          Il f S = {(Nat.succ_add_eq_add_succ m n).symm ▸ Branch.map (IterativeDomain.parallel · (IterativeDomain.branch f)) b | b ∈ S} := by
+        simp only [Il, Branch.parallel_left_eq_map]
+
+      @[simp]
+      private theorem Il_union_right {m n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} (A B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+          Il (f := f) (A ∪ B) = Il (f := f) A ∪ Il (f := f) B := by
+        simp only [Il, Set.exists_mem_union, ← Set.setOf_or]
+
+      private theorem Il_image_right [IMetricSpace δ] {m n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {g : β → δ} :
+          Il f (Branch.map (IterativeDomain.map g) '' A) = Branch.map (IterativeDomain.map (Prod.map g id)) '' Il f A := by
+        erw [Il_eq, Il_eq, Set.image_image]
+        simp only [Set.mem_image, Nat.succ_eq_add_one, exists_exists_and_eq_and, IterativeDomain.Branch.map_cast_right, Branch.map_comp',
+                   Function.comp_def, IterativeDomain.map_cast, IterativeDomain.parallel_map_left]
+        rfl
+
+      private theorem Il_cast_right {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {h : m = o} :
+          Il f (h ▸ A) = h ▸ Il f A := by
+        cases h
+        rfl
+
+/-       private theorem Il_assoc_of_assoc [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+ -         {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {f'' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)}
+ -         (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β m).carrier) (q : (IterativeDomain «Σ» Γ α δ (o + 1)).carrier) (r : (IterativeDomain «Σ» Γ α γ (n + 1)).carrier),
+ -              IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m (o + 1) (n + 1) ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+ -           Il f'' (Il f A) = (by ac_rfl : m + 1 + o + 1 + n = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map λ ((x, y), z) ↦ ((x, z), y)) '' Il f (Il f'' A) := by
+ -         simp only [Il_eq, Nat.succ_eq_add_one, Set.mem_setOf_eq, exists_exists_and_eq_and, IterativeDomain.Branch.map_cast_right, Branch.map_comp', Function.comp_def,
+ -                    ← IterativeDomain.parallel_cast_left]
+ -         conv_lhs => enter [1, b, 1, b', 2, 1, 1, p, 1, 1]; apply assoc
+ -         erw [Set.image_image]
+ -         conv_lhs => enter [1, b, 1, b', 2, 1, 1, p, 1, 1, 1, 2, 2]; rw [IterativeDomain.parallel_comm]
+ -         simp only [← IterativeDomain.map_cast, IterativeDomain.parallel_map_right, IterativeDomain.map_map, Function.comp_def, Prod.map]
+ -         simp only [Branch.map_comp', Function.comp_def, IterativeDomain.map_cast, cast_image, IterativeDomain.Branch.map_cast_right]
+ -         congr with b
+ -         apply exists_congr λ b ↦ ?_
+ -         apply and_congr_right λ b_in ↦ ?_
+ -         beta_reduce
+ -         apply Eq.congr ?_ rfl
+ -         congr with p
+ - --        erw [IterativeDomain.parallel_cast_left]
+ -
+ -         generalize_proofs p₁ p₂ p₃ p₄ p₅ p₆
+ -         rw! [p₃]
+ -         dsimp
+ -         -- erw [IterativeDomain.map_cast]
+ -
+ -
+ -
+ -         admit -/
+
+      private def Ir {m n} (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)) (S : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ m).carrier)) :
+          Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (n + 1 + m)).carrier) :=
+        {Branch.parallel_right (IterativeDomain.branch f) b' | b' ∈ S}
+
+      private theorem Ir_eq {m n} (f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)) (S : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ m).carrier)) :
+          Ir f S = {Branch.map (IterativeDomain.parallel (IterativeDomain.branch f)) b' | b' ∈ S} := by
+        simp only [Ir, Branch.parallel_right_eq_map]
+
+      @[simp]
+      private theorem Ir_union_right {m n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} (A B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ m).carrier)) :
+          Ir (f := f) (A ∪ B) = Ir (f := f) A ∪ Ir (f := f) B := by
+        simp only [Ir, Set.exists_mem_union, ← Set.setOf_or]
+
+      private theorem Ir_eq_Il {m n} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β n).carrier)} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ m).carrier)} :
+          Ir f A = (by grind only : m + 1 + n = n + 1 + m) ▸ Branch.map (IterativeDomain.map Prod.swap) '' Il f A := by
+        simp only [Ir_eq, Il_eq]
+        conv_rhs => enter [1, 2, 1, x, 1, b, 2, 1, 1, 1, p]; rw [IterativeDomain.parallel_comm]
+        conv_rhs => enter [1, 2, 1, x, 1, b, 2, 1]; rw [← IterativeDomain.Branch.map_cast_right]
+        erw [Set.image_image]
+        conv_rhs => enter [1, 1, b]; rw [IterativeDomain.Branch.map_cast_right, IterativeDomain.Branch.map_cast_right, Branch.map_comp', Function.comp_def]
+        conv_rhs => enter [1, 1, b, 1, p]; rw [IterativeDomain.map_cast, IterativeDomain.map_cast, IterativeDomain.map_map, Prod.swap_swap_eq, IterativeDomain.map_id]
+        generalize_proofs p₁ p₂ p₃
+        rw! [p₂, p₃]
+        rfl
+
+      private def Sl {m n} (S₁ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) (S₂ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) :
+          Set  (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier) :=
+        {p | ∃ v γ p' π', .send γ v ⟨p'⟩ ∈ S₁ ∧ .recv γ π' ∈ S₂ ∧ p = Branch.sync γ ⟨IterativeDomain.lift (by grind only : m + n ≤ m + 1 + n) (IterativeDomain.parallel p' (π' v true).val)⟩}
+
+      private theorem Sl_eq {m n} (S₁ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) (S₂ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) :
+          Sl S₁ S₂ = {p | ∃ v γ p' π', .send γ v ⟨p'⟩ ∈ S₁ ∧ .recv γ π' ∈ S₂ ∧ p = Branch.sync γ ⟨IterativeDomain.lift (by grind only : m + n ≤ m + 1 + n) (IterativeDomain.parallel p' (π' v true).val)⟩} := by
+        rfl
+
+      @[simp]
+      private theorem Sl_union_left {m n} (A B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) (C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) :
+          Sl (A ∪ B) C = Sl A C ∪ Sl B C := by
+        simp only [Sl, ← Set.setOf_or, Set.mem_union, or_and_right, ← exists_or]
+
+      @[simp]
+      private theorem Sl_union_right {m n} (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) (B C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) :
+          Sl A (B ∪ C) = Sl A B ∪ Sl A C := by
+        simp only [Sl, ← Set.setOf_or, Set.mem_union, or_and_right, ← exists_or, and_or_left]
+
+      private def Sr {m n} (S₁ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) (S₂ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) :
+          Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α (β × γ) (m + 1 + n)).carrier) :=
+        {p | ∃ v γ p' π', .send γ v ⟨p'⟩ ∈ S₂ ∧ .recv γ π' ∈ S₁ ∧ p = Branch.sync γ ⟨IterativeDomain.lift (by grind only : m + n ≤ m + 1 + n) (IterativeDomain.parallel (π' v true).val p')⟩}
+
+      private theorem Sr_eq {m n} (S₁ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) (S₂ : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) :
+          Sr S₁ S₂ = {p | ∃ v γ p' π', .send γ v ⟨p'⟩ ∈ S₂ ∧ .recv γ π' ∈ S₁ ∧ p = Branch.sync γ ⟨IterativeDomain.lift (by grind only : m + n ≤ m + 1 + n) (IterativeDomain.parallel (π' v true).val p')⟩} := by
+        rfl
+
+      @[simp]
+      private theorem Sr_union_right {m n} (A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) (B C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+          Sr A (B ∪ C) = Sr A B ∪ Sr A C := by
+        simp only [Sr, ← Set.setOf_or, Set.mem_union, or_and_right, ← exists_or]
+
+      @[simp]
+      private theorem Sr_union_left {m n} (A B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)) (C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)) :
+          Sr (A ∪ B) C = Sr A C ∪ Sr B C := by
+        simp only [Sr, ← Set.setOf_or, Set.mem_union, or_and_right, ← exists_or, and_or_left]
+
+      /-- Sl (Il f' A) B ≃ Sl A (Ir f' B) -/
+      private theorem Sl_Il_eq [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {f' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β m).carrier) (q : (IterativeDomain «Σ» Γ α γ (n + 1)).carrier) (r : (IterativeDomain «Σ» Γ α δ o).carrier),
+          IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m (n + 1) o ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Sl (Il f' A) B =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Sl A (Ir f' B) := by
+        ext b
+        simp only [Sl_eq, Il_eq, Ir_eq, Nat.succ_eq_add_one, Set.mem_setOf_eq, exists_and_left, cast_image, Set.mem_setOf_eq, Set.mem_image, ↓existsAndEq, and_true]
+        apply exists₂_congr λ v c ↦ ?_
+        iff_rintro ⟨p', ⟨b', b'_in, par_eq_send⟩, π', recv_in, rfl⟩ ⟨p', π', ⟨send_in, b', b'_in, par_eq_recv⟩, rfl⟩
+        · rw [left_cast_eq_iff_right_cast_eq, IterativeDomain.Branch.cast_send] at par_eq_send
+          obtain ⟨⟨p'⟩, rfl, p'_eq⟩ := Branch.map_eq_send' par_eq_send; clear par_eq_send
+          injection p'_eq with p'_eq
+          erw [left_cast_eq_iff_right_cast_eq'] at p'_eq
+          cases p'_eq
+          use p', λ v ok ↦ Restriction.map (IterativeDomain.parallel (IterativeDomain.branch f')) (π' v ok), ⟨b'_in, ?_⟩, ?_
+          · use Branch.recv c π', recv_in
+            rw [Branch.map_recv]
+          · erw [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift, ← IterativeDomain.parallel_cast_left, assoc]
+            generalize_proofs p₁ p₂ _ _ p₅
+            rw! [p₂, p₅]
+            grind only
+        · obtain ⟨π', rfl, rfl⟩ := Branch.map_eq_recv' par_eq_recv; clear par_eq_recv
+          have h : m + 1 + n = m + (n + 1) := by grind only
+          use h ▸ IterativeDomain.parallel p' (IterativeDomain.branch f'), ?_, π', b'_in, ?_
+          · use Branch.send c v ⟨p'⟩, send_in
+            rw [Branch.map_send, Restriction.map, IterativeDomain.Branch.cast_send]
+          · erw [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift, ← IterativeDomain.parallel_cast_left, assoc]
+            generalize_proofs p₁ p₂ _ _ p₅
+            rw! [p₂, p₅]
+            grind only
+
+      /-- Il f'' (Ir f A) ≃ Ir f (Il f'' A) -/
+      private theorem Il_Ir_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {f'' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β (m + 1)).carrier) (q : (IterativeDomain «Σ» Γ α γ n).carrier) (r : (IterativeDomain «Σ» Γ α δ (o + 1)).carrier),
+        IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc (m + 1) n (o + 1) ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Il f'' (Ir f A) =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Ir f (Il f'' A) := by
+        ext b
+        simp only [Il_eq, Ir_eq, Set.mem_setOf_eq, Nat.succ_eq_add_one, exists_exists_and_eq_and, cast_image]
+        erw [Set.image_image]
+        simp only [Branch.map_comp', IterativeDomain.Branch.map_cast_right, Function.comp_def]
+        iff_rintro ⟨b', b'_in, rfl⟩ ⟨b', b'_in, rfl⟩ <;> {
+          use b', b'_in
+          beta_reduce
+          congr with p : 1
+          rw [assoc, ← IterativeDomain.parallel_cast_right, ← IterativeDomain.map_cast, ← IterativeDomain.map_cast,
+              ← IterativeDomain.map_cast]
+          grind only
+        }
+
+      /-- Il f (Sl A B) ≃ Sl A (Il f B) -/
+      private theorem Il_Sl_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β m).carrier) (q : (IterativeDomain «Σ» Γ α γ n).carrier) (r : (IterativeDomain «Σ» Γ α δ (o + 1)).carrier),
+      IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m n (o + 1) ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Il f (Sl A B) =
+             (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Sl A (Il f B) := by
+        ext b
+        simp only [Il_eq, Sl_eq, exists_and_left, Set.mem_setOf_eq, Nat.succ_eq_add_one, ↓existsAndEq, and_true, cast_image]
+        iff_rintro ⟨v', c, p', π', ⟨send_in, recv_in⟩, rfl⟩ ⟨b', ⟨v', c, p', send_in, π, ⟨b'', b''_in, map_eq_recv⟩, rfl⟩, rfl⟩
+        · use Branch.sync c ⟨IterativeDomain.lift (by grind only) (IterativeDomain.parallel p' (IterativeDomain.parallel (π' v' true).val (IterativeDomain.branch f)))⟩, ?_, ?_
+          · use v', c, p', send_in, λ v ok ↦ Restriction.map (λ p ↦ IterativeDomain.lift (by grind only) (IterativeDomain.parallel p (IterativeDomain.branch f))) (π' v ok), ?_, ?_
+            · exists Branch.recv c π', recv_in
+              rw [Branch.map_recv, IterativeDomain.Branch.cast_recv]
+              congr 1 with v ok : 2
+              congr 1
+              conv_lhs => apply (id_eq _).symm
+              rw [← IterativeDomain.lift_refl, IterativeDomain.lift_cast_right]
+            · congr 2
+              rw [Restriction.map, ← IterativeDomain.parallel_lift_right', IterativeDomain.lift_lift']
+          · simp only [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift, ← IterativeDomain.parallel_lift_left']
+            erw [assoc, IterativeDomain.lift_cast_right]
+            · grind only
+            · grind only
+        · rw [left_cast_eq_iff_right_cast_eq, IterativeDomain.Branch.cast_recv] at map_eq_recv
+          obtain ⟨π', rfl, π'_eq⟩ := Branch.map_eq_recv' map_eq_recv; clear map_eq_recv
+          use v', c, p', π', ⟨send_in, b''_in⟩, ?_
+          simp only [Branch.map_sync, Restriction.map, ← IterativeDomain.parallel_lift_left']
+          erw [assoc, IterativeDomain.lift_cast_right]
+          · replace π'_eq (v : α) (ok : Bool) :
+                (π v ok).val = (reorder.symm : n + (o + 1) = n + 1 + o) ▸ IterativeDomain.parallel (m := n) (π' v ok).val (IterativeDomain.branch f) := by
+              apply funext_iff.mp at π'_eq
+              specialize π'_eq v
+              apply funext_iff.mp at π'_eq
+              specialize π'_eq ok
+              injection π'_eq with π'_eq
+              rwa [left_cast_eq_iff_right_cast_eq'] at π'_eq
+            simp only [← IterativeDomain.map_lift, π'_eq, ← IterativeDomain.parallel_cast_right]
+            generalize_proofs p₁ p₂ p₃ p₄
+            rw! [p₁, p₄]
+            grind only
+          · grind only
+
+      /-- Il f (Sr A B) ≃ Sr A (Il f B) -/
+      private theorem Il_Sr_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β m).carrier) (q : (IterativeDomain «Σ» Γ α γ n).carrier) (r : (IterativeDomain «Σ» Γ α δ (o + 1)).carrier),
+           IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m n (o + 1) ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Il f (Sr A B) =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Sr A (Il f B) := by
+        ext b
+        simp only [Sr_eq, exists_and_left, Il_eq, Set.mem_setOf_eq, Nat.succ_eq_add_one, ↓existsAndEq, and_true, cast_image,
+                   Branch.map_sync, Restriction.map, ← IterativeDomain.parallel_lift_left']
+        iff_rintro ⟨v', c, p', π, ⟨send_in, recv_in⟩, rfl⟩ ⟨b', ⟨v', c, p', ⟨b'', b''_in, map_eq_send⟩, π, recv_in, rfl⟩, rfl⟩
+        · use Branch.sync c ⟨IterativeDomain.lift (by grind only) (IterativeDomain.parallel (π v' true).val (IterativeDomain.parallel p' (IterativeDomain.branch f)))⟩, ?_, ?_
+          · have h : n + (o + 1) = n + 1 + o := by grind only
+
+            use v', c, h ▸ IterativeDomain.parallel (m := n) p' (IterativeDomain.branch f), ?_, π, recv_in, ?_
+            · exists Branch.send c v' ⟨p'⟩, send_in
+              simp only [Branch.map_send, IterativeDomain.Branch.cast_send]
+            · erw [← IterativeDomain.parallel_cast_right]
+              grind only
+          · simp only [Branch.map_sync, Restriction.map, ← IterativeDomain.map_lift, assoc]
+            erw [IterativeDomain.lift_cast_right]
+            · grind only
+            · grind only
+        · rw [left_cast_eq_iff_right_cast_eq, IterativeDomain.Branch.cast_send] at map_eq_send
+          obtain ⟨⟨p'⟩, rfl, p'_eq⟩ := Branch.map_eq_send' map_eq_send; clear map_eq_send
+          injection p'_eq with p'_eq
+          erw [left_cast_eq_iff_right_cast_eq'] at p'_eq
+          cases p'_eq
+
+          use v', c, p', π, ⟨b''_in, recv_in⟩
+          simp only [Branch.map_sync, Restriction.map, assoc, ← IterativeDomain.parallel_cast_right, ← IterativeDomain.map_lift]
+          erw [IterativeDomain.lift_cast_right]
+          · grind only
+          · grind only
+
+      /-- Sl (Ir f A) B ≃ Ir f (Sl A B) -/
+      private theorem Sl_Ir_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β (m + 1)).carrier) (q : (IterativeDomain «Σ» Γ α γ n).carrier) (r : (IterativeDomain «Σ» Γ α δ o).carrier),
+           IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc (m + 1) n o ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Sl (Ir f A) B =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Ir f (Sl A B) := by
+        ext b
+        simp only [Ir_eq, Sl_eq, Set.mem_setOf_eq, exists_and_left, ↓existsAndEq, and_true, cast_image, Set.mem_image, Set.mem_setOf_eq,
+                   ↓existsAndEq, and_true]
+        apply exists₂_congr λ v' c ↦ ?_
+        iff_rintro ⟨p', ⟨b', b'_in, map_eq_send⟩, π, recv_in, rfl⟩ ⟨p', π, ⟨send_in, recv_in⟩, rfl⟩
+        · obtain ⟨⟨p''⟩, rfl, _|_⟩ := Branch.map_eq_send' map_eq_send; clear map_eq_send
+          use p'', π, ⟨b'_in, recv_in⟩
+          simp [Branch.map_sync, Restriction.map, ← IterativeDomain.parallel_lift_right', assoc, ← IterativeDomain.map_lift]
+          generalize_proofs p₁ p₂ p₃ p₄
+          rw! [p₂]
+          grind only
+        · use IterativeDomain.parallel (IterativeDomain.branch f) p', ?_, π, recv_in, ?_
+          · exists Branch.send c v' ⟨p'⟩
+          · simp only [Branch.map_sync, Restriction.map, assoc, ← IterativeDomain.parallel_lift_right', ← IterativeDomain.map_lift]
+            generalize_proofs p₁ p₂ p₃ p₄
+            rw! [p₂]
+            grind only
+
+      /-- Sr (Il f' A) B ≃ Sr A (Ir f' B) -/
+      private theorem Sr_Il_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)}
+        {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)} {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β m).carrier) (q : (IterativeDomain «Σ» Γ α γ (n + 1)).carrier) (r : (IterativeDomain «Σ» Γ α δ o).carrier),
+           IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m (n + 1) o ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Sr (Il f A) B =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Sr A (Ir f B) := by
+        ext b
+        simp only [Il_eq, Nat.succ_eq_add_one, Sr_eq, Set.mem_setOf_eq, exists_and_left, Ir_eq, cast_image, Set.mem_image,
+                   ↓existsAndEq, and_true, Branch.map_sync, Restriction.map]
+        apply exists₂_congr λ v' c ↦ ?_
+        iff_rintro ⟨p', send_in, π, ⟨b', b'_in, map_eq_recv⟩, rfl⟩ ⟨p', π, ⟨⟨b', b'_in, map_eq_send⟩, recv_in⟩, rfl⟩
+        · rw [left_cast_eq_iff_right_cast_eq, IterativeDomain.Branch.cast_recv] at map_eq_recv
+          obtain ⟨π', rfl, π'_eq⟩ := Branch.map_eq_recv' map_eq_recv; clear map_eq_recv
+          replace π'_eq (v : α) (ok : Bool) :
+              (π v ok).val = (reorder.symm : m + (n + 1) = m + 1 + n) ▸ IterativeDomain.parallel (m := m) (π' v ok).val (IterativeDomain.branch f) := by
+            apply funext_iff.mp at π'_eq
+            specialize π'_eq v
+            apply funext_iff.mp at π'_eq
+            specialize π'_eq ok
+            injection π'_eq with π'_eq
+            rwa [left_cast_eq_iff_right_cast_eq'] at π'_eq
+
+          use IterativeDomain.parallel (IterativeDomain.branch f) p', π', ⟨?_, b'_in⟩, ?_
+          · exists Branch.send c v' ⟨p'⟩
+          · simp only [π'_eq, ← IterativeDomain.parallel_cast_left]
+            erw [assoc, ← IterativeDomain.map_lift]
+            grind only
+        · obtain ⟨⟨p''⟩, rfl, _|_⟩ := Branch.map_eq_send' map_eq_send; clear map_eq_send
+
+          use p'', b'_in, λ v ok ↦ Restriction.map (λ p ↦ reorder.symm ▸ IterativeDomain.parallel (m := m) p (IterativeDomain.branch f)) (π v ok), ?_, ?_
+          · exists Branch.recv c π, recv_in
+            simp only [Branch.map_recv, IterativeDomain.Branch.cast_recv]
+            rfl
+          · simp only [← IterativeDomain.map_lift, ← IterativeDomain.parallel_cast_left]
+            erw [assoc]
+            grind only
+
+      /-- Sr (Ir f A) B ≃ Ir f (Sr A B) -/
+      private theorem Sr_Ir_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β (m + 1)).carrier) (q : (IterativeDomain «Σ» Γ α γ n).carrier) (r : (IterativeDomain «Σ» Γ α δ o).carrier),
+           IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc (m + 1) n o ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Sr (Ir f A) B =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Ir f (Sr A B) := by
+        ext b
+        simp only [Ir_eq, Sr_eq, Set.mem_setOf_eq, exists_and_left, ↓existsAndEq, and_true, Branch.map_sync, Restriction.map,
+                   ← IterativeDomain.parallel_lift_right', cast_image, Set.mem_image]
+        apply exists₂_congr λ v' c ↦ ?_
+        iff_rintro ⟨p', send_in, π, ⟨b'', b''_in, map_eq_recv⟩, rfl⟩ ⟨p', π, ⟨send_in, recv_in⟩, rfl⟩
+        · obtain ⟨π', rfl, rfl⟩ := Branch.map_eq_recv' map_eq_recv; clear map_eq_recv
+          use p', π', ⟨send_in, b''_in⟩
+          rw [assoc, ← IterativeDomain.map_lift]
+          grind only
+        · use p', send_in, λ v ok ↦ Restriction.map (IterativeDomain.parallel (IterativeDomain.branch f)) (π v ok), ?_, ?_
+          · exists Branch.recv c π
+          · simp only [← IterativeDomain.map_lift, assoc]
+            grind only
+
+      /-- Il f'' (Il f' (f σ)) ≃ Il (fun σ ↦ Il f'' (f' σ) ∪ Ir f' (f'' σ) ∪ Sl (f' σ) (f'' σ) ∪ Sr (f' σ) (f'' σ)) (f σ) -/
+      private theorem Il_Il_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {f' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {f'' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        {σ : «Σ»}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β m).carrier) (q : (IterativeDomain «Σ» Γ α γ (n + 1)).carrier) (r : (IterativeDomain «Σ» Γ α δ (o + 1)).carrier),
+           IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m (n + 1) (o + 1) ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Il f'' (Il f' (f σ)) =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) ''
+              Il (fun σ ↦ Il f'' (f' σ) ∪ Ir f' (f'' σ) ∪ Sl (f' σ) (f'' σ) ∪ Sr (f' σ) (f'' σ)) (f σ) := by
+        ext b
+        simp only [Il_eq, Nat.succ_eq_add_one, Set.mem_setOf_eq, exists_exists_and_eq_and, Ir_eq,
+                   Sl_eq, exists_and_left, Sr_eq, cast_image, Set.mem_image]
+        apply exists_congr λ b ↦ ?_
+        apply and_congr_right λ b_in ↦ ?_
+        apply Eq.congr_left
+        simp only [IterativeDomain.Branch.map_cast_right, Branch.map_comp', Function.comp_def, ← IterativeDomain.parallel_cast_left, assoc]
+        congr with p
+        simp only [IterativeDomain.parallel_branch_branch, Nat.succ_eq_add_one, Branch.parallel_left_eq_map,
+                   IterativeDomain.Branch.map_cast_right, Branch.parallel_right_eq_map, exists_and_left, IterativeDomain.map_cast]
+        grind only
+
+      /-- Ir (fun σ ↦ Il f' (f σ) ∪ Ir f (f' σ) ∪ Sl (f σ) (f' σ) ∪ Sr (f' σ) (f σ)) (f'' σ) ≃ Ir f (Ir f' (f'' σ)) -/
+      private theorem Ir_Ir_eq [IMetricSpace δ] {m n o} {f : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {f' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {f'' : «Σ» →ᵤ Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)}
+        {σ : «Σ»}
+        (assoc : ∀ (p : (IterativeDomain «Σ» Γ α β (m + 1)).carrier) (q : (IterativeDomain «Σ» Γ α γ (n + 1)).carrier) (r : (IterativeDomain «Σ» Γ α δ o).carrier),
+           IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc (m + 1) (n + 1) o ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r))) :
+          Ir (fun σ ↦ Il f' (f σ) ∪ Ir f (f' σ) ∪ Sl (f σ) (f' σ) ∪ Sr (f σ) (f' σ)) (f'' σ) =
+            (by grind only : m + 1 + (n + 1 + o) = m + 1 + n + 1 + o) ▸ Branch.map (IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z))) '' Ir f (Ir f' (f'' σ)) := by
+        ext b
+        simp only [Il_eq, Nat.succ_eq_add_one, Ir_eq, Sl_eq, exists_and_left, Sr_eq, Set.mem_setOf_eq, exists_exists_and_eq_and,
+                   Branch.map_comp', Function.comp_def, cast_image, Set.mem_image]
+        apply exists_congr λ b ↦ ?_
+        apply and_congr_right λ b_in ↦ ?_
+        apply Eq.congr_left
+        simp only [IterativeDomain.Branch.map_cast_right]
+        congr with p
+        erw [← assoc, IterativeDomain.parallel_branch_branch]
+        simp only [Nat.succ_eq_add_one, Branch.parallel_left_eq_map, IterativeDomain.Branch.map_cast_right, Branch.parallel_right_eq_map,
+                   exists_and_left]
+        rfl
+
+      /-- Sl (Sl A B) C ≃ ∅ -/
+      private theorem Sl_Sl_empty [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sl (Sl A B) C = ∅ := by
+        ext b
+        simp only [Sl_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, ⟨_, _, _, _, _, _, _, _|_⟩, _, _, _, rfl⟩ ⟨⟩
+
+      /-- Sl (Sr A B) C ≃ ∅ -/
+      private theorem Sl_Sr_empty [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sl (Sr A B) C = ∅ := by
+        ext b
+        simp only [Sl_eq, Sr_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, ⟨_, _, _, _, _, _, _, _|_⟩, _, _, _, rfl⟩ ⟨⟩
+
+      /-- Sr (Sl A B) C ≃ ∅ -/
+      private theorem Sr_Sl_empty [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sr (Sl A B) C = ∅ := by
+        ext b
+        simp only [Sl_eq, Sr_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, _, _, ⟨_, _, _, _, _, _, _|_⟩, rfl⟩ ⟨⟩
+
+      /-- Sr (Sr A B) C ≃ ∅ -/
+      private theorem Sr_Sr_empty [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sr (Sr A B) C = ∅ := by
+        ext b
+        simp only [Sr_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, _, _, ⟨_, _, _, _, _, _, _|_⟩, rfl⟩ ⟨⟩
+
+      /-- Sl A (Sl B C) ≃ ∅ -/
+      private theorem Sl_Sl_empty' [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sl A (Sl B C) = ∅ := by
+        ext b
+        simp only [Sl_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, _, _, ⟨_, _, _, _, _, _, _, _|_⟩, _, _, _, rfl⟩ ⟨⟩
+
+      /-- Sl A (Sr B C) ≃ ∅ -/
+      private theorem Sl_Sr_empty' [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sl A (Sr B C) = ∅ := by
+        ext b
+        simp only [Sl_eq, Sr_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, _, _, ⟨_, _, _, _, _, _, _, _|_⟩, _, _, _, rfl⟩ ⟨⟩
+
+      /-- Sr A (Sl B C) ≃ ∅ -/
+      private theorem Sr_Sl_empty' [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sr A (Sl B C) = ∅ := by
+        ext b
+        simp only [Sl_eq, Sr_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, ⟨_, _, _, _, _, _, _|_⟩, _, _, _, _, rfl⟩ ⟨⟩
+
+      /-- Sr A (Sr B C) ≃ ∅ -/
+      private theorem Sr_Sr_empty' [IMetricSpace δ] {m n o} {A : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α β m).carrier)}
+        {B : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α γ n).carrier)} {C : Set (Branch «Σ» Γ α (IterativeDomain «Σ» Γ α δ o).carrier)} :
+          Sr A (Sr B C) = ∅ := by
+        ext b
+        simp only [Sr_eq, exists_and_left, Set.mem_setOf_eq]
+        iff_rintro ⟨_, _, _, ⟨_, _, _, _, _, _, _|_⟩, _, _, _, rfl⟩ ⟨⟩
+
+      theorem IterativeDomain.parallel_assoc [IMetricSpace δ] {m n o} {p : (IterativeDomain «Σ» Γ α β m).carrier} {q : (IterativeDomain «Σ» Γ α γ n).carrier} {r : (IterativeDomain «Σ» Γ α δ o).carrier} :
+          IterativeDomain.parallel (IterativeDomain.parallel p q) r = Nat.add_assoc m n o ▸ IterativeDomain.map (λ (x, y, z) ↦ ((x, y), z)) (IterativeDomain.parallel p (IterativeDomain.parallel q r)) := by
+        match _hm : m, p with
+        | 0, IterativeDomain.leaf v | m + 1, IterativeDomain.leaf v =>
+          rw [IterativeDomain.leaf_parallel, IterativeDomain.leaf_parallel, IterativeDomain.map_lift, IterativeDomain.map_lift,
+              IterativeDomain.map_map, IterativeDomain.parallel_lift_left, IterativeDomain.parallel_map_left,
+              ← IterativeDomain.parallel_lift_left', ← IterativeDomain.parallel_lift_left', ← IterativeDomain.map_cast]
+          congr 1
+          grind only
+        | 0, IterativeDomain.abort | m + 1, IterativeDomain.abort =>
+          rw [IterativeDomain.abort_parallel, IterativeDomain.abort_parallel, IterativeDomain.abort_parallel,
+              IterativeDomain.map_abort]
+          grind only
+        | m + 1, IterativeDomain.branch f =>
+          match _hn : n, q with
+          | 0, IterativeDomain.leaf v' | n + 1, IterativeDomain.leaf v' =>
+            rw [IterativeDomain.parallel_leaf, IterativeDomain.leaf_parallel, ← IterativeDomain.parallel_lift_left',
+                ← IterativeDomain.parallel_lift_right', IterativeDomain.parallel_map_right, IterativeDomain.parallel_map_left,
+                IterativeDomain.map_lift, IterativeDomain.map_lift, IterativeDomain.map_map, Function.comp_def,
+                ← IterativeDomain.map_cast]
+            congr 1
+            grind only
+          | 0, IterativeDomain.abort | n + 1, IterativeDomain.abort =>
+            rw [IterativeDomain.parallel_abort, IterativeDomain.abort_parallel, IterativeDomain.abort_parallel, IterativeDomain.parallel_abort,
+                IterativeDomain.map_abort]
+            grind only
+          | n + 1, IterativeDomain.branch f' =>
+            match _ho : o, r with
+            | 0, IterativeDomain.leaf v'' | o + 1, IterativeDomain.leaf v'' =>
+              rw [IterativeDomain.parallel_leaf, IterativeDomain.parallel_leaf, ← IterativeDomain.parallel_lift_right',
+                  IterativeDomain.parallel_map_right, IterativeDomain.map_lift, IterativeDomain.map_lift, IterativeDomain.map_map]
+              solve
+                | rfl
+                | rw [← IterativeDomain.map_cast]; congr 1; grind only
+            | 0, IterativeDomain.abort | o + 1, IterativeDomain.abort =>
+              rw [IterativeDomain.parallel_abort, IterativeDomain.parallel_abort, IterativeDomain.parallel_abort, IterativeDomain.map_abort]
+              try grind only
+            | o + 1, IterativeDomain.branch f'' =>
+              erw [IterativeDomain.parallel_branch_branch, IterativeDomain.parallel_branch_branch]
+              conv in (occs := *) λ σ ↦ _ => all: enter [σ]; repeat first | rw [← Il] | rw [← Ir] | rw [← Sl] | rw [← Sr]
+              conv in (occs := 2) λ σ ↦ _ ∪ _ => enter [σ]; repeat first | rw [← Il] | rw [← Ir] | rw [← Sl] | rw [← Sr]
+              erw [IterativeDomain.parallel_branch_branch, IterativeDomain.parallel_branch_branch]
+              conv_rhs => enter [1, 2, 1, σ]; repeat first | rw [← Il] | rw [← Ir] | rw [← Sl] | rw [← Sr]
+              conv in (occs := 4) λ σ ↦ _ ∪ _ => enter [σ]; repeat first | rw [← Il] | rw [← Ir] | rw [← Sl] | rw [← Sr]
+              simp only [Il_union_right, Ir_union_right, Sl_union_left, Sl_union_right, Sr_union_left, Sr_union_right]
+              erw [IterativeDomain.map_branch, IterativeDomain.branch_cast]
+              simp only [cast_image, cast_union, Set.image_union]
+              congr 1 with σ : 1 -- b : 2
+              --ac_nf0
+              erw [Sl_Il_eq, Il_Ir_eq, Il_Sl_eq, Il_Sr_eq, Sl_Ir_eq, Sr_Il_eq, Sr_Ir_eq, Il_Il_eq, Ir_Ir_eq,
+                   Sl_Sl_empty, Sl_Sr_empty, Sr_Sl_empty, Sr_Sr_empty,
+                   Sl_Sl_empty', Sl_Sr_empty', Sr_Sl_empty', Sr_Sr_empty']
+              · simp only [cast_image, Set.image_empty, Set.union_empty]
+                grind only [= Set.mem_union]
+              all:
+                intros p q r
+                erw [IterativeDomain.parallel_assoc]
+      end
 
       def DomainUnion.parallel : DomainUnion «Σ» Γ α β → DomainUnion «Σ» Γ α γ → DomainUnion «Σ» Γ α (β × γ) :=
         λ ⟨_, p⟩ ⟨_, q⟩ ↦ DomainUnion.mk (IterativeDomain.parallel p q)
