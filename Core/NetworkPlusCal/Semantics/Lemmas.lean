@@ -290,23 +290,12 @@ theorem Statement.aborting.assign.iff {σ : LocalState V} {ε : Trace V} {r e} :
 
 end Elim
 
--- Leaf discharge for `sem_side` (see below).
-attribute [aesop safe apply (rule_sets := [sem])]
-  Statement.reducing.with.intro Statement.reducing.await.intro
-  Statement.reducing.skip.intro Statement.reducing.goto.intro Statement.reducing.print.intro
-  Statement.reducing.assert.intro Statement.reducing.send.intro Statement.reducing.assign.intro
-  Statement.aborting.with.intro Statement.aborting.await.intro
-  Statement.aborting.print.intro Statement.aborting.assert.intro Statement.aborting.send.intro
-  Statement.aborting.assign.intro
-
 /-! `Statement.listReducing`'s two equations, so a proof about a generated statement run inducts on
 the list without reaching through the wrapper to `Block.listReducing`. -/
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listReducing_nil {g : Bool} :
     Statement.listReducing (V := V) (g := g) [] = Relation.Idle := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listReducing_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
     {A : List (ComputableNetworkPlusCal.Statement g false)} :
     Statement.listReducing (V := V) (S :: A) =
@@ -321,11 +310,9 @@ theorem Statement.listReducing_append {g : Bool}
       Statement.listReducing A ∘ᵣ₂ Statement.listReducing B :=
   Block.listReducing_append _
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listAborting_nil {g : Bool} :
     Statement.listAborting (V := V) (g := g) [] = ∅ := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listAborting_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
     {A : List (ComputableNetworkPlusCal.Statement g false)} :
     Statement.listAborting (V := V) (S :: A) =
@@ -464,45 +451,5 @@ theorem AtomicBranch.reducing_fifos_mem {Br : ComputableNetworkPlusCal.AtomicBra
     exact Block.reducing_fifos_mem hpres h
 
 end NetworkPlusCal
-
-/-! # `sem_red`/`sem_side`
-
-  Between them they say *from which state to which state* a `Statement.reducing` step goes, leaving
-  every side condition as one existential body goal. One macro covers both languages: `LocalState`
-  is shared, so nothing about the dispatch itself is per-language, only which intro lemma matches.
-
-  Aesop only ever runs terminally here — the goals it would otherwise leave are whatever the search
-  happened to stop at, the same instability as non-terminal `simp`, worse because later proof steps
-  are written against a fixed goal order.
--/
-
-/-- Dispatch is a lookup, not a search: the statement's head constructor determines the intro
-lemma uniquely, so `apply` (not `aesop`) picks it, and the side-goal count/order comes from the
-lemma itself rather than a hand-counted `?_` list — a `Statement` field change breaks the intro
-lemma's own type, not this macro. Tries both languages' lemma names in `first`; `apply` fails
-cleanly on a head-constructor mismatch, so trying the wrong language costs nothing. -/
-macro "sem_red" : tactic => `(tactic| first
-  | apply GuardedPlusCal.Statement.reducing.with.intro
-  | apply GuardedPlusCal.Statement.reducing.await.intro
-  | apply GuardedPlusCal.Statement.reducing.receive.intro
-  | apply GuardedPlusCal.Statement.reducing.skip.intro
-  | apply GuardedPlusCal.Statement.reducing.goto.intro
-  | apply GuardedPlusCal.Statement.reducing.print.intro
-  | apply GuardedPlusCal.Statement.reducing.assert.intro
-  | apply GuardedPlusCal.Statement.reducing.send.intro
-  | apply GuardedPlusCal.Statement.reducing.assign.intro
-  | apply NetworkPlusCal.Statement.reducing.with.intro
-  | apply NetworkPlusCal.Statement.reducing.await.intro
-  | apply NetworkPlusCal.Statement.reducing.skip.intro
-  | apply NetworkPlusCal.Statement.reducing.goto.intro
-  | apply NetworkPlusCal.Statement.reducing.print.intro
-  | apply NetworkPlusCal.Statement.reducing.assert.intro
-  | apply NetworkPlusCal.Statement.reducing.send.intro
-  | apply NetworkPlusCal.Statement.reducing.assign.intro)
-
-/-- `sem_red`'s leaf discharge: the side conditions it leaves — evaluation transfers, memberships,
-freshness — are a real search problem, handed to the `sem` rule set. Terminal, and `aesop?` prints
-the found proof when it fails. -/
-macro "sem_side" : tactic => `(tactic| aesop (rule_sets := [sem]))
 
 end

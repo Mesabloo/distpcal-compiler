@@ -170,9 +170,9 @@ end Resolution
 
   Restate each constructor's `Statement.reducing`/`.aborting` case as a named lemma whose
   hypothesis is exactly that case's own body — proved by `trivial` (the two sides are defeq).
-  Exist solely so a caller (`sem_red`'s dispatch macro) can `apply` a fixed name per constructor
-  instead of unfolding the raw `Set`-membership definition inline. `multicast` has no semantics yet,
-  and no aborting counterpart for `skip`/`goto` exists, since both are always `∅` there.
+  Exist so a caller can `apply` a fixed name per constructor instead of unfolding the raw
+  `Set`-membership definition inline. `multicast` has no semantics yet, and no aborting counterpart
+  for `skip`/`goto` exists, since both are always `∅` there.
 
   Duplicated between `GuardedPlusCal`/`NetworkPlusCal` rather than stated once generically:
   `Statement.reducing`/`.aborting` are two separate `def`s (one per language, on two separate
@@ -313,15 +313,6 @@ theorem Statement.aborting.assign.intro {σ : LocalState V} {ε : Trace V} {r e}
 
 end Intro
 
--- Leaf discharge for `sem_side`, the side conditions `sem_red` leaves.
-attribute [aesop safe apply (rule_sets := [sem])]
-  Statement.reducing.with.intro Statement.reducing.await.intro Statement.reducing.receive.intro
-  Statement.reducing.skip.intro Statement.reducing.goto.intro Statement.reducing.print.intro
-  Statement.reducing.assert.intro Statement.reducing.send.intro Statement.reducing.assign.intro
-  Statement.aborting.with.intro Statement.aborting.await.intro Statement.aborting.receive.intro
-  Statement.aborting.print.intro Statement.aborting.assert.intro Statement.aborting.send.intro
-  Statement.aborting.assign.intro
-
 /-! # Reduction -/
 
 section Reducing
@@ -329,10 +320,8 @@ section Reducing
 variable {α : Bool → Type} {β γ : Type} [Monoid γ]
   (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Block.listReducing_nil : Block.listReducing f [] = Relation.Idle := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Block.listReducing_cons {S : α false} {A : List (α false)} :
     Block.listReducing f (S :: A) = f S ∘ᵣ₂ Block.listReducing f A := rfl
 
@@ -377,10 +366,6 @@ theorem Block.reducing_prepend' {b : Bool} {A : List (α false)} {B : Block α b
 
 end Reducing
 
--- Leaf discharge for `sem_side`.
-attribute [aesop safe apply (rule_sets := [sem])]
-  Block.reducing_end Block.reducing_cons Block.reducing_concat
-
 /-! # Abortion and divergence
 
   `aborting` and `diverging` share their shape exactly — both are "this element goes wrong, or it
@@ -393,10 +378,8 @@ variable {α : Bool → Type} {β γ : Type} [Monoid γ]
   (g : ⦃b : Bool⦄ → α b → Set (β × γ))
   (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Block.listAborting_nil : Block.listAborting g f [] = ∅ := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Block.listAborting_cons {S : α false} {A : List (α false)} :
     Block.listAborting g f (S :: A) = g S ∪ f S ∘ᵣ₁ Block.listAborting g f A := rfl
 
@@ -539,11 +522,9 @@ def Statement.listAborting {g : Bool} (A : List (ComputableGuardedPlusCal.Statem
     Set (LocalState V × Trace V) :=
   Block.listAborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) A
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listReducing_nil {g : Bool} :
     Statement.listReducing (V := V) (g := g) [] = Relation.Idle := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listReducing_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
     Statement.listReducing (V := V) (S :: A) =
@@ -557,11 +538,9 @@ theorem Statement.listReducing_append {g : Bool}
       Statement.listReducing A ∘ᵣ₂ Statement.listReducing B :=
   Block.listReducing_append _
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listAborting_nil {g : Bool} :
     Statement.listAborting (V := V) (g := g) [] = ∅ := rfl
 
-@[aesop safe apply (rule_sets := [sem])]
 theorem Statement.listAborting_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
     Statement.listAborting (V := V) (S :: A) =

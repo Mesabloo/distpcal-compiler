@@ -685,10 +685,9 @@ declarations/gotos/operator shapes already resolved by the time `CorePlusCal`/
 
   Not a style rule: an instance is `⟨process name, self⟩`, and both languages' `Algorithm.algebra`
   resolve one by `processes.find? (·.name == name)`, the *first* process carrying it. Two processes
-  sharing a name would give every instance of the second the first's code table and owned labels,
-  while `Algorithm.init` still contributed instances from both — a state no algebra steps correctly.
-  It is the hypothesis `Algorithm.init_refines` takes as `(algo.processes.map (·.name)).Nodup`, and
-  what `Algorithm.init.functional` needs on both sides (§D8).
+  sharing a name would give every instance of the second the first's code table, while
+  `Algorithm.init` still contributed instances from both — a state no algebra steps correctly. It
+  is the hypothesis `Algorithm.init_refines` takes as `(algo.processes.map (·.name)).Nodup` (§D8).
 
   **Process *identifiers* are the opposite case and stay assumed.** Whether two instances have
   distinct `self` values is a question about the `id` expressions' *values* under the constants,
@@ -1860,15 +1859,10 @@ of `pref` is what leaves `relatesTo` closed under `receive`, so branch and block
 invocable from the algorithm layer at all. `.claude/plans/item7-refinement-proof.md` has the
 alternative that was weighed (existential `pref` plus a frame lemma on the source block).
 
-**One state per instance is part of the invariant (landed, item 7).** `algRelatesTo` carries
-`Instances.Functional` on both sides. Not bookkeeping: the relation gives one `InboxState` per
-instance, so a state holding two states for one instance accounts both against one inbox, and that
-instance's step then updates the accounting while the second state — which did not move — is left
-related against the old one. The per-step obligation is *false* there. Carried as a clause rather
-than as a reachability side condition, because `algRelatesTo` is both pre- and post-relation, so a
-clause of it already *is* an invariant and §6.1's operator laws propagate it for free;
-`Instances.Functional.replace` is what each per-step lemma re-establishes it with. This replaced two
-per-lemma `huniq` hypotheses that had been assuming the same thing without proving it.
+**One state per instance, gone as a carried clause (simplify-g2n-proof step 8).** Was
+`Instances.Functional` on both sides of `algRelatesTo`, plus `.replace` re-establishing it at each
+step. `Instances ι V` is now `ι → Option (ProcState V)` — a function, not a set — so one state per
+instance is definitional, not an invariant to carry or prove. Nothing left to re-establish.
 
 **Divergence needs a measure, not a `star` collapse (landed, item 7).** `Terminating` and
 `Aborting` both lifted by instantiating the framework law at `semₛ := Relation.star stepₛ` and
@@ -1908,14 +1902,14 @@ leaves behind — so the conclusion stays at `star stepₛ`. Its absorption side
 starred too, which is `Relation.star.star_lcomp₁_absorb`. The `Aborting`/`Diverging` halves of
 `sequentialOmega` still want the same treatment; divergence is unattempted (§6.3).
 
-**The algorithm level's dispatch interface is D8's specification (landed, item 7).**
-`Guarded2Network/Lemmas/Algorithm.lean`'s `AlgebraRefines` says what a compiled algebra owes: per
-instance and per owned *target* label, either a code label (its block compiled from the source block
-at the same label, branches pairwise `BranchRefines` at every `pref`) or an `.rx` label (its block is
-`Thread.rxBranch` on the instance's own channel), plus `self_eq` and `inbox_ne_self` across all
-instances. `algRelatesTo.terminating` is then dispatch: which of the two per-step lemmas applies. It
-was written top-down from what those two already need, so establishing it is a question about
-`Thread.toNetwork` rather than about the proof — which is the point, D8 not being built.
+**The algorithm level's dispatch is D8's specification, inlined (simplify-g2n-proof step 10).** No
+interface sits between the pass and the proof any more — `AlgebraRefines`/`CodeLabelRefines`/
+`RxLabelRefines` deleted. What they said — per instance and per owned *target* label, either a code
+label (block compiled from the source block at the same label, branches pairwise `BranchRefines` at
+every `pref`) or an `.rx` label (block is `Thread.rxBranch` on the instance's own channel) — is now
+resolved inline, at the point each consumer needs it: `step_or_stutter` and `immediateAbort` each
+dispatch on `ProcessRefines.label_cases` directly. Establishing the dispatch is still a question
+about `Thread.toNetwork`, not about the proof — that part of D8 stands.
 
 `inbox_ne_self` is load-bearing rather than hygiene: `CodeTable.procReducing` requires the memory to
 bind `selfName`, and the source's agrees with the target's only away from the generated `inbox`.
@@ -1950,9 +1944,10 @@ discharges for every counter value at once, `$` not being an identifier characte
 generated names are then quantified over the name (`ProcessFresh`) rather than fixed at one, and no
 proof here computes on characters.
 
-`Algebra.self` is `Prod.snd` on both sides, so `AlgebraRefines.self_eq` is `rfl`. What a compiled
-process does owe is `name_eq`: `Algorithm.algebra` resolves both `owned` and `table` by looking the
-process up under its name, so one compiled under a different name would own no labels at all.
+`Algebra` collapsed (simplify-g2n-proof step 11) to `String × V → CodeTable V`, `self` is `p.2` —
+no record, no `owned`, no `self_eq` to state. What a compiled process still owes is `name_eq`:
+`Algorithm.algebra` resolves `table` by looking the process up under its name, so one compiled
+under a different name would resolve to the wrong table entirely.
 
 **A receive-free process needs `mb = .none`, and one construct forces `.some` (landed, item 7).**
 `Mailbox`'s `none` case is for a process containing no `receive`, and it is forced rather than a
@@ -1973,8 +1968,8 @@ but the name filling the `.some` is not.
 
 **Which mailbox that is comes from the source, not from the proof.** A process declares its
 `@mailbox` (`GuardedPlusCal.Process.mailbox`), and `Process.toNetwork` copies the field across, so
-`AlgebraRefines`' `mb` reads it off the compiled process rather than being chosen by whoever invokes
-the proof. What makes that sound is the front end's normalization (§5.2a): a `receive` without a
+`procMailbox algo'` reads it off the compiled process directly — passed to `algRelatesTo` rather
+than chosen by whoever invokes the proof. What makes that sound is the front end's normalization (§5.2a): a `receive` without a
 declaration is rejected, a declaration with no `receive` is warned about and dropped, so `p.mailbox`
 means "the channel this process receives on, if any" and not "what the user wrote". Handing a
 receive-free process a `.some` mailbox is not unsound — its branch refinements hold vacuously — but
@@ -1994,8 +1989,9 @@ the second field be stated syntactically, at `Br.action.last`.
 
 `ProcessRefines.ownedLabels_eq` then makes the split an *equation* —
 `NetworkPlusCal.Process.ownedLabels p' = rxLabels p' ∪ GuardedPlusCal.Process.ownedLabels p` — and
-`label_cases` packages it with the disjointness into the dispatch `AlgebraRefines.labels` consumes,
-carrying the negative fact in each branch. Exhaustive and exclusive together make `ownedLabels p'` a
+`label_cases` packages it with the disjointness, consumed directly by the two obligations
+(`step_or_stutter`, `immediateAbort`) that dispatch on it — carrying the negative fact in each
+branch. Exhaustive and exclusive together make `ownedLabels p'` a
 genuine disjoint union, which is what `procRelatesTo`'s `L₂ = L₁ ∪ rx` and `Disjoint L₁ rx` are
 stated against.
 
@@ -2032,25 +2028,27 @@ accumulator is the result list, and `++` supplies monotonicity outright.
 
 `ProcessRefines.threads` ends `∧ (ProcessReceives p → rxs ≠ [])`, and `procMailbox_eq` spends it:
 `mb` is *computed* from the compiled algorithm rather than witnessed alongside it, which is what
-`AlgebraRefines` needs — it takes `mb : ι → Mailbox` as a parameter, not an existential. The
-front-end half is `MailboxUsed`, `∀ p ∈ algo.processes, ∀ inbox, mbox p.name inbox ≠ .none →
-ProcessReceives p`, which is what `checkReceiveChannels` establishes now that it rejects a receive
-without a mailbox (§9.30).
+the two dispatch obligations (`step_or_stutter`, `immediateAbort`) need — they take
+`mb : ι → Mailbox` as a parameter, not an existential. The front-end half is `MailboxUsed`,
+`∀ p ∈ algo.processes, ∀ inbox, mbox p.name inbox ≠ .none → ProcessReceives p`, which is what
+`checkReceiveChannels` establishes now that it rejects a receive without a mailbox (§9.30).
 
-**`AlgebraRefines` is proved (landed, item 7).** `Guarded2Network.algebraRefines`: the compiled
-algebra refines the source's, at `procMailbox`/`procRxLabels`. Every clause is one lemma at the
-resolved instance — `find?_refines` turns an instance into a related process pair, the four
-`*_algebra_table`/`*_algebra_owned` lemmas get past `Algorithm.algebra`'s `Option.elim` to the bare
-`Process.codeTable`/`ownedLabels` the field lemmas are stated at, and `labels` splits on
-`label_cases`. Four hypotheses: the pass's `ProcessesRefine`, and three the front end owes —
-`MailboxUsed`, `AlgorithmFresh`, `LabelsHygienic`.
+**No interface layer between dispatch and pass correctness (simplify-g2n-proof step 10 —
+`AlgebraRefines` deleted).** What used to be one producer (`algebraRefines`) feeding one consumer
+is now `algRelatesTo.step_or_stutter`/`.immediateAbort` resolving the instance and dispatching on
+`ProcessRefines.label_cases` directly. `find?_refines` still turns an instance into a related
+process pair; `src_algebra_table`/`tgt_algebra_table` still get past `Algorithm.algebra`'s
+`Option.elim` to the bare `Process.codeTable` the field lemmas are stated at — the `*_algebra_owned`
+pair is gone (§ step 9, `owned` no longer exists to state a lemma about). Same four hypotheses as
+before: the pass's `ProcessesRefine`, and three the front end owes — `MailboxUsed`,
+`AlgorithmFresh`, `LabelsHygienic`.
 
-**And the pass's correctness theorem is proved (landed, item 7).**
-`Guarded2Network.Algorithm.toNetwork_refines`: compiling an algorithm yields one whose algebra
-refines the source's under `algRelatesTo`, at `procMailbox`/`procRxLabels`. Three hypotheses, all the
-front end's — `AlgorithmFresh`, `MailboxUsed`, `LabelsHygienic`. It is `Algorithm.toNetwork_spec`
-(the four walks) composed with `algebraRefines` (the dispatch) and `algRelatesTo.refines` (the
-refinement argument).
+**And the pass's correctness theorem is proved.** `Guarded2Network.Algorithm.toNetwork_refines`:
+compiling an algorithm yields one whose algebra refines the source's under `algRelatesTo`, at
+`procMailbox`/`procRxLabels`. Three hypotheses, all the front end's — `AlgorithmFresh`,
+`MailboxUsed`, `LabelsHygienic`. It is `Algorithm.toNetwork_spec` (the four walks) composed with
+`algRelatesTo.refines` (the refinement argument) — no separate dispatch lemma sits between them
+any more.
 
 **`pref`'s `∀` is a five-line lemma, not a refactor.** `algebraRefines` wants the pass's output
 related at *every* prefix function, and a spec supplies one per instantiation; `Std.Do` has no
@@ -2085,11 +2083,11 @@ memory, `.entryLabels_eq` strips the receiving threads off the label set, and `I
 the inbox accounts for.
 
 **`init` is a characterization of membership, not an existence claim.** "For each declared instance
-some state exists" does not constrain `Ps` at all — an `Instances` holding junk pairs, or two states
-for one instance, still witnesses the existential. The membership form is what makes
-`Instances.Functional` derivable (`Algorithm.init.functional`), and that clause of `algRelatesTo` is a
-soundness obligation rather than bookkeeping. Making it derivable is also why `ExprSemantics` states
-`evalUnique`: the initializers pin their values, so `InitProc` pins the state.
+some state exists" does not pin down which state — `Ps` could still map an instance to any state
+satisfying the existential. One state per instance is no longer a clause to derive here (§ step 8,
+`Instances` is a function), but the *value* at each instance is still only characterized, not fixed,
+so `ExprSemantics` states `evalUnique`: the initializers pin their values, so `InitProc` pins the
+state.
 
 **Front-end obligations the initial state adds.** Two beyond the three
 `Algorithm.toNetwork_refines` already carries.

@@ -189,7 +189,7 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
   -- the target's three steps
   obtain ⟨mid1, ε₁, ε₂, hawait, ⟨mid2, ε₃, ε₄, hassignR, hassignI, rfl⟩, rfl⟩ := step
   obtain ⟨M, F, rfl, rfl, htru, rfl⟩ := hawait
-  simp only [LocalState.label_mk] at hlabel
+  erw [LocalState.label_mk] at hlabel
   subst hlabel
   obtain ⟨M₀, F₀, M₃, v', rpath, hv', hrpath, hupd, hσ, rfl, rfl⟩ := hassignR
   simp only [Prod.mk.injEq] at hσ
@@ -219,12 +219,12 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
     -- at all; there the source aborts rather than matching
     refine .inr (GuardedPlusCal.Statement.aborting.receive.intro
       (.inl (.inl (.inr ⟨M₁, F₁, cpath, rfl, rfl, hpath, ?_⟩))))
-    simp only [LocalState.fifos_mk] at hsplit
+    erw [LocalState.fifos_mk] at hsplit
     rw [hsplit, hlk]
     rfl
   | some ws =>
     have hlk₁ : F₁.lookup ((c.name, cpath) : ChanKey V) = .some (v :: (vs' ++ ws)) := by
-      simp only [LocalState.fifos_mk] at hsplit
+      erw [LocalState.fifos_mk] at hsplit
       rw [hsplit, hlk]
       rfl
     obtain ⟨M₁', hupd₁, hx⟩ := Memory.update_transfer (hagree r.name hrname).symm hupd
@@ -244,16 +244,16 @@ theorem receive_reducing_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
           (Ref.EvalArgs.congr_of_fresh hagree hfr).mpr hrpath, hlk₁, hcoe, hupd₁,
           rfl, rfl, rfl⟩⟩
     · intro y hy
-      simp only [LocalState.mem_mk]
+      dsimp only [LocalState.mem_mk]
       rw [Finmap.lookup_insert_of_ne _ hy]
       exact hagree₁ y hy
     · exact (Ref.EvalArgs.congr_of_fresh
         (λ y hy ↦ (Memory.lookup_update_ne hupd₁ hy).symm) hfw).mp hpath
     · intro k hk
-      simp only [LocalState.fifos_mk]
+      dsimp only [LocalState.fifos_mk]
       rw [Finmap.lookup_insert_of_ne _ hk]
       exact hoff k hk
-    · simp only [LocalState.fifos_mk]
+    · dsimp only [LocalState.fifos_mk]
       rw [Finmap.lookup_insert _, hlk]
       rfl
 
@@ -313,7 +313,7 @@ theorem receive_aborting_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
       intro hlk
       refine GuardedPlusCal.Statement.aborting.receive.intro
         (.inl (.inl (.inr ⟨M₁, F₁, cpath, rfl, rfl, hpath, ?_⟩)))
-      simp only [LocalState.fifos_mk] at hsplit
+      erw [LocalState.fifos_mk] at hsplit
       rw [hsplit, hlk]
       rfl
     rcases hrest with hab | ⟨mid2, ε₃, ε₄, hredR, habI, -⟩
@@ -332,7 +332,7 @@ theorem receive_aborting_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
         | some ws =>
           refine GuardedPlusCal.Statement.aborting.receive.intro
             (.inl (.inr ⟨M₁, F₁, cpath, v, vs' ++ ws, rfl, rfl, hpath, ?_, ?_⟩))
-          · simp only [LocalState.fifos_mk] at hsplit
+          · erw [LocalState.fifos_mk] at hsplit
             rw [hsplit, hlk]
             rfl
           · rintro ⟨v', hv'⟩
@@ -350,7 +350,7 @@ theorem receive_aborting_sim {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
           refine GuardedPlusCal.Statement.aborting.receive.intro
             (.inr ⟨M₁, F₁, cpath, rpath, v, v', vs' ++ ws, rfl, rfl, hpath,
               (Ref.EvalArgs.congr_of_fresh hagree hfr).mpr hrpath, ?_, hcoe, ?_⟩)
-          · simp only [LocalState.fifos_mk] at hsplit
+          · erw [LocalState.fifos_mk] at hsplit
             rw [hsplit, hlk]
             rfl
           · exact Memory.update_none_transfer (hagree r.name hrname) hupd

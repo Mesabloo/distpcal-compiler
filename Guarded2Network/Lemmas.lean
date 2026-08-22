@@ -31,12 +31,6 @@ public import Std.Do.WP
   (`Guarded2Network.Lemmas.Monad`, where the reasoning behind the choice is written down).
 -/
 
-/-- Registers `sem_side` as `mvcgen`'s automatic VC-discharge hook, so the cheap side
-conditions `sem_red`-adjacent reasoning produces never surface as named verification conditions at
-all — the one setting where a search tactic is *supposed* to run non-terminally, since `mvcgen`
-only keeps what it closes. -/
-macro_rules | `(tactic| mvcgen_trivial_extensible) => `(tactic| sem_side)
-
 open Std.Do in
 /-- Smoke test: `mvcgen` discharges a goal stated against `G2NM`. -/
 example : ⦃⌜True⌝⦄ (do let _ ← MonadFresh.fresh; pure () : G2NM Unit) ⦃⇓_ => ⌜True⌝⦄ := by
@@ -44,21 +38,8 @@ example : ⦃⌜True⌝⦄ (do let _ ← MonadFresh.fresh; pure () : G2NM Unit) 
 
 /-! # Tactic validation
 
-  Two facts about the semantics, each proved in one line of tactic: a check that `sem_red`,
-  `sem_side` and `gcongr` fire on the goal shapes they exist for.
+  A check that `gcongr` fires on the goal shape it exists for.
 -/
-
-open ComputableTLAPlus (ExprSemantics)
-
-/-- `sem_red` picks the one matching intro lemma (`.print`) off the goal's head constructor and
-leaves the existential body; `sem_side` supplies the witnesses from `hv`/`hp` already in context,
-via the `sem` rule set. -/
-example {V} [ExprSemantics V] {M : ComputableTLAPlus.Memory V} {F v p} {e}
-    (hv : M ⊢ e ⇒ v) (hp : M.lookup GuardedPlusCal.selfName = some p) :
-    ⟨(M, F, .none), Stream'.Seq.cons (.print p v) 1, (M, F, .none)⟩ ∈
-      GuardedPlusCal.Statement.reducing (GuardedPlusCal.Statement.print e) := by
-  sem_red
-  sem_side
 
 /-- `gcongr` finds the tagged `Relation.lcomp₁.mono`/`.lcomp₂.mono` congruence lemma and reduces
 the goal to its two component inequalities on its own. -/

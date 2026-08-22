@@ -6,7 +6,6 @@ public import Mathlib.Logic.Relation
 public import Mathlib.Algebra.Group.Defs
 public import Mathlib.Order.FixedPoints
 public import Mathlib.Order.OmegaCompletePartialOrder
-public import Extra.AesopRuleSets
 public import Extra.Prod
 import Extra.Set
 import Mathlib.Data.Nat.Find
@@ -78,14 +77,11 @@ theorem Relation.mem_lcomp₂ {α β γ δ : Type _} [Monoid β] {R₁ : Set (α
 theorem Relation.mem_lcomp₁ {α β γ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {W : Set (γ × β)} {a} {e} :
   (a, e) ∈ R₁ ∘ᵣ₁ W ↔ ∃ b e₁ e₂, (a, e₁, b) ∈ R₁ ∧ (b, e₂) ∈ W ∧ e = e₁ * e₂ := by rfl
 
-/-- `sem_red`'s composed goals (`sem_step`, later) leave a two-piece existential in this shape —
-`.intro` lets `sem_side` close it with one `apply` instead of unfolding `∘ᵣ₂` by hand. -/
-@[aesop safe apply (rule_sets := [sem])]
 theorem Relation.lcomp₂.intro {α β γ δ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {R₂ : Set (γ × β × δ)}
     {a b c} {e₁ e₂} (h₁ : (a, e₁, b) ∈ R₁) (h₂ : (b, e₂, c) ∈ R₂) : (a, e₁ * e₂, c) ∈ R₁ ∘ᵣ₂ R₂ :=
   ⟨b, e₁, e₂, h₁, h₂, rfl⟩
 
-@[inherit_doc Relation.lcomp₂.intro, aesop safe apply (rule_sets := [sem])]
+@[inherit_doc Relation.lcomp₂.intro]
 theorem Relation.lcomp₁.intro {α β γ : Type _} [Monoid β] {R₁ : Set (α × β × γ)} {W : Set (γ × β)}
     {a b} {e₁ e₂} (h₁ : (a, e₁, b) ∈ R₁) (h₂ : (b, e₂) ∈ W) : (a, e₁ * e₂) ∈ R₁ ∘ᵣ₁ W :=
   ⟨b, e₁, e₂, h₁, h₂, rfl⟩

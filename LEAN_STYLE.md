@@ -288,10 +288,6 @@ Citations illustrate the rule; this file is not a list of things to fix.
 - **Aesop terminal or not at all** (plan §3 T1). Non-terminal aesop leave whatever search stopped
   at — same instability as non-terminal `simp`, worse, because later steps written against fixed
   goal order. `Core/NetworkPlusCal/Semantics/Lemmas.lean:449`
-  **One exception: under `mvcgen`.** `sem_side` registered as its VC-discharge hook, and `mvcgen`
-  keep only what it close — so non-terminal is the point there. `Guarded2Network/Lemmas.lean:50`
-- **Lemma in `sem` rule set: never apply by hand.** `sem_side` already discharge it. Query
-  membership: `scripts/facts s <name>` show `aesop:sem`.
 - **Signature indentation: binders 2, statement 4.** Continuation line carrying binders/hypotheses
   indent 2; line carrying the statement itself — after the top-level `:` — indent 4. Statement
   stay visually distinct from what it quantify over. Go-forward rule: most existing signatures put
@@ -339,7 +335,6 @@ Full list + docstrings: `scripts/facts t`.
 
 | Situation | Reach for | Defined |
 |---|---|---|
-| `Statement.reducing` membership goal | `sem_red`, then `sem_side` | `Core/NetworkPlusCal/Semantics/Lemmas.lean:933`, `:956` |
 | `StrongRefinement` matching disjunct | `refines_match σ, ε` — two-arg form | `VerifiedCompiler/Denotational/Tactics.lean:41` |
 | Source aborted instead | `refines_abort ε` | `:50` |
 | Source diverges too | `refines_diverge ε` | `:57` |
@@ -357,9 +352,6 @@ Full list + docstrings: `scripts/facts t`.
 
 The project made these calls; they are not open.
 
-- **`Statement.reducing` goal → `sem_red`/`sem_side`.** Not manual `exact ⟨M, F, v, p, rfl, rfl,
-  hv, hp, rfl⟩` naming every field by hand. One line of tactic each, against a several-line term.
-  `Guarded2Network/Lemmas.lean:72`
 - **Monotonicity in `∘ᵣ₁`/`∘ᵣ₂` → `gcongr`.** Not explicit `Relation.lcomp₁.mono h₁ h₂`, not a
   `rw` chain through `right_union_eq_union`/`left_lcomp₂_eq` to massage both sides. `gcongr` find
   the tagged congruence lemma and reduce to the component inequalities itself.
@@ -372,9 +364,10 @@ The project made these calls; they are not open.
   **`gcongr` matches the relation syntactically**, so `≤` and `⊆` are different keys even on `Set`.
   Mathlib tags union at `⊆` only and this project's composition lemmas at `≤`, so a goal mixing the
   two matched neither; `Set.union_le_union` (`Extra/Rel.lean:59`) is the missing `≤` form.
-- **Monadic `G2NM` goal → `mvcgen`.** `sem_side` already wired in as its VC-discharge hook, so
-  cheap side conditions never surface as named verification conditions.
-  `Guarded2Network/Lemmas.lean:60`, hook at `:54`
+- **Monadic `G2NM` goal → `mvcgen`.** Runs stock `mvcgen_trivial` — no custom VC-discharge hook.
+  One was registered at `Guarded2Network/Lemmas.lean:38` but was reachable from nothing that calls
+  `mvcgen` (no subfile under `Guarded2Network/Lemmas/` imported the aggregator back) and its target
+  (`sem_side`) was itself deleted as unused; both removed rather than fixed.
 - **`Iff` goal whose both sides open with `intro`/`rintro` → `iff_intro` / `iff_rintro`.** Never
   `constructor` there. `iff_intro x y` take two idents, `iff_rintro p q` two rintro patterns, and
   both fold the `intro` into the split. `constructor` is right for an `Iff` only when the branches

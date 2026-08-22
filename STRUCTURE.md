@@ -38,7 +38,6 @@ Generic data-structure lemmas and instances.
 - `Rel.lean` — relation composition, iteration and the `OmegaProd` class.
 - `Seq.lean` — `Stream'.Seq` as the trace monoid, plus infinite products.
 - `Do.lean` — `Std.Do` spec lemmas the toolchain does not ship.
-- `AesopRuleSets.lean` — declares the `sem` rule set.
 - `Mathlib/Tactic/DeriveTraversable.lean` — vendored `Traversable` derivation.
 
 ## `ProgressBar/`
@@ -106,13 +105,13 @@ Generic data-structure lemmas and instances.
 - `Syntax.lean` — the flat statement AST and `Block`'s list-like interface.
 - `Syntax/Lemmas.lean` — structural facts and induction principles for `Block`.
 - `Semantics/Denotational.lean` — behaviors, traces, states, statement and block semantics.
-- `Semantics/Lemmas.lean` — block equations, relabelling lemmas, and the flat state encoding.
+- `Semantics/Lemmas.lean` — block equations and relabelling lemmas.
 - `Semantics/Process.lean` — the process and algorithm layers.
 
 ## `Core/NetworkPlusCal/`
 - `Syntax.lean` — the statement AST without `receive`, plus `Thread.rx`.
 - `Semantics/Denotational.lean` — this language's statement semantics and thread labels.
-- `Semantics/Lemmas.lean` — its primed semantics and glue lemmas.
+- `Semantics/Lemmas.lean` — block equations and relabelling lemmas.
 - `Semantics/Process.lean` — its process and algorithm layers.
 
 ## `Core/Go/`
