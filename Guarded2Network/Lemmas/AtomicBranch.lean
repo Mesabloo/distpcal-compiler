@@ -30,9 +30,11 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+open ComputableTLAPlus (OperatorEnv Model)
 open GuardedPlusCal (Block ChanKey LocalState Trace)
 
-variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
+variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
+  {Ω : Model V}
 
 /-- `Block.map` distributes over `cons`, and leaves `end` alone. Both hold by `rfl` — `Block.map`
 rewrites `begin` pointwise and `last` once — and are named so that a `cons_end_induct` over a
@@ -58,23 +60,23 @@ language diverges. -/
 theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
     {A : Block (ComputableGuardedPlusCal.Statement false) b}
     (fresh : ∀ S ∈ A.begin, Fresh mbox S) (freshLast : Fresh mbox A.last) :
-    StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
+    StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (Block.reducing
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) A)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω) A)
       (Block.aborting
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) A)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting Ξ Ω)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω) A)
       (Block.diverging
         (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.diverging)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) A)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω) A)
       (Block.reducing
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
       (Block.aborting
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting)
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting Ξ Ω)
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
       (Block.diverging
         (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.diverging)
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing) (A.map (λ ⦃_⦄ ↦ convertActionStmt))) := by
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω) (A.map (λ ⦃_⦄ ↦ convertActionStmt))) := by
   induction A using Block.cons_end_induct with
   | «end» S =>
     rw [Block.map_end, Block.reducing_end, Block.reducing_end, Block.aborting_end,
@@ -100,29 +102,29 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
-    (hpre : StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
+    (hpre : StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (Br.precondition.elim Relation.Idle (Block.reducing
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing)))
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω)))
       (Br.precondition.elim ∅ (Block.aborting
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting)
-        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing)))
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting Ξ Ω)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω)))
       ∅
       (pre'.elim Relation.Idle (Block.reducing
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing assigns)
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω)) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing Ξ Ω assigns)
       (pre'.elim ∅ (Block.aborting
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting)
-          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∪
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.aborting Ξ Ω)
+          (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω)) ∪
         pre'.elim Relation.Idle (Block.reducing
-            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing)) ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting assigns)
+            (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω)) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting Ξ Ω assigns)
       ∅)
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S) (alast : Fresh mbox Br.action.last) :
-    StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-      (GuardedPlusCal.AtomicBranch.reducing Br) (GuardedPlusCal.AtomicBranch.aborting Br) ∅
-      (NetworkPlusCal.AtomicBranch.reducing ⟨pre',
+    StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) (GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) ∅
+      (NetworkPlusCal.AtomicBranch.reducing Ξ Ω ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
-      (NetworkPlusCal.AtomicBranch.aborting ⟨pre',
+      (NetworkPlusCal.AtomicBranch.aborting Ξ Ω ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
       ∅ := by
   have hcomp := StrongRefinement.Comp _ hpre (actionBlock_refines (V := V) afresh alast)
@@ -235,13 +237,13 @@ private def Registered (H : Prop) (st : ThreadState) : Prop := H → st.rxThread
 goes next. Named because the block level quantifies over it — a compiled block's branches are
 pairwise this, `List.Forall₂`-style — and a bare `StrongRefinement` conjunction cannot be the
 argument of a relation combinator. -/
-structure BranchRefines (mbox : Mailbox) (pref : ChanKey V → List V)
-    (Br : ComputableGuardedPlusCal.AtomicBranch)
+structure BranchRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
+    (pref : ChanKey V → List V) (Br : ComputableGuardedPlusCal.AtomicBranch)
     (Br' : ComputableNetworkPlusCal.AtomicBranch) : Prop where
   /-- The branch refines its source, precondition and action block together. -/
-  refines : StrongRefinement (relatesTo (V := V) mbox pref) (instTrace (V := V)).Rτ
-    (GuardedPlusCal.AtomicBranch.reducing Br) (GuardedPlusCal.AtomicBranch.aborting Br) ∅
-    (NetworkPlusCal.AtomicBranch.reducing Br') (NetworkPlusCal.AtomicBranch.aborting Br') ∅
+  refines : StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
+    (GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) (GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) ∅
+    (NetworkPlusCal.AtomicBranch.reducing Ξ Ω Br') (NetworkPlusCal.AtomicBranch.aborting Ξ Ω Br') ∅
   /-- And it leaves for the same place: `Block.prepend` does not touch `last`, and
   `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
   last_eq : Br'.action.last = convertActionStmt Br.action.last
@@ -254,10 +256,10 @@ source branch matching the target one it was handed, which is `Forall₂.exists_
 than a *label* can supply. `Process.codeTable` lets a label denote the union of every block carrying
 it, and nothing in the front end rejects two blocks with one label, so the branch lists at a label
 are concatenations rather than a pair of aligned lists. This is what survives that. -/
-def BranchesRefine (mbox : Mailbox) (pref : ChanKey V → List V)
+def BranchesRefine (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox) (pref : ChanKey V → List V)
   (brs : List ComputableGuardedPlusCal.AtomicBranch)
   (brs' : List ComputableNetworkPlusCal.AtomicBranch) : Prop :=
-    ∀ Br' ∈ brs', ∃ Br ∈ brs, BranchRefines (V := V) mbox pref Br Br'
+    ∀ Br' ∈ brs', ∃ Br ∈ brs, BranchRefines (V := V) Ξ Ω mbox pref Br Br'
 
 omit [SeqBuiltins V] in
 /-- One compiled block's branches, as a whole label's worth — the positional form forgetting its
@@ -265,8 +267,8 @@ positions. -/
 theorem BranchesRefine.of_forall₂ {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
-    (h : List.Forall₂ (BranchRefines (V := V) mbox pref) brs brs') :
-    BranchesRefine (V := V) mbox pref brs brs' :=
+    (h : List.Forall₂ (BranchRefines (V := V) Ξ Ω mbox pref) brs brs') :
+    BranchesRefine (V := V) Ξ Ω mbox pref brs brs' :=
   λ _ hBr' ↦ h.exists_left hBr'
 
 /-- **The locals list `stepBranch` leaves still holds only `inbox` declarations** — it either kept the
@@ -345,7 +347,7 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st ∧ Registered H st⌝⦄
     stepBranch (m := G2NM) chans inbox Br
     ⦃⇓? Br' st' =>
-      ⌜BranchRefines (V := V) mbox pref Br Br' ∧ RxThreads mbox c₀ inbox st' ∧
+      ⌜BranchRefines (V := V) Ξ Ω mbox pref Br Br' ∧ RxThreads mbox c₀ inbox st' ∧
         Registered (H ∨ BranchReceives Br) st'⌝⦄ := by
   mvcgen [stepBranch, processPrecondition_spec, freshName, MonadFresh.fresh]
   with {

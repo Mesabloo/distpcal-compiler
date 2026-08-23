@@ -22,15 +22,15 @@ public import VerifiedCompiler.Denotational.Correctness
   `TargetProgram` is a phantom index: the pass's output is an algorithm and nothing more, but the
   framework's `Reduce`/`Abort`/`Diverge` classes take the semantics as an `outParam`, so the program
   type has to determine the value universe its semantics is taken in. `ComputableNetworkPlusCal.
-  Algorithm` does not mention `V`; `TargetProgram V` does.
+  Algorithm` does not mention `V`; `TargetProgram V Ξ Ω` does.
 -/
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Memory)
+open ComputableTLAPlus (ExprSemantics Memory OperatorEnv Model)
 open GuardedPlusCal (AlgState ChanKey FIFOs Instances ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V]
+variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! # The two program types -/
 
@@ -44,7 +44,7 @@ thing here no checker establishes.
 `keys` quantifies over the FIFO map because `InitKeys.declared` is stated against it: which map an
 initial state carries is not fixed until that state is chosen. The other two clauses do not mention
 it, so nothing is lost by letting the witness depend on it. -/
-structure FrontEnd (mbox : String → String → Mailbox)
+structure FrontEnd (Ξ : OperatorEnv) (Ω : Model V) (mbox : String → String → Mailbox)
   (c₀ : String → ComputableGuardedPlusCal.Ref) (algo : ComputableGuardedPlusCal.Algorithm) :
     Prop where
   /-- The generated `inbox` is fresh for every branch of every process. -/
@@ -56,12 +56,12 @@ structure FrontEnd (mbox : String → String → Mailbox)
   /-- No two processes share a name. -/
   names : (algo.processes.map (·.name)).Nodup
   /-- Each receiving instance starts on a key that resolves, exists, and is its own. -/
-  keys : ∀ F : FIFOs V, ∃ key, InitKeys (V := V) c₀ algo F key
+  keys : ∀ F : FIFOs V, ∃ key, InitKeys (V := V) Ξ Ω c₀ algo F key
 
 /-- **A source program of this pass**: an algorithm, the mailbox and channel assignment its
 processes are read at, and the front end's facts about all three. See this file's module doc for why
 the facts are bundled into the type rather than hoisted into a hypothesis. -/
-structure SourceProgram (V : Type) [ExprSemantics V] : Type where
+structure SourceProgram (V : Type) [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V) : Type where
   /-- The algorithm itself. -/
   algo : ComputableGuardedPlusCal.Algorithm
   /-- Which mailbox each process name gets, as a function of the name the pass will generate. -/
@@ -69,37 +69,38 @@ structure SourceProgram (V : Type) [ExprSemantics V] : Type where
   /-- Which channel each process name receives on. -/
   c₀ : String → ComputableGuardedPlusCal.Ref
   /-- And the front end's guarantees about them. -/
-  wellFormed : FrontEnd (V := V) mbox c₀ algo
+  wellFormed : FrontEnd (V := V) Ξ Ω mbox c₀ algo
 
 /-- **A target program of this pass** — a compiled algorithm, indexed by the value universe its
 semantics is taken in. The index is phantom; see this file's module doc for why it is there. -/
-def TargetProgram (_V : Type) : Type := ComputableNetworkPlusCal.Algorithm
+def TargetProgram (_V : Type) (_Ξ : OperatorEnv) (_Ω : Model _V) : Type :=
+  ComputableNetworkPlusCal.Algorithm
 
 /-! # Their semantics, as the framework indexes it -/
 
-instance : Reduce (SourceProgram V)
+instance : Reduce (SourceProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
-  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra s.algo).reducing⟩
+  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).reducing⟩
 
-instance : Abort (SourceProgram V) (Set (AlgState (String × V) V × Trace V)) :=
-  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra s.algo).aborting⟩
+instance : Abort (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
+  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).aborting⟩
 
-instance : Diverge (SourceProgram V) (Set (AlgState (String × V) V × Trace V)) :=
-  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra s.algo).diverging⟩
+instance : Diverge (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
+  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).diverging⟩
 
-instance : Reduce (TargetProgram V)
+instance : Reduce (TargetProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
-  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra algo').reducing⟩
+  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing⟩
 
-instance : Abort (TargetProgram V) (Set (AlgState (String × V) V × Trace V)) :=
-  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra algo').aborting⟩
+instance : Abort (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
+  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting⟩
 
-instance : Diverge (TargetProgram V) (Set (AlgState (String × V) V × Trace V)) :=
-  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra algo').diverging⟩
+instance : Diverge (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
+  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging⟩
 
 /-- The pass itself, at those two types. `Algorithm.toNetwork` never looks at anything a
 `SourceProgram` carries beyond the algorithm — the rest is what the *proof* reads. -/
-def compile (s : SourceProgram V) : G2NM (TargetProgram V) :=
+def compile (s : SourceProgram V Ξ Ω) : G2NM (TargetProgram V Ξ Ω) :=
   ComputableGuardedPlusCal.Algorithm.toNetwork s.algo
 
 /-! # The theorem -/
@@ -114,13 +115,15 @@ is `Algorithm.toNetwork_refines`, and `triple_forall` is what lets one run of th
 at every prefix function at once. -/
 theorem correct [DecidableEq V] :
     Compiler.Correctness
-      (λ (_ : SourceProgram V) (algo' : TargetProgram V) ↦
-        algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      compile (λ s ↦ GuardedPlusCal.Algorithm.init s.algo) NetworkPlusCal.Algorithm.init where
+      (λ (_ : SourceProgram V Ξ Ω) (algo' : TargetProgram V Ξ Ω) ↦
+        algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      compile (λ s ↦ GuardedPlusCal.Algorithm.init Ξ Ω s.algo) (NetworkPlusCal.Algorithm.init Ξ Ω)
+      where
   correct s := by
     unfold compile
     refine triple_forall (ι := ChanKey V → List V)
-      (λ pref ↦ Algorithm.toNetwork_spec (V := V) (pref := pref) s.wellFormed.fresh) ?_
+      (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref)
+        s.wellFormed.fresh) ?_
     intro algo' h
     refine ⟨?_, algRelatesTo.refines (λ pref ↦ (h pref).2) s.wellFormed.used s.wellFormed.fresh
       s.wellFormed.hygienic⟩
@@ -133,8 +136,9 @@ theorem correct [DecidableEq V] :
 /-- And so it is correct in the composable form, which is what a whole-pipeline statement chains
 (`Compiler.Correct.comp`). -/
 theorem correct' [DecidableEq V] :
-    Compiler.Correct compile (λ s : SourceProgram V ↦ GuardedPlusCal.Algorithm.init s.algo)
-      NetworkPlusCal.Algorithm.init :=
+    Compiler.Correct compile
+      (λ s : SourceProgram V Ξ Ω ↦ GuardedPlusCal.Algorithm.init Ξ Ω s.algo)
+      (NetworkPlusCal.Algorithm.init Ξ Ω) :=
   correct.toCorrect
 
 assert_no_sorry correct'

@@ -24,9 +24,11 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+open ComputableTLAPlus (OperatorEnv Model)
 open GuardedPlusCal (ChanKey)
 
-variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
+variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
+  {Ω : Model V}
 
 /-- What one compiled **code** thread owes its source: it is a `.code` thread at all, and its blocks
 are pairwise `BlockRefines`.
@@ -35,9 +37,9 @@ The `.code` half is not bookkeeping. A source thread is a list of blocks and a t
 either that or a receive loop, so "the compiled thread is not itself an `.rx`" is a real thing to
 say — and it is what lets the process level split a compiled process's threads into the two groups
 `ProcessRefines.label_cases` dispatches a label into, code or receiving. -/
-def ThreadRefines (mbox : Mailbox) (pref : ChanKey V → List V)
+def ThreadRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox) (pref : ChanKey V → List V)
   (T : ComputableGuardedPlusCal.Thread) (T' : ComputableNetworkPlusCal.Thread) : Prop :=
-    ∃ blocks, T' = .code blocks ∧ List.Forall₂ (BlockRefines (V := V) mbox pref) T blocks
+    ∃ blocks, T' = .code blocks ∧ List.Forall₂ (BlockRefines (V := V) Ξ Ω mbox pref) T blocks
 
 /-- A thread one of whose blocks receives — the level at which the pass's registration promise is
 finally cashed, `Thread.toNetwork` being what hands `rxThreads` back as a list of threads. -/
@@ -59,12 +61,12 @@ private theorem mapM_stepBlock_spec {chans : Guarded2NetworkChans}
     ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st ∧ Registered H st⌝⦄
     T.mapM (stepBlock (m := G2NM) chans inbox)
     ⦃⇓? blocks st' =>
-      ⌜List.Forall₂ (BlockRefines (V := V) mbox pref) T blocks ∧
+      ⌜List.Forall₂ (BlockRefines (V := V) Ξ Ω mbox pref) T blocks ∧
         RxThreads mbox c₀ inbox st' ∧ Registered (H ∨ ThreadReceives T) st'⌝⦄ := by
   mvcgen [stepBlock_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ st =>
-    ⌜List.Forall₂ (BlockRefines (V := V) mbox pref) cur.prefix res ∧
+    ⌜List.Forall₂ (BlockRefines (V := V) Ξ Ω mbox pref) cur.prefix res ∧
       RxThreads mbox c₀ inbox st ∧ Registered (H ∨ ∃ blk ∈ cur.prefix, BlockReceives blk) st⌝
   with
   -- `stepBlock_spec`'s implicits and instances, abstracted over the loop's context and wrapped in
@@ -72,7 +74,7 @@ private theorem mapM_stepBlock_spec {chans : Guarded2NetworkChans}
   -- `mbox`, `c₀` and `H` are, so they are pinned and deliberately absent here: `H`'s goal is a
   -- `Prop` to supply, and `assumption` would supply `H` itself rather than the disjunction the walk
   -- has accumulated (`AtomicBlock.lean` says the same at more length).
-  | vc9 | vc10 | vc11 | vc12 => intro _ _ _; assumption
+  | vc9 | vc10 | vc11 | vc12 | vc13 | vc14 => intro _ _ _; assumption
 
   case vc1.pre =>
     obtain ⟨hrx, hreg⟩ := ‹_ ∧ _›
@@ -93,7 +95,7 @@ private theorem mapM_stepBlock_spec {chans : Guarded2NetworkChans}
       · exact .inr (List.mem_singleton.mp hm ▸ hblk)
 
   -- the freshness hypothesis at whichever block the walk is currently on
-  case vc13 _ _ _ _ cur _ hsplit _ =>
+  case vc15 _ _ _ _ cur _ hsplit _ =>
     intro _ _ _
     rw [hsplit] at fresh
     exact fresh cur (List.mem_append_right _ List.mem_cons_self)
@@ -115,10 +117,10 @@ appears as such in the conclusion, and dies one level up in `Thread.toNetwork_sp
   (fresh : ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃⌜True⌝⦄
     ((T.mapM (stepBlock (m := G2NM) chans inbox)).run {})
-    ⦃⇓? p _ => ⌜List.Forall₂ (BlockRefines (V := V) mbox pref) T p.1 ∧
+    ⦃⇓? p _ => ⌜List.Forall₂ (BlockRefines (V := V) Ξ Ω mbox pref) T p.1 ∧
       RxThreads mbox c₀ inbox p.2 ∧ Registered (False ∨ ThreadReceives T) p.2⌝⦄ := by
   intro n _
-  refine mapM_stepBlock_spec (V := V) (pref := pref) (H := False) fresh {} n ?_
+  refine mapM_stepBlock_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) (H := False) fresh {} n ?_
   exact ⟨⟨nofun, nofun, iff_of_true rfl rfl⟩, nofun⟩
 
 open Std.Do in
@@ -134,13 +136,13 @@ theorem Thread.toNetwork_spec {chans : Guarded2NetworkChans}
   (fresh : ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃⌜True⌝⦄
     ComputableGuardedPlusCal.Thread.toNetwork (m := G2NM) chans inbox T
-    ⦃⇓? r => ⌜ThreadRefines (V := V) mbox pref T r.2.2 ∧ RxOnly mbox c₀ inbox r.2.1 ∧
+    ⦃⇓? r => ⌜ThreadRefines (V := V) Ξ Ω mbox pref T r.2.2 ∧ RxOnly mbox c₀ inbox r.2.1 ∧
       (ThreadReceives T → r.2.1 ≠ []) ∧ (∀ e ∈ r.1, InboxLocal inbox e) ∧
       (r.1 = [] ↔ r.2.1 = [])⌝⦄ := by
   -- `-StateT.run`, or the toolchain's own spec for it wins and `mapM_stepBlock_spec_run` never
   -- matches — the same removal `processPrecondition_spec` needs one pass level down
   mvcgen [ComputableGuardedPlusCal.Thread.toNetwork, -StateT.run]
-  case vc8.post.success _ _ _ h =>
+  case vc10.post.success _ _ _ h =>
     exact ⟨⟨_, rfl, h.1⟩, h.2.1.1, (λ hrecv ↦ h.2.2 (.inr hrecv)), h.2.1.2.1, h.2.1.2.2⟩
 
 end Guarded2Network

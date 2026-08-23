@@ -32,10 +32,10 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Memory PathStep)
+open ComputableTLAPlus (ExprSemantics Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (AlgState Block ChanKey FIFOs LocalState LocalState ProcState Trace)
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- **`AtomicBranch.reducing_evalArgs` against the freshness bundle the block level already
 carries.** `BranchesFresh` quantifies its precondition clause over `preconditionList`, the locality
@@ -46,9 +46,9 @@ theorem BranchesFresh.evalArgs {c₀ : ComputableGuardedPlusCal.Ref} {inbox : St
     (hf : BranchesFresh (.some (c₀, inbox)) c₀ inbox Br)
     {σ σ' : LocalState V} {ε : Trace V}
     (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      GuardedPlusCal.AtomicBranch.reducing Br)
+      GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br)
     {path : List (PathStep V)} :
-    Ref.EvalArgs σ.mem c₀ path ↔ Ref.EvalArgs σ'.mem c₀ path := by
+    Ref.EvalArgs Ξ Ω σ.mem c₀ path ↔ Ref.EvalArgs Ξ Ω σ'.mem c₀ path := by
   refine AtomicBranch.reducing_evalArgs rfl (λ B' hB' S hS ↦ hf.gfresh S ?_) hf.afresh hf.alast step
   rw [preconditionList, hB']
   exact hS
@@ -65,11 +65,11 @@ Stated against `algRelatesTo`'s witnesses rather than against `algRelatesTo` its
 has already destructured to get at the instance. -/
 theorem relatesTo_of_procRelatesTo {mb : Mailbox} {rx : Set String} {pref : ChanKey V → List V}
     {ib : Option (InboxState V)} {M₁ M₂ : Memory V} {L₁ L₂ : Set String} {F₁ F₂ : FIFOs V}
-    (h : procRelatesTo mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
+    (h : procRelatesTo Ξ Ω mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hkey : ∀ x, ib = .some x → pref x.key = x.contents)
     (hfifo : ∀ k : ChanKey V, F₁.lookup k = (pref k ++ ·) <$> F₂.lookup k)
     (l : Option String) :
-    (⟨M₁, F₁, l⟩ : LocalState V) ∼[mb, pref] ⟨M₂, F₂, l⟩ := by
+    (⟨M₁, F₁, l⟩ : LocalState V) ∼[Ξ, Ω,mb, pref] ⟨M₂, F₂, l⟩ := by
   obtain ⟨-, -, hmatch⟩ := h
   match mb, ib with
   | .none, .none => exact relatesTo.none_intro rfl hmatch hfifo
@@ -96,13 +96,13 @@ process layer's business, and all this needs of it is that the `.rx` labels stay
 theorem procRelatesTo_of_relatesTo {mb : Mailbox} {rx : Set String} {pref : ChanKey V → List V}
     {ib : Option (InboxState V)} {M₁ M₂ M₁' M₂' : Memory V} {L₁ L₂ L₁' : Set String}
     {F₁' F₂' : FIFOs V} {l : Option String}
-    (hold : procRelatesTo mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
+    (hold : procRelatesTo Ξ Ω mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hstable : ∀ (c : ComputableGuardedPlusCal.Ref) (inbox : String), mb = .some (c, inbox) →
-      ∀ path : List (PathStep V), Ref.EvalArgs M₁ c path → Ref.EvalArgs M₁' c path)
-    (hrel : (⟨M₁', F₁', l⟩ : LocalState V) ∼[mb, pref] ⟨M₂', F₂', l⟩)
+      ∀ path : List (PathStep V), Ref.EvalArgs Ξ Ω M₁ c path → Ref.EvalArgs Ξ Ω M₁' c path)
+    (hrel : (⟨M₁', F₁', l⟩ : LocalState V) ∼[Ξ, Ω,mb, pref] ⟨M₂', F₂', l⟩)
     (hdisj : Disjoint L₁' rx) :
     ∃ ib' : Option (InboxState V),
-      procRelatesTo mb rx ib' ⟨M₁', L₁'⟩ ⟨M₂', L₁' ∪ rx⟩ ∧
+      procRelatesTo Ξ Ω mb rx ib' ⟨M₁', L₁'⟩ ⟨M₂', L₁' ∪ rx⟩ ∧
       (∀ x, ib = .some x → ∃ ws, ib' = .some ⟨x.key, ws⟩) ∧
       (ib = .none → ib' = .none) ∧
       (∀ k : ChanKey V, (∀ y, ib' = .some y → y.key ≠ k) →
@@ -149,17 +149,17 @@ branch of the block at the scheduled label". -/
 theorem blockRefines_step {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
-    (h : BranchesRefine (V := V) mbox pref brs brs')
-    {σₛ σₜ σₜ' : LocalState V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
+    (h : BranchesRefine (V := V) Ξ Ω mbox pref brs brs')
+    {σₛ σₜ σₜ' : LocalState V} {ε : Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
     (step : (⟨σₜ, ε, σₜ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      NetworkPlusCal.AtomicBranch.reducing Br') :
-    (∃ σₛ' ε', σₛ' ∼[mbox, pref] σₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
+      NetworkPlusCal.AtomicBranch.reducing Ξ Ω Br') :
+    (∃ σₛ' ε', σₛ' ∼[Ξ, Ω,mbox, pref] σₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
         ∃ Br ∈ brs, (⟨σₛ, ε', σₛ'⟩ : LocalState V × Trace V × LocalState V) ∈
-          GuardedPlusCal.AtomicBranch.reducing Br) ∨
+          GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
         ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState V × Trace V) ∈
-          GuardedPlusCal.AtomicBranch.aborting Br) := by
+          GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) := by
   obtain ⟨Br, hBr, href⟩ := h _ hmem
   rcases href.refines.terminating σₜ σₜ' ε σₛ sim step with
     ⟨σₛ', ε', hrel, hτ, hstep⟩ | ⟨ε', hpfx, habort⟩
@@ -177,21 +177,21 @@ all. -/
 theorem blockRefines_step_indexed {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
-    (h : BranchesRefine (V := V) mbox pref brs brs')
+    (h : BranchesRefine (V := V) Ξ Ω mbox pref brs brs')
     {M₁ M₂ M₂' : Memory V} {F₁ F₂ F₂' : FIFOs V} {l' : String} {ε : Trace V}
-    (sim : (⟨M₁, F₁, none⟩ : LocalState V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
+    (sim : (⟨M₁, F₁, none⟩ : LocalState V) ∼[Ξ, Ω,mbox, pref] ⟨M₂, F₂, none⟩)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
     (step : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some l'⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        NetworkPlusCal.AtomicBranch.reducing Br') :
-    (∃ M₁' F₁' ε', (⟨M₁', F₁', some l'⟩ : LocalState V) ∼[mbox, pref] ⟨M₂', F₂', some l'⟩ ∧
+        NetworkPlusCal.AtomicBranch.reducing Ξ Ω Br') :
+    (∃ M₁' F₁' ε', (⟨M₁', F₁', some l'⟩ : LocalState V) ∼[Ξ, Ω,mbox, pref] ⟨M₂', F₂', some l'⟩ ∧
         (instTrace (V := V)).Rτ ε' ε ∧
         ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε', ⟨M₁', F₁', .some l'⟩⟩ :
           LocalState V × Trace V × LocalState V) ∈
-          GuardedPlusCal.AtomicBranch.reducing Br) ∨
+          GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
         ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
-          GuardedPlusCal.AtomicBranch.aborting Br) := by
+          GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) := by
   rcases blockRefines_step h sim hmem step with
     ⟨⟨M₁', F₁', l₁⟩, ε', hrel, hτ, Br, hBr, hstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
   · -- the source ends at the label the target ended at, which is `relatesTo`'s own first clause
@@ -205,13 +205,13 @@ post-state, so there is nothing to relate afterwards and no witness to rebuild. 
 theorem blockRefines_abort {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
-    (h : BranchesRefine (V := V) mbox pref brs brs')
-    {σₛ σₜ : LocalState V} {ε : Trace V} (sim : σₛ ∼[mbox, pref] σₜ)
+    (h : BranchesRefine (V := V) Ξ Ω mbox pref brs brs')
+    {σₛ σₜ : LocalState V} {ε : Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
-    (habort : (⟨σₜ, ε⟩ : LocalState V × Trace V) ∈ NetworkPlusCal.AtomicBranch.aborting Br') :
+    (habort : (⟨σₜ, ε⟩ : LocalState V × Trace V) ∈ NetworkPlusCal.AtomicBranch.aborting Ξ Ω Br') :
     ∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
       ∃ Br ∈ brs, (⟨σₛ, ε'⟩ : LocalState V × Trace V) ∈
-        GuardedPlusCal.AtomicBranch.aborting Br := by
+        GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br := by
   obtain ⟨Br, hBr, href⟩ := h _ hmem
   obtain ⟨ε', hpfx, hsabort⟩ := href.refines.aborting σₜ ε σₛ sim habort
   exact ⟨ε', hpfx, Br, hBr, hsabort⟩
@@ -221,15 +221,15 @@ theorem blockRefines_abort {mbox : Mailbox} {pref : ChanKey V → List V}
 theorem blockRefines_abort_indexed {mbox : Mailbox} {pref : ChanKey V → List V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
-    (h : BranchesRefine (V := V) mbox pref brs brs')
+    (h : BranchesRefine (V := V) Ξ Ω mbox pref brs brs')
     {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V}
-    (sim : (⟨M₁, F₁, none⟩ : LocalState V) ∼[mbox, pref] ⟨M₂, F₂, none⟩)
+    (sim : (⟨M₁, F₁, none⟩ : LocalState V) ∼[Ξ, Ω,mbox, pref] ⟨M₂, F₂, none⟩)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
     (habort : (⟨⟨M₂, F₂, .none⟩, ε⟩ : LocalState V × Trace V) ∈
-      NetworkPlusCal.AtomicBranch.aborting Br') :
+      NetworkPlusCal.AtomicBranch.aborting Ξ Ω Br') :
     ∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
       ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
-        GuardedPlusCal.AtomicBranch.aborting Br := by
+        GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br := by
   obtain ⟨ε', hpfx, Br, hBr, hsabort⟩ := blockRefines_abort h sim hmem habort
   exact ⟨ε', hpfx, Br, hBr, hsabort⟩
 
@@ -257,31 +257,31 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
     {brs' : List ComputableNetworkPlusCal.AtomicBranch}
     (href : ∀ pref : ChanKey V → List V,
-      BranchesRefine (V := V) (mb p) pref brs brs')
+      BranchesRefine (V := V) Ξ Ω (mb p) pref brs brs')
     (fresh : ∀ Br ∈ brs, ∀ c inbox, mb p = .some (c, inbox) →
       BranchesFresh (.some (c, inbox)) c inbox Br)
-    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs, F₂⟩)
+    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω,mb, rx] ⟨Qs, F₂⟩)
     (hS : Ps p = .some ⟨M₁, L₁⟩)
     (hin : Qs p = .some ⟨M₂, L₂⟩)
     (hlabel : label ∈ L₁) (hlabel' : label' ∉ rx p)
     {Br' : ComputableNetworkPlusCal.AtomicBranch} (hmem : Br' ∈ brs')
     (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label'⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        NetworkPlusCal.AtomicBranch.reducing Br')
+        NetworkPlusCal.AtomicBranch.reducing Ξ Ω Br')
     (hQs : Qs' = Qs.update p (.some ⟨M₂', insert label' (L₂ \ {label})⟩)) :
     (∃ M₁' F₁' ε',
         (⟨Ps.update p (.some ⟨M₁', insert label' (L₁ \ {label})⟩), F₁'⟩ : AlgState ι V)
-            ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
+            ≋[Ξ, Ω,mb, rx] ⟨Qs', F₂'⟩ ∧
         (instTrace (V := V)).Rτ ε' ε ∧
         ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε', ⟨M₁', F₁', .some label'⟩⟩ :
           LocalState V × Trace V × LocalState V) ∈
-          GuardedPlusCal.AtomicBranch.reducing Br) ∨
+          GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧
         ∃ Br ∈ brs, (⟨⟨M₁, F₁, .none⟩, ε'⟩ : LocalState V × Trace V) ∈
-          GuardedPlusCal.AtomicBranch.aborting Br) := by
+          GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) := by
   obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   have hfwd : ∀ q σ, Ps q = .some σ →
-      ∃ σ', Qs q = .some σ' ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+      ∃ σ', Qs q = .some σ' ∧ procRelatesTo Ξ Ω (mb q) (rx q) (ib q) σ σ' := by
     intro q σ hq
     have hm := hmatch q
     rw [hq] at hm
@@ -289,14 +289,14 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
     · rw [hq'] at hm; exact hm.elim
     · rw [hq'] at hm; exact ⟨σ', hq', hm⟩
   have hbwd : ∀ q σ', Qs q = .some σ' →
-      ∃ σ, Ps q = .some σ ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+      ∃ σ, Ps q = .some σ ∧ procRelatesTo Ξ Ω (mb q) (rx q) (ib q) σ σ' := by
     intro q σ' hq'
     have hm := hmatch q
     rw [hq'] at hm
     rcases Option.eq_none_or_eq_some (Ps q) with hq | ⟨σ, hq⟩
     · rw [hq] at hm; exact hm.elim
     · rw [hq] at hm; exact ⟨σ, hq, hm⟩
-  have hproc : procRelatesTo (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
+  have hproc : procRelatesTo Ξ Ω (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
     have hm := hmatch p
     rwa [hS, hin] at hm
   rcases blockRefines_step_indexed (href pref)
@@ -314,11 +314,11 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
       exact hdisj.mono_left Set.sdiff_subset
     -- and the key this instance receives on stays where it was
     have hstable : ∀ (c : ComputableGuardedPlusCal.Ref) (inbox : String), mb p = .some (c, inbox) →
-        ∀ path : List (PathStep V), Ref.EvalArgs M₁ c path → Ref.EvalArgs M₁' c path := by
+        ∀ path : List (PathStep V), Ref.EvalArgs Ξ Ω M₁ c path → Ref.EvalArgs Ξ Ω M₁' c path := by
       intro c inbox hmb path hp
       have hflat : (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε', ⟨M₁', F₁', .some label'⟩⟩ :
           LocalState V × Trace V × LocalState V) ∈
-          GuardedPlusCal.AtomicBranch.reducing Br :=
+          GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br :=
         hsstep
       exact ((fresh Br hBr c inbox hmb).evalArgs hflat).mp hp
     subst hQs
@@ -525,7 +525,8 @@ sides.
 they are what say the compiled algorithm has the same instances. The rest of what `init` wants — the
 entry labels a receiving thread adds, and the `inbox` local the pass declares — is not here, and is
 the initial-state obligation's own business. -/
-structure ProcessRefines (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
+structure ProcessRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
+  (c₀ : ComputableGuardedPlusCal.Ref) (inbox : String)
   (pref : ChanKey V → List V) (p : ComputableGuardedPlusCal.Process)
   (p' : ComputableNetworkPlusCal.Process) : Prop where
     /-- The registered receive loops, then the compiled code threads — and a source process that
@@ -541,7 +542,7 @@ structure ProcessRefines (mbox : Mailbox) (c₀ : ComputableGuardedPlusCal.Ref) 
     threads : ∃ rxs codes news, p'.threads = rxs ++ codes ∧
       p'.localState = { p.localState with «variables» := p.localState.variables ++ news } ∧
       RxOnly mbox c₀ inbox rxs ∧
-      List.Forall₂ (ThreadRefines (V := V) mbox pref) p.threads codes ∧
+      List.Forall₂ (ThreadRefines (V := V) Ξ Ω mbox pref) p.threads codes ∧
       (ProcessReceives p → rxs ≠ []) ∧
       (∀ e ∈ news, InboxLocal inbox e) ∧ (news = [] ↔ rxs = [])
     /-- The mailbox this is all stated against is a name the pass generated. -/
@@ -608,7 +609,7 @@ variable {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
 Said about `rxLabels` rather than about a thread, which is the form the two corollaries below take
 it in. -/
 theorem ProcessRefines.rxLabels_generated
-    (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') {l : String} (hl : l ∈ rxLabels p') :
+    (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p') {l : String} (hl : l ∈ rxLabels p') :
     Generated "rx" l := by
   obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   obtain ⟨_, _, _, hmem⟩ := hl
@@ -627,7 +628,7 @@ choice, and what `procRelatesTo`'s `Disjoint L₁ (rx p)` needs at the algorithm
 Two facts meet here, one from each side, and neither alone says anything about the other's labels:
 the pass generated its receiving labels, and the front end used none that could have been generated.
 That split is the whole design — see `Generated`. -/
-theorem ProcessRefines.rx_disjoint (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.rx_disjoint (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) :
     Disjoint (GuardedPlusCal.Process.ownedLabels p) (rxLabels p') := by
   rw [Set.disjoint_left]
@@ -646,7 +647,7 @@ genuine disjoint union, which is what `procRelatesTo`'s `L₂ = L₁ ∪ rx` is 
 The `⊇` direction is the one that needs `Forall₂.exists_right`: a *source* thread has to be shown to
 have a compiled counterpart, where every other step here goes from a compiled thing back to its
 source. -/
-theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') :
+theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p') :
     NetworkPlusCal.Process.ownedLabels p'
       = rxLabels p' ∪ GuardedPlusCal.Process.ownedLabels p := by
   obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
@@ -679,7 +680,7 @@ what makes the receiving half of this `rxLabels` rather than a subset of it.
 
 The code half needs the two lists' heads to correspond, not just their elements — that is
 `List.Forall₂`'s `nil`/`cons` split, and `BlockRefines` carries the label agreement at each. -/
-theorem ProcessRefines.entryLabels_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') :
+theorem ProcessRefines.entryLabels_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p') :
     NetworkPlusCal.Process.entryLabels p'
       = rxLabels p' ∪ GuardedPlusCal.Process.entryLabels p := by
   obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
@@ -713,9 +714,9 @@ theorem ProcessRefines.entryLabels_eq (h : ProcessRefines (V := V) mbox c₀ inb
 Owed to `Algorithm.init`, which quantifies over the instances each declared process contributes: the
 two algorithms have to declare the same ones, or the states being related would not even be indexed
 alike. -/
-theorem ProcessRefines.identities_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p') :
-    NetworkPlusCal.Process.identities (V := V) p'
-      = GuardedPlusCal.Process.identities (V := V) p := by
+theorem ProcessRefines.identities_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p') :
+    NetworkPlusCal.Process.identities (V := V) Ξ Ω p'
+      = GuardedPlusCal.Process.identities (V := V) Ξ Ω p := by
   rw [NetworkPlusCal.Process.identities_eq, GuardedPlusCal.Process.identities_eq, h.id_eq,
     h.idShape_eq]
 
@@ -731,7 +732,7 @@ process) forces a registration from `.some`.
 
 Owed to `Algorithm.init`: a compiled instance's initial memory is the source's with `inbox` written
 on top, and this is what says which extra initializers wrote it, and when there are none. -/
-theorem ProcessRefines.inits_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.inits_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hused : mbox ≠ .none → ProcessReceives p) :
     ∃ ninits, NetworkPlusCal.Process.inits p' = GuardedPlusCal.Process.inits p ++ ninits ∧
       (∀ e ∈ ninits, InboxInit inbox e) ∧ (ninits = [] ↔ mbox = .none) := by
@@ -768,7 +769,7 @@ theorem ProcessRefines.inits_eq (h : ProcessRefines (V := V) mbox c₀ inbox pre
 /-- **And a compiled block never leaves for one.** The same two facts at a branch's terminal `goto`
 rather than at a block's own label — what stops a code thread from jumping into a receiving loop,
 spent by `ProcessRefines.exits`. -/
-theorem ProcessRefines.exit_not_rx (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.exit_not_rx (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) {T : ComputableGuardedPlusCal.Thread} (hT : T ∈ p.threads)
     {blk : ComputableGuardedPlusCal.AtomicBlock} (hblk : blk ∈ T)
     {Br : ComputableGuardedPlusCal.AtomicBranch} (hBr : Br ∈ blk.branches) {l : String}
@@ -841,8 +842,8 @@ it came from — which is the whole reason `algRelatesTo.step_or_stutter`/`.imme
 `label_cases`' negative half before they can call this. -/
 theorem tgt_reducing_le {p' : ComputableNetworkPlusCal.Process} {l : String}
     (hl : l ∉ rxLabels p') :
-    ∀ x ∈ (NetworkPlusCal.Process.codeTable (V := V) p').reducing l,
-      ∃ Br' ∈ tgtBranchesAt p' l, x ∈ NetworkPlusCal.AtomicBranch.reducing Br' := by
+    ∀ x ∈ (NetworkPlusCal.Process.codeTable (V := V) Ξ Ω p').reducing l,
+      ∃ Br' ∈ tgtBranchesAt p' l, x ∈ NetworkPlusCal.AtomicBranch.reducing Ξ Ω Br' := by
   rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, Br', hBr', hx⟩ | ⟨_, hT, chan, τ, ib, rfl, _⟩)
   · exact ⟨Br', mem_tgtBranchesAt.mpr ⟨blocks, hT, blk', hblk', hlab, hBr'⟩, hx⟩
   · exact (hl ⟨chan, τ, ib, hT⟩).elim
@@ -850,8 +851,8 @@ theorem tgt_reducing_le {p' : ComputableNetworkPlusCal.Process} {l : String}
 /-- The same where it goes wrong. -/
 theorem tgt_aborting_le {p' : ComputableNetworkPlusCal.Process} {l : String}
     (hl : l ∉ rxLabels p') :
-    ∀ x ∈ (NetworkPlusCal.Process.codeTable (V := V) p').aborting l,
-      ∃ Br' ∈ tgtBranchesAt p' l, x ∈ NetworkPlusCal.AtomicBranch.aborting Br' := by
+    ∀ x ∈ (NetworkPlusCal.Process.codeTable (V := V) Ξ Ω p').aborting l,
+      ∃ Br' ∈ tgtBranchesAt p' l, x ∈ NetworkPlusCal.AtomicBranch.aborting Ξ Ω Br' := by
   rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, Br', hBr', hx⟩ | ⟨_, hT, chan, τ, ib, rfl, _⟩)
   · exact ⟨Br', mem_tgtBranchesAt.mpr ⟨blocks, hT, blk', hblk', hlab, hBr'⟩, hx⟩
   · exact (hl ⟨chan, τ, ib, hT⟩).elim
@@ -860,16 +861,16 @@ theorem tgt_aborting_le {p' : ComputableNetworkPlusCal.Process} {l : String}
 unfolding, and it needs no side condition: the source language has no second summand to rule out. -/
 theorem src_reducing_le {p : ComputableGuardedPlusCal.Process} {l : String}
     {Br : ComputableGuardedPlusCal.AtomicBranch} (h : Br ∈ srcBranchesAt p l) :
-    GuardedPlusCal.AtomicBranch.reducing (V := V) Br ⊆
-      (GuardedPlusCal.Process.codeTable p).reducing l := by
+    GuardedPlusCal.AtomicBranch.reducing (V := V) Ξ Ω Br ⊆
+      (GuardedPlusCal.Process.codeTable Ξ Ω p).reducing l := by
   obtain ⟨T, hT, blk, hblk, hlab, hBr⟩ := mem_srcBranchesAt.mp h
   exact λ _ hx ↦ ⟨T, hT, blk, hblk, hlab, Br, hBr, hx⟩
 
 /-- The same where it goes wrong. -/
 theorem src_aborting_le {p : ComputableGuardedPlusCal.Process} {l : String}
     {Br : ComputableGuardedPlusCal.AtomicBranch} (h : Br ∈ srcBranchesAt p l) :
-    GuardedPlusCal.AtomicBranch.aborting (V := V) Br ⊆
-      (GuardedPlusCal.Process.codeTable p).aborting l := by
+    GuardedPlusCal.AtomicBranch.aborting (V := V) Ξ Ω Br ⊆
+      (GuardedPlusCal.Process.codeTable Ξ Ω p).aborting l := by
   obtain ⟨T, hT, blk, hblk, hlab, hBr⟩ := mem_srcBranchesAt.mp h
   exact λ _ hx ↦ ⟨T, hT, blk, hblk, hlab, Br, hBr, hx⟩
 
@@ -881,9 +882,9 @@ code thread, which is some source thread's; the block correspondence carries `bl
 so the source block is at the *same* label and its branches are the ones to match against. The
 labels agreeing is what makes this a statement about a label at all — otherwise the two
 concatenations would be over unrelated blocks. -/
-theorem ProcessRefines.branchesRefine (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.branchesRefine (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (l : String) :
-    BranchesRefine (V := V) mbox pref (srcBranchesAt p l) (tgtBranchesAt p' l) := by
+    BranchesRefine (V := V) Ξ Ω mbox pref (srcBranchesAt p l) (tgtBranchesAt p' l) := by
   obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   intro Br' hBr'
   obtain ⟨blocks, hblocks, blk', hblk', hlab, hmem⟩ := mem_tgtBranchesAt.mp hBr'
@@ -911,12 +912,12 @@ promised is not generated (`exit_not_rx`).
 
 The `match` on `Br.action.last` is that "only terminal constructor" fact, spelled the one way Lean
 accepts it — there is no other branch to write. -/
-theorem ProcessRefines.exits (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.exits (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) {l : String} (hl : l ∉ rxLabels p')
     {M M' : Memory V} {F F' : FIFOs V} {l' : String} {τ : Trace V}
     (hstep : (⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        (NetworkPlusCal.Process.codeTable (V := V) p').reducing l) :
+        (NetworkPlusCal.Process.codeTable (V := V) Ξ Ω p').reducing l) :
     l' ∉ rxLabels p' := by
   obtain ⟨Br', hBr', hx⟩ := tgt_reducing_le hl _ hstep
   obtain ⟨Br, hBr, href⟩ := h.branchesRefine l Br' hBr'
@@ -941,7 +942,7 @@ process's own channel and `inbox` — which in turn means the process has a mail
 The primitive the receiving side is built from, and it is stated at a thread membership rather than
 at `l ∈ rxLabels p'` because that is what both callers hold. `algRelatesTo.step_or_stutter`/
 `.immediateAbort` read the mailbox and its freshness off its first two components. -/
-theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     {chan : ComputableNetworkPlusCal.Ref} {l ib : String} {τ : ComputableTLAPlus.Typ}
     (hT : NetworkPlusCal.Thread.rx chan l τ ib ∈ p'.threads) :
     mbox = .some (c₀, inbox) ∧ inbox ∉ GuardedPlusCal.Ref.freeVars c₀ ∧ chan = c₀ ∧ ib = inbox := by
@@ -957,10 +958,10 @@ theorem ProcessRefines.rxThread (h : ProcessRefines (V := V) mbox c₀ inbox pre
 /-- **A step at a receiving label is the relay.** `l ∉ ownedLabels p` kills `Process.codeTable`'s
 *code* summand: a compiled block carrying this label would have to be the compilation of a source
 block carrying it, and the source owns no such label. -/
-theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
-    (NetworkPlusCal.Process.codeTable (V := V) p').reducing l ⊆
-      NetworkPlusCal.Thread.rxBranch c₀ l inbox := by
+    (NetworkPlusCal.Process.codeTable (V := V) Ξ Ω p').reducing l ⊆
+      NetworkPlusCal.Thread.rxBranch Ξ Ω c₀ l inbox := by
   obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, _, _, _⟩ | ⟨_, hT, chan, τ, ib, rfl, hx⟩)
   · -- a compiled block at this label would give a source block at it, and the source has none
@@ -980,10 +981,10 @@ theorem ProcessRefines.rx_target_le (h : ProcessRefines (V := V) mbox c₀ inbox
 no such label, and what is left is the relay's own aborting set. That set is not empty, and the
 algorithm-level invariant is what rules it out (`algRelatesTo`'s channel-presence clause); ruling it
 out is not this lemma's job — `algRelatesTo.immediateAbort` does it with `rxBranch_not_aborting`. -/
-theorem ProcessRefines.rx_target_abort_le (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.rx_target_abort_le (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     {l : String} (hsrc : l ∉ GuardedPlusCal.Process.ownedLabels p) :
-    (NetworkPlusCal.Process.codeTable (V := V) p').aborting l ⊆
-      NetworkPlusCal.Thread.rxBranchAborting c₀ inbox := by
+    (NetworkPlusCal.Process.codeTable (V := V) Ξ Ω p').aborting l ⊆
+      NetworkPlusCal.Thread.rxBranchAborting Ξ Ω c₀ inbox := by
   obtain ⟨_, _, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
   rintro x (⟨_, hT, blocks, rfl, blk', hblk', hlab, _, _, _⟩ | ⟨_, hT, chan, τ, ib, rfl, hx⟩)
   · rw [hsplit] at hT
@@ -1005,7 +1006,7 @@ shape `algRelatesTo.step_or_stutter`/`.immediateAbort` consume once they know `l
 (`Process.ownedLabels_of_reducing`/`.ownedLabels_of_aborting`). The negative halves are not
 decoration — the code case's is what closes off a receiving thread's label at `block_step`, and the
 other is what collapses `Process.codeTable`'s union at a receiving label. -/
-theorem ProcessRefines.label_cases (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.label_cases (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hyg : LabelsHygienic p) {l : String}
     (hl : l ∈ NetworkPlusCal.Process.ownedLabels p') :
     (l ∈ GuardedPlusCal.Process.ownedLabels p ∧ l ∉ rxLabels p') ∨
@@ -1023,7 +1024,7 @@ receives does say it: the thread it registered is an `.rx` on exactly those two 
 Wanted wherever a `.some` mailbox has to be taken apart — `procMailbox_inbox_ne_selfName` needs the
 `inbox` to be the generated one, which is a field of this structure and not of an arbitrary
 `Mailbox`. -/
-theorem ProcessRefines.mailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.mailbox_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hused : mbox ≠ .none → ProcessReceives p) (hne : mbox ≠ .none) :
     mbox = .some (c₀, inbox) := by
   obtain ⟨rxs, _, _, -, -, hrx, -, hreg, -, -⟩ := h.threads
@@ -1044,7 +1045,7 @@ in `Registered` is for.
 `hused` is the front end's, and is where the *declared* mailbox does its work. Nothing in the pass
 rules out being handed a `.some` mailbox for a process that never receives; `checkReceiveChannels`
 does, by rejecting a `receive` with no declaration and dropping a declaration no `receive` uses. -/
-theorem ProcessRefines.rxMailbox_eq (h : ProcessRefines (V := V) mbox c₀ inbox pref p p')
+theorem ProcessRefines.rxMailbox_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
     (hused : mbox ≠ .none → ProcessReceives p) : rxMailbox p' = mbox := by
   obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, hreg, -, -⟩ := h.threads
   rcases rxs with _ | ⟨T, rest⟩
@@ -1140,7 +1141,7 @@ private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2Netwo
     ⦃⌜True⌝⦄
     Ts.mapM (ComputableGuardedPlusCal.Thread.toNetwork (m := G2NM) chans inbox)
     ⦃⇓? rs _ =>
-      ⌜List.Forall₂ (ThreadRefines (V := V) mbox pref) Ts (rs.map (·.2.2)) ∧
+      ⌜List.Forall₂ (ThreadRefines (V := V) Ξ Ω mbox pref) Ts (rs.map (·.2.2)) ∧
         RxOnly mbox c₀ inbox (rs.flatMap (·.2.1)) ∧
         ((∃ T ∈ Ts, ThreadReceives T) → rs.flatMap (·.2.1) ≠ []) ∧
         (∀ e ∈ rs.flatMap (·.1), InboxLocal inbox e) ∧
@@ -1148,14 +1149,14 @@ private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2Netwo
   mvcgen [Thread.toNetwork_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ _ =>
-    ⌜List.Forall₂ (ThreadRefines (V := V) mbox pref) cur.prefix (res.map (·.2.2)) ∧
+    ⌜List.Forall₂ (ThreadRefines (V := V) Ξ Ω mbox pref) cur.prefix (res.map (·.2.2)) ∧
       RxOnly mbox c₀ inbox (res.flatMap (·.2.1)) ∧
       ((∃ T ∈ cur.prefix, ThreadReceives T) → res.flatMap (·.2.1) ≠ []) ∧
       (∀ e ∈ res.flatMap (·.1), InboxLocal inbox e) ∧
       (res.flatMap (·.1) = [] ↔ res.flatMap (·.2.1) = [])⌝
   with
   -- `Thread.toNetwork_spec`'s implicits, abstracted over the loop's context and wrapped in `id`
-  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 => intro _ _; assumption
+  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 => intro _ _; assumption
 
   case vc1.pre => exact ⟨.nil, nofun, nofun, nofun, iff_of_true rfl rfl⟩
   case vc2.post.success =>
@@ -1181,7 +1182,7 @@ private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2Netwo
       exact and_congr hinv.2.2.2.2 hboth
 
   -- the freshness hypothesis at whichever thread the walk is currently on
-  case vc11 _ _ cur _ hsplit _ =>
+  case vc13 _ _ cur _ hsplit _ =>
     intro _ _
     rw [hsplit] at fresh
     exact fresh cur (List.mem_append_right _ List.mem_cons_self)
@@ -1198,16 +1199,16 @@ theorem Process.toNetwork_spec [SeqBuiltins V] {globalChans : Guarded2NetworkCha
   {p : ComputableGuardedPlusCal.Process} (fresh : ProcessFresh mbox c₀ p) :
     ⦃⌜True⌝⦄
     ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans p
-    ⦃⇓? p' _ => ⌜∃ inbox, ProcessRefines (V := V) (mbox inbox) c₀ inbox pref p p'⌝⦄ := by
+    ⦃⇓? p' _ => ⌜∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox inbox) c₀ inbox pref p p'⌝⦄ := by
   -- `-Spec.mapM_list`, or the generic loop spec matches the walk before `mapM_threadToNetwork_spec`
   mvcgen [ComputableGuardedPlusCal.Process.toNetwork, freshName_spec, mapM_threadToNetwork_spec,
     -Std.Do.Spec.mapM_list]
 
   -- the mailbox and the walk's freshness hypothesis, both at the name `freshName` just generated
-  case vc4.mbox _ ib _ _ _ => exact mbox ib
-  case vc7.fresh => exact fresh _ ‹_›
+  case vc6.mbox _ ib _ _ _ => exact mbox ib
+  case vc9.fresh => exact fresh _ ‹_›
 
-  case vc8.post.success.post.success _ _ _ _ hgen _ _ _ _ _ hinv =>
+  case vc10.post.success.post.success _ _ _ _ hgen _ _ _ _ _ hinv =>
     refine ⟨_, ?_, hgen, rfl, rfl, rfl⟩
     refine ⟨_, _, _, rfl, rfl, hinv.2.1, hinv.1, hinv.2.2.1, ?_, ?_⟩
     -- the declared locals are the walk's, deduped: it drops entries but invents none …

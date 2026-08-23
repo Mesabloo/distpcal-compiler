@@ -24,10 +24,10 @@ public import Core.NetworkPlusCal.Semantics.Lemmas
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Expression Memory PathStep)
+open ComputableTLAPlus (ExprSemantics Expression Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (EvalStep FIFOs LocalState Trace)
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! ## The pass's substitution, and what it does to evaluation -/
 
@@ -84,18 +84,18 @@ theorem consumptions_cons {a : ComputableGuardedPlusCal.Ref × ComputablePlusCal
 branch of the two reorder lemmas needs the transfer in this form, so the conversion happens once. -/
 theorem evalSubstRef {r : ComputableGuardedPlusCal.Ref}
     {rhs e : ComputablePlusCal.Expression} {M M' : Memory V} {v w : V}
-    {rpath : List (PathStep V)} (hv : M ⊢ rhs ⇒ v) (hpath : Ref.EvalArgs M r rpath)
+    {rpath : List (PathStep V)} (hv : ExprSemantics.Eval Ξ Ω M rhs v) (hpath : Ref.EvalArgs Ξ Ω M r rpath)
     (hupd : ComputableTLAPlus.Memory.update M r.name rpath v = some M') :
-    (M' ⊢ e ⇒ w) ↔ (M ⊢ Expression.substRef r rhs e ⇒ w) :=
+    ExprSemantics.Eval Ξ Ω M' e w ↔ ExprSemantics.Eval Ξ Ω M (Expression.substRef r rhs e) w :=
   ExprSemantics.evalSubstRef hv (EvalStep.resolvesPath_iff.mp hpath) hupd
 
 /-- The same transfer for a guard that has no value at all: an assignment cannot make an expression
 start or stop aborting, once the substitution has been applied to it. -/
 theorem abortsSubstRef {r : ComputableGuardedPlusCal.Ref}
     {rhs e : ComputablePlusCal.Expression} {M M' : Memory V} {v : V}
-    {rpath : List (PathStep V)} (hv : M ⊢ rhs ⇒ v) (hpath : Ref.EvalArgs M r rpath)
+    {rpath : List (PathStep V)} (hv : ExprSemantics.Eval Ξ Ω M rhs v) (hpath : Ref.EvalArgs Ξ Ω M r rpath)
     (hupd : ComputableTLAPlus.Memory.update M r.name rpath v = some M') :
-    (M' ⊢ e ↯) ↔ (M ⊢ Expression.substRef r rhs e ↯) :=
+    ExprSemantics.Aborts Ξ Ω M' e ↔ ExprSemantics.Aborts Ξ Ω M (Expression.substRef r rhs e) :=
   ExprSemantics.aborts_congr λ _ ↦ evalSubstRef hv hpath hupd
 
 /-! ## Freshness
@@ -163,7 +163,7 @@ path resolves. Every index expression of the reference reads only names the refe
 (`Ref.freeVars_of_mem_args`), so `evalLocal` applies segment by segment. -/
 theorem pathAborts_congr {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref} {x : String}
     (agree : ∀ y ≠ x, M₁.lookup y = M₂.lookup y) (hx : x ∉ GuardedPlusCal.Ref.freeVars r) :
-    GuardedPlusCal.Ref.pathAborts M₁ r ↔ GuardedPlusCal.Ref.pathAborts M₂ r := by
+    GuardedPlusCal.Ref.pathAborts Ξ Ω M₁ r ↔ GuardedPlusCal.Ref.pathAborts Ξ Ω M₂ r := by
   rw [GuardedPlusCal.Ref.pathAborts_iff, GuardedPlusCal.Ref.pathAborts_iff]
   refine exists_congr λ e ↦ and_congr_right λ hmem ↦ ?_
   exact ExprSemantics.aborts_congr λ _ ↦ ExprSemantics.evalLocal λ y hy ↦
@@ -172,7 +172,7 @@ theorem pathAborts_congr {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Re
 @[inherit_doc pathAborts_congr]
 theorem pathAborts_insert_iff {M : Memory V} {r : ComputableGuardedPlusCal.Ref} {x : String}
     {u : V} (hx : x ∉ GuardedPlusCal.Ref.freeVars r) :
-    GuardedPlusCal.Ref.pathAborts (M.insert x u) r ↔ GuardedPlusCal.Ref.pathAborts M r :=
+    GuardedPlusCal.Ref.pathAborts Ξ Ω (M.insert x u) r ↔ GuardedPlusCal.Ref.pathAborts Ξ Ω M r :=
   (pathAborts_congr lookup_insert_agree hx).symm
 
 /-- An assignment either aborts or takes a step. The four aborting clauses are jointly the exact
@@ -183,14 +183,14 @@ is an inclusion where the reducing one is an equation. Classical, twice over: `A
 theorem assign_aborts_or_steps {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {M : Memory V} {F : FIFOs V} :
     (⟨⟨M, F, .none⟩, 1⟩ : LocalState V × Trace V) ∈
-        NetworkPlusCal.Statement.aborting (.assign r rhs) ∨
-      ∃ v rpath M', (M ⊢ rhs ⇒ v) ∧ Ref.EvalArgs M r rpath ∧
+        NetworkPlusCal.Statement.aborting Ξ Ω (.assign r rhs) ∨
+      ∃ v rpath M', (ExprSemantics.Eval Ξ Ω M rhs v) ∧ Ref.EvalArgs Ξ Ω M r rpath ∧
         ComputableTLAPlus.Memory.update M r.name rpath v = some M' := by classical
   by_cases hname : r.name ∈ M
-  · by_cases habort : M ⊢ rhs ↯
+  · by_cases habort : ExprSemantics.Aborts Ξ Ω M rhs
     · exact .inl (NetworkPlusCal.Statement.aborting.assign.iff.mpr
         ⟨M, F, rfl, rfl, .inr (.inl habort)⟩)
-    · by_cases hpath : GuardedPlusCal.Ref.pathAborts M r
+    · by_cases hpath : GuardedPlusCal.Ref.pathAborts Ξ Ω M r
       · exact .inl (NetworkPlusCal.Statement.aborting.assign.iff.mpr
           ⟨M, F, rfl, rfl, .inr (.inr (.inl hpath))⟩)
       · obtain ⟨v, hv⟩ := not_not.mp habort
@@ -209,9 +209,9 @@ theorem assign_aborting_of_insert {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {M : Memory V} {F : FIFOs V} {x : String} {u : V}
     {ε : Trace V} (hx : x ∉ GuardedPlusCal.Ref.freeVars r) (hrhs : Expression.FreshIn x rhs)
     (h : (⟨⟨(M.insert x u), F, .none⟩, ε⟩ : LocalState V × Trace V) ∈
-      NetworkPlusCal.Statement.aborting (.assign r rhs)) :
+      NetworkPlusCal.Statement.aborting Ξ Ω (.assign r rhs)) :
     (⟨⟨M, F, .none⟩, ε⟩ : LocalState V × Trace V) ∈
-      NetworkPlusCal.Statement.aborting (.assign r rhs) := by
+      NetworkPlusCal.Statement.aborting Ξ Ω (.assign r rhs) := by
   have hne : x ≠ r.name := ne_name_of_fresh hx
   obtain ⟨M₀, F₀, hstate, rfl, hd⟩ := NetworkPlusCal.Statement.aborting.assign.iff.mp h
   injection hstate with hM hF'
@@ -239,10 +239,10 @@ insertion order stops being observable (`ComputableTLAPlus.Memory`). -/
 theorem reorder_assign_guard {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : GuardFresh r rhs S) :
-    NetworkPlusCal.Statement.reducing (V := V) (.assign r rhs) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing S =
-      NetworkPlusCal.Statement.reducing (substGuardStmt r rhs S) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing (V := V) (.assign r rhs) := by
+    NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing Ξ Ω S =
+      NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) := by
   cases S with
   | «with» x ann bound e =>
     obtain ⟨hx, hrhs⟩ := fresh x ann bound e rfl
@@ -275,8 +275,8 @@ theorem reorder_assign_guard {r : ComputableGuardedPlusCal.Ref}
       injection hF' with hF _
       subst hF
       obtain ⟨M', hupd', rfl⟩ := (ComputableTLAPlus.Memory.update_insert_iff hne).mpr hupd
-      have hv' : M ⊢ rhs ⇒ v := (eval_insert_of_fresh hrhs).mp hv
-      have hpath' : Ref.EvalArgs M r rpath :=
+      have hv' : ExprSemantics.Eval Ξ Ω M rhs v := (eval_insert_of_fresh hrhs).mp hv
+      have hpath' : Ref.EvalArgs Ξ Ω M r rpath :=
         (Ref.EvalArgs.congr_of_fresh lookup_insert_agree hx).mpr hpath
       refine ⟨⟨M', F, .none⟩, 1, 1, ?_, ?_, rfl⟩
       · exact NetworkPlusCal.Statement.reducing.assign.intro
@@ -327,10 +327,10 @@ theorem reorder_assigns_guard
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
-    NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing S =
-      NetworkPlusCal.Statement.reducing (substGuards A S) ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) := by
+    NetworkPlusCal.Statement.listReducing (V := V) Ξ Ω (consumptions A) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing Ξ Ω S =
+      NetworkPlusCal.Statement.reducing Ξ Ω (substGuards A S) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing (V := V) Ξ Ω (consumptions A) := by
   induction A with
   | nil =>
     rw [consumptions_nil, NetworkPlusCal.Statement.listReducing_nil, substGuards_nil,
@@ -355,10 +355,10 @@ sweep across every call site in this phase. -/
 theorem reorder_assign_guard' {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : GuardFresh r rhs S) :
-    NetworkPlusCal.Statement.reducing (V := V) (.assign r rhs) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing S =
-      NetworkPlusCal.Statement.reducing (substGuardStmt r rhs S) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing (V := V) (.assign r rhs) :=
+    NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing Ξ Ω S =
+      NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) :=
   reorder_assign_guard fresh
 
 /-- `reorder_assigns_guard` in the flat encoding. The list induction is redone rather than
@@ -371,10 +371,10 @@ theorem reorder_assigns_guard'
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
-    NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) ∘ᵣ₂
-        NetworkPlusCal.Statement.reducing S =
-      NetworkPlusCal.Statement.reducing (substGuards A S) ∘ᵣ₂
-        NetworkPlusCal.Statement.listReducing (V := V) (consumptions A) := by
+    NetworkPlusCal.Statement.listReducing (V := V) Ξ Ω (consumptions A) ∘ᵣ₂
+        NetworkPlusCal.Statement.reducing Ξ Ω S =
+      NetworkPlusCal.Statement.reducing Ξ Ω (substGuards A S) ∘ᵣ₂
+        NetworkPlusCal.Statement.listReducing (V := V) Ξ Ω (consumptions A) := by
   induction A with
   | nil =>
     rw [consumptions_nil, NetworkPlusCal.Statement.listReducing_nil, substGuards_nil,
@@ -398,12 +398,12 @@ no way to change whether the assignment fails. -/
 theorem reorder_assign_guard_abort {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : GuardFresh r rhs S) :
-    NetworkPlusCal.Statement.aborting (substGuardStmt r rhs S) ∪
-        NetworkPlusCal.Statement.reducing (substGuardStmt r rhs S) ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting (V := V) (.assign r rhs) ≤
-      NetworkPlusCal.Statement.aborting (V := V) (.assign r rhs) ∪
-        NetworkPlusCal.Statement.reducing (V := V) (.assign r rhs) ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting S := by
+    NetworkPlusCal.Statement.aborting Ξ Ω (substGuardStmt r rhs S) ∪
+        NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ≤
+      NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ∪
+        NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting Ξ Ω S := by
   cases S with
   | «with» x ann bound e =>
     obtain ⟨hx, hrhs⟩ := fresh x ann bound e rfl
@@ -445,12 +445,12 @@ theorem reorder_assign_guard_abort {r : ComputableGuardedPlusCal.Ref}
 theorem reorder_assign_guard_abort' {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : GuardFresh r rhs S) :
-    NetworkPlusCal.Statement.aborting (V := V) (substGuardStmt r rhs S) ∪
-        NetworkPlusCal.Statement.reducing (substGuardStmt r rhs S) ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting (V := V) (.assign r rhs) ≤
-      NetworkPlusCal.Statement.aborting (V := V) (.assign r rhs) ∪
-        NetworkPlusCal.Statement.reducing (V := V) (.assign r rhs) ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting S :=
+    NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (substGuardStmt r rhs S) ∪
+        NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ≤
+      NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ∪
+        NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting Ξ Ω S :=
   reorder_assign_guard_abort fresh
 
 /-- **The whole accumulator past one source-written guard, for the runs that fail.**
@@ -464,12 +464,12 @@ theorem reorder_assigns_guard_abort'
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
     (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
-    NetworkPlusCal.Statement.aborting (V := V) (substGuards A S) ∪
-        NetworkPlusCal.Statement.reducing (substGuards A S) ∘ᵣ₁
-          NetworkPlusCal.Statement.listAborting (consumptions A) ≤
-      NetworkPlusCal.Statement.listAborting (V := V) (consumptions A) ∪
-        NetworkPlusCal.Statement.listReducing (consumptions A) ∘ᵣ₁
-          NetworkPlusCal.Statement.aborting S := by
+    NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (substGuards A S) ∪
+        NetworkPlusCal.Statement.reducing Ξ Ω (substGuards A S) ∘ᵣ₁
+          NetworkPlusCal.Statement.listAborting Ξ Ω (consumptions A) ≤
+      NetworkPlusCal.Statement.listAborting (V := V) Ξ Ω (consumptions A) ∪
+        NetworkPlusCal.Statement.listReducing Ξ Ω (consumptions A) ∘ᵣ₁
+          NetworkPlusCal.Statement.aborting Ξ Ω S := by
   induction A with
   | nil =>
     rw [consumptions_nil, substGuards_nil, NetworkPlusCal.Statement.listAborting_nil,

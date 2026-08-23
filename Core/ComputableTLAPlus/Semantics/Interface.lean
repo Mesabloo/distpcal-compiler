@@ -27,11 +27,40 @@ public import Mathlib.Data.Finmap
   derivation tree is exactly an expression with no value — which is why `Aborts` below is derived
   from `Eval` rather than being a second parameter.
 
+  `Eval` also takes an `OperatorEnv` (`Ξ`) and a `Model` (`Ω`), separate from `Memory` — see those
+  types' own docs — to resolve a user-defined operator's name and a `CONSTANT`'s value; see `evalVar`
+  for how the three environments interact.
+
   Refining this to the real TLA⁺ semantics means providing one `ExprSemantics` instance for a
   concrete value type; nothing downstream of this file changes.
 -/
 
 namespace ComputableTLAPlus
+
+/-- The operator environment: a static table from a declaring module's name and an operator name in
+it to that operator's formal parameters (name paired with arity — `0` for a plain value parameter,
+`n > 0` for an `n`-ary higher-order parameter) and its defining body expression. Mirrors
+`Declaration.operator`'s own `List (String × Nat) → Expression α` shape, since `Ξ` is populated from
+exactly those declarations, one module at a time.
+
+Keyed by module name because `Origin.module name` — the tag a `.var` node referring to an operator
+carries, whether the operator lives in the same module or was reached through `EXTENDS` — already
+names the module to look in; `evalVar` below consults `Ξ` only for that origin, so a name can never
+be ambiguous between two modules'. A `CONSTANT` declaration is not in `Ξ` — it has no defining body —
+see `Model` below for how a `CONSTANT`'s `.var` node gets its value instead.
+
+Not indexed by `V`: unlike `Memory`, an unevaluated operator body is a piece of syntax, not a value,
+so `Ξ` needs no value type to be well-formed. Kept a plain function rather than a `Finmap` — nothing
+in this file's laws ever needs to enumerate or compare two `Ξ`s, only look one name up. -/
+abbrev OperatorEnv : Type := String → String → Option (List (String × Nat) × Expression Typ)
+
+/-- The model: an assignment of a value to every `CONSTANT` a run fixes one for, keyed the same way
+`Ξ` is (declaring module, then name) since a `CONSTANT`'s `.var` node carries the same `Origin.module`
+tag an operator reference does. Kept opaque and partial rather than computed: a `CONSTANT` has no
+defining expression to evaluate (`Declaration.constants` carries only a name and a type), so its
+value can only ever come from outside — one run's choice of `Model`, not this file's laws. A name
+with no entry has no value under `Eval`, same as any other partiality in this class. -/
+abbrev Model (V : Type) : Type := String → String → Option V
 
 /-- A memory: a partial map from names to values.
 
@@ -67,9 +96,9 @@ Held abstract here; a concrete TLA⁺ evaluator later supplies one instance. -/
 class ExprSemantics (V : Type) where
   /-- Values are compared for equality when used as FIFO index keys. -/
   [decEq : DecidableEq V]
-  /-- `Eval M e v` — under memory `M`, expression `e` denotes `v`. Relational rather than
-  functional, see this file's module doc. -/
-  Eval : Memory V → Expression Typ → V → Prop
+  /-- `Eval Ξ Ω M e v` — under operator environment `Ξ`, model `Ω`, and memory `M`, expression `e`
+  denotes `v`. Relational rather than functional, see this file's module doc. -/
+  Eval : OperatorEnv → Model V → Memory V → Expression Typ → V → Prop
   /-- The value of `TRUE`. -/
   tru : V
   /-- The value is a boolean. Only needed to state that a non-boolean guard *aborts*, as opposed to
@@ -112,7 +141,8 @@ class ExprSemantics (V : Type) where
   initial state exists only if every declared initializer evaluates, so an implication would leave a
   `<<>>` initializer free to have no value at all. The implication form is `isSeq_of_eval_seq_nil`
   below, `evalUnique` away. -/
-  eval_seq_nil {M : Memory V} {τ : Typ} : ∃ s, Eval M (.seq [] τ) s ∧ isSeq s []
+  eval_seq_nil {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {τ : Typ} :
+    ∃ s, Eval Ξ Ω M (.seq [] τ) s ∧ isSeq s []
   /-- Appending to a sequence value always succeeds, and appends to its element list. Stated as
   existence rather than as an equation on a given result so that `seqAppend`'s *totality on
   sequences* is part of the law — `Thread.rxBranch` treats a failed append as an abort, which must
@@ -135,17 +165,40 @@ class ExprSemantics (V : Type) where
   Load-bearing rather than cosmetic: a `Ref`'s index path resolves through `EvalStep`, so without
   this a channel reference could resolve to two different `ChanKey`s at once and no invariant could
   name *the* FIFO a `receive` reads. `EvalStep.path_inj` is that consequence. -/
-  evalUnique {M : Memory V} {e : Expression Typ} {v w : V} : Eval M e v → Eval M e w → v = w
-  /-- A variable node denotes what the memory binds its name to, and denotes nothing when the name
-  is unbound.
+  evalUnique {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {e : Expression Typ} {v w : V} :
+    Eval Ξ Ω M e v → Eval Ξ Ω M e w → v = w
+  /-- A variable node's meaning is dispatched on its `Origin`, each case denoting from exactly one of
+  the three environments:
+  - `.binder` — the name is a lexical binder (a PlusCal variable among them): `M.lookup x`.
+  - `.intrinsic` — a hardcoded builtin (`=`, `/\`, `DOMAIN`, …) has no value on its own; it only means
+    something as the head of an `opCall`, which a concrete `ExprSemantics` instance dispatches off the
+    builtin table directly. Bare, it denotes nothing — hence `False`, not a memory lookup: nothing in
+    `Memory` could ever legitimately answer for it, so a law delegating to `M.lookup` here would only
+    happen to give the right answer by nothing being stored under that name, rather than by construction.
+  - `.module m` — looked up in `Ξ`'s entry for `m`. A 0-arity operator/function denotes its body's
+    value, evaluated under the *same* `Ξ`/`Ω`/`M` — every free name a well-typed 0-arity body can
+    contain is, by construction, one this project's type checker already resolved (a binder inside the
+    body itself, an intrinsic, or another `.module`-origined name), so the same three environments
+    already carry whatever that resolution needs. A name `Ξ m` has no 0-arity entry for is either a
+    higher-order operator referenced bare (only an `opCall` gives one meaning — `False`, same reasoning
+    as `.intrinsic`) or a `CONSTANT`, whose value comes from `Ω m x` instead.
+
+  Structurally unambiguous throughout: `Origin` alone selects the case, so no invariant about names or
+  shadowing is needed to keep the environments from racing.
 
   Stated for every `Origin`, not only `.binder`: `Expression.subst` and `Expression.freeVars` both
   match a `.var` on its name alone and ignore its origin, so `evalSubst` below already commits every
-  `.var` node to being memory-resolved — a kind-restricted law would contradict a law already here.
-  TLA⁺ builtins are unaffected: they occur only as `opCall` callees, and it is the call as a whole
-  whose meaning `Eval` fixes. -/
-  evalVar {M : Memory V} {x : String} {τ : Typ} {o : Origin} {v : V} :
-    Eval M (.var x τ o) v ↔ M.lookup x = some v
+  `.var` node to being resolved this way — a kind-restricted law would contradict a law already here. -/
+  evalVar {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {x : String} {τ : Typ} {o : Origin} {v : V} :
+    Eval Ξ Ω M (.var x τ o) v ↔
+      match o with
+      | .binder => M.lookup x = some v
+      | .intrinsic => False
+      | .module m =>
+        match Ξ m x with
+        | some ([], body) => Eval Ξ Ω M body v
+        | some (_ :: _, _) => False
+        | none => Ω m x = some v
   /-- Applying a coercion to an expression denotes the coercion applied to that expression's value.
   `TypedTLAPlus.Coercion.applyComputable` and `coerce` above are the expression-level and
   value-level views of one operation, and this is the only thing connecting them — a pass that
@@ -154,33 +207,33 @@ class ExprSemantics (V : Type) where
 
   An `↔`: the forward reading turns the target's evaluated right-hand side into the source's
   `coerce` obligation, the backward one builds the target's from the source's. -/
-  evalCoerce {M : Memory V} {c : TypedTLAPlus.Coercion} {e : Expression Typ} {v' : V} :
-    Eval M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔ ∃ v, Eval M e v ∧ coerce c v v'
+  evalCoerce {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {c : TypedTLAPlus.Coercion}
+      {e : Expression Typ} {v' : V} :
+    Eval Ξ Ω M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce c v v'
   /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
-  agreeing results. -/
-  evalLocal {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
-    (∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) → (Eval M₁ e v ↔ Eval M₂ e v)
+  agreeing results, for shared `Ξ`/`Ω` (immutable within one evaluation, see this file's module doc,
+  so there is nothing to vary them against). -/
+  evalLocal {Ξ : OperatorEnv} {Ω : Model V} {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
+    (∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) → (Eval Ξ Ω M₁ e v ↔ Eval Ξ Ω M₂ e v)
   /-- Substitution is evaluation-under-extended-memory, read backwards: binding `x` to `e'`'s
   value and evaluating `e` agrees with evaluating `e`'s `x`-substituted form under the original
   memory. -/
-  evalSubst {M : Memory V} {x : String} {e' e : Expression Typ} {v' v : V} :
-    Eval M e' v' → (Eval (M.insert x v') e v ↔ Eval M (Expression.subst x e' e) v)
+  evalSubst {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {x : String} {e' e : Expression Typ}
+      {v' v : V} :
+    Eval Ξ Ω M e' v' → (Eval Ξ Ω (M.insert x v') e v ↔ Eval Ξ Ω M (Expression.subst x e' e) v)
   /-- `[f EXCEPT ![path] = rhs]` denotes `updatePath` applied to `f`'s value, `rhs`'s value, and
   the syntactic path resolved (`ResolvesPath`) against the same memory. Scoped to the one-update
   form — the only shape `Expression.substRef` ever produces. -/
-  evalExcept {M : Memory V} {f rhs : Expression Typ} {τ : Typ} {path : List (String ⊕ Expression Typ)}
-      {vf vr v : V} {resolved : List (PathStep V)} :
-    Eval M f vf → ResolvesPath Eval M path resolved → Eval M rhs vr →
-    (Eval M (.except f τ [(path, rhs)]) v ↔ updatePath vf resolved vr = some v)
+  evalExcept {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {f rhs : Expression Typ} {τ : Typ}
+      {path : List (String ⊕ Expression Typ)} {vf vr v : V} {resolved : List (PathStep V)} :
+    Eval Ξ Ω M f vf → ResolvesPath (Eval Ξ Ω) M path resolved → Eval Ξ Ω M rhs vr →
+    (Eval Ξ Ω M (.except f τ [(path, rhs)]) v ↔ updatePath vf resolved vr = some v)
 
 attribute [reducible, instance] ExprSemantics.decEq
 
 namespace ExprSemantics
 
 variable {V : Type} [ExprSemantics V]
-
-@[inherit_doc ExprSemantics.Eval]
-notation:60 M:60 " ⊢ " e:0 " ⇒ " v:60 => ExprSemantics.Eval M e v
 
 /-- `seqAppend_isSeq` read against a result already in hand: `seqAppend` is a function, so its
 `some` result is *the* one the law produces. -/
@@ -193,25 +246,24 @@ theorem isSeq_of_seqAppend {s v s' : V} {vs : List V} (h : ExprSemantics.isSeq s
 
 /-- `eval_seq_nil` read against a value already in hand: evaluation is deterministic, so *the* value
 of `<<>>` is the empty sequence. -/
-theorem isSeq_of_eval_seq_nil {M : Memory V} {τ : Typ} {s : V}
-    (h : ExprSemantics.Eval M (.seq [] τ) s) : ExprSemantics.isSeq s [] := by
-  obtain ⟨s', h', hseq⟩ := ExprSemantics.eval_seq_nil (M := M) (τ := τ)
+theorem isSeq_of_eval_seq_nil {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {τ : Typ} {s : V}
+    (h : ExprSemantics.Eval Ξ Ω M (.seq [] τ) s) : ExprSemantics.isSeq s [] := by
+  obtain ⟨s', h', hseq⟩ := ExprSemantics.eval_seq_nil (Ξ := Ξ) (Ω := Ω) (M := M) (τ := τ)
   rwa [ExprSemantics.evalUnique h' h] at hseq
 
-/-- `M ⊢ e ↯` — `e` has no value at all under `M`. Derived rather than assumed: with `Eval` a
-relation, "no derivation tree" already *is* the meaning of "no value", so nothing links the two
-notions that needs stating separately. -/
-def Aborts (M : Memory V) (e : Expression Typ) : Prop := ¬ ∃ v, M ⊢ e ⇒ v
-
-@[inherit_doc Aborts]
-notation:60 M:60 " ⊢ " e:0 " ↯" => ExprSemantics.Aborts M e
+/-- `Aborts Ξ Ω M e` — `e` has no value at all under `Ξ`/`Ω`/`M`. Derived rather than assumed: with
+`Eval` a relation, "no derivation tree" already *is* the meaning of "no value", so nothing links the
+two notions that needs stating separately. -/
+def Aborts (Ξ : OperatorEnv) (Ω : Model V) (M : Memory V) (e : Expression Typ) : Prop :=
+  ¬ ∃ v, ExprSemantics.Eval Ξ Ω M e v
 
 /-- `Aborts` transported along an agreement between two evaluations. Every transfer lemma about
 `Eval` has an `Aborts` counterpart, and `Aborts` being a negated existential means each one is this
 same `not_congr (exists_congr …)` — stating it once keeps the definition's body out of the proofs
 that use it. -/
-theorem aborts_congr {M₁ M₂ : Memory V} {e₁ e₂ : Expression Typ}
-    (h : ∀ v, (M₁ ⊢ e₁ ⇒ v) ↔ (M₂ ⊢ e₂ ⇒ v)) : (M₁ ⊢ e₁ ↯) ↔ (M₂ ⊢ e₂ ↯) :=
+theorem aborts_congr {Ξ : OperatorEnv} {Ω : Model V} {M₁ M₂ : Memory V} {e₁ e₂ : Expression Typ}
+    (h : ∀ v, ExprSemantics.Eval Ξ Ω M₁ e₁ v ↔ ExprSemantics.Eval Ξ Ω M₂ e₂ v) :
+    Aborts Ξ Ω M₁ e₁ ↔ Aborts Ξ Ω M₂ e₂ :=
   not_congr (exists_congr h)
 
 end ExprSemantics
@@ -289,13 +341,18 @@ agrees with evaluating the reference-substituted expression in the memory it sta
 the transfer the reorder lemmas run on (`Guarded2Network/Lemmas/Reorder.lean`), and it is derived —
 `evalSubst` covers a bare reference directly, while a compound one needs `evalVar` to name the value
 being updated and `evalExcept` to say the synthesized `EXCEPT` denotes exactly the `updatePath` the
-assignment ran. -/
-theorem ExprSemantics.evalSubstRef {V : Type} [ExprSemantics V] {M M' : Memory V}
-    {r : ElaboratedPlusCal.Ref Typ (Expression Typ)} {rhs e : Expression Typ} {v w : V}
-    {rpath : List (PathStep V)} (hrhs : M ⊢ rhs ⇒ v)
-    (hpath : ResolvesPath ExprSemantics.Eval M r.args rpath)
+assignment ran.
+
+`r`'s target is a declared PlusCal variable, `Origin.binder`, so `evalVar`'s `.module`-lookup branch
+never applies to it — `evalVar.mpr hold` below goes through unconditionally, no side condition
+needed (see `evalVar`'s own doc for why `Origin` alone, not a name-shadowing assumption, decides
+this). -/
+theorem ExprSemantics.evalSubstRef {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+    {M M' : Memory V} {r : ElaboratedPlusCal.Ref Typ (Expression Typ)} {rhs e : Expression Typ}
+    {v w : V} {rpath : List (PathStep V)} (hrhs : ExprSemantics.Eval Ξ Ω M rhs v)
+    (hpath : ResolvesPath (ExprSemantics.Eval Ξ Ω) M r.args rpath)
     (hM' : Memory.update M r.name rpath v = some M') :
-    (M' ⊢ e ⇒ w) ↔ (M ⊢ Expression.substRef r rhs e ⇒ w) := by
+    ExprSemantics.Eval Ξ Ω M' e w ↔ ExprSemantics.Eval Ξ Ω M (Expression.substRef r rhs e) w := by
   obtain ⟨old, new, hold, hnew, rfl⟩ := Memory.update_eq_some_iff.mp hM'
   by_cases hargs : r.args = []
   · rw [hargs] at hpath

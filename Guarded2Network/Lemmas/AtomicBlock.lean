@@ -31,9 +31,11 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+open ComputableTLAPlus (OperatorEnv Model)
 open GuardedPlusCal (Block ChanKey LocalState Trace)
 
-variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V]
+variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
+  {Ω : Model V}
 
 /-- Every freshness hypothesis `stepBranch_spec` takes, at every branch of a block. Bundled because
 all six travel together from here up: they are conditions on the source program and on the pass's
@@ -99,11 +101,11 @@ cannot be the argument of a relation combinator.
 A `def` rather than a `structure` on purpose. `stepBlock_spec` below is a `mvcgen` proof whose
 postcondition is assembled automatically from the loop invariant, and that assembly sees through a
 `reducible` conjunction where it would have to be taught a constructor. -/
-@[reducible] def BlockRefines (mbox : Mailbox) (pref : ChanKey V → List V)
-    (blk : ComputableGuardedPlusCal.AtomicBlock)
+@[reducible] def BlockRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
+    (pref : ChanKey V → List V) (blk : ComputableGuardedPlusCal.AtomicBlock)
     (blk' : ComputableNetworkPlusCal.AtomicBlock) : Prop :=
   blk'.label = blk.label ∧
-    List.Forall₂ (BranchRefines (V := V) mbox pref) blk.branches blk'.branches
+    List.Forall₂ (BranchRefines (V := V) Ξ Ω mbox pref) blk.branches blk'.branches
 
 open Std.Do in
 /-- **One block, compiled.** `stepBranch_spec` iterated over the branches by `Spec.mapM_list`, at
@@ -118,28 +120,28 @@ The invariant is supplied to `mvcgen` rather than proved after it: `Spec.mapM_li
 `mvcgen` finds the loop on its own and only wants the invariant. -/
 private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V} {H : Prop}
-    {blk : ComputableGuardedPlusCal.AtomicBlock}
+    {blk : ComputableGuardedPlusCal.AtomicBlock} {Ξ : OperatorEnv} {Ω : Model V}
     (fresh : ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st ∧ Registered H st⌝⦄
     stepBlock (m := G2NM) chans inbox blk
     ⦃⇓? blk' st' =>
-      ⌜BlockRefines (V := V) mbox pref blk blk' ∧ RxThreads mbox c₀ inbox st' ∧
+      ⌜BlockRefines (V := V) Ξ Ω mbox pref blk blk' ∧ RxThreads mbox c₀ inbox st' ∧
         Registered (H ∨ BlockReceives blk) st'⌝⦄ := by
   mvcgen [stepBlock, stepBranch_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ st =>
-    ⌜List.Forall₂ (BranchRefines (V := V) mbox pref) cur.prefix res ∧
+    ⌜List.Forall₂ (BranchRefines (V := V) Ξ Ω mbox pref) cur.prefix res ∧
       RxThreads mbox c₀ inbox st ∧ Registered (H ∨ ∃ Br ∈ cur.prefix, BranchReceives Br) st⌝
   with
   -- `stepBranch_spec`'s remaining implicits and instances, discharged before any case has to unify
   -- against them. `mbox`, `c₀` and `H` are deliberately absent: the loop invariant pins all three,
   -- and answering them by `assumption` instead would supply `H` where the accumulated disjunction
   -- is meant.
-  | vc4 | vc7 | vc8 | vc9 | vc10 => intro _ _ _; assumption
+  | vc4 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 => intro _ _ _; assumption
 
   -- the label is `rfl`; re-associating the rest is all that separates the loop's invariant from
   -- `BlockRefines`
-  case vc18.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
+  case vc20.post.success _ _ _ _ _ _ h => exact ⟨⟨rfl, h.1⟩, h.2⟩
 
   case vc1.step.pre h => exact h.2
 
@@ -154,14 +156,14 @@ private theorem stepBlock_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
       · exact .inl (.inr ⟨Br, hm, hBr⟩)
       · exact .inr (List.mem_singleton.mp hm ▸ hBr)
 
-  case vc17.pre =>
+  case vc19.pre =>
     obtain ⟨hrx, hreg⟩ := ‹_ ∧ _›
     -- nothing walked yet, so the walk has registered nothing and owes nothing
     refine ⟨.nil, hrx, λ h ↦ hreg ?_⟩
     simp_all
   -- one `BranchesFresh` field each, at whichever branch the walk is currently on
-  case vc11 _ _ _ _ cur _ hsplit _ | vc12 _ _ _ _ cur _ hsplit _ | vc13 _ _ _ _ cur _ hsplit _
-     | vc14 _ _ _ _ cur _ hsplit _ | vc15 _ _ _ _ cur _ hsplit _ | vc16 _ _ _ _ cur _ hsplit _ =>
+  case vc13 _ _ _ _ cur _ hsplit _ | vc14 _ _ _ _ cur _ hsplit _ | vc15 _ _ _ _ cur _ hsplit _
+     | vc16 _ _ _ _ cur _ hsplit _ | vc17 _ _ _ _ cur _ hsplit _ | vc18 _ _ _ _ cur _ hsplit _ =>
     intro _ _
     rw [hsplit] at fresh
     obtain ⟨_, _, _, _, _, _⟩ := fresh cur (List.mem_append_right _ List.mem_cons_self)

@@ -26,10 +26,10 @@ public import Guarded2Network.Lemmas.Statement
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Expression Memory PathStep)
+open ComputableTLAPlus (ExprSemantics Expression Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (Block ChanKey EvalStep LocalState Trace)
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- **One statement writes one name.** Every other binding is exactly where it was.
 
@@ -39,7 +39,7 @@ and the rest are `.none` and leave the memory alone outright. -/
 theorem Statement.reducing_locality {g b : Bool}
     {S : ComputableGuardedPlusCal.Statement g b} {σ σ' : LocalState V} {ε : Trace V}
     (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      GuardedPlusCal.Statement.reducing S)
+      GuardedPlusCal.Statement.reducing Ξ Ω S)
     {y : String} (hy : ∀ x, Statement.writtenName? S = .some x → y ≠ x) :
     σ'.mem.lookup y = σ.mem.lookup y := by
   cases S with
@@ -70,7 +70,7 @@ lookups chained. -/
 theorem Block.reducing_locality {g b : Bool}
     {B : Block (ComputableGuardedPlusCal.Statement g) b} {σ σ' : LocalState V} {ε : Trace V}
     (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      Block.reducing (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing) B)
+      Block.reducing (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω) B)
     {y : String}
     (hbegin : ∀ S ∈ B.begin, ∀ x, Statement.writtenName? S = .some x → y ≠ x)
     (hlast : ∀ x, Statement.writtenName? B.last = .some x → y ≠ x) :
@@ -90,7 +90,7 @@ with its action; a missing precondition is `Relation.Idle`, which writes nothing
 theorem AtomicBranch.reducing_locality {Br : ComputableGuardedPlusCal.AtomicBranch}
     {σ σ' : LocalState V} {ε : Trace V}
     (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      GuardedPlusCal.AtomicBranch.reducing Br)
+      GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br)
     {y : String}
     (hpre : ∀ B', Br.precondition = .some B' →
       ∀ S ∈ Block.toList B', ∀ x, Statement.writtenName? S = .some x → y ≠ x)
@@ -127,9 +127,9 @@ theorem AtomicBranch.reducing_evalArgs {mbox : Mailbox} {c : ComputableGuardedPl
     (hbegin : ∀ S ∈ Br.action.begin, Fresh mbox S) (hlast : Fresh mbox Br.action.last)
     {σ σ' : LocalState V} {ε : Trace V}
     (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      GuardedPlusCal.AtomicBranch.reducing Br)
+      GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br)
     {path : List (PathStep V)} :
-    Ref.EvalArgs σ.mem c path ↔ Ref.EvalArgs σ'.mem c path := by
+    Ref.EvalArgs Ξ Ω σ.mem c path ↔ Ref.EvalArgs Ξ Ω σ'.mem c path := by
   refine Ref.EvalArgs.congr_of_agree (λ y hy ↦ (AtomicBranch.reducing_locality step ?_ ?_ ?_).symm)
   · intro B' hB' S hS _ hx
     rintro rfl

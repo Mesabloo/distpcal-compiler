@@ -29,7 +29,7 @@ public import Core.ComputableTLAPlus.Semantics.Interface
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Memory Typ)
+open ComputableTLAPlus (ExprSemantics Memory Typ OperatorEnv Model)
 
 /-- The meaning of `Guarded2Network`'s own sequence expressions, on top of `ExprSemantics`'s
 value-level sequence vocabulary. -/
@@ -37,29 +37,31 @@ class SeqBuiltins (V : Type) [ExprSemantics V] where
   /-- `Head(e)` denotes the first element of the sequence `e` denotes — and denotes nothing when
   that sequence is empty, which is what makes an empty `inbox` *block* the guard rather than abort
   the branch. -/
-  evalHead {M : Memory V} {e : ComputablePlusCal.Expression} {τ : Typ} {v : V} :
-    ExprSemantics.Eval M (head τ e) v ↔
-      ∃ s vs, ExprSemantics.Eval M e s ∧ ExprSemantics.isSeq s (v :: vs)
+  evalHead {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {e : ComputablePlusCal.Expression}
+      {τ : Typ} {v : V} :
+    ExprSemantics.Eval Ξ Ω M (head τ e) v ↔
+      ∃ s vs, ExprSemantics.Eval Ξ Ω M e s ∧ ExprSemantics.isSeq s (v :: vs)
   /-- `Tail(e)` denotes the sequence of everything but that first element. -/
-  evalTail {M : Memory V} {e : ComputablePlusCal.Expression} {τ : Typ} {t : V} :
-    ExprSemantics.Eval M (tail τ e) t ↔
-      ∃ s v vs, ExprSemantics.Eval M e s ∧ ExprSemantics.isSeq s (v :: vs) ∧
+  evalTail {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {e : ComputablePlusCal.Expression}
+      {τ : Typ} {t : V} :
+    ExprSemantics.Eval Ξ Ω M (tail τ e) t ↔
+      ∃ s v vs, ExprSemantics.Eval Ξ Ω M e s ∧ ExprSemantics.isSeq s (v :: vs) ∧
         ExprSemantics.isSeq t vs
   /-- `Len(e) > n` is a boolean whenever `e` is a sequence, and is `TRUE` exactly when that
   sequence has more than `n` elements. Two clauses rather than one: the guards this pass emits are
   `await`s, and `Statement.aborting`'s `await` case distinguishes "evaluates to a non-boolean"
   (abort) from "evaluates to something other than `TRUE`" (block), so a proof that the compiled
   guard never aborts needs the boolean-ness separately from the truth condition. -/
-  evalLenGt {M : Memory V} {e : ComputablePlusCal.Expression} {τ : Typ} {n : Nat} {s : V}
-      {vs : List V} :
-    ExprSemantics.Eval M e s → ExprSemantics.isSeq s vs →
-      ∃ b, ExprSemantics.Eval M (lenGt τ e n) b ∧ ExprSemantics.isBool b ∧
+  evalLenGt {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {e : ComputablePlusCal.Expression}
+      {τ : Typ} {n : Nat} {s : V} {vs : List V} :
+    ExprSemantics.Eval Ξ Ω M e s → ExprSemantics.isSeq s vs →
+      ∃ b, ExprSemantics.Eval Ξ Ω M (lenGt τ e n) b ∧ ExprSemantics.isBool b ∧
         (b = ExprSemantics.tru ↔ n < vs.length)
   /-- The empty-sequence literal `<<>>` denotes the empty sequence. What
   `Guarded2Network/PlusCal.lean`'s `inbox` initializer (`.seq [] τ`) contributes to the initial
   state, and so what the refinement invariant starts from. -/
-  evalSeqNil {M : Memory V} {τ : Typ} {s : V} :
-    ExprSemantics.Eval M (.seq [] τ) s ↔ ExprSemantics.isSeq s []
+  evalSeqNil {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {τ : Typ} {s : V} :
+    ExprSemantics.Eval Ξ Ω M (.seq [] τ) s ↔ ExprSemantics.isSeq s []
 
 /-! ## The three laws at the one argument the pass ever passes them
 
@@ -69,15 +71,15 @@ class SeqBuiltins (V : Type) [ExprSemantics V] where
   four lines at every use.
 -/
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {M : Memory V} {inbox : String} {τ : Typ}
-  {sv : V}
+variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
+  {inbox : String} {τ : Typ} {sv : V}
 
 /-- `Head(inbox)` denotes the first element `inbox` holds, and only that. Note the hypothesis has the
 sequence *non-empty*: on an empty `inbox` the law gives no value at all, which is what makes the
 compiled guard block rather than abort. -/
 theorem eval_head_inbox {v w : V} {vs : List V} (hlk : M.lookup inbox = some sv)
     (hseq : ExprSemantics.isSeq sv (v :: vs)) :
-    (M ⊢ head τ (.var inbox (.seq τ) .binder) ⇒ w) ↔ w = v := by
+    ExprSemantics.Eval Ξ Ω M (head τ (.var inbox (.seq τ) .binder)) w ↔ w = v := by
   rw [SeqBuiltins.evalHead]
   iff_rintro ⟨s, ws, hs, hws⟩ rfl
   · rw [ExprSemantics.evalVar, hlk, Option.some.injEq] at hs
@@ -88,7 +90,8 @@ theorem eval_head_inbox {v w : V} {vs : List V} (hlk : M.lookup inbox = some sv)
 /-- `Tail(inbox)` denotes the sequence of everything after that first element. -/
 theorem eval_tail_inbox {v t : V} {vs : List V} (hlk : M.lookup inbox = some sv)
     (hseq : ExprSemantics.isSeq sv (v :: vs)) :
-    (M ⊢ tail τ (.var inbox (.seq τ) .binder) ⇒ t) ↔ ExprSemantics.isSeq t vs := by
+    ExprSemantics.Eval Ξ Ω M (tail τ (.var inbox (.seq τ) .binder)) t ↔
+      ExprSemantics.isSeq t vs := by
   rw [SeqBuiltins.evalTail]
   iff_rintro ⟨s, w, ws, hs, hws, ht⟩ h
   · rw [ExprSemantics.evalVar, hlk, Option.some.injEq] at hs
@@ -100,8 +103,8 @@ theorem eval_tail_inbox {v t : V} {vs : List V} (hlk : M.lookup inbox = some sv)
 elements. -/
 theorem eval_lenGt_inbox {n : Nat} {vs : List V} (hlk : M.lookup inbox = some sv)
     (hseq : ExprSemantics.isSeq sv vs) :
-    ∃ b, (M ⊢ lenGt τ (.var inbox (.seq τ) .binder) n ⇒ b) ∧ ExprSemantics.isBool b ∧
-      (b = ExprSemantics.tru ↔ n < vs.length) :=
+    ∃ b, ExprSemantics.Eval Ξ Ω M (lenGt τ (.var inbox (.seq τ) .binder) n) b ∧
+      ExprSemantics.isBool b ∧ (b = ExprSemantics.tru ↔ n < vs.length) :=
   SeqBuiltins.evalLenGt (ExprSemantics.evalVar.mpr hlk) hseq
 
 end Guarded2Network

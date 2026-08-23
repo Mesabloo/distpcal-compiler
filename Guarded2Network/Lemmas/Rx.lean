@@ -27,10 +27,10 @@ public import Guarded2Network.Lemmas.Statement
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Memory PathStep)
+open ComputableTLAPlus (ExprSemantics Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState ProcState Trace)
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- **A receiving thread's step is invisible to the source.** The value it moves comes off the head
 of the target's FIFO and goes onto the end of `inbox`, so the source's queue — which the invariant
@@ -50,9 +50,9 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
     (hmem : ∀ x ≠ inbox, M₁.lookup x = M₂.lookup x)
     (hinbox : ∃ sv, M₂.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv ib.contents)
-    (hkey : ∃ cpath, List.Forall₂ (EvalStep M₁) c.args cpath ∧ ib.key = ⟨c.name, cpath⟩)
+    (hkey : ∃ cpath, List.Forall₂ (EvalStep Ξ Ω M₁) c.args cpath ∧ ib.key = ⟨c.name, cpath⟩)
     (hsplit : F₁.lookup ib.key = (ib.contents ++ ·) <$> F₂.lookup ib.key)
-    (step : ⟨⟨M₂, F₂, .none⟩, ε, σ'⟩ ∈ NetworkPlusCal.Thread.rxBranch c label inbox) :
+    (step : ⟨⟨M₂, F₂, .none⟩, ε, σ'⟩ ∈ NetworkPlusCal.Thread.rxBranch Ξ Ω c label inbox) :
     ∃ v M₂' F₂', ε = 1 ∧ σ' = ⟨M₂', F₂', .some label⟩ ∧
       (∀ x ≠ inbox, M₁.lookup x = M₂'.lookup x) ∧
       (∃ sv, M₂'.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv (ib.contents ++ [v])) ∧
@@ -98,14 +98,14 @@ theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox label : 
     {rx : Set String} {ib : InboxState V} {M₁ M₂ M₂' : Memory V} {F₁ F₂ F₂' : FIFOs V}
     {L₁ L₂ : Set String} {ε : Trace V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
-    (h : procRelatesTo (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
+    (h : procRelatesTo Ξ Ω (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hsplit : F₁.lookup ib.key = (ib.contents ++ ·) <$> F₂.lookup ib.key)
     (hlabel : label ∈ L₂)
     (step : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        NetworkPlusCal.Thread.rxBranch c label inbox) :
+        NetworkPlusCal.Thread.rxBranch Ξ Ω c label inbox) :
     ∃ v, ε = 1 ∧
-      procRelatesTo (.some (c, inbox)) rx (.some ⟨ib.key, ib.contents ++ [v]⟩)
+      procRelatesTo Ξ Ω (.some (c, inbox)) rx (.some ⟨ib.key, ib.contents ++ [v]⟩)
         ⟨M₁, L₁⟩ ⟨M₂', insert label (L₂ \ {label})⟩ ∧
       (∀ k ≠ ib.key, F₂'.lookup k = F₂.lookup k) ∧
       F₁.lookup ib.key = ((ib.contents ++ [v]) ++ ·) <$> F₂'.lookup ib.key ∧
@@ -134,19 +134,19 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
     (hmb : mb p = .some (c, inbox))
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
-    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs, F₂⟩)
+    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω, mb, rx] ⟨Qs, F₂⟩)
     (hS : Ps p = .some ⟨M₁, L₁⟩)
     (hin : Qs p = .some ⟨M₂, L₂⟩)
     (hlabel : label ∈ L₂)
     (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        NetworkPlusCal.Thread.rxBranch c label inbox)
+        NetworkPlusCal.Thread.rxBranch Ξ Ω c label inbox)
     (hQs : Qs' = Qs.update p (.some ⟨M₂', insert label (L₂ \ {label})⟩)) :
-    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[mb, rx] ⟨Qs', F₂'⟩ ∧
+    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω, mb, rx] ⟨Qs', F₂'⟩ ∧
       GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
   obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   -- `Ps`/`Qs` are functions, so `hS`/`hin` already pin the one state each holds at `p`
-  have hproc : procRelatesTo (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
+  have hproc : procRelatesTo Ξ Ω (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
     have hm := hmatch p
     rwa [hS, hin] at hm
   -- the instance receives, so it has an inbox to account for
@@ -165,7 +165,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
   -- every other instance's clause survives unchanged: derived from `hmatch` directly, so it shares
   -- the same `ib` witness the goal below is stated against
   have hfwd : ∀ q σ, Ps q = .some σ →
-      ∃ σ', Qs q = .some σ' ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+      ∃ σ', Qs q = .some σ' ∧ procRelatesTo Ξ Ω (mb q) (rx q) (ib q) σ σ' := by
     intro q σ hq
     have hm := hmatch q
     rw [hq] at hm
@@ -173,7 +173,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     · rw [hq'] at hm; exact hm.elim
     · rw [hq'] at hm; exact ⟨σ', hq', hm⟩
   have hbwd : ∀ q σ', Qs q = .some σ' →
-      ∃ σ, Ps q = .some σ ∧ procRelatesTo (mb q) (rx q) (ib q) σ σ' := by
+      ∃ σ, Ps q = .some σ ∧ procRelatesTo Ξ Ω (mb q) (rx q) (ib q) σ σ' := by
     intro q σ' hq'
     have hm := hmatch q
     rw [hq'] at hm

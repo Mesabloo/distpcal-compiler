@@ -52,10 +52,8 @@ open Lean in
  -/
 macro:lead withPosition("todo!") dflt:(default)? t:(term)? : term => do
   let f : TSyntax `term → MacroM (TSyntax `term) ← Option.elimM (pure dflt) (pure pure)
-    -- Structural destructure instead of `` `(default| (default := $e)) `` quotation-matching,
-    -- which needs an extra meta-eval capability on the matched value that direct indexing avoids.
-    λ stx ↦
-      let e : TSyntax `term := ⟨stx.raw[3]⟩
+    λ stx ↦ do
+      let `(default| (default := $e)) := stx | unreachable!
       pure λ x ↦ `(term| let _ : Inhabited (type_of% $e) := ⟨$e⟩; $x:term)
   let msg : TSyntax `term ← Option.elimM (pure t) `(term| "Something has not yet been done")
     λ msg ↦ `(term| "TODO: " ++ $msg)
@@ -104,7 +102,7 @@ namespace Lean.Parser.Tactic
     /-- Select the subgoals onto which to apply a given tactic sequence, Rocq style. -/
     syntax tac_selector ": " tacticSeq : tactic
 
-    meta def selectGoals (stx : TSyntax `tac_selector) (mvarIds : List MVarId) : MetaM ((List MVarId) × (List MVarId)) :=
+    private meta def selectGoals (stx : TSyntax `tac_selector) (mvarIds : List MVarId) : MetaM ((List MVarId) × (List MVarId)) :=
       match stx with
         | `(tac_selector|all) => return (mvarIds,[])
         | `(tac_selector| $[$r:range_selector],* ) => do

@@ -33,7 +33,7 @@ public import Mathlib.Tactic.Monotonicity
 
 namespace GuardedPlusCal
 
-open ComputableTLAPlus (Memory ExprSemantics)
+open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 
 variable {V : Type} {ι : Type}
 
@@ -65,23 +65,23 @@ replace the label with the one the block's terminal `goto` reached.
 `self` is the process instance's identity. The paper's `self ↦ p ∈ M` side condition appears here as
 a lookup: a process only steps in a memory that binds its own identity, which `initProc` establishes
 and no step disturbs. -/
-def CodeTable.procReducing (Ξ : CodeTable V) (self : V) :
+def CodeTable.procReducing (T : CodeTable V) (self : V) :
     Set (ProcConfig V × Trace V × ProcConfig V) :=
   {⟨⟨⟨M, L⟩, F⟩, τ, ⟨⟨M', L'⟩, F'⟩⟩ | ∃ l ∈ L, ∃ l',
-    ⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ ∈ Ξ.reducing l ∧
+    ⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ ∈ T.reducing l ∧
     M.lookup selfName = .some self ∧
     L' = insert l' (L \ {l})}
 
 /-- A process goes wrong when the block at one of its scheduled labels does. -/
-def CodeTable.procAborting (Ξ : CodeTable V) (self : V) :
+def CodeTable.procAborting (T : CodeTable V) (self : V) :
     Set (ProcConfig V × Trace V) :=
   {⟨⟨⟨M, L⟩, F⟩, τ⟩ | ∃ l ∈ L,
-    ⟨⟨M, F, .none⟩, τ⟩ ∈ Ξ.aborting l ∧ M.lookup selfName = .some self}
+    ⟨⟨M, F, .none⟩, τ⟩ ∈ T.aborting l ∧ M.lookup selfName = .some self}
 
 /-- A process never diverges *in one step*: its semantics is one execution of one atomic block, and
 an atomic block's non-terminating semantics is empty. Divergence is an algorithm-level notion, and
 appears below as the infinite iteration of the process step. -/
-def CodeTable.procDiverging (_Ξ : CodeTable V) (_self : V) :
+def CodeTable.procDiverging (_T : CodeTable V) (_self : V) :
     Set (ProcConfig V × Trace V) := ∅
 
 /-! # Algorithms -/
@@ -189,28 +189,31 @@ def InitMem [ExprSemantics V] (inits : List (String × ComputablePlusCal.Express
 
 /-- `InitProc self inits σ` — `σ` is a valid initial state for a process instance with identity
 `self`, local variable initializers `inits`, and initial label set `entry`. -/
-def InitProc [ExprSemantics V] (self : V) (inits : List (String × ComputablePlusCal.Expression))
-    (entry : Set String) (σ : ProcState V) : Prop :=
+def InitProc [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V) (self : V)
+    (inits : List (String × ComputablePlusCal.Expression)) (entry : Set String)
+    (σ : ProcState V) : Prop :=
   ∃ vs : List V,
-    List.Forall₂ (λ ie v ↦ ExprSemantics.Eval (Finmap.singleton selfName self) (Prod.snd ie) v)
+    List.Forall₂
+      (λ ie v ↦ ExprSemantics.Eval Ξ Ω (Finmap.singleton selfName self) (Prod.snd ie) v)
       inits vs ∧
     σ.1 = InitMem inits vs (Finmap.singleton selfName self) ∧
     σ.2 = entry
 
 /-- An initial state starts at the entry labels, and nothing else. The one projection of `InitProc`
 that needs no work, named so that reading it does not cost an `obtain` of the whole existential. -/
-theorem InitProc.labels [ExprSemantics V] {self : V}
+theorem InitProc.labels [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {self : V}
     {inits : List (String × ComputablePlusCal.Expression)} {entry : Set String} {σ : ProcState V}
-    (h : InitProc self inits entry σ) : σ.2 = entry := by
+    (h : InitProc Ξ Ω self inits entry σ) : σ.2 = entry := by
   obtain ⟨-, -, -, hlab⟩ := h
   exact hlab
 
 /-- A list of expressions evaluates to at most one list of values — `ExprSemantics.evalUnique`
 pointwise. -/
-theorem eval_forall₂_inj [ExprSemantics V] {M : Memory V}
+theorem eval_forall₂_inj [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
     {inits : List (String × ComputablePlusCal.Expression)} {vs ws : List V}
-    (h : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval M (Prod.snd ie) v) inits vs)
-    (h' : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval M (Prod.snd ie) v) inits ws) : vs = ws := by
+    (h : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval Ξ Ω M (Prod.snd ie) v) inits vs)
+    (h' : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval Ξ Ω M (Prod.snd ie) v) inits ws) :
+    vs = ws := by
   induction h generalizing ws with
   | nil => cases h'; rfl
   | @cons _ _ _ _ hv _ ih =>
@@ -223,10 +226,10 @@ set is `entry` outright, and the memory is a fold over the initializers' values,
 
 This is what makes `Algorithm.init` well-defined as a characterization of a *function* `Ps`: the
 right-hand side of its `↔` pins at most one `σ` per instance, `InitMem.inj` and this lemma being why. -/
-theorem InitProc.inj [ExprSemantics V] {self : V}
+theorem InitProc.inj [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {self : V}
     {inits : List (String × ComputablePlusCal.Expression)} {entry : Set String}
-    {σ σ' : ProcState V} (h : InitProc self inits entry σ) (h' : InitProc self inits entry σ') :
-    σ = σ' := by
+    {σ σ' : ProcState V} (h : InitProc Ξ Ω self inits entry σ)
+    (h' : InitProc Ξ Ω self inits entry σ') : σ = σ' := by
   obtain ⟨vs, hvs, hmem, hlab⟩ := h
   obtain ⟨ws, hws, hmem', hlab'⟩ := h'
   obtain rfl := eval_forall₂_inj hvs hws
@@ -288,11 +291,12 @@ initializer is evaluated under the *same* memory — `self` alone, never the one
 so appending to the list neither disturbs the values already taken nor makes new ones depend on
 them, and the fold splits where the list does. The shorter state's label set is free, being whatever
 the caller's own `init` asks for. -/
-theorem InitProc.append [ExprSemantics V] {self : V}
+theorem InitProc.append [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {self : V}
   {is₁ is₂ : List (String × ComputablePlusCal.Expression)} {e₁ e₂ : Set String} {σ' : ProcState V}
-  (h : InitProc self (is₁ ++ is₂) e₂ σ') :
-    ∃ (M : Memory V) (ws : List V), InitProc self is₁ e₁ (M, e₁) ∧
-      List.Forall₂ (λ ie v ↦ ExprSemantics.Eval (Finmap.singleton selfName self) (Prod.snd ie) v)
+  (h : InitProc Ξ Ω self (is₁ ++ is₂) e₂ σ') :
+    ∃ (M : Memory V) (ws : List V), InitProc Ξ Ω self is₁ e₁ (M, e₁) ∧
+      List.Forall₂
+        (λ ie v ↦ ExprSemantics.Eval Ξ Ω (Finmap.singleton selfName self) (Prod.snd ie) v)
         is₂ ws ∧
       σ'.1 = InitMem is₂ ws M := by
   obtain ⟨vs, hvs, hmem, -⟩ := h
@@ -302,11 +306,12 @@ theorem InitProc.append [ExprSemantics V] {self : V}
 
 /-- The converse: values for the added initializers build a state over the longer list. The
 existence direction — an initial state over the shorter list extends to one over the longer. -/
-theorem InitProc.append_of [ExprSemantics V] {self : V}
+theorem InitProc.append_of [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {self : V}
   {is₁ is₂ : List (String × ComputablePlusCal.Expression)} {e₁ e₂ : Set String} {σ : ProcState V}
-  {ws : List V} (h : InitProc self is₁ e₁ σ)
-  (hws : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval (Finmap.singleton selfName self) (Prod.snd ie) v)
-    is₂ ws) : InitProc self (is₁ ++ is₂) e₂ (InitMem is₂ ws σ.1, e₂) := by
+  {ws : List V} (h : InitProc Ξ Ω self is₁ e₁ σ)
+  (hws : List.Forall₂
+    (λ ie v ↦ ExprSemantics.Eval Ξ Ω (Finmap.singleton selfName self) (Prod.snd ie) v)
+    is₂ ws) : InitProc Ξ Ω self (is₁ ++ is₂) e₂ (InitMem is₂ ws σ.1, e₂) := by
   obtain ⟨vs, hvs, hmem, -⟩ := h
   refine ⟨vs ++ ws, List.rel_append hvs hws, ?_, rfl⟩
   rw [hmem, InitMem.append hvs.length_eq]
@@ -351,11 +356,14 @@ theorem Process.entryLabels_subset_ownedLabels {p : ComputableGuardedPlusCal.Pro
 
 /-- The paper's `Ξₚ`: a label denotes the union of its block's branches. A label the process does not
 own denotes `∅` in both components, making it unschedulable. -/
-def Process.codeTable [ExprSemantics V] (p : ComputableGuardedPlusCal.Process) : CodeTable V where
+def Process.codeTable [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
+    (p : ComputableGuardedPlusCal.Process) : CodeTable V where
   reducing l :=
-    {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧ ∃ Br ∈ B.branches, x ∈ AtomicBranch.reducing Br}
+    {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧
+      ∃ Br ∈ B.branches, x ∈ AtomicBranch.reducing Ξ Ω Br}
   aborting l :=
-    {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧ ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Br}
+    {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧
+      ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Ξ Ω Br}
 
 /-! # Instantiating the algorithm layer
 
@@ -367,11 +375,12 @@ def Process.codeTable [ExprSemantics V] (p : ComputableGuardedPlusCal.Process) :
   unschedulable" convention `codeTable` itself already uses. -/
 
 /-- Assembles a whole `Algorithm`'s `Algebra`, per the module doc above. -/
-def Algorithm.algebra [ExprSemantics V] (algo : ComputableGuardedPlusCal.Algorithm) :
+def Algorithm.algebra [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
+    (algo : ComputableGuardedPlusCal.Algorithm) :
     Algebra V :=
   λ ⟨name, _⟩ ↦
     (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
-      Process.codeTable
+      (Process.codeTable Ξ Ω)
 
 /-- The instance identities an `«=|∈»`/`id` pair contributes: `id`'s own value for `=`, each member
 of `id`'s (set) value for `∈`. Evaluated under the empty memory — `WellFormedness/Restrictions.lean`
@@ -381,19 +390,22 @@ literals, and there is nothing else to evaluate it against.
 Stated about the two fields rather than about a process so that `NetworkPlusCal` can share it: the
 two languages' `Process.identities` are then the *same* function of the same two fields, and a pass
 that preserves them preserves the instances by rewriting, with no unfolding downstream. -/
-def identitiesOf [ExprSemantics V] (shape : Bool) (id : ComputablePlusCal.Expression) : Set V :=
+def identitiesOf [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V) (shape : Bool)
+    (id : ComputablePlusCal.Expression) : Set V :=
   {self | match shape with
-    | true => ExprSemantics.Eval ∅ id self
-    | false => ∃ S, ExprSemantics.Eval ∅ id S ∧ ExprSemantics.mem self S}
+    | true => ExprSemantics.Eval Ξ Ω ∅ id self
+    | false => ∃ S, ExprSemantics.Eval Ξ Ω ∅ id S ∧ ExprSemantics.mem self S}
 
 @[inherit_doc identitiesOf]
-def Process.identities [ExprSemantics V] (p : ComputableGuardedPlusCal.Process) : Set V :=
-  identitiesOf p.«=|∈» p.id
+def Process.identities [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
+    (p : ComputableGuardedPlusCal.Process) : Set V :=
+  identitiesOf Ξ Ω p.«=|∈» p.id
 
 /-- `Process.identities` reads nothing but the two fields, so a pass preserving them preserves the
 instances by rewriting. -/
-theorem Process.identities_eq [ExprSemantics V] {p : ComputableGuardedPlusCal.Process} :
-    Process.identities (V := V) p = identitiesOf p.«=|∈» p.id := rfl
+theorem Process.identities_eq [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+    {p : ComputableGuardedPlusCal.Process} :
+    Process.identities (V := V) Ξ Ω p = identitiesOf Ξ Ω p.«=|∈» p.id := rfl
 
 /-- One declared local in the shape `InitProc` takes it — its name paired with its initializer, and
 nothing when it has none. Named rather than written inline in `initsOf` below so that `List`'s own
@@ -450,14 +462,16 @@ Every declared channel/fifo starts with an empty queue at every index its own do
 simply "`F` has no entries": `Statement.reducing`/`.aborting`'s `F.lookup = none` case is an
 *abort* (`Denotational.lean`), reserved for an index outside the declared domain entirely, not for
 "nothing sent yet". -/
-def Algorithm.init [ExprSemantics V] (algo : ComputableGuardedPlusCal.Algorithm) :
+def Algorithm.init [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
+    (algo : ComputableGuardedPlusCal.Algorithm) :
     AlgState (String × V) V → Prop
   | ⟨Ps, F⟩ =>
     (∀ (i : String × V) (σ : ProcState V), Ps i = .some σ ↔
-      ∃ p ∈ algo.processes, ∃ self ∈ Process.identities (V := V) p,
-        i = (p.name, self) ∧ InitProc self p.inits (Process.entryLabels p) σ)
+      ∃ p ∈ algo.processes, ∃ self ∈ Process.identities (V := V) Ξ Ω p,
+        i = (p.name, self) ∧ InitProc Ξ Ω self p.inits (Process.entryLabels p) σ)
     ∧ ∀ nτd ∈ algo.globalState.channels ++ algo.globalState.fifos, ∀ idx : List V,
-        (∃ Ss, List.Forall₂ (ExprSemantics.Eval ∅) nτd.2.2 Ss ∧ List.Forall₂ ExprSemantics.mem idx Ss) →
+        (∃ Ss, List.Forall₂ (ExprSemantics.Eval Ξ Ω ∅) nτd.2.2 Ss ∧
+            List.Forall₂ ExprSemantics.mem idx Ss) →
           F.lookup ⟨nτd.1, idx.map .inr⟩ = .some []
 
 end GuardedPlusCal

@@ -17,8 +17,8 @@ import all Guarded2Network.PlusCal
   is — and that is a question about the compiled algebra, not about any state.
 
   There is no interface for it. Each of the two obligations below resolves the stepping instance
-  against the compiled algebra pair `GuardedPlusCal.Algorithm.algebra algo` /
-  `NetworkPlusCal.Algorithm.algebra algo'` itself, splits the label with
+  against the compiled algebra pair `GuardedPlusCal.Algorithm.algebra Ξ Ω algo` /
+  `NetworkPlusCal.Algorithm.algebra Ξ Ω algo'` itself, splits the label with
   `ProcessRefines.label_cases`, and reads what it needs off the `ProcessRefines` in hand at the point
   it needs it. The step it is holding is what proves the label is owned, so the unschedulable case
   never arises. The pass's per-process refinement (`ProcessesRefine`) plus the front-end facts
@@ -32,10 +32,10 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (ExprSemantics Memory)
+open ComputableTLAPlus (ExprSemantics Memory OperatorEnv Model)
 open GuardedPlusCal (Algebra AlgState ChanKey CodeTable FIFOs Instances LocalState ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {ι : Type}
+variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {ι : Type} {Ξ : OperatorEnv} {Ω : Model V}
 
 omit [SeqBuiltins V] in
 /-- **A receiving thread cannot go wrong at a related state**, and it has to be so: the source has no
@@ -51,12 +51,12 @@ theorem rxBranch_not_aborting {c : ComputableGuardedPlusCal.Ref} {inbox : String
     {rx : Set String} {ib : InboxState V} {M₁ M₂ : Memory V} {F₂ : FIFOs V}
     {L₁ L₂ : Set String} {ε : Trace V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
-    (h : procRelatesTo (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
+    (h : procRelatesTo Ξ Ω (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hpresent : F₂.lookup ib.key ≠ .none) :
     (⟨⟨M₂, F₂, .none⟩, ε⟩ : LocalState V × Trace V) ∉
-      NetworkPlusCal.Thread.rxBranchAborting c inbox := by
+      NetworkPlusCal.Thread.rxBranchAborting Ξ Ω c inbox := by
   obtain ⟨_, _, hmem, hinbox, cpath, hpath, hibkey⟩ := h
-  have hpath₂ : Ref.EvalArgs M₂ c cpath := (Ref.EvalArgs.congr_of_fresh hmem hfresh).mp hpath
+  have hpath₂ : Ref.EvalArgs Ξ Ω M₂ c cpath := (Ref.EvalArgs.congr_of_fresh hmem hfresh).mp hpath
   obtain ⟨sv, hsv, hseq⟩ := hinbox
   rintro (((⟨M, F, hpa, hrun, _⟩ | ⟨M, F, cpath', hpath', hlk, hrun, _⟩) |
     ⟨M, F, hnone, hrun, _⟩) | ⟨M, F, cpath', v, _, old, hpath', _, hold, happ, hrun, _⟩) <;>
@@ -127,11 +127,11 @@ variable {mbox : String → String → Mailbox} {c₀ : String → ComputableGua
 
 /-- **The pass's output, as the algorithm level receives it.** `Algorithm.toNetwork_spec`'s
 postcondition, named because everything below quantifies over it. -/
-abbrev ProcessesRefine (mbox : String → String → Mailbox)
+abbrev ProcessesRefine (Ξ : OperatorEnv) (Ω : Model V) (mbox : String → String → Mailbox)
   (c₀ : String → ComputableGuardedPlusCal.Ref) (pref : ChanKey V → List V)
   (algo : ComputableGuardedPlusCal.Algorithm) (algo' : ComputableNetworkPlusCal.Algorithm) : Prop :=
     List.Forall₂
-      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p')
       algo.processes algo'.processes
 
 omit [SeqBuiltins V] in
@@ -144,12 +144,12 @@ agreement on the *predicate* at related pairs is enough, and `ProcessRefines.nam
 agreement. The target side is the hypothesis rather than the source's because that is the direction
 `algRelatesTo.step_or_stutter` and `.immediateAbort` need it — a target step names a target label,
 and resolving that label's owning process is the first thing either proof does. -/
-theorem find?_refines (href : ProcessesRefine (V := V) mbox c₀ pref algo algo')
+theorem find?_refines (href : ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (hfind : algo'.processes.find? (·.name == name) = some p') :
     ∃ p inbox, algo.processes.find? (·.name == name) = some p ∧ p.name = name ∧
-      ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p' := by
+      ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p' := by
   have hname_eq (p : ComputableGuardedPlusCal.Process) (p'' : ComputableNetworkPlusCal.Process)
-      (h : ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p'') :
+      (h : ∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p'') :
       (p.name == name) = (p''.name == name) := by
     obtain ⟨_, hpr⟩ := h
     rw [hpr.name_eq]
@@ -167,7 +167,7 @@ Stated against the resolution's own `p`/`inbox` rather than existentially, becau
 already run `find?_refines` and needs the two sides of the equation to be the *same* mailbox as the
 `ProcessRefines` it is holding. -/
 theorem procMailbox_eq (hfind : algo'.processes.find? (·.name == name) = some p')
-    (hpr : ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+    (hpr : ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p')
     (hused : mbox p.name inbox ≠ .none → ProcessReceives p) :
     procMailbox algo' (name, v) = mbox p.name inbox := by
   simp only [procMailbox, hfind, Option.bind_some]
@@ -178,15 +178,15 @@ omit [SeqBuiltins V] in
 `table` is the by-name lookup composed with the process's own `codeTable`, and every `ProcessRefines`
 field lemma is stated against that bare form — so each is one `Option.elim` in the way. -/
 theorem tgt_algebra_table (hfind : algo'.processes.find? (·.name == name) = some p') :
-    (NetworkPlusCal.Algorithm.algebra algo') (name, v) =
-      NetworkPlusCal.Process.codeTable p' := by
+    (NetworkPlusCal.Algorithm.algebra Ξ Ω algo') (name, v) =
+      NetworkPlusCal.Process.codeTable Ξ Ω p' := by
   simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_some]
 
 omit [SeqBuiltins V] in
 @[inherit_doc tgt_algebra_table]
 theorem src_algebra_table (hfind : algo.processes.find? (·.name == name) = some p) :
-    (GuardedPlusCal.Algorithm.algebra algo) (name, v) =
-      GuardedPlusCal.Process.codeTable p := by
+    (GuardedPlusCal.Algorithm.algebra Ξ Ω algo) (name, v) =
+      GuardedPlusCal.Process.codeTable Ξ Ω p := by
   simp only [GuardedPlusCal.Algorithm.algebra, hfind, Option.elim_some]
 
 omit [SeqBuiltins V] [ExprSemantics V] in
@@ -207,7 +207,7 @@ rewrite the source memory's `selfName` lookup through `procRelatesTo.mem_agree'`
 
 Load-bearing rather than hygiene: `CodeTable.procReducing` requires the memory to bind `selfName`,
 and the source memory agrees with the target's only *away* from the generated name. -/
-theorem procMailbox_inbox_ne_selfName (href : ProcessesRefine (V := V) mbox c₀ pref algo algo')
+theorem procMailbox_inbox_ne_selfName (href : ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) {c : ComputableGuardedPlusCal.Ref} {ib : String}
     (hm : procMailbox algo' (name, v) = .some (c, ib)) : ib ≠ GuardedPlusCal.selfName := by
   -- a `.some` answer means the lookup found a process, `Option.bind` being `.none` otherwise
@@ -264,20 +264,20 @@ together with `procRelatesTo`'s `L₂ = L₁ ∪ rx p`; the second from memory a
 generated `inbox`, which is not `self` — and since both algebras read `self` off the instance's own
 identity, that memory fact needs no translation between the two sides. -/
 theorem algRelatesTo.step_or_stutter [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p)
     {Sₜ Sₜ' Sₛ : AlgState (String × V) V} {ε : Trace V}
-    (hrel : Sₛ ≋[procMailbox algo', procRxLabels algo'] Sₜ)
+    (hrel : Sₛ ≋[Ξ, Ω,procMailbox algo', procRxLabels algo'] Sₜ)
     (hstep : (⟨Sₜ, ε, Sₜ'⟩ : AlgState (String × V) V × Trace V × AlgState (String × V) V) ∈
-      (NetworkPlusCal.Algorithm.algebra algo').step) :
-    (∃ Sₛ' ε', Sₛ' ≋[procMailbox algo', procRxLabels algo'] Sₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').step) :
+    (∃ Sₛ' ε', Sₛ' ≋[Ξ, Ω,procMailbox algo', procRxLabels algo'] Sₜ' ∧ (instTrace (V := V)).Rτ ε' ε ∧
         (⟨Sₛ, ε', Sₛ'⟩ : AlgState (String × V) V × Trace V × AlgState (String × V) V) ∈
-          (GuardedPlusCal.Algorithm.algebra algo).step) ∨
-      (Sₛ ≋[procMailbox algo', procRxLabels algo'] Sₜ' ∧ ε = 1 ∧
+          (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).step) ∨
+      (Sₛ ≋[Ξ, Ω,procMailbox algo', procRxLabels algo'] Sₜ' ∧ ε = 1 ∧
         GuardedPlusCal.FIFOs.size Sₜ'.2 < GuardedPlusCal.FIFOs.size Sₜ.2) ∨
       (∃ ε', ε' ≼[(instTrace (V := V)).Rτ] ε ∧ (⟨Sₛ, ε'⟩ : AlgState (String × V) V × Trace V) ∈
-        (GuardedPlusCal.Algorithm.algebra algo).aborting) := by
+        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting) := by
   obtain ⟨Qs, F₂⟩ := Sₜ
   obtain ⟨Qs', F₂'⟩ := Sₜ'
   obtain ⟨Ps, F₁⟩ := Sₛ
@@ -314,11 +314,11 @@ theorem algRelatesTo.step_or_stutter [DecidableEq V]
       obtain ⟨Br', hBr', hstep'⟩ := tgt_reducing_le hnrx _ hred
       have hexits : ∀ M F τ M' F' l', (⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ :
           LocalState V × Trace V × LocalState V) ∈
-          (NetworkPlusCal.Process.codeTable p').reducing l → l' ∉ procRxLabels algo' (name, v) := by
+          (NetworkPlusCal.Process.codeTable Ξ Ω p').reducing l → l' ∉ procRxLabels algo' (name, v) := by
         intro M F τ M' F' l' hstep
         rw [procRxLabels_eq hfind]
         exact hpr.exits (hyg p hmem) hnrx hstep
-      have hbref : ∀ pref' : ChanKey V → List V, BranchesRefine (V := V)
+      have hbref : ∀ pref' : ChanKey V → List V, BranchesRefine (V := V) Ξ Ω
           (procMailbox algo' (name, v)) pref' (srcBranchesAt p l) (tgtBranchesAt p' l) := by
         -- the refinement is owed at every prefix function, so the walk is re-resolved at each; the
         -- `inbox` it witnesses need not be the one above, but the mailbox it names is
@@ -372,14 +372,14 @@ run, a stutter is the empty one, and the abort disjunct passes through unchanged
 dropped here — `Terminating` has nowhere to put it, which is exactly why the divergence half needs
 `step_or_stutter` directly. -/
 theorem algRelatesTo.terminating [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    StrongRefinement.Terminating (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      (instTrace (V := V)).Rτ (Relation.star (GuardedPlusCal.Algorithm.algebra algo).step)
-      (GuardedPlusCal.Algorithm.algebra algo).aborting
-      (NetworkPlusCal.Algorithm.algebra algo').step := by
+    StrongRefinement.Terminating (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (Relation.star (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).step)
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').step := by
   intro Sₜ Sₜ' ε Sₛ hrel hstep
   rcases algRelatesTo.step_or_stutter href used fresh hyg hrel hstep with
     ⟨Sₛ', ε', hrel', hτ, hsstep⟩ | ⟨hrel', rfl, _⟩ | habort
@@ -397,18 +397,18 @@ receiving thread's abort cannot happen at all (`rxBranch_not_aborting`).
 Simpler than the terminating case throughout, because an abort has no post-state: no `algRelatesTo`
 witness is rebuilt, so none of the key bookkeeping appears. -/
 theorem algRelatesTo.immediateAbort [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (_fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    StrongRefinement.Aborting (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+    StrongRefinement.Aborting (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
       (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Algorithm.algebra algo).immediateAbort
-      (NetworkPlusCal.Algorithm.algebra algo').immediateAbort := by
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).immediateAbort
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').immediateAbort := by
   rintro ⟨Qs, F₂⟩ ε ⟨Ps, F₁⟩ hrel ⟨⟨name, v⟩, ⟨M₂, L₂⟩, hin, l, hl, habort, hself⟩
   obtain ⟨ib, pref, hmatch, -, -, hkey, -, hpresent, hfifo⟩ := hrel
   have hbwd : ∀ q σ', Qs q = .some σ' →
       ∃ σ, Ps q = .some σ ∧
-        procRelatesTo (procMailbox algo' q) (procRxLabels algo' q) (ib q) σ σ' := by
+        procRelatesTo Ξ Ω (procMailbox algo' q) (procRxLabels algo' q) (ib q) σ σ' := by
     intro q σ' hq'
     have hm := hmatch q
     rw [hq'] at hm
@@ -441,7 +441,7 @@ theorem algRelatesTo.immediateAbort [DecidableEq V]
       obtain ⟨p₂, inbox₂, hfinds₂, -, hpr₂⟩ := find?_refines (href pref) hfind
       rw [hfinds] at hfinds₂
       obtain rfl := Option.some.inj hfinds₂
-      have hbref : BranchesRefine (V := V) (procMailbox algo' (name, v)) pref
+      have hbref : BranchesRefine (V := V) Ξ Ω (procMailbox algo' (name, v)) pref
           (srcBranchesAt p l) (tgtBranchesAt p' l) := by
         rw [procMailbox_eq (v := v) hfind hpr₂ (used _ hmem inbox₂)]
         exact hpr₂.branchesRefine l
@@ -472,14 +472,14 @@ omit [SeqBuiltins V] in
 nothing else — including its absorption side condition, which is `Relation.star.star_lcomp₁_absorb`
 at exactly this shape. -/
 theorem algRelatesTo.terminating_reducing [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    StrongRefinement.Terminating (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).reducing
-      (GuardedPlusCal.Algorithm.algebra algo).aborting
-      (NetworkPlusCal.Algorithm.algebra algo').reducing :=
+    StrongRefinement.Terminating (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing :=
   StrongRefinement.Terminating.starStutter (algRelatesTo.terminating href used fresh hyg)
 
 omit [SeqBuiltins V] in
@@ -492,13 +492,13 @@ a `send` puts one back — and a `send` is a code thread's step, which *does* mo
 target cannot relay forever while the source stands still, the source's steps are cofinal in the
 target's, and deleting the idle indices leaves a genuine infinite source run. -/
 theorem algRelatesTo.diverging [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    StrongRefinement.Diverging (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).diverging
-      (GuardedPlusCal.Algorithm.algebra algo).aborting
-      (NetworkPlusCal.Algorithm.algebra algo').diverging :=
+    StrongRefinement.Diverging (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging :=
   StrongRefinement.Diverging.omegaStutter (μ := λ S ↦ GuardedPlusCal.FIFOs.size S.2)
     (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter href used fresh hyg hrel hstep)
 
@@ -507,12 +507,12 @@ omit [SeqBuiltins V] in
 definition, so this is `Aborting.starStutter` at that — the immediate half above, lifted over the run
 that precedes it by the same per-step `Terminating` the reducing half uses. -/
 theorem algRelatesTo.aborting [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    StrongRefinement.Aborting (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
-      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra algo).aborting
-      (NetworkPlusCal.Algorithm.algebra algo').aborting :=
+    StrongRefinement.Aborting (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+      (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting :=
   StrongRefinement.Aborting.starStutter (algRelatesTo.terminating href used fresh hyg)
     (algRelatesTo.immediateAbort href used fresh hyg)
 
@@ -524,17 +524,17 @@ omit [SeqBuiltins V] in
 and the front end, and `algRelatesTo` at the initial states by `Algorithm.init`; the refinement
 argument asks for nothing beyond those. -/
 theorem algRelatesTo.refines [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) mbox c₀ pref algo algo')
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     (hyg : ∀ p ∈ algo.processes, LabelsHygienic p) :
-    StrongRefinement (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+    StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
       (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Algorithm.algebra algo).reducing
-      (GuardedPlusCal.Algorithm.algebra algo).aborting
-      (GuardedPlusCal.Algorithm.algebra algo).diverging
-      (NetworkPlusCal.Algorithm.algebra algo').reducing
-      (NetworkPlusCal.Algorithm.algebra algo').aborting
-      (NetworkPlusCal.Algorithm.algebra algo').diverging where
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging where
   terminating := algRelatesTo.terminating_reducing href used fresh hyg
   aborting := algRelatesTo.aborting href used fresh hyg
   diverging := algRelatesTo.diverging href used fresh hyg
@@ -553,19 +553,19 @@ private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
     ⦃⌜True⌝⦄
     ps.mapM (ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans)
     ⦃⇓? ps' _ => ⌜List.Forall₂
-      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p')
       ps ps'⌝⦄ := by
   mvcgen [Process.toNetwork_spec]
   invariants
   | inv1 => ⇓? ⟨cur, res⟩ _ =>
     ⌜List.Forall₂
-      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+      (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p')
       cur.prefix res⌝
   with
   -- `Process.toNetwork_spec`'s seven implicits, answered by shape rather than by tag: three the
   -- context already holds, the mailbox and the channel read off the walk's position, and the
   -- freshness hypothesis at that same process.
-  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 =>
+  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 | vc13 =>
     intro _ _
     first
       | assumption
@@ -596,7 +596,7 @@ theorem Algorithm.toNetwork_spec {mbox : String → String → Mailbox}
     ComputableGuardedPlusCal.Algorithm.toNetwork (m := G2NM) algo
     ⦃⇓? algo' _ => ⌜algo'.globalState = algo.globalState ∧
       List.Forall₂
-        (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) (mbox p.name inbox) (c₀ p.name) inbox pref p p')
+        (λ p p' ↦ ∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox p.name inbox) (c₀ p.name) inbox pref p p')
         algo.processes algo'.processes⌝⦄ := by
   -- `-Spec.mapM_list`, or the generic loop spec matches the walk before `mapM_processToNetwork_spec`
   mvcgen [ComputableGuardedPlusCal.Algorithm.toNetwork, mapM_processToNetwork_spec,
@@ -626,16 +626,16 @@ theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String �
     ⦃⌜True⌝⦄
     ComputableGuardedPlusCal.Algorithm.toNetwork (m := G2NM) algo
     ⦃⇓? algo' _ => ⌜algo'.globalState = algo.globalState ∧
-      StrongRefinement (algRelatesTo (V := V) (procMailbox algo') (procRxLabels algo'))
+      StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
         (instTrace (V := V)).Rτ
-        (GuardedPlusCal.Algorithm.algebra algo).reducing
-        (GuardedPlusCal.Algorithm.algebra algo).aborting
-        (GuardedPlusCal.Algorithm.algebra algo).diverging
-        (NetworkPlusCal.Algorithm.algebra algo').reducing
-        (NetworkPlusCal.Algorithm.algebra algo').aborting
-        (NetworkPlusCal.Algorithm.algebra algo').diverging⌝⦄ := by
+        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
+        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
+        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing
+        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting
+        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging⌝⦄ := by
   refine triple_forall (ι := ChanKey V → List V)
-    (λ pref ↦ Algorithm.toNetwork_spec (V := V) (pref := pref) fresh) ?_
+    (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) fresh) ?_
   intro algo' h
   exact ⟨(h λ _ ↦ []).1,
     algRelatesTo.refines (λ pref ↦ (h pref).2) used fresh hyg⟩
@@ -663,15 +663,15 @@ theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String �
 function rather than an existential per instance, for the reason `algRelatesTo`'s own `ib` is one:
 the FIFO clauses speak about every key at once, and a per-instance existential would leave nothing
 relating them. -/
-structure InitKeys (c₀ : String → ComputableGuardedPlusCal.Ref)
+structure InitKeys (Ξ : OperatorEnv) (Ω : Model V) (c₀ : String → ComputableGuardedPlusCal.Ref)
   (algo : ComputableGuardedPlusCal.Algorithm) (F : FIFOs V) (key : String × V → ChanKey V) :
     Prop where
   /-- The mailbox channel resolves, in each instance's own initial memory, to that instance's key. -/
   resolves : ∀ p ∈ algo.processes, ∀ self : V, ∀ σ : ProcState V,
-    GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ →
+    GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ →
     ProcessReceives p →
       (key (p.name, self)).1 = (c₀ p.name).name ∧
-        List.Forall₂ (GuardedPlusCal.EvalStep σ.1) (c₀ p.name).args (key (p.name, self)).2
+        List.Forall₂ (GuardedPlusCal.EvalStep Ξ Ω σ.1) (c₀ p.name).args (key (p.name, self)).2
   /-- And the key names a channel that exists. `algRelatesTo` carries this as an invariant because a
   compiled relay *aborts* where the FIFO is absent and the source has no relay to abort with;
   establishing it at the initial state is this clause. -/
@@ -691,7 +691,7 @@ pass writes — which is what makes a compiled instance have an initial state wh
 one. -/
 private theorem exists_inboxInit_values {ninits : List (String × ComputablePlusCal.Expression)}
   (hin : ∀ e ∈ ninits, InboxInit inbox e) (M : Memory V) :
-    ∃ ws : List V, List.Forall₂ (λ ie v ↦ ExprSemantics.Eval M (Prod.snd ie) v) ninits ws := by
+    ∃ ws : List V, List.Forall₂ (λ ie v ↦ ExprSemantics.Eval Ξ Ω M (Prod.snd ie) v) ninits ws := by
   induction ninits with
   | nil => exact ⟨[], .nil⟩
   | cons e _ ih =>
@@ -710,7 +710,7 @@ Both directions of `Algorithm.init_refines` spend this — the memory relation i
 whichever of the two states was built from the other. -/
 private theorem initMem_relates {ninits : List (String × ComputablePlusCal.Expression)}
   {ws : List V} {M M₀ : Memory V} (hin : ∀ e ∈ ninits, InboxInit inbox e)
-  (hws : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval M₀ (Prod.snd ie) v) ninits ws) :
+  (hws : List.Forall₂ (λ ie v ↦ ExprSemantics.Eval Ξ Ω M₀ (Prod.snd ie) v) ninits ws) :
     (∀ x ≠ inbox, (GuardedPlusCal.InitMem ninits ws M).lookup x = M.lookup x) ∧
       (ninits = [] → GuardedPlusCal.InitMem ninits ws M = M) ∧
       (ninits ≠ [] → ∃ sv, (GuardedPlusCal.InitMem ninits ws M).lookup inbox = .some sv ∧
@@ -746,17 +746,17 @@ running the first's code. It is what pins `find?` to the process an instance act
 both sides — the target's names are the source's, pointwise, by `ProcessRefines.name_eq`. -/
 theorem Algorithm.init_refines {key : String × V → ChanKey V}
   {Ps' : Instances (String × V) V} {F : FIFOs V}
-  (href : ProcessesRefine (V := V) mbox c₀ pref algo algo')
+  (href : ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
   (hglobal : algo'.globalState = algo.globalState) (used : MailboxUsed mbox algo)
   (hyg : ∀ p ∈ algo.processes, LabelsHygienic p)
-  (hnames : (algo.processes.map (·.name)).Nodup) (hkeys : InitKeys (V := V) c₀ algo F key)
-  (hinit : NetworkPlusCal.Algorithm.init algo' ⟨Ps', F⟩) :
-    ∃ Ps : Instances (String × V) V, GuardedPlusCal.Algorithm.init algo ⟨Ps, F⟩ ∧
-      (⟨Ps, F⟩ : AlgState (String × V) V) ≋[procMailbox algo', procRxLabels algo'] ⟨Ps', F⟩ := by
+  (hnames : (algo.processes.map (·.name)).Nodup) (hkeys : InitKeys (V := V) Ξ Ω c₀ algo F key)
+  (hinit : NetworkPlusCal.Algorithm.init Ξ Ω algo' ⟨Ps', F⟩) :
+    ∃ Ps : Instances (String × V) V, GuardedPlusCal.Algorithm.init Ξ Ω algo ⟨Ps, F⟩ ∧
+      (⟨Ps, F⟩ : AlgState (String × V) V) ≋[Ξ, Ω,procMailbox algo', procRxLabels algo'] ⟨Ps', F⟩ := by
   -- both sides resolve an instance to the process it came from, the target's names being the
   -- source's pointwise
   have hnameEq (q : ComputableGuardedPlusCal.Process) (q' : ComputableNetworkPlusCal.Process)
-      (h : ∃ ib, ProcessRefines (V := V) (mbox q.name ib) (c₀ q.name) ib pref q q') :
+      (h : ∃ ib, ProcessRefines (V := V) Ξ Ω (mbox q.name ib) (c₀ q.name) ib pref q q') :
       q.name = q'.name := by
     obtain ⟨_, hpr⟩ := h
     exact hpr.name_eq.symm
@@ -771,12 +771,12 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
   -- one state per instance, which is what lets a classical choice of that state be a genuine
   -- function rather than a set that might (before `huniq`'s uniqueness) hold more than one pair.
   have hspec_unique : ∀ (i : String × V) (σ σ' : ProcState V),
-      (∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+      (∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω p,
         i = (p.name, self) ∧
-          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ) →
-      (∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+          GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ) →
+      (∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω p,
         i = (p.name, self) ∧
-          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ') →
+          GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ') →
       σ = σ' := by
     rintro i σ σ' ⟨p, hp, self, -, rfl, hinitσ⟩ ⟨q, hq, self', -, heq, hinitσ'⟩
     simp only [Prod.mk.injEq] at heq
@@ -785,20 +785,20 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
     exact hinitσ.inj hinitσ'
   classical
   let Ps : Instances (String × V) V := λ i ↦
-    if h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+    if h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω p,
         i = (p.name, self) ∧
-          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ
+          GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ
     then .some h.choose else .none
   have hPs (i : String × V) (σ : ProcState V) :
       Ps i = .some σ ↔
-      ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+      ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω p,
         i = (p.name, self) ∧
-          GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ := by
+          GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ := by
     constructor
     · intro hσ
-      by_cases h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+      by_cases h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω p,
           i = (p.name, self) ∧
-            GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ
+            GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ
       · have hPsi : Ps i = .some h.choose := dif_pos h
         rw [hPsi] at hσ
         obtain rfl := Option.some.inj hσ
@@ -807,18 +807,18 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
         rw [hPsi] at hσ
         exact nomatch hσ
     · intro hspec
-      have h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) p,
+      have h : ∃ σ, ∃ p ∈ algo.processes, ∃ self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω p,
           i = (p.name, self) ∧
-            GuardedPlusCal.InitProc self p.inits (GuardedPlusCal.Process.entryLabels p) σ :=
+            GuardedPlusCal.InitProc Ξ Ω self p.inits (GuardedPlusCal.Process.entryLabels p) σ :=
         ⟨σ, hspec⟩
       have hPsi : Ps i = .some h.choose := dif_pos h
       rw [hPsi, hspec_unique i h.choose σ h.choose_spec hspec]
-  have hsrcInit : GuardedPlusCal.Algorithm.init algo ⟨Ps, F⟩ := ⟨hPs, hglobal ▸ hinit.2⟩
+  have hsrcInit : GuardedPlusCal.Algorithm.init Ξ Ω algo ⟨Ps, F⟩ := ⟨hPs, hglobal ▸ hinit.2⟩
   have hres (q : ComputableGuardedPlusCal.Process) (hq : q ∈ algo.processes) :
       ∃ q' ib, algo'.processes.find? (·.name == q.name) = .some q' ∧
-        ProcessRefines (V := V) (mbox q.name ib) (c₀ q.name) ib pref q q' := by
+        ProcessRefines (V := V) Ξ Ω (mbox q.name ib) (c₀ q.name) ib pref q q' := by
     have hbeq (r : ComputableGuardedPlusCal.Process) (r' : ComputableNetworkPlusCal.Process)
-        (h : ∃ ib, ProcessRefines (V := V) (mbox r.name ib) (c₀ r.name) ib pref r r') :
+        (h : ∃ ib, ProcessRefines (V := V) Ξ Ω (mbox r.name ib) (c₀ r.name) ib pref r r') :
         (r.name == q.name) = (r'.name == q.name) := by rw [hnameEq r r' h]
     have hsrc : algo.processes.find? (·.name == q.name) = .some q := by
       refine List.find?_eq_some_of_unique hq (beq_self_eq_true _) λ r hr hrn ↦ ?_
@@ -858,12 +858,12 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
   have hrel (q : ComputableGuardedPlusCal.Process) (hq : q ∈ algo.processes)
       (q' : ComputableNetworkPlusCal.Process) (ibx : String)
       (hfind : algo'.processes.find? (·.name == q.name) = .some q')
-      (hpr : ProcessRefines (V := V) (mbox q.name ibx) (c₀ q.name) ibx pref q q') (self : V)
-      (hself : self ∈ GuardedPlusCal.Process.identities (V := V) q) (σ σ' : ProcState V)
-      (hσ : GuardedPlusCal.InitProc self q.inits (GuardedPlusCal.Process.entryLabels q) σ)
-      (hσ' : GuardedPlusCal.InitProc self (NetworkPlusCal.Process.inits q')
+      (hpr : ProcessRefines (V := V) Ξ Ω (mbox q.name ibx) (c₀ q.name) ibx pref q q') (self : V)
+      (hself : self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω q) (σ σ' : ProcState V)
+      (hσ : GuardedPlusCal.InitProc Ξ Ω self q.inits (GuardedPlusCal.Process.entryLabels q) σ)
+      (hσ' : GuardedPlusCal.InitProc Ξ Ω self (NetworkPlusCal.Process.inits q')
         (NetworkPlusCal.Process.entryLabels q') σ') :
-      procRelatesTo (procMailbox algo' (q.name, self)) (procRxLabels algo' (q.name, self))
+      procRelatesTo Ξ Ω (procMailbox algo' (q.name, self)) (procRxLabels algo' (q.name, self))
         (ib (q.name, self)) σ σ' := by
     obtain ⟨M₂, L₂⟩ := σ'
     obtain ⟨ninits, hsplit, hin, hnilIff⟩ := hpr.inits_eq (used q hq ibx)
@@ -908,7 +908,7 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
     obtain ⟨ninits, hsplit, hin, -⟩ := hpr.inits_eq (used q hq ibx)
     obtain ⟨ws, hws⟩ :=
       exists_inboxInit_values hin (Finmap.singleton GuardedPlusCal.selfName self)
-    have htgt : GuardedPlusCal.InitProc self (NetworkPlusCal.Process.inits q')
+    have htgt : GuardedPlusCal.InitProc Ξ Ω self (NetworkPlusCal.Process.inits q')
         (NetworkPlusCal.Process.entryLabels q')
         (GuardedPlusCal.InitMem ninits ws σ.1, NetworkPlusCal.Process.entryLabels q') := by
       rw [hsplit]
@@ -927,7 +927,7 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
     obtain ⟨q, ibx, hsrcfind, hqname, hpr⟩ := find?_refines href hfind
     have hq : q ∈ algo.processes := List.mem_of_find?_eq_some hsrcfind
     rw [← hqname] at hfind ⊢
-    have hself : self ∈ GuardedPlusCal.Process.identities (V := V) q := by
+    have hself : self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω q := by
       rw [← hpr.identities_eq]
       exact hself'
     obtain ⟨ninits, hsplit, -, -⟩ := hpr.inits_eq (used q hq ibx)

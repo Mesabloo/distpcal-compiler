@@ -19,10 +19,10 @@ public import Core.GuardedPlusCal.Semantics.Lemmas
 
 namespace NetworkPlusCal
 
-open ComputableTLAPlus (Memory ExprSemantics)
+open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 open GuardedPlusCal (Block Behavior Trace FIFOs LocalState Ref selfName EvalStep)
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! # Constructor-intro lemmas — see `GuardedPlusCal.Semantics.Lemmas`'s `Intro` section for why
 these exist and why they're duplicated per language rather than shared. No `receive` here — that
@@ -32,99 +32,99 @@ section Intro
 
 theorem Statement.reducing.with.intro {σ σ' : LocalState V} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
+    (h : ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
       match bound with
         | true => σ' = ⟨(M.insert name v), F, .none⟩
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = ⟨(M.insert name v'), F, .none⟩) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.with name ann bound e) :=
   h
 
 theorem Statement.reducing.await.intro {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.await e) :=
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e ExprSemantics.tru ∧ ε = 1) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.await e) :=
   h
 
 theorem Statement.reducing.skip.intro {σ σ' : LocalState V} {ε : Trace V}
     (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing NetworkPlusCal.Statement.skip :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω NetworkPlusCal.Statement.skip :=
   h
 
 theorem Statement.reducing.goto.intro {σ : LocalState V} {σ' : LocalState V}
     {ε : Trace V} {label}
     (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .some label⟩ ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.goto label) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.goto label) :=
   h
 
 theorem Statement.reducing.print.intro {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F v p, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+    (h : ∃ M F v p, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e v ∧ M.lookup selfName = .some p ∧
       ε = Stream'.Seq.cons (.print p v) 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.print e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.print e) :=
   h
 
 theorem Statement.reducing.assert.intro {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assert e) :=
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e ExprSemantics.tru ∧ ε = 1) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.assert e) :=
   h
 
 theorem Statement.reducing.send.intro {σ σ' : LocalState V} {ε : Trace V} {c e}
     (h : ∃ M F v cpath vs p,
-      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, (F.insert ⟨c.name, cpath⟩ (vs.concat v)), .none⟩ ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.send c e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.send c e) :=
   h
 
 theorem Statement.reducing.assign.intro {σ σ' : LocalState V} {ε : Trace V} {r e}
     (h : ∃ M F M' v rpath,
-      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
       σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M', F, .none⟩ ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assign r e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.assign r e) :=
   h
 
 theorem Statement.aborting.with.intro {σ : LocalState V} {ε : Trace V}
     {name ann bound e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
           | true => False
           | false => ¬ ExprSemantics.isSet v}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.with name ann bound e) :=
   h
 
 theorem Statement.aborting.await.intro {σ : LocalState V} {ε : Trace V} {e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e) :=
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.await e) :=
   h
 
 theorem Statement.aborting.print.intro {σ : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.print e) :=
+    (h : ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1) :
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.print e) :=
   h
 
 theorem Statement.aborting.assert.intro {σ : LocalState V} {ε : Trace V} {e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assert e) :=
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.assert e) :=
   h
 
 theorem Statement.aborting.send.intro {σ : LocalState V} {ε : Trace V} {c e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts Ξ Ω M c ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
           F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.send c e) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.send c e) :=
   h
 
 theorem Statement.aborting.assign.intro {σ : LocalState V} {ε : Trace V} {r e}
     (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts Ξ Ω M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
-          M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+          ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
           Memory.update M r.name rpath v = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.assign r e) :=
   h
 
 end Intro
@@ -152,22 +152,22 @@ into that match's motive (`match bound, h with`), which then no longer matches t
 `Statement.aborting.with.elim` is the same case. -/
 theorem Statement.reducing.with.elim {σ σ' : LocalState V} {ε : Trace V}
     {name ann bound e} :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) →
-      ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.with name ann bound e) →
+      ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
         match bound with
           | true => σ' = ⟨(M.insert name v), F, .none⟩
           | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = ⟨(M.insert name v'), F, .none⟩ :=
   id
 
 theorem Statement.reducing.await.elim {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.await e)) :
-    ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1 :=
+    (h : ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.await e)) :
+    ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e ExprSemantics.tru ∧ ε = 1 :=
   h
 
 theorem Statement.reducing.assign.elim {σ σ' : LocalState V} {ε : Trace V} {r e}
-    (h : ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.assign r e)) :
+    (h : ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.assign r e)) :
     ∃ M F M' v rpath,
-      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
       σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M', F, .none⟩ ∧ ε = 1 :=
   h
@@ -175,29 +175,29 @@ theorem Statement.reducing.assign.elim {σ σ' : LocalState V} {ε : Trace V} {r
 @[inherit_doc Statement.reducing.with.elim]
 theorem Statement.aborting.with.elim {σ : LocalState V} {ε : Trace V}
     {name ann bound e} :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) →
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.with name ann bound e) →
       (⟨σ, ε⟩ : LocalState V × Trace V) ∈
-        {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-        ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
+        {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+        ∪ {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
             | true => False
             | false => ¬ ExprSemantics.isSet v} :=
   id
 
 theorem Statement.aborting.await.elim {σ : LocalState V} {ε : Trace V} {e}
-    (h : ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e)) :
+    (h : ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.await e)) :
     (⟨σ, ε⟩ : LocalState V × Trace V) ∈
-      {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1} :=
+      {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1} :=
   h
 
 theorem Statement.aborting.assign.elim {σ : LocalState V} {ε : Trace V} {r e}
-    (h : ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e)) :
+    (h : ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.assign r e)) :
     (⟨σ, ε⟩ : LocalState V × Trace V) ∈
       {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts Ξ Ω M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
-          M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+          ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
           Memory.update M r.name rpath v = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1} :=
   h
 
@@ -215,8 +215,8 @@ the value that lands in memory, no case split. `.elim` above mirrors the definit
 what consumers actually do with it. `Guarded2Network/Lemmas/Reorder.lean` moves this clause between
 two memories in both directions, and without the factoring that is four near-identical blocks. -/
 theorem Statement.reducing.with.iff {σ σ' : LocalState V} {ε : Trace V} {name ann bound e} :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (NetworkPlusCal.Statement.with name ann bound e) ↔
-      ∃ M F v u, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ Statement.BoundValue bound u v ∧
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (NetworkPlusCal.Statement.with name ann bound e) ↔
+      ∃ M F v u, ExprSemantics.Eval Ξ Ω M e v ∧ Finmap.lookup name M = none ∧ Statement.BoundValue bound u v ∧
         σ = ⟨M, F, .none⟩ ∧ σ' = ⟨(M.insert name u), F, .none⟩ ∧ ε = 1 := by
   iff_rintro h ⟨M, F, v, u, hv, hname, hbv, rfl, rfl, rfl⟩
   · obtain ⟨M, F, v, hv, hname, rfl, rfl, hb⟩ := Statement.reducing.with.elim h
@@ -237,9 +237,9 @@ and what remains is either the guard expression having no value at all or — on
 nondeterministic pick — its value not being a set. `bound = true` cannot abort past evaluation,
 which the definition says with a `False` branch and this says by pinning `bound` to `false`. -/
 theorem Statement.aborting.with.iff {σ : LocalState V} {ε : Trace V} {name ann bound e} :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.with name ann bound e) ↔
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.with name ann bound e) ↔
       ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
-        (M ⊢ e ↯ ∨ ∃ v, M ⊢ e ⇒ v ∧ bound = false ∧ ¬ ExprSemantics.isSet v) := by
+        (ExprSemantics.Aborts Ξ Ω M e ∨ ∃ v, ExprSemantics.Eval Ξ Ω M e v ∧ bound = false ∧ ¬ ExprSemantics.isSet v) := by
   iff_rintro h ⟨M, F, rfl, rfl, hd⟩
   · rcases Statement.aborting.with.elim h with ⟨M, F, habort, rfl, rfl⟩ | ⟨M, F, v, hv, rfl, rfl, hb⟩
     · exact ⟨M, F, rfl, rfl, .inl habort⟩
@@ -253,9 +253,9 @@ theorem Statement.aborting.with.iff {σ : LocalState V} {ε : Trace V} {name ann
 /-- `await`'s aborting case with the state and trace matched once instead of once per union member,
 leaving a plain disjunction over what actually went wrong. -/
 theorem Statement.aborting.await.iff {σ : LocalState V} {ε : Trace V} {e} :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.await e) ↔
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.await e) ↔
       ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
-        ((M ⊢ e ↯) ∨ ∃ v, M ⊢ e ⇒ v ∧ ¬ ExprSemantics.isBool v) := by
+        ((ExprSemantics.Aborts Ξ Ω M e) ∨ ∃ v, ExprSemantics.Eval Ξ Ω M e v ∧ ¬ ExprSemantics.isBool v) := by
   iff_rintro h ⟨M, F, rfl, rfl, hd⟩
   · rcases Statement.aborting.await.elim h with ⟨M, F, habort, rfl, rfl⟩ | ⟨M, F, v, hb, hv, rfl, rfl⟩
     · exact ⟨M, F, rfl, rfl, .inl habort⟩
@@ -269,10 +269,10 @@ fail — the target name unbound, the right-hand side without a value, an index 
 reference without a value, or the update itself rejected by `updatePath`. Four union members each
 repeating `σ = ⟨M, F, .none⟩ ∧ ε = 1` is what makes the raw form expensive to take apart. -/
 theorem Statement.aborting.assign.iff {σ : LocalState V} {ε : Trace V} {r e} :
-    ⟨σ, ε⟩ ∈ Statement.aborting (NetworkPlusCal.Statement.assign r e) ↔
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (NetworkPlusCal.Statement.assign r e) ↔
       ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
-        (r.name ∉ M ∨ (M ⊢ e ↯) ∨ Ref.pathAborts M r ∨
-          ∃ v rpath, M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+        (r.name ∉ M ∨ (ExprSemantics.Aborts Ξ Ω M e) ∨ Ref.pathAborts Ξ Ω M r ∨
+          ∃ v rpath, ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
             Memory.update M r.name rpath v = .none) := by
   iff_rintro h ⟨M, F, rfl, rfl, hd⟩
   · rcases Statement.aborting.assign.elim h with
@@ -294,41 +294,41 @@ end Elim
 the list without reaching through the wrapper to `Block.listReducing`. -/
 
 theorem Statement.listReducing_nil {g : Bool} :
-    Statement.listReducing (V := V) (g := g) [] = Relation.Idle := rfl
+    Statement.listReducing (V := V) Ξ Ω (g := g) [] = Relation.Idle := rfl
 
 theorem Statement.listReducing_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
     {A : List (ComputableNetworkPlusCal.Statement g false)} :
-    Statement.listReducing (V := V) (S :: A) =
-      Statement.reducing S ∘ᵣ₂ Statement.listReducing A := rfl
+    Statement.listReducing (V := V) Ξ Ω (S :: A) =
+      Statement.reducing Ξ Ω S ∘ᵣ₂ Statement.listReducing Ξ Ω A := rfl
 
 /-- A statement run splits wherever its list does. `Guarded2Network`'s consumption assignments
 accumulate by `++` — one `receive` appends its pair to what earlier ones left — so every proof about
 them meets this shape rather than a `cons`. -/
 theorem Statement.listReducing_append {g : Bool}
     {A B : List (ComputableNetworkPlusCal.Statement g false)} :
-    Statement.listReducing (V := V) (A ++ B) =
-      Statement.listReducing A ∘ᵣ₂ Statement.listReducing B :=
+    Statement.listReducing (V := V) Ξ Ω (A ++ B) =
+      Statement.listReducing Ξ Ω A ∘ᵣ₂ Statement.listReducing Ξ Ω B :=
   Block.listReducing_append _
 
 theorem Statement.listAborting_nil {g : Bool} :
-    Statement.listAborting (V := V) (g := g) [] = ∅ := rfl
+    Statement.listAborting (V := V) Ξ Ω (g := g) [] = ∅ := rfl
 
 theorem Statement.listAborting_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
     {A : List (ComputableNetworkPlusCal.Statement g false)} :
-    Statement.listAborting (V := V) (S :: A) =
-      Statement.aborting S ∪ Statement.reducing S ∘ᵣ₁ Statement.listAborting A := rfl
+    Statement.listAborting (V := V) Ξ Ω (S :: A) =
+      Statement.aborting Ξ Ω S ∪ Statement.reducing Ξ Ω S ∘ᵣ₁ Statement.listAborting Ξ Ω A := rfl
 
 @[inherit_doc Statement.listReducing_append]
 theorem Statement.listAborting_append {g : Bool}
     {A B : List (ComputableNetworkPlusCal.Statement g false)} :
-    Statement.listAborting (V := V) (A ++ B) =
-      Statement.listAborting A ∪ Statement.listReducing A ∘ᵣ₁ Statement.listAborting B :=
+    Statement.listAborting (V := V) Ξ Ω (A ++ B) =
+      Statement.listAborting Ξ Ω A ∪ Statement.listReducing Ξ Ω A ∘ᵣ₁ Statement.listAborting Ξ Ω B :=
   Block.listAborting_append _ _
 
 /-- An `await` that fires changes nothing and emits nothing, so its step relation sits inside
 `Relation.Idle`. What lets a guard be dropped off the front of a run that fails after it. -/
 theorem Statement.reducing_await_le_idle {e : ComputablePlusCal.Expression} :
-    Statement.reducing (V := V) (.await e) ≤ Relation.Idle := by
+    Statement.reducing (V := V) Ξ Ω (.await e) ≤ Relation.Idle := by
   rintro ⟨σ, ε, σ'⟩ h
   obtain ⟨M, F, rfl, rfl, -, rfl⟩ := Statement.reducing.await.elim h
   exact ⟨rfl, rfl⟩
@@ -349,16 +349,17 @@ omit [ExprSemantics V] in
 /-- No block diverges either — `Statement.diverging_eq_empty` propagated through the fold. -/
 @[simp] theorem Statement.blockDiverging_eq_empty {g b : Bool}
     {B : Block (ComputableNetworkPlusCal.Statement g) b} :
-    Block.diverging (λ ⦃_⦄ ↦ (Statement.diverging (V := V))) (λ ⦃_⦄ ↦ Statement.reducing) B = ∅ := by
+    Block.diverging (λ ⦃_⦄ ↦ (Statement.diverging (V := V))) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B =
+      ∅ := by
   apply GuardedPlusCal.Block.diverging_eq_empty
   intro _ _; rfl
 
 /-- The `match` on the precondition, discharged — see `GuardedPlusCal.AtomicBranch.aborting_eq`. -/
 theorem AtomicBranch.aborting_eq (B : ComputableNetworkPlusCal.AtomicBranch) :
-    AtomicBranch.aborting (V := V) B =
-      B.precondition.elim ∅ Statement.blockAborting ∪
-        B.precondition.elim Relation.Idle Statement.blockReducing ∘ᵣ₁
-          Statement.blockAborting B.action := by
+    AtomicBranch.aborting (V := V) Ξ Ω B =
+      B.precondition.elim ∅ (Statement.blockAborting Ξ Ω) ∪
+        B.precondition.elim Relation.Idle (Statement.blockReducing Ξ Ω) ∘ᵣ₁
+          Statement.blockAborting Ξ Ω B.action := by
   rw [AtomicBranch.aborting]
   cases B.precondition with
   | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
@@ -378,7 +379,7 @@ theorem AtomicBranch.reducing_label {M M' : Memory V} {F F' : FIFOs V} {l label 
     {ε : Trace V} {Br : ComputableNetworkPlusCal.AtomicBranch}
     (hlast : Br.action.last = .goto label)
     (h : (⟨⟨M, F, .none⟩, ε, ⟨M', F', .some l⟩⟩ :
-      LocalState V × Trace V × LocalState V) ∈ AtomicBranch.reducing Br) :
+      LocalState V × Trace V × LocalState V) ∈ AtomicBranch.reducing Ξ Ω Br) :
     l = label := by
   obtain ⟨_, _, _, _, hblock, _⟩ := h
   obtain ⟨_, _, _, _, hstmt, _⟩ := hblock
@@ -390,7 +391,7 @@ theorem AtomicBranch.reducing_label {M M' : Memory V} {F F' : FIFOs V} {l label 
 it writes at a key it has just read, so its `insert` only ever overwrites. -/
 theorem Statement.reducing_fifos_mem {b b' : Bool}
     {S : ComputableNetworkPlusCal.Statement b b'} {σ σ' : LocalState V} {ε : Trace V}
-    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈ Statement.reducing S)
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈ Statement.reducing Ξ Ω S)
     {k : GuardedPlusCal.ChanKey V} (h : σ.fifos.lookup k ≠ .none) :
     σ'.fifos.lookup k ≠ .none := by
   cases S with
@@ -420,7 +421,7 @@ induction the locality argument runs. -/
 theorem Block.reducing_fifos_mem {b b' : Bool}
     {B : Block (ComputableNetworkPlusCal.Statement b) b'} {σ σ' : LocalState V} {ε : Trace V}
     (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
-      Block.reducing (λ ⦃_⦄ ↦ Statement.reducing) B)
+      Block.reducing (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B)
     {k : GuardedPlusCal.ChanKey V} (h : σ.fifos.lookup k ≠ .none) :
     σ'.fifos.lookup k ≠ .none := by
   induction B using Block.cons_end_induct generalizing σ σ' ε with
@@ -436,7 +437,7 @@ theorem Block.reducing_fifos_mem {b b' : Bool}
 `Relation.Idle`, which writes nothing. -/
 theorem AtomicBranch.reducing_fifos_mem {Br : ComputableNetworkPlusCal.AtomicBranch}
     {σ σ' : LocalState V} {ε : Trace V}
-    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈ AtomicBranch.reducing Br)
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈ AtomicBranch.reducing Ξ Ω Br)
     {k : GuardedPlusCal.ChanKey V} (h : σ.fifos.lookup k ≠ .none) :
     σ'.fifos.lookup k ≠ .none := by
   obtain ⟨σ'', ε₁, ε₂, hpres, hact, rfl⟩ := step

@@ -25,7 +25,7 @@ public import Mathlib.Algebra.BigOperators.Group.Finset.Basic
 
 namespace GuardedPlusCal
 
-open ComputableTLAPlus (Memory ExprSemantics)
+open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 
 /-! # How much is queued
 
@@ -76,11 +76,11 @@ theorem FIFOs.size_insert_tail {V : Type} [ExprSemantics V] {F : FIFOs V} {k : C
 
 section Resolution
 
-variable {V : Type} [ExprSemantics V] {M : Memory V}
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
 
 /-- One path segment resolves to at most one `PathStep`. -/
 theorem EvalStep.inj {a : String ⊕ ComputablePlusCal.Expression} {p q : ComputableTLAPlus.PathStep V}
-    (h₁ : EvalStep M a p) (h₂ : EvalStep M a q) : p = q := by
+    (h₁ : EvalStep Ξ Ω M a p) (h₂ : EvalStep Ξ Ω M a q) : p = q := by
   cases h₁ with
   | field f => cases h₂; rfl
   | index hv =>
@@ -90,22 +90,22 @@ theorem EvalStep.inj {a : String ⊕ ComputablePlusCal.Expression} {p q : Comput
 /-- A whole `Ref.args` resolves to at most one path. -/
 theorem EvalStep.path_inj {args : List (String ⊕ ComputablePlusCal.Expression)}
     {p q : List (ComputableTLAPlus.PathStep V)}
-    (h₁ : List.Forall₂ (EvalStep M) args p) (h₂ : List.Forall₂ (EvalStep M) args q) : p = q := by
+    (h₁ : List.Forall₂ (EvalStep Ξ Ω M) args p) (h₂ : List.Forall₂ (EvalStep Ξ Ω M) args q) : p = q := by
   induction h₁ generalizing q with
   | nil => cases h₂; rfl
   | cons hhd _ ih =>
     cases h₂ with
     | cons hhd' htl' => rw [EvalStep.inj hhd hhd', ih htl']
 
-/-- `List.Forall₂ (EvalStep M)` and `ComputableTLAPlus.ResolvesPath` are one relation in two shapes.
+/-- `List.Forall₂ (EvalStep Ξ Ω M)` and `ComputableTLAPlus.ResolvesPath` are one relation in two shapes.
 The statement semantics resolves a `Ref.args` with the former; `ExprSemantics.evalExcept` states the
 `EXCEPT` law against the latter, having been declared before `EvalStep` exists. Nothing else bridges
 them, so anything relating an `assign` to the substitution standing for it
 (`Guarded2Network/Lemmas/Reorder.lean`) passes through here. -/
 theorem EvalStep.resolvesPath_iff {args : List (String ⊕ ComputablePlusCal.Expression)}
     {path : List (ComputableTLAPlus.PathStep V)} :
-    List.Forall₂ (EvalStep M) args path ↔
-      ComputableTLAPlus.ResolvesPath ExprSemantics.Eval M args path := by
+    List.Forall₂ (EvalStep Ξ Ω M) args path ↔
+      ComputableTLAPlus.ResolvesPath (ExprSemantics.Eval Ξ Ω) M args path := by
   iff_rintro h h
   · induction h with
     | nil => exact .nil
@@ -122,7 +122,7 @@ theorem EvalStep.resolvesPath_iff {args : List (String ⊕ ComputablePlusCal.Exp
 The list-level content of `Ref.not_pathAborts_iff` below, separate because the induction runs on the
 list while `Ref.pathAborts` is stated about a whole `Ref`. -/
 theorem EvalStep.exists_forall₂_iff {args : List (String ⊕ ComputablePlusCal.Expression)} :
-    (∃ path, List.Forall₂ (EvalStep M) args path) ↔ ∀ e, Sum.inr e ∈ args → ∃ v, M ⊢ e ⇒ v := by
+    (∃ path, List.Forall₂ (EvalStep Ξ Ω M) args path) ↔ ∀ e, Sum.inr e ∈ args → ∃ v, ExprSemantics.Eval Ξ Ω M e v := by
   induction args with
   | nil =>
     simp only [List.not_mem_nil, false_implies, implies_true, iff_true]
@@ -148,7 +148,7 @@ The definition filters the `.inr` segments out of `Ref.args` to say that; every 
 membership back in terms of `Ref.args` itself, which is what `Ref.freeVars`'s own lemmas are stated
 against. -/
 theorem Ref.pathAborts_iff {r : ComputableGuardedPlusCal.Ref} :
-    Ref.pathAborts M r ↔ ∃ e, Sum.inr e ∈ r.args ∧ (M ⊢ e ↯) := by
+    Ref.pathAborts Ξ Ω M r ↔ ∃ e, Sum.inr e ∈ r.args ∧ (ExprSemantics.Aborts Ξ Ω M e) := by
   unfold Ref.pathAborts
   simp only [List.mem_filterMap, Sum.getRight?_eq_some_iff]
   iff_rintro ⟨e, ⟨_, ha, rfl⟩, habort⟩ ⟨e, hmem, habort⟩
@@ -160,7 +160,7 @@ theorem Ref.pathAborts_iff {r : ComputableGuardedPlusCal.Ref} :
 yields a value by excluded middle — and it is what lets an `assign` be shown to *step* whenever it
 does not abort (`Guarded2Network/Lemmas/Reorder.lean`). -/
 theorem Ref.not_pathAborts_iff {r : ComputableGuardedPlusCal.Ref} :
-    ¬ Ref.pathAborts M r ↔ ∃ path, List.Forall₂ (EvalStep M) r.args path := by classical
+    ¬ Ref.pathAborts Ξ Ω M r ↔ ∃ path, List.Forall₂ (EvalStep Ξ Ω M) r.args path := by classical
   simp only [EvalStep.exists_forall₂_iff, Ref.pathAborts_iff, not_exists, not_and,
     ExprSemantics.Aborts, not_forall_not]
 
@@ -182,133 +182,133 @@ end Resolution
 
 section Intro
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 theorem Statement.reducing.with.intro {σ σ' : LocalState V} {ε : Trace V}
     {name ann bound e}
-    (h : ∃ M F v, M ⊢ e ⇒ v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
+    (h : ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ Finmap.lookup name M = none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
       match bound with
         | true => σ' = ⟨M.insert name v, F, .none⟩
         | false => ∃ v', ExprSemantics.mem v' v ∧ σ' = ⟨M.insert name v', F, .none⟩) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.with name ann bound e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.with name ann bound e) :=
   h
 
 theorem Statement.reducing.await.intro {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.await e) :=
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e ExprSemantics.tru ∧ ε = 1) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.await e) :=
   h
 
 theorem Statement.reducing.receive.intro {σ σ' : LocalState V} {ε : Trace V}
     {c r coe}
     (h : ∃ M F M' cpath rpath v v' vs,
-      List.Forall₂ (EvalStep M) c.args cpath ∧
-      List.Forall₂ (EvalStep M) r.args rpath ∧
+      List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
+      List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧
       ExprSemantics.coerce coe v v' ∧
       Memory.update M r.name rpath v' = .some M' ∧
       σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M', F.insert ⟨c.name, cpath⟩ vs, .none⟩ ∧
       ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.receive c r coe) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.receive c r coe) :=
   h
 
 theorem Statement.reducing.skip.intro {σ σ' : LocalState V} {ε : Trace V}
     (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing GuardedPlusCal.Statement.skip :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω GuardedPlusCal.Statement.skip :=
   h
 
 theorem Statement.reducing.goto.intro {σ : LocalState V} {σ' : LocalState V}
     {ε : Trace V} {label}
     (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .some label⟩ ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.goto label) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.goto label) :=
   h
 
 theorem Statement.reducing.print.intro {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F v p, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ v ∧ M.lookup selfName = .some p ∧
+    (h : ∃ M F v p, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e v ∧ M.lookup selfName = .some p ∧
       ε = Stream'.Seq.cons (.print p v) 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.print e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.print e) :=
   h
 
 theorem Statement.reducing.assert.intro {σ σ' : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ M ⊢ e ⇒ ExprSemantics.tru ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assert e) :=
+    (h : ∃ M F, σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F, .none⟩ ∧ ExprSemantics.Eval Ξ Ω M e ExprSemantics.tru ∧ ε = 1) :
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.assert e) :=
   h
 
 theorem Statement.reducing.send.intro {σ σ' : LocalState V} {ε : Trace V} {c e}
     (h : ∃ M F v cpath vs p,
-      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) c.args cpath ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
       F.lookup ⟨c.name, cpath⟩ = .some vs ∧ M.lookup selfName = .some p ∧
       σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M, F.insert ⟨c.name, cpath⟩ (vs.concat v), .none⟩ ∧
       ε = Stream'.Seq.cons (.send p ⟨c.name, cpath⟩ v) 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.send c e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.send c e) :=
   h
 
 theorem Statement.reducing.assign.intro {σ σ' : LocalState V} {ε : Trace V} {r e}
     (h : ∃ M F M' v rpath,
-      M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
       Memory.update M r.name rpath v = .some M' ∧
       σ = ⟨M, F, .none⟩ ∧ σ' = ⟨M', F, .none⟩ ∧ ε = 1) :
-    ⟨σ, ε, σ'⟩ ∈ Statement.reducing (GuardedPlusCal.Statement.assign r e) :=
+    ⟨σ, ε, σ'⟩ ∈ Statement.reducing Ξ Ω (GuardedPlusCal.Statement.assign r e) :=
   h
 
 theorem Statement.aborting.with.intro {σ : LocalState V} {ε : Trace V}
     {name ann bound e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ match bound with
           | true => False
           | false => ¬ ExprSemantics.isSet v}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.with name ann bound e) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.with name ann bound e) :=
   h
 
 theorem Statement.aborting.await.intro {σ : LocalState V} {ε : Trace V} {e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.await e) :=
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, ¬ ExprSemantics.isBool v ∧ ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.await e) :=
   h
 
 theorem Statement.aborting.receive.intro {σ : LocalState V} {ε : Trace V} {c r coe}
     (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ ({⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-        ∪ {⟨σ, ε⟩ | ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ Ref.pathAborts M c}
-        ∪ {⟨σ, ε⟩ | ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ Ref.pathAborts M r}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ Ref.pathAborts Ξ Ω M c}
+        ∪ {⟨σ, ε⟩ | ∃ M F, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧ Ref.pathAborts Ξ Ω M r}
         ∪ {⟨σ, ε⟩ | ∃ M F cpath, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
-            List.Forall₂ (EvalStep M) c.args cpath ∧ F.lookup ⟨c.name, cpath⟩ = .none}
+            List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧ F.lookup ⟨c.name, cpath⟩ = .none}
         ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
-            List.Forall₂ (EvalStep M) c.args cpath ∧
+            List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
             F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ¬ ∃ v', ExprSemantics.coerce coe v v'}
         ∪ {⟨σ, ε⟩ | ∃ M F cpath rpath v v' vs, σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
-            List.Forall₂ (EvalStep M) c.args cpath ∧
-            List.Forall₂ (EvalStep M) r.args rpath ∧
+            List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
+            List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
             F.lookup ⟨c.name, cpath⟩ = .some (v :: vs) ∧ ExprSemantics.coerce coe v v' ∧
             Memory.update M r.name rpath v' = .none})) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.receive c r coe) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.receive c r coe) :=
   h
 
 theorem Statement.aborting.print.intro {σ : LocalState V} {ε : Trace V} {e}
-    (h : ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.print e) :=
+    (h : ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1) :
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.print e) :=
   h
 
 theorem Statement.aborting.assert.intro {σ : LocalState V} {ε : Trace V} {e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ M ⊢ e ⇒ v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assert e) :=
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F v, v ≠ ExprSemantics.tru ∧ ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.assert e) :=
   h
 
 theorem Statement.aborting.send.intro {σ : LocalState V} {ε : Trace V} {c e}
-    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M c ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep M) c.args cpath ∧
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts Ξ Ω M c ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
           F.lookup ⟨c.name, cpath⟩ = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.send c e) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.send c e) :=
   h
 
 theorem Statement.aborting.assign.intro {σ : LocalState V} {ε : Trace V} {r e}
     (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ {⟨σ, ε⟩ | ∃ M F, r.name ∉ M ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, M ⊢ e ↯ ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, ExprSemantics.Aborts Ξ Ω M e ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+      ∪ {⟨σ, ε⟩ | ∃ M F, Ref.pathAborts Ξ Ω M r ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
       ∪ {⟨σ, ε⟩ | ∃ M F v rpath,
-          M ⊢ e ⇒ v ∧ List.Forall₂ (EvalStep M) r.args rpath ∧
+          ExprSemantics.Eval Ξ Ω M e v ∧ List.Forall₂ (EvalStep Ξ Ω M) r.args rpath ∧
           Memory.update M r.name rpath v = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}) :
-    ⟨σ, ε⟩ ∈ Statement.aborting (GuardedPlusCal.Statement.assign r e) :=
+    ⟨σ, ε⟩ ∈ Statement.aborting Ξ Ω (GuardedPlusCal.Statement.assign r e) :=
   h
 
 end Intro
@@ -496,7 +496,7 @@ end Diverging
 
 section Unprimed
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 omit [ExprSemantics V] in
 /-- No statement diverges. -/
@@ -506,51 +506,53 @@ omit [ExprSemantics V] in
 /-- No block diverges either — `Statement.diverging_eq_empty` propagated through the fold. -/
 @[simp] theorem Statement.blockDiverging_eq_empty {g b : Bool}
     {B : Block (ComputableGuardedPlusCal.Statement g) b} :
-    Block.diverging (λ ⦃_⦄ ↦ (Statement.diverging (V := V))) (λ ⦃_⦄ ↦ Statement.reducing) B = ∅ := by
+    Block.diverging (λ ⦃_⦄ ↦ (Statement.diverging (V := V))) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B = ∅ := by
   apply Block.diverging_eq_empty
   intro _ _; rfl
 
 /-- A possibly-empty *list* of Guarded statements — see `NetworkPlusCal.Statement.listReducing`,
 which this mirrors. `Guarded2Network`'s per-statement reorder lemmas lift to a list of consumption
 assignments through this wrapper, on the Guarded side exactly as on the Network one. -/
-def Statement.listReducing {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+def Statement.listReducing (Ξ : OperatorEnv) (Ω : Model V) {g : Bool}
+    (A : List (ComputableGuardedPlusCal.Statement g false)) :
     Set (LocalState V × Trace V × LocalState V) :=
-  Block.listReducing (λ ⦃_⦄ ↦ Statement.reducing) A
+  Block.listReducing (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) A
 
 @[inherit_doc Statement.listReducing]
-def Statement.listAborting {g : Bool} (A : List (ComputableGuardedPlusCal.Statement g false)) :
+def Statement.listAborting (Ξ : OperatorEnv) (Ω : Model V) {g : Bool}
+    (A : List (ComputableGuardedPlusCal.Statement g false)) :
     Set (LocalState V × Trace V) :=
-  Block.listAborting (λ ⦃_⦄ ↦ Statement.aborting) (λ ⦃_⦄ ↦ Statement.reducing) A
+  Block.listAborting (λ ⦃_⦄ ↦ Statement.aborting Ξ Ω) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) A
 
 theorem Statement.listReducing_nil {g : Bool} :
-    Statement.listReducing (V := V) (g := g) [] = Relation.Idle := rfl
+    Statement.listReducing (V := V) Ξ Ω (g := g) [] = Relation.Idle := rfl
 
 theorem Statement.listReducing_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listReducing (V := V) (S :: A) =
-      Statement.reducing S ∘ᵣ₂ Statement.listReducing A := rfl
+    Statement.listReducing (V := V) Ξ Ω (S :: A) =
+      Statement.reducing Ξ Ω S ∘ᵣ₂ Statement.listReducing Ξ Ω A := rfl
 
 /-- A statement run splits wherever its list does — `Block.listReducing_append` at a statement
 list. -/
 theorem Statement.listReducing_append {g : Bool}
     {A B : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listReducing (V := V) (A ++ B) =
-      Statement.listReducing A ∘ᵣ₂ Statement.listReducing B :=
+    Statement.listReducing (V := V) Ξ Ω (A ++ B) =
+      Statement.listReducing Ξ Ω A ∘ᵣ₂ Statement.listReducing Ξ Ω B :=
   Block.listReducing_append _
 
 theorem Statement.listAborting_nil {g : Bool} :
-    Statement.listAborting (V := V) (g := g) [] = ∅ := rfl
+    Statement.listAborting (V := V) Ξ Ω (g := g) [] = ∅ := rfl
 
 theorem Statement.listAborting_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
     {A : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listAborting (V := V) (S :: A) =
-      Statement.aborting S ∪ Statement.reducing S ∘ᵣ₁ Statement.listAborting A := rfl
+    Statement.listAborting (V := V) Ξ Ω (S :: A) =
+      Statement.aborting Ξ Ω S ∪ Statement.reducing Ξ Ω S ∘ᵣ₁ Statement.listAborting Ξ Ω A := rfl
 
 @[inherit_doc Statement.listReducing_append]
 theorem Statement.listAborting_append {g : Bool}
     {A B : List (ComputableGuardedPlusCal.Statement g false)} :
-    Statement.listAborting (V := V) (A ++ B) =
-      Statement.listAborting A ∪ Statement.listReducing A ∘ᵣ₁ Statement.listAborting B :=
+    Statement.listAborting (V := V) Ξ Ω (A ++ B) =
+      Statement.listAborting Ξ Ω A ∪ Statement.listReducing Ξ Ω A ∘ᵣ₁ Statement.listAborting Ξ Ω B :=
   Block.listAborting_append _ _
 
 /-- The `match` on the precondition, discharged: `.none` composes with the identity relation and
@@ -558,10 +560,10 @@ contributes no aborting runs of its own, which is exactly what `Option.elim` say
 is what a `StrongRefinement.Comp` of a precondition half and an action half produces, so this is the
 bridge between the definition and every proof about it. -/
 theorem AtomicBranch.aborting_eq (B : ComputableGuardedPlusCal.AtomicBranch) :
-    AtomicBranch.aborting (V := V) B =
-      B.precondition.elim ∅ Statement.blockAborting ∪
-        B.precondition.elim Relation.Idle Statement.blockReducing ∘ᵣ₁
-          Statement.blockAborting B.action := by
+    AtomicBranch.aborting (V := V) Ξ Ω B =
+      B.precondition.elim ∅ (Statement.blockAborting Ξ Ω) ∪
+        B.precondition.elim Relation.Idle (Statement.blockReducing Ξ Ω) ∘ᵣ₁
+          Statement.blockAborting Ξ Ω B.action := by
   rw [AtomicBranch.aborting]
   cases B.precondition with
   | none => rw [Option.elim, Option.elim, Relation.lcomp₁.left_id_eq, Set.empty_union]
