@@ -11,6 +11,7 @@ require "leanprover-community" / "LeanSearchClient" @ git "c5d5b8fe6e5158def25cd
 require Colorized
   from git "https://github.com/anzenlang/Colorized" @ "b59df24859e41dc1aecb46c004d8295e0bb3e2c1"
 -- "anzenlang" / "Colorized" @ git "b59df24859e41dc1aecb46c004d8295e0bb3e2c1"
+require "vtrelat" / "zflean" @ git s!"v{Lean.versionString}"
 
 ------ Options
 
