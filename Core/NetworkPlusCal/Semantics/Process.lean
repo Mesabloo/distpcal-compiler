@@ -20,7 +20,7 @@ public import Core.GuardedPlusCal.Semantics.Process
 namespace NetworkPlusCal
 
 open ComputableTLAPlus (ExprSemantics OperatorEnv Model)
-open GuardedPlusCal (CodeTable Algebra AlgState InitProc)
+open GuardedPlusCal (CodeTable Algebra AlgState EvalStep InitProc)
 
 variable {V : Type}
 
@@ -33,8 +33,9 @@ contributes nothing. -/
 def Process.entryLabels (p : ComputableNetworkPlusCal.Process) : Set String :=
   {l | ∃ T ∈ p.threads, (Thread.labels T).head? = .some l}
 
-/-- The paper's `Ξₚ`. `reducing`/`aborting` match `GuardedPlusCal.Process.codeTable` over the
-`.code` threads; `relay` collects every `.rx` thread's receiving step. -/
+/-- The paper's `Ξₚ`. `reducing`/`aborting`/`blocking`/`owned` match `GuardedPlusCal.Process.codeTable`
+over the `.code` threads; `relay` collects every `.rx` thread's receiving step and `relayBlocking`
+says every such thread's channel is empty. -/
 def Process.codeTable [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     (p : ComputableNetworkPlusCal.Process) : CodeTable V where
   reducing l :=
@@ -46,6 +47,14 @@ def Process.codeTable [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
   relay :=
     {x | ∃ T ∈ p.threads, ∃ chan label τ inbox, T = .rx chan label τ inbox ∧
       x ∈ Thread.rxStep Ξ Ω chan inbox}
+  blocking l :=
+    {x | ∀ T ∈ p.threads, ∀ blocks, T = .code blocks →
+      ∀ B ∈ blocks, B.label = l → ∀ Br ∈ B.branches, x ∈ AtomicBranch.blocking Ξ Ω Br}
+  owned := Process.ownedLabels p
+  relayBlocking :=
+    {σ | ∀ T ∈ p.threads, ∀ chan label τ inbox, T = .rx chan label τ inbox →
+      ∃ cpath, List.Forall₂ (EvalStep Ξ Ω σ.mem) chan.args cpath ∧
+        σ.fifos.lookup ⟨chan.name, cpath⟩ = .some []}
 
 /-- A step at a label is a step of some thread's own block, so the label is one the process owns —
 `codeTable`'s "absent label is unschedulable" convention, read the other way round. Used at the
@@ -78,7 +87,8 @@ def Algorithm.algebra [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     Algebra V :=
   λ ⟨name, _⟩ ↦
     (algo.processes.find? (·.name == name)).elim
-      { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅, relay := ∅ }
+      { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅, relay := ∅,
+        blocking := λ _ ↦ ∅, owned := ∅, relayBlocking := Set.univ }
       (Process.codeTable Ξ Ω)
 
 /-- The instance identities a declared process contributes, read off its `=`/`∈` form and its `id`

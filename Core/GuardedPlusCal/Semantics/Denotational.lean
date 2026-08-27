@@ -282,6 +282,25 @@ def Statement.diverging : {b b' : Bool} → ComputableGuardedPlusCal.Statement b
     Set (LocalState V × Trace V)
   | _, _, _ => ∅
 
+/-- The states from which a guard-class statement is *blocked* — enabled by nothing yet, as opposed
+to going wrong. Three cases: `await` on a boolean that is not `TRUE`, `with x ∈ e` on a (present but)
+empty set, and `receive` on a channel that resolves to an empty FIFO. Every execution statement
+blocks nowhere. The trace is `1`: a blocked guard emits nothing. -/
+def Statement.blocking (Ξ : OperatorEnv) (Ω : Model V) :
+    {b b' : Bool} → ComputableGuardedPlusCal.Statement b b' → Set (LocalState V × Trace V)
+  | true, false, .with _ _ bound e =>
+    {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
+      match bound with
+      | true => False
+      | false => ExprSemantics.isSet v ∧ ¬ ∃ v', ExprSemantics.mem v' v}
+  | true, false, .await e =>
+    {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.isBool v ∧ v ≠ ExprSemantics.tru ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+  | true, false, .receive c _ _ =>
+    {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep Ξ Ω M) c.args cpath ∧
+      F.lookup ⟨c.name, cpath⟩ = .some [] ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+  | _, _, _ => ∅
+
 /-! # Reduction of blocks
 
   Generic over the index family and the state type: a block reduces by composing its elements'
@@ -353,6 +372,12 @@ def Statement.blockDiverging (Ξ : OperatorEnv) (Ω : Model V) {g b : Bool}
     Set (LocalState V × Trace V) :=
   Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B
 
+@[inherit_doc Statement.blockReducing]
+def Statement.blockBlocking (Ξ : OperatorEnv) (Ω : Model V) {g b : Bool}
+    (B : Block (ComputableGuardedPlusCal.Statement g) b) :
+    Set (LocalState V × Trace V) :=
+  Block.aborting (λ ⦃_⦄ ↦ Statement.blocking Ξ Ω) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B
+
 /-! # Reduction of atomic branches
 
   A branch is its precondition followed by its action. A branch with no precondition is the action
@@ -382,6 +407,18 @@ def AtomicBranch.diverging (Ξ : OperatorEnv) (Ω : Model V)
   | .some B' =>
     Statement.blockDiverging Ξ Ω B' ∪
       Statement.blockReducing Ξ Ω B' ∘ᵣ₁ Statement.blockDiverging Ξ Ω B.action
+
+/-- The states from which an atomic branch is *blocked*: its precondition reduces to a state at
+which some later guard blocks. A branch with no precondition — a bare action — blocks nowhere, since
+an execution statement never blocks. -/
+def AtomicBranch.blocking (Ξ : OperatorEnv) (Ω : Model V)
+    (B : ComputableGuardedPlusCal.AtomicBranch) :
+    Set (LocalState V × Trace V) :=
+  match B.precondition with
+  | .none => Statement.blockBlocking Ξ Ω B.action
+  | .some B' =>
+    Statement.blockBlocking Ξ Ω B' ∪
+      Statement.blockReducing Ξ Ω B' ∘ᵣ₁ Statement.blockBlocking Ξ Ω B.action
 
 end GuardedPlusCal
 

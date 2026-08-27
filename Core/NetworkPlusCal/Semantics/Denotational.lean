@@ -110,6 +110,21 @@ def Statement.diverging : {b b' : Bool} → ComputableNetworkPlusCal.Statement b
     Set (LocalState V × Trace V)
   | _, _, _ => ∅
 
+/-- The states from which a guard-class statement is *blocked* — same as on the Guarded side, minus
+`receive` (this language has none): `await` on a boolean that is not `TRUE`, or `with x ∈ e` on a
+(present but) empty set. The trace is `1`. -/
+def Statement.blocking (Ξ : OperatorEnv) (Ω : Model V) :
+    {b b' : Bool} → ComputableNetworkPlusCal.Statement b b' → Set (LocalState V × Trace V)
+  | true, false, .with _ _ bound e =>
+    {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1 ∧
+      match bound with
+      | true => False
+      | false => ExprSemantics.isSet v ∧ ¬ ∃ v', ExprSemantics.mem v' v}
+  | true, false, .await e =>
+    {⟨σ, ε⟩ | ∃ M F v, ExprSemantics.isBool v ∧ v ≠ ExprSemantics.tru ∧
+      ExprSemantics.Eval Ξ Ω M e v ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
+  | _, _, _ => ∅
+
 /-! # Reduction of blocks and atomic branches
 
   `GuardedPlusCal.Block.reducing`/`.aborting`/`.diverging` are generic in the statement family, so
@@ -134,6 +149,12 @@ def Statement.blockDiverging (Ξ : OperatorEnv) (Ω : Model V) {g b : Bool}
     (B : Block (ComputableNetworkPlusCal.Statement g) b) :
     Set (LocalState V × Trace V) :=
   Block.diverging (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B
+
+@[inherit_doc Statement.blockReducing]
+def Statement.blockBlocking (Ξ : OperatorEnv) (Ω : Model V) {g b : Bool}
+    (B : Block (ComputableNetworkPlusCal.Statement g) b) :
+    Set (LocalState V × Trace V) :=
+  Block.aborting (λ ⦃_⦄ ↦ Statement.blocking Ξ Ω) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) B
 
 /-- A possibly-empty *list* of Network PlusCal statements — see `GuardedPlusCal.Block.listReducing`
 for why the shape exists alongside `Block`. `Guarded2Network` prepends one of these (a branch's
@@ -181,6 +202,17 @@ def AtomicBranch.diverging (Ξ : OperatorEnv) (Ω : Model V)
     Statement.blockDiverging Ξ Ω B' ∪
       Statement.blockReducing Ξ Ω B' ∘ᵣ₁ Statement.blockDiverging Ξ Ω B.action
 
+/-- The states from which an atomic branch is *blocked*: its precondition reduces to a state at
+which some later guard blocks. A bare action blocks nowhere. -/
+def AtomicBranch.blocking (Ξ : OperatorEnv) (Ω : Model V)
+    (B : ComputableNetworkPlusCal.AtomicBranch) :
+    Set (LocalState V × Trace V) :=
+  match B.precondition with
+  | .none => Statement.blockBlocking Ξ Ω B.action
+  | .some B' =>
+    Statement.blockBlocking Ξ Ω B' ∪
+      Statement.blockReducing Ξ Ω B' ∘ᵣ₁ Statement.blockBlocking Ξ Ω B.action
+
 /-! # Reduction of atomic blocks
 
   A block picks one of its branches nondeterministically — reducing/aborting/diverging as *some*
@@ -203,6 +235,14 @@ def AtomicBlock.diverging (Ξ : OperatorEnv) (Ω : Model V)
     (B : ComputableNetworkPlusCal.AtomicBlock) :
     Set (LocalState V × Trace V) :=
   {⟨σ, ε⟩ | ∃ Br ∈ B.branches, ⟨σ, ε⟩ ∈ AtomicBranch.diverging Ξ Ω Br}
+
+/-- A block is *blocked* iff **every** one of its branches is: `either` is angelic, so it proceeds
+on any branch that can and blocks only when none can — the intersection over `B.branches`, where
+`reducing`/`aborting`/`diverging` take the union. -/
+def AtomicBlock.blocking (Ξ : OperatorEnv) (Ω : Model V)
+    (B : ComputableNetworkPlusCal.AtomicBlock) :
+    Set (LocalState V × Trace V) :=
+  {x | ∀ Br ∈ B.branches, x ∈ AtomicBranch.blocking Ξ Ω Br}
 
 /-! # Threads
 

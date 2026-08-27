@@ -52,7 +52,8 @@ wrong, and there is no third, since a block never diverges (its non-terminating 
 every statement being a single step). `relay` collects the label-free steps.
 
 A label with no block maps to `∅` in `reducing`/`aborting`, which makes it unschedulable rather than
-an error. -/
+an error. `blocking` at such a label is `univ` instead — vacuously blocked — and `owned` is what a
+consumer intersects the scheduled set against to tell a blocked process from a done one. -/
 structure CodeTable (V : Type) : Type where
   /-- Where the block at this label can step to, and what it emits. -/
   reducing : String → Set (LocalState V × Trace V × LocalState V)
@@ -61,6 +62,15 @@ structure CodeTable (V : Type) : Type where
   /-- Reducing steps taken with no scheduled label consumed and none produced — a `.rx` thread's
   receiving steps. Empty for a process with no such thread. -/
   relay : Set (LocalState V × Trace V × LocalState V)
+  /-- Where the block at this label is *blocked* — every one of its branches waiting on a guard.
+  `univ` at a label the process does not own, which `owned` and `procBlocking` gate out. -/
+  blocking : String → Set (LocalState V × Trace V)
+  /-- The labels the process's code blocks carry — the paper's `⋃ Labels(Tᵢ)`. A scheduled label
+  outside this set is a sentinel like `Done`, not a block to wait on. -/
+  owned : Set String
+  /-- States in which every one of the process's `relay` threads is itself blocked — its channel
+  resolves to an empty FIFO. `univ` for a process with no such thread. -/
+  relayBlocking : Set (LocalState V)
 
 /-! # Processes -/
 
@@ -93,6 +103,15 @@ an atomic block's non-terminating semantics is empty. Divergence is an algorithm
 appears below as the infinite iteration of the process step. -/
 def CodeTable.procDiverging (_T : CodeTable V) (_self : V) :
     Set (ProcConfig V × Trace V) := ∅
+
+/-- The paper's `⟦P⟧∅`: the process is not done — some scheduled label names a block it owns — and
+every such block is blocked, and every `relay` thread is blocked too. -/
+def CodeTable.procBlocking (T : CodeTable V) (self : V) :
+    Set (ProcConfig V × Trace V) :=
+  {⟨⟨⟨M, L⟩, F⟩, τ⟩ | (L ∩ T.owned).Nonempty ∧
+    (∀ l ∈ L, l ∈ T.owned → ⟨⟨M, F, .none⟩, τ⟩ ∈ T.blocking l) ∧
+    ⟨M, F, .none⟩ ∈ T.relayBlocking ∧
+    M.lookup selfName = .some self}
 
 /-! # Algorithms -/
 
@@ -151,6 +170,14 @@ def Algebra.immediateAbort (A : Algebra V) : Set (AlgState (String × V) V × Tr
   {⟨⟨Ps, F⟩, τ⟩ | ∃ p σ, Ps p = .some σ ∧
     ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procAborting p.2}
 
+/-- Every process is blocked *now*: the paper's `P∅_red`, the immediate half of the blocking
+semantics. `∀` where `immediateAbort` is `∃` — one process going wrong stops the algorithm, but a
+config is blocked only when nothing can move — with a nonemptiness guard so the empty instance map
+is not vacuously blocked. -/
+def Algebra.immediateBlock (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
+  {⟨⟨Ps, F⟩, τ⟩ | (∃ p σ, Ps p = .some σ) ∧
+    ∀ p σ, Ps p = .some σ → ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procBlocking p.2}
+
 /-- Every **finite** sequence of algorithm steps, with the concatenated trace: `step*`.
 
 Given directly rather than as `μX. Id ∪ X ∘ᵣ₂ step`, for the same reason as `Algebra.diverging` and
@@ -165,6 +192,11 @@ def Algebra.reducing (A : Algebra V) :
 /-- Every finite sequence of steps ending in a process going wrong: `step* ∘ᵣ₁ immediateAbort`. -/
 def Algebra.aborting (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
   Relation.star A.step ∘ᵣ₁ A.immediateAbort
+
+/-- Every finite sequence of steps ending in the whole config blocked: `step* ∘ᵣ₁ immediateBlock`.
+Parallel to `Algebra.aborting`; the reducing prefix is `Relation.star A.step` unrestricted. -/
+def Algebra.blocking (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
+  Relation.star A.step ∘ᵣ₁ A.immediateBlock
 
 /-- Every infinite sequence of steps, each execution paired with the infinite product of the traces
 its steps emit.
@@ -341,6 +373,11 @@ def Algebra.divergingFrom (A : Algebra V) (init : AlgState (String × V) V → P
     Set (AlgState (String × V) V × Trace V) :=
   {x ∈ A.diverging | init x.1}
 
+@[inherit_doc Algebra.reducingFrom]
+def Algebra.blockingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
+    Set (AlgState (String × V) V × Trace V) :=
+  {x ∈ A.blocking | init x.1}
+
 /-! # Instantiating for Guarded PlusCal
 
   Every `GuardedPlusCal.Thread` is a plain `List AtomicBlock`, so a process owns exactly its blocks'
@@ -375,6 +412,11 @@ def Process.codeTable [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧
       ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Ξ Ω Br}
   relay := ∅
+  blocking l :=
+    {x | ∀ T ∈ p.threads, ∀ B ∈ T, B.label = l →
+      ∀ Br ∈ B.branches, x ∈ AtomicBranch.blocking Ξ Ω Br}
+  owned := Process.ownedLabels p
+  relayBlocking := Set.univ
 
 /-! # Instantiating the algorithm layer
 
@@ -391,7 +433,8 @@ def Algorithm.algebra [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     Algebra V :=
   λ ⟨name, _⟩ ↦
     (algo.processes.find? (·.name == name)).elim
-      { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅, relay := ∅ }
+      { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅, relay := ∅,
+        blocking := λ _ ↦ ∅, owned := ∅, relayBlocking := Set.univ }
       (Process.codeTable Ξ Ω)
 
 /-- The instance identities an `«=|∈»`/`id` pair contributes: `id`'s own value for `=`, each member
