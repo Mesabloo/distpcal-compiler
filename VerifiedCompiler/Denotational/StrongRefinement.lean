@@ -101,6 +101,13 @@ namespace StrongRefinement
     · exact Or.inl ⟨σₛ', ε', R_σₛ'_σᵤ', Rτ_ε'_ε, Set.mem_of_subset_of_mem hyp₁ sem_σₛ'⟩
     · exact Or.inr ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
 
+  /-- A target with no reducing behavior is refined by anything: the empty target set vacates the
+  premise, so the pre- and post-relations and both source sets are unconstrained. -/
+  protected theorem Terminating.Empty [T : Trace εₛ εₜ]
+      {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} :
+      StrongRefinement.Terminating R S T.Rτ semₛ semₛ' ∅ := by
+    rintro _ _ _ _ _ (_|_)
+
   /-- Doing nothing refines doing nothing. Runs at the canonical `Trace.Rτ` rather than at `Eq` or
   at a bare relation plus a side condition: the single law the identity transition needs is
   `Rτ_one`, which is one of the class's, and every use of this lemma is alongside the composition
@@ -859,6 +866,137 @@ namespace StrongRefinement
         (Relation.star (Relation.star stepₛ) ∘ᵣ₁ Yₛ) stepₜ := by
       rwa [Relation.star.star_eq]
     have h := Aborting.star ref' refY
+    rwa [Relation.star.star_eq] at h
+
+  /--
+    Behavior refinement in the blocking case.
+
+    - `semₛ_blk` is the blocking semantics for the source language.
+    - `semₛ_abt` is the aborting semantics for the source language.
+    - `semₜ_blk` is the blocking semantics for the target language.
+
+    A blocking behavior is a finite run ending in a configuration that is stuck — nothing can step
+    and nothing aborts — and not terminal. Its end is its input's stuck state, so there is no
+    bottom edge: the target's blocking run is matched either by a source blocking run emitting an
+    `Rτ`-related trace, or by a source abort emitting a sequentially consistent prefix. Same diagram
+    notation as `Terminating`, with `⊣` for a stuck configuration:
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s}V{\varepsilon'}V @V{\mathit{sem}_t}V{\varepsilon}V \\
+    \dashv @. \dashv
+    \end{CD}
+    $$
+    or
+    $$
+    \begin{CD}
+    \sigma_s @>R>> \sigma_t \\
+    @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t}V{\varepsilon}V \\
+    \lightning @. \dashv
+    \end{CD}
+    $$
+  -/
+  @[expose]
+  protected def Blocking (semₛ_blk semₛ_abt : Set (α × εₛ)) (semₜ_blk : Set (β × εₜ)) : Prop :=
+    ∀ (σₜ : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ_blk →
+      (∃ ε' : εₛ, Rτ ε' ε ∧ (σₛ, ε') ∈ semₛ_blk) ∨ (∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ_abt)
+
+  /-- Vertical composition: a blocking run of the second factor, reached after a terminating run of
+  the first, is a blocking run of the sequence. The aborting sets are the shared fallback, and the
+  first factor's `Terminating` supplies the run prefix. Shares `Diverging.Comp`'s conclusion shape,
+  the second source set read as aborting rather than diverging. -/
+  protected theorem Blocking.Comp {R} [T₂ : Trace εₛ εₜ]
+      {semₛ : Set (α × εₛ × α)} {semₛ_blk semₛ_abt semᵤ_blk semᵤ_abt : Set (α × εₛ)}
+      {semₜ : Set (β × εₜ × β)} {semₜ_blk semᵥ_blk : Set (β × εₜ)} :
+      StrongRefinement.Blocking R T₂.Rτ semₛ_blk semₛ_abt semₜ_blk →
+      StrongRefinement.Blocking R T₂.Rτ semᵤ_blk semᵤ_abt semᵥ_blk →
+      StrongRefinement.Terminating R R T₂.Rτ semₛ semₛ_abt semₜ →
+      StrongRefinement.Blocking R T₂.Rτ (semₛ_blk ∪ semₛ ∘ᵣ₁ semᵤ_blk) (semₛ_abt ∪ semₛ ∘ᵣ₁ semᵤ_abt)
+        (semₜ_blk ∪ semₜ ∘ᵣ₁ semᵥ_blk) :=
+    StrongRefinement.Diverging.Comp
+
+  /-- Horizontal composition through an intermediate language: a blocking run of the composite pass
+  is matched by a blocking run of the first leg, with an abort of the middle language as fallback. -/
+  protected theorem Blocking.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
+      {semₛ_blk semₛ_abt : Set (α × εₛ)} {semₜ_blk semₜ_abt : Set (β × εₘ)} {semᵤ_blk : Set (γ × εₜ)} :
+      StrongRefinement.Blocking R₁ T₁.Rτ semₛ_blk semₛ_abt semₜ_blk →
+      StrongRefinement.Aborting R₁ T₁.Rτ semₛ_abt semₜ_abt →
+      StrongRefinement.Blocking R₂ T₂.Rτ semₜ_blk semₜ_abt semᵤ_blk →
+      StrongRefinement.Blocking (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ_blk semₛ_abt semᵤ_blk :=
+    StrongRefinement.Diverging.Trans
+
+  /-- Monotone: widen either source set or shrink the target blocking set. -/
+  protected theorem Blocking.Mono {R} [T : Trace εₛ εₜ]
+      {semᵣ_blk semᵣ_abt semₛ_blk semₛ_abt : Set (α × εₛ)} {semₜ_blk semᵤ_blk : Set (β × εₜ)}
+      (hyp₁ : semₛ_blk ≤ semᵣ_blk) (hyp₂ : semₛ_abt ≤ semᵣ_abt) (concl : semᵤ_blk ≤ semₜ_blk) :
+        StrongRefinement.Blocking R T.Rτ semₛ_blk semₛ_abt semₜ_blk ≤
+          StrongRefinement.Blocking R T.Rτ semᵣ_blk semᵣ_abt semᵤ_blk :=
+    StrongRefinement.Diverging.Mono hyp₁ hyp₂ concl
+
+  /-- An empty target blocking set is refined by anything. -/
+  protected theorem Blocking.Empty [T : Trace εₛ εₜ] {semₛ_blk semₛ_abt : Set (α × εₛ)} :
+      StrongRefinement.Blocking R T.Rτ semₛ_blk semₛ_abt ∅ :=
+    StrongRefinement.Diverging.Empty R
+
+  /-- Binary union on the blocking sets, the aborting set shared: each summand is discharged by its
+  own refinement. -/
+  protected theorem Blocking.union {R : Rel α β} [T : Trace εₛ εₜ]
+      {Aₛ Bₛ semₛ_abt : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
+      (h₁ : StrongRefinement.Blocking R T.Rτ Aₛ semₛ_abt Aₜ)
+      (h₂ : StrongRefinement.Blocking R T.Rτ Bₛ semₛ_abt Bₜ) :
+        StrongRefinement.Blocking R T.Rτ (Aₛ ∪ Bₛ) semₛ_abt (Aₜ ∪ Bₜ) :=
+    StrongRefinement.Diverging.union h₁ h₂
+
+  /-- Blocking refinement distributes over an arbitrary union of target blocking sets: each target
+  summand is matched by a source blocking set and a source aborting set of its own. -/
+  protected theorem Blocking.sup [T : Trace εₛ εₜ]
+      {A : Set (Set (α × εₛ))} {B : Set (Set (β × εₜ))} {C : Set (Set (α × εₛ))}
+      (sup : ∀ y ∈ B, ∃ x ∈ A, ∃ z ∈ C, StrongRefinement.Blocking R T.Rτ x z y) :
+        StrongRefinement.Blocking R T.Rτ (⋃₀ A) (⋃₀ C) (⋃₀ B) := by
+    intro σₜ ε σₛ R_σₛ_σₜ block_σₜ
+    rw [Set.mem_sUnion] at block_σₜ
+    obtain ⟨blockₜ, blockₜ_in_B, block_σₜ⟩ := block_σₜ
+    obtain ⟨blockₛ, blockₛ_in_A, abortₛ, abortₛ_in_C, ref⟩ := sup _ blockₜ_in_B
+    obtain ⟨ε', Rτ_ε'_ε, block_σₛ⟩|⟨ε', ε'_scp_ε, abort_σₛ⟩ := ref σₜ ε σₛ R_σₛ_σₜ block_σₜ
+    · left
+      exists ε', Rτ_ε'_ε
+      exact Set.mem_sUnion_of_mem block_σₛ blockₛ_in_A
+    · right
+      exists ε', ε'_scp_ε
+      exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_C
+
+  /-- Blocking refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a block. The blocking semantics
+  of an algorithm has exactly this shape — `step* ∘ᵣ₁ immediateBlock` — so this is the
+  operator-preservation law that replaces induction over its least fixed point. Shares
+  `Diverging.star`'s conclusion shape. -/
+  protected theorem Blocking.star {R : Rel α β} [T : Trace εₛ εₜ]
+      {semₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
+      {semₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
+      (ref : StrongRefinement.Terminating R R T.Rτ semₛ (Relation.star semₛ ∘ᵣ₁ immₛ) semₜ)
+      (refY : StrongRefinement.Blocking R T.Rτ Yₛ (Relation.star semₛ ∘ᵣ₁ immₛ) Yₜ) :
+        StrongRefinement.Blocking R T.Rτ (Relation.star semₛ ∘ᵣ₁ Yₛ) (Relation.star semₛ ∘ᵣ₁ immₛ)
+          (Relation.star semₜ ∘ᵣ₁ Yₜ) :=
+    StrongRefinement.Diverging.star ref refY
+
+  /-- **`Blocking.star` for a source that stutters**, the companion of `Aborting.starStutter`: one
+  target step is answered by a whole source run, so the step-level refinement is stated at
+  `Relation.star stepₛ` and the result still at `Relation.star stepₛ ∘ᵣ₁ Yₛ`. `Relation.star.star_eq`
+  collapses the doubled star. -/
+  protected theorem Blocking.starStutter {R : Rel α β} [T : Trace εₛ εₜ]
+      {stepₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
+      (ref : StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ)
+        (Relation.star stepₛ ∘ᵣ₁ immₛ) stepₜ)
+      (refY : StrongRefinement.Blocking R T.Rτ Yₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) Yₜ) :
+        StrongRefinement.Blocking R T.Rτ (Relation.star stepₛ ∘ᵣ₁ Yₛ)
+          (Relation.star stepₛ ∘ᵣ₁ immₛ) (Relation.star stepₜ ∘ᵣ₁ Yₜ) := by
+    have ref' : StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ)
+        (Relation.star (Relation.star stepₛ) ∘ᵣ₁ immₛ) stepₜ := by
+      rwa [Relation.star.star_eq]
+    have refY' : StrongRefinement.Blocking R T.Rτ Yₛ
+        (Relation.star (Relation.star stepₛ) ∘ᵣ₁ immₛ) Yₜ := by
+      rwa [Relation.star.star_eq]
+    have h := Blocking.star ref' refY'
     rwa [Relation.star.star_eq] at h
 
 end StrongRefinement

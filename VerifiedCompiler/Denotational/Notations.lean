@@ -8,8 +8,11 @@ class Abort.{u, v} (α : Type u) (β : outParam (Type v)) where
   abort : α → β
 class Diverge.{u, v} (α : Type u) (β : outParam (Type v)) where
   div : α → β
+class Block.{u, v} (α : Type u) (β : outParam (Type v)) where
+  block : α → β
 notation "⟦" e:0 "⟧*" => Reduce.reducing e
 notation "⟦" e:0 "⟧⊥" => Abort.abort e
 notation "⟦" e:0 "⟧∞" => Diverge.div e
+notation "⟦" e:0 "⟧⊘" => Block.block e
 
 end
