@@ -12,9 +12,9 @@ public import Core.GuardedPlusCal.Semantics.Process
 
   The only difference between the two languages at this level is what a process's threads
   contribute. A `.code` thread contributes its blocks' labels and their branches, exactly as in
-  Guarded PlusCal. A `.rx` thread contributes its own single label, denoting the one atomic block of
-  `Thread.rxBranch` — so a receiving loop is scheduled by the same mechanism as any other block,
-  which is what keeps the process step free of a special case for it.
+  Guarded PlusCal. A `.rx` thread contributes no label — it contributes one label-free step,
+  `Thread.rxStep`, collected into the code table's `relay` component and taken by the process step
+  with no scheduled label consumed.
 -/
 
 namespace NetworkPlusCal
@@ -24,29 +24,28 @@ open GuardedPlusCal (CodeTable Algebra AlgState InitProc)
 
 variable {V : Type}
 
-/-- Every label a process owns, across all of its threads — including each `.rx` thread's own. -/
+/-- Every label a process owns, across all of its threads. A `.rx` thread owns none. -/
 def Process.ownedLabels (p : ComputableNetworkPlusCal.Process) : Set String :=
   {l | ∃ T ∈ p.threads, l ∈ Thread.labels T}
 
-/-- The label each thread starts at. A `.rx` thread starts at its own label, since its block is its
-whole body. -/
+/-- The label each `.code` thread starts at — its first block's. A `.rx` thread owns no label and
+contributes nothing. -/
 def Process.entryLabels (p : ComputableNetworkPlusCal.Process) : Set String :=
   {l | ∃ T ∈ p.threads, (Thread.labels T).head? = .some l}
 
-/-- The paper's `Ξₚ`. The `.code` half matches `GuardedPlusCal.Process.codeTable`; the `.rx` half is
-the receiving loop's single block. -/
+/-- The paper's `Ξₚ`. `reducing`/`aborting` match `GuardedPlusCal.Process.codeTable` over the
+`.code` threads; `relay` collects every `.rx` thread's receiving step. -/
 def Process.codeTable [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     (p : ComputableNetworkPlusCal.Process) : CodeTable V where
   reducing l :=
     {x | ∃ T ∈ p.threads, ∃ blocks, T = .code blocks ∧
       ∃ B ∈ blocks, B.label = l ∧ ∃ Br ∈ B.branches, x ∈ AtomicBranch.reducing Ξ Ω Br}
-    ∪ {x | ∃ T ∈ p.threads, ∃ chan τ inbox, T = .rx chan l τ inbox ∧
-      x ∈ Thread.rxBranch Ξ Ω chan l inbox}
   aborting l :=
     {x | ∃ T ∈ p.threads, ∃ blocks, T = .code blocks ∧
       ∃ B ∈ blocks, B.label = l ∧ ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Ξ Ω Br}
-    ∪ {x | ∃ T ∈ p.threads, ∃ chan τ inbox, T = .rx chan l τ inbox ∧
-      x ∈ Thread.rxBranchAborting Ξ Ω chan inbox}
+  relay :=
+    {x | ∃ T ∈ p.threads, ∃ chan label τ inbox, T = .rx chan label τ inbox ∧
+      x ∈ Thread.rxStep Ξ Ω chan inbox}
 
 /-- A step at a label is a step of some thread's own block, so the label is one the process owns —
 `codeTable`'s "absent label is unschedulable" convention, read the other way round. Used at the
@@ -56,18 +55,16 @@ theorem Process.ownedLabels_of_reducing [ExprSemantics V] {Ξ : OperatorEnv} {Ω
     {p : ComputableNetworkPlusCal.Process}
     {l : String} {x} (hx : x ∈ (Process.codeTable (V := V) Ξ Ω p).reducing l) :
     l ∈ Process.ownedLabels p := by
-  rcases hx with ⟨T, hT, blocks, rfl, B, hB, rfl, -⟩ | ⟨T, hT, chan, τ, inbox, rfl, -⟩
-  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_map_of_mem hB⟩
-  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_singleton_self l⟩
+  obtain ⟨T, hT, blocks, rfl, B, hB, rfl, -⟩ := hx
+  exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_map_of_mem hB⟩
 
 @[inherit_doc Process.ownedLabels_of_reducing]
 theorem Process.ownedLabels_of_aborting [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
     {p : ComputableNetworkPlusCal.Process}
     {l : String} {x} (hx : x ∈ (Process.codeTable (V := V) Ξ Ω p).aborting l) :
     l ∈ Process.ownedLabels p := by
-  rcases hx with ⟨T, hT, blocks, rfl, B, hB, rfl, -⟩ | ⟨T, hT, chan, τ, inbox, rfl, -⟩
-  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_map_of_mem hB⟩
-  · exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_singleton_self l⟩
+  obtain ⟨T, hT, blocks, rfl, B, hB, rfl, -⟩ := hx
+  exact ⟨_, hT, by simp only [Thread.labels]; exact List.mem_map_of_mem hB⟩
 
 /-! # Instantiating the algorithm layer
 
@@ -80,7 +77,8 @@ def Algorithm.algebra [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     (algo : ComputableNetworkPlusCal.Algorithm) :
     Algebra V :=
   λ ⟨name, _⟩ ↦
-    (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
+    (algo.processes.find? (·.name == name)).elim
+      { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅, relay := ∅ }
       (Process.codeTable Ξ Ω)
 
 /-- The instance identities a declared process contributes, read off its `=`/`∈` form and its `id`

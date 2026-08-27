@@ -206,45 +206,36 @@ def AtomicBlock.diverging (Ξ : OperatorEnv) (Ω : Model V)
 
 /-! # Threads
 
-  A thread has no denotation of its own. A process state is a memory together with a **set of
-  labels** — at most one per
-  thread — and one process step picks an enabled label `l` from that set, runs the atomic block the
-  label names, and replaces `l` by the label the block's terminal `goto` jumped to. So a thread
-  contributes exactly two things: the labels it owns, and the block each of those labels names.
-  Everything else is the process- and algorithm-level fixed points.
+  A `.code` thread has no denotation of its own. A process state is a memory together with a **set
+  of labels** — at most one per thread — and one process step picks an enabled label `l` from that
+  set, runs the atomic block the label names, and replaces `l` by the label the block's terminal
+  `goto` jumped to. So a `.code` thread contributes exactly two things: the labels it owns, and the
+  block each of those labels names. Everything else is the process- and algorithm-level fixed points.
 
-  `Thread.rx` is no exception: its meaning is that of the atomic block
+  `Thread.rx` is different. It owns no label, and its step consumes and produces none: it is a
+  virtual thread whose meaning is the single step "read the head message off `mailboxₚ` and append
+  it to `inboxₚ`", taken whenever `mailboxₚ` is non-empty and with no `tmpₚ` variable — the value
+  goes straight from the channel into `inboxₚ`. It contributes one thing: `Thread.rxStep`, a
+  label-free reducing step handed to the process layer through `CodeTable.relay`. `Thread.rx`'s
+  `label` field names the Go loop the thread compiles to and has no part in this semantics. -/
 
-  ```
-  rxₚ : receive(mailboxₚ, tmpₚ) ; inboxₚ := Append(inboxₚ, tmpₚ) ; goto rxₚ
-  ```
-
-  without the temporary variable `tmpₚ` ever being assigned to. That block is a single atomic block —
-  guard, one assignment, terminal `goto` — so draining the channel into `inboxₚ` is one transition
-  by construction rather than by stipulation, and the self-`goto` is what makes it loop. `tmpₚ` is
-  never written: the value goes straight from the channel into `inboxₚ`, so it needs no name and the
-  AST has no field for it. `rxₚ` does have a field — `Thread.rx`'s `label` — since the loop has to be
-  schedulable by label and has to be able to name itself as its own `goto` target.
--/
-
-/-- The labels a thread owns. A `.code` thread owns its blocks' labels; a `.rx` thread owns the
-single label of its receiving loop. -/
+/-- The labels a thread owns. A `.code` thread owns its blocks' labels; a `.rx` thread owns none —
+its step is label-free. -/
 def Thread.labels : ComputableNetworkPlusCal.Thread → List String
   | .code blocks => blocks.map (·.label)
-  | .rx _ label _ _ => [label]
+  | .rx .. => []
 
-/-- The atomic block a receiving thread denotes: receive a message from `chan`,
-append it to `inbox`, and jump back to `label` — its own label, which is what makes it a loop.
-Written directly as an `AtomicBranch` rather than built from `Statement`s, because
-`NetworkPlusCal.Statement` has no `receive` — that is the whole point of this pass — and because the
-paper's `tmpₚ` is never assigned, so there is no statement sequence to express.
+/-- The one reducing step a receiving thread contributes: read the head message off `chan` and
+append it to the `inbox` sequence, leaving every scheduled label untouched. Written directly rather
+than built from `Statement`s, because `NetworkPlusCal.Statement` has no `receive` and the paper's
+`tmpₚ` is never assigned.
 
-The branch is **silent**: reception is not in `Behavior`'s alphabet (`GuardedPlusCal`'s
-`Semantics/Denotational.lean`), precisely because this thread pops a channel at a moment the source
-program need never reach. Moving a message from `chan` into `inbox` changes no observable; that the
-two together hold what the source's channel holds is the refinement invariant's job. -/
-def Thread.rxBranch (Ξ : OperatorEnv) (Ω : Model V) (chan : ComputableNetworkPlusCal.Ref)
-    (label inbox : String) :
+The step is **silent**: reception is not in `Behavior`'s alphabet (`GuardedPlusCal`'s
+`Semantics/Denotational.lean`). Moving a message from `chan` into `inbox` changes no observable; that
+the two together hold what the source's channel holds is the refinement invariant's job. An *empty*
+channel yields no step — a receiving thread then waits, which the blocking semantics records. -/
+def Thread.rxStep (Ξ : OperatorEnv) (Ω : Model V) (chan : ComputableNetworkPlusCal.Ref)
+    (inbox : String) :
     Set (LocalState V × Trace V × LocalState V) :=
   {⟨σ, ε, σ'⟩ | ∃ M F cpath v vs old new,
     List.Forall₂ (EvalStep Ξ Ω M) chan.args cpath ∧
@@ -252,35 +243,9 @@ def Thread.rxBranch (Ξ : OperatorEnv) (Ω : Model V) (chan : ComputableNetworkP
     M.lookup inbox = .some old ∧
     ExprSemantics.seqAppend old v = .some new ∧
     σ = ⟨M, F, .none⟩ ∧
-    σ' = ⟨M.insert inbox new, F.insert ⟨chan.name, cpath⟩ vs, .some label⟩ ∧
+    σ' = ⟨M.insert inbox new, F.insert ⟨chan.name, cpath⟩ vs, .none⟩ ∧
     ε = 1
   }
-
-/-- **A relay jumps back to its own label.** That is what makes a receiving thread a loop, and it is
-read off the branch's shape — so a caller wanting it need not take the branch apart, which is the
-only reason this is a lemma rather than a remark. -/
-theorem Thread.rxBranch_label {Ξ : OperatorEnv} {Ω : Model V} {chan : ComputableNetworkPlusCal.Ref}
-    {label inbox l : String} {M M' : Memory V} {F F' : FIFOs V} {ε : Trace V}
-    (h : (⟨⟨M, F, .none⟩, ε, ⟨M', F', .some l⟩⟩ : LocalState V × Trace V × LocalState V) ∈
-      Thread.rxBranch Ξ Ω chan label inbox) : l = label := by
-  obtain ⟨_, _, _, _, _, _, _, -, -, -, -, -, hdone, -⟩ := h
-  simpa only [LocalState.label_mk, Option.some.injEq] using congrArg LocalState.label hdone
-
-/-- Where `Thread.rxBranch` goes wrong. An *empty* channel is not an abort — it blocks, which is
-precisely a receiving thread waiting for a message. -/
-def Thread.rxBranchAborting (Ξ : OperatorEnv) (Ω : Model V) (chan : ComputableNetworkPlusCal.Ref)
-    (inbox : String) :
-    Set (LocalState V × Trace V) :=
-  -- an index expression of the channel reference has no value
-  {⟨σ, ε⟩ | ∃ M F, GuardedPlusCal.Ref.pathAborts Ξ Ω M chan ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-  -- the channel resolves to no FIFO at all
-  ∪ {⟨σ, ε⟩ | ∃ M F cpath, List.Forall₂ (EvalStep Ξ Ω M) chan.args cpath ∧
-      F.lookup ⟨chan.name, cpath⟩ = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-  -- `inbox` is unbound, or does not hold a sequence
-  ∪ {⟨σ, ε⟩ | ∃ M F, M.lookup inbox = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
-  ∪ {⟨σ, ε⟩ | ∃ M F cpath v vs old, List.Forall₂ (EvalStep Ξ Ω M) chan.args cpath ∧
-      F.lookup ⟨chan.name, cpath⟩ = .some (v :: vs) ∧ M.lookup inbox = .some old ∧
-      ExprSemantics.seqAppend old v = .none ∧ σ = ⟨M, F, .none⟩ ∧ ε = 1}
 
 end NetworkPlusCal
 

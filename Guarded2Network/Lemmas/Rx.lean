@@ -8,11 +8,11 @@ public import Guarded2Network.Lemmas.Statement
 /-!
   What a receiving thread's step does to the refinement invariant.
 
-  The `.rx` thread is the one part of the compiled algorithm with no source counterpart at all: its
-  label is fresh, so no source process ever schedules it, and the source therefore *stutters* while
-  it runs. That is only sound if the step is invisible — and "invisible" here is a statement about
-  `procRelatesTo`, not about states being equal, because an rx step does change the target's memory
-  and FIFOs.
+  The `.rx` thread is the one part of the compiled algorithm with no source counterpart at all: it
+  owns no label and its step consumes none, so no source process ever schedules it, and the source
+  therefore *stutters* while it runs. That is only sound if the step is invisible — and "invisible"
+  here is a statement about `procRelatesTo`, not about states being equal, because an rx step does
+  change the target's memory and FIFOs.
 
   What it changes, it changes in exactly the way the invariant already accounts for.
   `procRelatesTo` says the source's queue at the process's channel is the target's queue with the
@@ -38,13 +38,12 @@ says is `inbox ++ target's queue` — is unchanged, and the source keeps up by n
 
 Stated as the transformation of one `InboxState`: everything `procRelatesTo` and `algRelatesTo` ask
 about the pair `⟨key, contents⟩` still holds of `⟨key, contents ++ [v]⟩` against the stepped target.
-The label is not mentioned — the rx block's terminal `goto` targets its own label, so the target's
-label set is unchanged, and that is the process level's bookkeeping rather than this lemma's.
+No label is mentioned — a `.rx` thread owns none, and its step produces `.none`.
 
 `inbox ∉ Ref.freeVars c` is the same freshness this pass carries everywhere: without it the channel
 reference could resolve to a different key under the target's memory than under the source's, and
 the two sides' `ChanKey`s would not be the one the invariant names. -/
-theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
+theorem rxStep_step {c : ComputableGuardedPlusCal.Ref} {inbox : String}
     {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ib : InboxState V} {ε : Trace V}
     {σ' : LocalState V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
@@ -52,8 +51,8 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
     (hinbox : ∃ sv, M₂.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv ib.contents)
     (hkey : ∃ cpath, List.Forall₂ (EvalStep Ξ Ω M₁) c.args cpath ∧ ib.key = ⟨c.name, cpath⟩)
     (hsplit : F₁.lookup ib.key = (ib.contents ++ ·) <$> F₂.lookup ib.key)
-    (step : ⟨⟨M₂, F₂, .none⟩, ε, σ'⟩ ∈ NetworkPlusCal.Thread.rxBranch Ξ Ω c label inbox) :
-    ∃ v M₂' F₂', ε = 1 ∧ σ' = ⟨M₂', F₂', .some label⟩ ∧
+    (step : ⟨⟨M₂, F₂, .none⟩, ε, σ'⟩ ∈ NetworkPlusCal.Thread.rxStep Ξ Ω c inbox) :
+    ∃ v M₂' F₂', ε = 1 ∧ σ' = ⟨M₂', F₂', .none⟩ ∧
       (∀ x ≠ inbox, M₁.lookup x = M₂'.lookup x) ∧
       (∃ sv, M₂'.lookup inbox = .some sv ∧ ExprSemantics.isSeq sv (ib.contents ++ [v])) ∧
       (∀ k ≠ ib.key, F₂'.lookup k = F₂.lookup k) ∧
@@ -83,42 +82,39 @@ theorem rxBranch_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
   · rw [hibkey, Finmap.lookup_insert]
     exact Option.some_ne_none _
 
-/-- **The same step, at the process level.** `rxBranch_step` with `procRelatesTo`'s clauses assembled
+/-- **The same step, at the process level.** `rxStep_step` with `procRelatesTo`'s clauses assembled
 around it, which is the form the algorithm level meets: a receiving thread's step is one whole
 `Algebra.step` of the target, and the source answers it with *no* step at all.
 
-The label set survives untouched. A process step replaces the label it ran with the one the block's
-terminal `goto` reached, and the rx block's `goto` names its own label — so `insert label (L \
-{label})` is `L` again, and `procRelatesTo`'s `L₂ = L₁ ∪ rx` needs nothing done to it. That is what
-makes the extra thread invisible to the label bookkeeping as well as to the memory.
+The label set survives untouched: a `.rx` thread owns no label and its step consumes none, so
+`procRelatesTo`'s `L₂ = L₁` needs nothing done to it. That is what makes the extra thread invisible
+to the label bookkeeping as well as to the memory.
 
 The FIFO clauses are returned rather than folded in: they belong to `algRelatesTo`, which quantifies
 over all instances' keys at once, so only their per-instance content can be established here. -/
-theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
-    {rx : Set String} {ib : InboxState V} {M₁ M₂ M₂' : Memory V} {F₁ F₂ F₂' : FIFOs V}
+theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox : String}
+    {ib : InboxState V} {M₁ M₂ M₂' : Memory V} {F₁ F₂ F₂' : FIFOs V}
     {L₁ L₂ : Set String} {ε : Trace V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
-    (h : procRelatesTo Ξ Ω (.some (c, inbox)) rx (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
+    (h : procRelatesTo Ξ Ω (.some (c, inbox)) (.some ib) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩)
     (hsplit : F₁.lookup ib.key = (ib.contents ++ ·) <$> F₂.lookup ib.key)
-    (hlabel : label ∈ L₂)
-    (step : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
+    (step : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .none⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        NetworkPlusCal.Thread.rxBranch Ξ Ω c label inbox) :
+        NetworkPlusCal.Thread.rxStep Ξ Ω c inbox) :
     ∃ v, ε = 1 ∧
-      procRelatesTo Ξ Ω (.some (c, inbox)) rx (.some ⟨ib.key, ib.contents ++ [v]⟩)
-        ⟨M₁, L₁⟩ ⟨M₂', insert label (L₂ \ {label})⟩ ∧
+      procRelatesTo Ξ Ω (.some (c, inbox)) (.some ⟨ib.key, ib.contents ++ [v]⟩)
+        ⟨M₁, L₁⟩ ⟨M₂', L₂⟩ ∧
       (∀ k ≠ ib.key, F₂'.lookup k = F₂.lookup k) ∧
       F₁.lookup ib.key = ((ib.contents ++ [v]) ++ ·) <$> F₂'.lookup ib.key ∧
       F₂'.lookup ib.key ≠ .none ∧
       GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
-  obtain ⟨hlabels, hdisj, hmem, hinbox, hkey⟩ := h
+  obtain ⟨hlabels, hmem, hinbox, hkey⟩ := h
   obtain ⟨v, M₂'', F₂'', rfl, hdone, hmem', hinbox', hoff, hsplit', hkeep, hsize⟩ :=
-    rxBranch_step hfresh hmem hinbox hkey hsplit step
+    rxStep_step hfresh hmem hinbox hkey hsplit step
   injection hdone with hM hrest
   injection hrest with hF _
   subst hM; subst hF
-  rw [Set.insert_sdiff_self_of_mem hlabel]
-  exact ⟨v, rfl, ⟨hlabels, hdisj, hmem', hinbox', hkey⟩, hoff, hsplit', hkeep, hsize⟩
+  exact ⟨v, rfl, ⟨hlabels, hmem', hinbox', hkey⟩, hoff, hsplit', hkeep, hsize⟩
 
 /-- **And at the algorithm level: the source does not move at all.** One instance takes a receiving
 thread's step; every other instance and every other FIFO key is untouched, so the whole
@@ -128,25 +124,24 @@ This is the rx half of the per-step obligation the algorithm-level refinement di
 answered with *zero* source steps — `Relation.star.refl` — which is why the source side of that
 refinement has to be `Relation.star Aₛ.step` rather than `Aₛ.step`: `GuardedPlusCal.Algebra.reducing`
 is defined as that star, so this is the goal's own shape rather than a weakening of it. -/
-theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} {rx : ι → Set String}
+theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox}
     {Ps Qs Qs' : GuardedPlusCal.Instances ι V} {F₁ F₂ F₂' : FIFOs V}
-    {p : ι} {c : ComputableGuardedPlusCal.Ref} {inbox label : String}
+    {p : ι} {c : ComputableGuardedPlusCal.Ref} {inbox : String}
     {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
     (hmb : mb p = .some (c, inbox))
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
-    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω, mb, rx] ⟨Qs, F₂⟩)
+    (h : (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω, mb] ⟨Qs, F₂⟩)
     (hS : Ps p = .some ⟨M₁, L₁⟩)
     (hin : Qs p = .some ⟨M₂, L₂⟩)
-    (hlabel : label ∈ L₂)
-    (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .some label⟩⟩ :
+    (hstep : (⟨⟨M₂, F₂, .none⟩, ε, ⟨M₂', F₂', .none⟩⟩ :
       LocalState V × Trace V × LocalState V) ∈
-        NetworkPlusCal.Thread.rxBranch Ξ Ω c label inbox)
-    (hQs : Qs' = Qs.update p (.some ⟨M₂', insert label (L₂ \ {label})⟩)) :
-    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω, mb, rx] ⟨Qs', F₂'⟩ ∧
+        NetworkPlusCal.Thread.rxStep Ξ Ω c inbox)
+    (hQs : Qs' = Qs.update p (.some ⟨M₂', L₂⟩)) :
+    ε = 1 ∧ (⟨Ps, F₁⟩ : AlgState ι V) ≋[Ξ, Ω, mb] ⟨Qs', F₂'⟩ ∧
       GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
   obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   -- `Ps`/`Qs` are functions, so `hS`/`hin` already pin the one state each holds at `p`
-  have hproc : procRelatesTo Ξ Ω (mb p) (rx p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
+  have hproc : procRelatesTo Ξ Ω (mb p) (ib p) ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ := by
     have hm := hmatch p
     rwa [hS, hin] at hm
   -- the instance receives, so it has an inbox to account for
@@ -155,17 +150,17 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     | .some ibp => exact ⟨ibp, rfl⟩
     | .none =>
       rw [hmb, hib] at hproc
-      nomatch hproc.2.2
+      nomatch hproc.2
   rw [hibp] at hproc
   have hsplitp : F₁.lookup ibp.key = (ibp.contents ++ ·) <$> F₂.lookup ibp.key := by
     rw [hfifo ibp.key, hkey p ibp hibp]
   obtain ⟨v, rfl, hproc', hoff', hsplit', hkeep, hsize⟩ :=
-    procRelatesTo.rx_step hfresh (hmb ▸ hproc) hsplitp hlabel hstep
+    procRelatesTo.rx_step hfresh (hmb ▸ hproc) hsplitp hstep
   subst hQs
   -- every other instance's clause survives unchanged: derived from `hmatch` directly, so it shares
   -- the same `ib` witness the goal below is stated against
   have hfwd : ∀ q σ, Ps q = .some σ →
-      ∃ σ', Qs q = .some σ' ∧ procRelatesTo Ξ Ω (mb q) (rx q) (ib q) σ σ' := by
+      ∃ σ', Qs q = .some σ' ∧ procRelatesTo Ξ Ω (mb q) (ib q) σ σ' := by
     intro q σ hq
     have hm := hmatch q
     rw [hq] at hm
@@ -173,7 +168,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox} 
     · rw [hq'] at hm; exact hm.elim
     · rw [hq'] at hm; exact ⟨σ', hq', hm⟩
   have hbwd : ∀ q σ', Qs q = .some σ' →
-      ∃ σ, Ps q = .some σ ∧ procRelatesTo Ξ Ω (mb q) (rx q) (ib q) σ σ' := by
+      ∃ σ, Ps q = .some σ ∧ procRelatesTo Ξ Ω (mb q) (ib q) σ σ' := by
     intro q σ' hq'
     have hm := hmatch q
     rw [hq'] at hm

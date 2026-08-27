@@ -409,7 +409,7 @@ theorem receive_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTLAPlus
                 (.assign r (coe.applyComputable (head τ (inboxVar inbox τ)))) ∘ᵣ₁
               NetworkPlusCal.Statement.aborting Ξ Ω
                 (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ)))))
-      ∅ := by
+      ∅ ∅ ∅ := by
   refine StrongRefinement.ofNonDiverging _ ?_ ?_
   · intro σₜ σₜ' ε σₛ sim step
     obtain ⟨rfl, hmatch | habort⟩ := receive_reducing_sim fresh sim step
@@ -654,7 +654,7 @@ theorem receiveGroup_refines {c r : ComputableGuardedPlusCal.Ref} {coe : TypedTL
       (GuardedPlusCal.Statement.reducing Ξ Ω (.receive c r coe))
       (GuardedPlusCal.Statement.aborting Ξ Ω (.receive c r coe))
       (GuardedPlusCal.Statement.diverging (.receive c r coe))
-      (receiveGroup Ξ Ω r coe inbox τ) (receiveGroupAborting Ξ Ω r coe inbox τ) ∅ := by
+      (receiveGroup Ξ Ω r coe inbox τ) (receiveGroupAborting Ξ Ω r coe inbox τ) ∅ ∅ ∅ := by
   rw [receiveGroup, receiveGroupAborting, NetworkPlusCal.Statement.listReducing_cons,
     NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
     Relation.lcomp₂.right_id_eq, NetworkPlusCal.Statement.listAborting_cons,
@@ -737,7 +737,7 @@ private def WalkInv (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
       (NetworkPlusCal.Statement.listAborting Ξ Ω results ∪
         NetworkPlusCal.Statement.listReducing Ξ Ω results ∘ᵣ₁
           NetworkPlusCal.Statement.listAborting Ξ Ω (consumptions st.newInstrs))
-      ∅
+      ∅ ∅ ∅
 
 omit [SeqBuiltins V] in
 /-- The invariant holds at the start: nothing walked, nothing emitted, nothing pending. -/
@@ -817,7 +817,7 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
         (λ _ _ _ h ↦ nomatch h) gfresh)
     simp only [GuardedPlusCal.Statement.diverging_eq_empty,
       Relation.lcomp₁.right_empty_eq_empty, Set.union_self] at hcomp
-    refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl ?_ le_rfl hcomp
+    refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl le_rfl ?_ le_rfl le_rfl hcomp
     rw [Relation.lcomp₁.union_lcomp₂, ← with_aborting'_eq]
     exact Set.union_le_union le_rfl
       (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hfresh))
@@ -849,7 +849,7 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
       (guard_refines (GuardedPlusCal.Statement.await e) (λ _ _ _ h ↦ nomatch h) gfresh)
     simp only [GuardedPlusCal.Statement.diverging_eq_empty,
       Relation.lcomp₁.right_empty_eq_empty, Set.union_self] at hcomp
-    refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl ?_ le_rfl hcomp
+    refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl le_rfl ?_ le_rfl le_rfl hcomp
     rw [Relation.lcomp₁.union_lcomp₂, ← await_aborting'_eq]
     exact Set.union_le_union le_rfl
       (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hfresh))
@@ -896,7 +896,7 @@ private theorem stepStatement_spec {chans : Guarded2NetworkChans} {mbox : Mailbo
       NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
       NetworkPlusCal.Statement.listAborting_cons, NetworkPlusCal.Statement.listAborting_nil,
       Relation.lcomp₂.right_id_eq, Set.union_empty] at hcomp
-    refine StrongRefinement.Mono le_rfl le_rfl le_rfl ?_ ?_ le_rfl hcomp
+    refine StrongRefinement.Mono le_rfl le_rfl le_rfl le_rfl ?_ ?_ le_rfl le_rfl hcomp
     · refine le_of_eq ?_
       -- `@@` is `registerSource`, invisible to defeq but not to `rw`'s syntactic match
       simp only [registerSource, inboxVar, ← Relation.lcomp₂.assoc] at hQ ⊢
@@ -1035,7 +1035,7 @@ private theorem processPrecondition_spec {chans : Guarded2NetworkChans} {mbox : 
           pre'.elim Relation.Idle (GuardedPlusCal.Block.reducing
               (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω)) ∘ᵣ₁
             NetworkPlusCal.Statement.listAborting Ξ Ω assigns)
-        ∅⌝⦄ := by
+        ∅ ∅ ∅⌝⦄ := by
     mvcgen [processPrecondition, -StateT.run]
     with | hmb | rfresh | gfresh | pfresh => subst pre; assumption
 

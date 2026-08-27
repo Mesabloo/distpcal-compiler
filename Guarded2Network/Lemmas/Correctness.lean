@@ -34,12 +34,11 @@ variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : M
 
 /-! # The two program types -/
 
-/-- **Everything the front end owes this pass, at one algorithm.** Four syntactic conditions and one
+/-- **Everything the front end owes this pass, at one algorithm.** Three syntactic conditions and one
 semantic: `AlgorithmFresh` (the generated `inbox` collides with nothing the source uses),
-`MailboxUsed` (a declared mailbox is one its process receives on, `checkReceiveChannels`),
-`LabelsHygienic` (no source label is one the pass could generate), `Nodup` on the process names
-(`duplicateProcessName`) — and `InitKeys`, the key a receiving instance starts on, which is the one
-thing here no checker establishes.
+`MailboxUsed` (a declared mailbox is one its process receives on, `checkReceiveChannels`), `Nodup` on
+the process names (`duplicateProcessName`) — and `InitKeys`, the key a receiving instance starts on,
+which is the one thing here no checker establishes.
 
 `keys` quantifies over the FIFO map because `InitKeys.declared` is stated against it: which map an
 initial state carries is not fixed until that state is chosen. The other two clauses do not mention
@@ -51,8 +50,6 @@ structure FrontEnd (Ξ : OperatorEnv) (Ω : Model V) (mbox : String → String �
   fresh : AlgorithmFresh mbox c₀ algo
   /-- A process with a mailbox is a process that receives. -/
   used : MailboxUsed mbox algo
-  /-- No source label is one the pass could have generated. -/
-  hygienic : ∀ p ∈ algo.processes, LabelsHygienic p
   /-- No two processes share a name. -/
   names : (algo.processes.map (·.name)).Nodup
   /-- Each receiving instance starts on a key that resolves, exists, and is its own. -/
@@ -76,7 +73,8 @@ semantics is taken in. The index is phantom; see this file's module doc for why 
 def TargetProgram (_V : Type) (_Ξ : OperatorEnv) (_Ω : Model _V) : Type :=
   ComputableNetworkPlusCal.Algorithm
 
-/-! # Their semantics, as the framework indexes it -/
+/-! # Their semantics, as the framework indexes it
+-/
 
 instance : Reduce (SourceProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
@@ -88,6 +86,12 @@ instance : Abort (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace
 instance : Diverge (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
   ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).diverging⟩
 
+-- TODO(blocking-clause): both `Block` instances denote `∅`, which keeps `StrongRefinement`'s
+-- blocking field wired (discharged by an empty-target refinement) while the semantics layer that
+-- gives an algebra its blocking behaviour is pending. Replace with `(…algebra…).blocking`.
+instance : Block (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
+  ⟨λ _ ↦ ∅⟩
+
 instance : Reduce (TargetProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
   ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing⟩
@@ -97,6 +101,9 @@ instance : Abort (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace
 
 instance : Diverge (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
   ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging⟩
+
+instance : Block (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
+  ⟨λ _ ↦ ∅⟩
 
 /-- The pass itself, at those two types. `Algorithm.toNetwork` never looks at anything a
 `SourceProgram` carries beyond the algorithm — the rest is what the *proof* reads. -/
@@ -108,15 +115,15 @@ def compile (s : SourceProgram V Ξ Ω) : G2NM (TargetProgram V Ξ Ω) :=
 open Std.Do in
 /-- **`Guarded2Network` is a correct pass.** The whole development meets here.
 
-The relation is `algRelatesTo` at the mailbox and receiving labels read off the *compiled*
-algorithm — which is why `Compiler.Correctness` indexes its relation by the target program, and why
-both halves live inside one triple. The `init` half is `Algorithm.init_refines`, the refinement half
-is `Algorithm.toNetwork_refines`, and `triple_forall` is what lets one run of the pass answer both
-at every prefix function at once. -/
+The relation is `algRelatesTo` at the mailbox read off the *compiled* algorithm — which is why
+`Compiler.Correctness` indexes its relation by the target program, and why both halves live inside
+one triple. The `init` half is `Algorithm.init_refines`, the refinement half is
+`Algorithm.toNetwork_refines`, and `triple_forall` is what lets one run of the pass answer both at
+every prefix function at once. -/
 theorem correct [DecidableEq V] :
     Compiler.Correctness
       (λ (_ : SourceProgram V Ξ Ω) (algo' : TargetProgram V Ξ Ω) ↦
-        algRelatesTo (V := V) Ξ Ω (procMailbox algo') (procRxLabels algo'))
+        algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
       compile (λ s ↦ GuardedPlusCal.Algorithm.init Ξ Ω s.algo) (NetworkPlusCal.Algorithm.init Ξ Ω)
       where
   correct s := by
@@ -125,12 +132,11 @@ theorem correct [DecidableEq V] :
       (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref)
         s.wellFormed.fresh) ?_
     intro algo' h
-    refine ⟨?_, algRelatesTo.refines (λ pref ↦ (h pref).2) s.wellFormed.used s.wellFormed.fresh
-      s.wellFormed.hygienic⟩
+    refine ⟨?_, algRelatesTo.refines (λ pref ↦ (h pref).2) s.wellFormed.used s.wellFormed.fresh⟩
     rintro ⟨Ps', F⟩ hinit
     obtain ⟨key, hkeys⟩ := s.wellFormed.keys F
     obtain ⟨Ps, hsrc, hrel⟩ := Algorithm.init_refines (h λ _ ↦ []).2 (h λ _ ↦ []).1
-      s.wellFormed.used s.wellFormed.hygienic s.wellFormed.names hkeys hinit
+      s.wellFormed.used s.wellFormed.names hkeys hinit
     exact ⟨⟨Ps, F⟩, hsrc, hrel⟩
 
 /-- And so it is correct in the composable form, which is what a whole-pipeline statement chains

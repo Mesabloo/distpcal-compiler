@@ -1010,14 +1010,17 @@ end StrongRefinement
   - `semₜ₁` is the reducing semantics for the target language.
   - `semₜ₂` is the aborting semantics for the target language.
   - `semₜ₃` is the diverging semantics for the target language.
+  - `semₛ₄`/`semₜ₄` are the blocking semantics for the source/target language.
  -/
 structure StrongRefinement {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R : Rel α β)
     (Rτ : Rel εₛ εₜ)
     (semₛ₁ : Set (α × εₛ × α)) (semₛ₂ semₛ₃ : Set (α × εₛ))
-    (semₜ₁ : Set (β × εₜ × β)) (semₜ₂ semₜ₃ : Set (β × εₜ)) where
+    (semₜ₁ : Set (β × εₜ × β)) (semₜ₂ semₜ₃ : Set (β × εₜ))
+    (semₛ₄ : Set (α × εₛ)) (semₜ₄ : Set (β × εₜ)) where
   terminating : StrongRefinement.Terminating R R Rτ semₛ₁ semₛ₂ semₜ₁
   aborting : StrongRefinement.Aborting R Rτ semₛ₂ semₜ₂
   diverging : StrongRefinement.Diverging R Rτ semₛ₃ semₛ₂ semₜ₃
+  blocking : StrongRefinement.Blocking R Rτ semₛ₄ semₛ₂ semₜ₄
 
 namespace StrongRefinement
   variable {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R S : Rel α β)
@@ -1027,56 +1030,60 @@ namespace StrongRefinement
   nothing is left for a caller to repair — composing a chain of refinements stays at `Rτ` however
   long the chain is. -/
   protected theorem Comp [T₂ : Trace εₛ εₜ]
-    {semₛ semᵤ : Set (α × εₛ × α)} {semₛ' semₛ'' semᵤ' semᵤ'' : Set (α × εₛ)} {semₜ semᵥ : Set (β × εₜ × β)} {semₜ' semₜ'' semᵥ' semᵥ'' : Set (β × εₜ)} :
-      StrongRefinement R T₂.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' →
-      StrongRefinement R T₂.Rτ semᵤ semᵤ' semᵤ'' semᵥ semᵥ' semᵥ'' →
-      StrongRefinement R T₂.Rτ (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₜ ∘ᵣ₂ semᵥ) (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') := by
-    rintro ⟨t₁, a₁, d₁⟩ ⟨t₂, a₂, d₂⟩
-    exact ⟨Terminating.Comp t₁ t₂, Aborting.Comp a₁ a₂ t₁, Diverging.Comp d₁ d₂ t₁⟩
+    {semₛ semᵤ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛb semᵤ' semᵤ'' semᵤb : Set (α × εₛ)} {semₜ semᵥ : Set (β × εₜ × β)} {semₜ' semₜ'' semₜb semᵥ' semᵥ'' semᵥb : Set (β × εₜ)} :
+      StrongRefinement R T₂.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' semₛb semₜb →
+      StrongRefinement R T₂.Rτ semᵤ semᵤ' semᵤ'' semᵥ semᵥ' semᵥ'' semᵤb semᵥb →
+      StrongRefinement R T₂.Rτ (semₛ ∘ᵣ₂ semᵤ) (semₛ' ∪ semₛ ∘ᵣ₁ semᵤ') (semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ'') (semₜ ∘ᵣ₂ semᵥ) (semₜ' ∪ semₜ ∘ᵣ₁ semᵥ') (semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ'') (semₛb ∪ semₛ ∘ᵣ₁ semᵤb) (semₜb ∪ semₜ ∘ᵣ₁ semᵥb) := by
+    rintro ⟨t₁, a₁, d₁, b₁⟩ ⟨t₂, a₂, d₂, b₂⟩
+    exact ⟨Terminating.Comp t₁ t₂, Aborting.Comp a₁ a₂ t₁, Diverging.Comp d₁ d₂ t₁, Blocking.Comp b₁ b₂ t₁⟩
 
-  protected theorem ofNonDiverging [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' : Set (β × εₜ)}
+  protected theorem ofNonDiverging [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛ''' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' : Set (β × εₜ)}
     (h₁ : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ)
     (h₂ : StrongRefinement.Aborting R T.Rτ semₛ' semₜ') :
-      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ semₜ' ∅ := by
+      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ semₜ' ∅ semₛ''' ∅ := by
     constructor
     · assumption
     · assumption
     · apply Diverging.Empty
+    · apply Blocking.Empty
 
-  protected theorem ofTerminating [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
+  protected theorem ofTerminating [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛ''' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
     (h : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ) :
-      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ ∅ ∅ := by
+      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ ∅ ∅ semₛ''' ∅ := by
     constructor
     · assumption
     · apply Aborting.Empty
     · apply Diverging.Empty
+    · apply Blocking.Empty
 
   /-- Horizontal composition. `T₁` bundles the first operand's trace relation with both its laws,
   needed by `Terminating.Trans`/`Aborting.Trans`/`Diverging.Trans` alike. No union needed here,
   unlike `Comp`: every execution genuinely passes through the intermediate language. -/
   protected theorem Trans {γ} {εₘ : Type _} [Monoid εₘ] [T₁ : Trace εₛ εₘ] {R₁ R₂} [T₂ : Trace εₘ εₜ]
-    {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' : Set (α × εₛ)}
-    {semₜ : Set (β × εₘ × β)} {semₜ' semₜ'' : Set (β × εₘ)}
-    {semᵤ : Set (γ × εₜ × γ)} {semᵤ' semᵤ'' : Set (γ × εₜ)} :
-      StrongRefinement R₁ T₁.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' →
-      StrongRefinement R₂ T₂.Rτ semₜ semₜ' semₜ'' semᵤ semᵤ' semᵤ'' →
-      StrongRefinement (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ semₛ' semₛ'' semᵤ semᵤ' semᵤ'' := by
-    rintro ⟨ref₁_red, ref₁_abort, ref₁_div⟩ ⟨ref₂_red, ref₂_abort, ref₂_div⟩
+    {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛb : Set (α × εₛ)}
+    {semₜ : Set (β × εₘ × β)} {semₜ' semₜ'' semₜb : Set (β × εₘ)}
+    {semᵤ : Set (γ × εₜ × γ)} {semᵤ' semᵤ'' semᵤb : Set (γ × εₜ)} :
+      StrongRefinement R₁ T₁.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' semₛb semₜb →
+      StrongRefinement R₂ T₂.Rτ semₜ semₜ' semₜ'' semᵤ semᵤ' semᵤ'' semₜb semᵤb →
+      StrongRefinement (Relation.Comp R₁ R₂) (T₁.Rτ ∘ᵣ T₂.Rτ) semₛ semₛ' semₛ'' semᵤ semᵤ' semᵤ'' semₛb semᵤb := by
+    rintro ⟨ref₁_red, ref₁_abort, ref₁_div, ref₁_blk⟩ ⟨ref₂_red, ref₂_abort, ref₂_div, ref₂_blk⟩
     constructor
     · exact Terminating.Trans ref₁_red ref₁_abort ref₂_red
     · exact Aborting.Trans ref₁_abort ref₂_abort
     · exact Diverging.Trans ref₁_div ref₁_abort ref₂_div
+    · exact Blocking.Trans ref₁_blk ref₁_abort ref₂_blk
 
   protected theorem Mono {R} [T : Trace εₛ εₜ]
-    {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semᵣ'' semₛ' semₛ'' : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)} {semₜ' semₜ'' semᵤ' semᵤ'' : Set (β × εₜ)}
-    (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (hyp₃ : semₛ'' ≤ semᵣ'') (concl₁ : semᵤ ≤ semₜ) (concl₂ : semᵤ' ≤ semₜ') (concl₃ : semᵤ'' ≤ semₜ'') :
-      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' ≤
-        StrongRefinement R T.Rτ semᵣ semᵣ' semᵣ'' semᵤ semᵤ' semᵤ'' := by
-    rintro ⟨ref₁, ref₂, ref₃⟩
+    {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semᵣ'' semᵣb semₛ' semₛ'' semₛb : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)} {semₜ' semₜ'' semₜb semᵤ' semᵤ'' semᵤb : Set (β × εₜ)}
+    (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (hyp₃ : semₛ'' ≤ semᵣ'') (hyp₄ : semₛb ≤ semᵣb) (concl₁ : semᵤ ≤ semₜ) (concl₂ : semᵤ' ≤ semₜ') (concl₃ : semᵤ'' ≤ semₜ'') (concl₄ : semᵤb ≤ semₜb) :
+      StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' semₛb semₜb ≤
+        StrongRefinement R T.Rτ semᵣ semᵣ' semᵣ'' semᵤ semᵤ' semᵤ'' semᵣb semᵤb := by
+    rintro ⟨ref₁, ref₂, ref₃, ref₄⟩
     constructor
     · apply Terminating.Mono hyp₁ hyp₂ concl₁ ref₁
     · apply Aborting.Mono hyp₂ concl₂ ref₂
     · apply Diverging.Mono hyp₃ hyp₂ concl₃ ref₃
+    · apply Blocking.Mono hyp₄ hyp₂ concl₄ ref₄
 
   /-- All three cases at once, at the shapes a step-and-iterate semantics takes: `step*`,
   `step* ∘ᵣ₁ immediate`, `(step* ∘ᵣ₁ Y) ∪ step^∞`.
@@ -1093,19 +1100,22 @@ namespace StrongRefinement
   none: whether a single step can diverge is a property of the semantics being refined, not of this
   framework. `sequentialOmega` is the `Y = ∅` case, which is what `Algebra` instantiates. -/
   protected theorem sequential [ωMonoid εₛ] [ωMonoid εₜ] [T : ωTrace εₛ εₜ] {R : Rel α β}
-      {stepₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
-      {stepₜ : Set (β × εₜ × β)} {immₜ Yₜ : Set (β × εₜ)}
+      {stepₛ : Set (α × εₛ × α)} {immₛ Yₛ blkₛ : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {immₜ Yₜ blkₜ : Set (β × εₜ)}
       (ref : StrongRefinement.Terminating R R T.Rτ stepₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) stepₜ)
       (refImm : StrongRefinement.Aborting R T.Rτ immₛ immₜ)
-      (refY : StrongRefinement.Diverging R T.Rτ Yₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) Yₜ) :
+      (refY : StrongRefinement.Diverging R T.Rτ Yₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) Yₜ)
+      (refBlk : StrongRefinement.Blocking R T.Rτ blkₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) blkₜ) :
         StrongRefinement R T.Rτ
           (Relation.star stepₛ) (Relation.star stepₛ ∘ᵣ₁ immₛ)
           (Relation.star stepₛ ∘ᵣ₁ Yₛ ∪ Relation.omega stepₛ)
           (Relation.star stepₜ) (Relation.star stepₜ ∘ᵣ₁ immₜ)
-          (Relation.star stepₜ ∘ᵣ₁ Yₜ ∪ Relation.omega stepₜ) where
+          (Relation.star stepₜ ∘ᵣ₁ Yₜ ∪ Relation.omega stepₜ)
+          (Relation.star stepₛ ∘ᵣ₁ blkₛ) (Relation.star stepₜ ∘ᵣ₁ blkₜ) where
     terminating := Terminating.star ref
     aborting := Aborting.star ref refImm
     diverging := Diverging.closedForm ref refY
+    blocking := Blocking.star ref refBlk
 
   /-- `sequential` where no single step diverges, so the diverging component collapses to `step^∞`.
 
@@ -1114,15 +1124,17 @@ namespace StrongRefinement
   `.aborting`, `.diverging`, so a caller applies it without rewriting anything. The collapse is done
   here, once, rather than at each use site. -/
   protected theorem sequentialOmega [ωMonoid εₛ] [ωMonoid εₜ] [T : ωTrace εₛ εₜ] {R : Rel α β}
-      {stepₛ : Set (α × εₛ × α)} {immₛ : Set (α × εₛ)}
-      {stepₜ : Set (β × εₜ × β)} {immₜ : Set (β × εₜ)}
+      {stepₛ : Set (α × εₛ × α)} {immₛ blkₛ : Set (α × εₛ)}
+      {stepₜ : Set (β × εₜ × β)} {immₜ blkₜ : Set (β × εₜ)}
       (ref : StrongRefinement.Terminating R R T.Rτ stepₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) stepₜ)
-      (refImm : StrongRefinement.Aborting R T.Rτ immₛ immₜ) :
+      (refImm : StrongRefinement.Aborting R T.Rτ immₛ immₜ)
+      (refBlk : StrongRefinement.Blocking R T.Rτ blkₛ (Relation.star stepₛ ∘ᵣ₁ immₛ) blkₜ) :
         StrongRefinement R T.Rτ
           (Relation.star stepₛ) (Relation.star stepₛ ∘ᵣ₁ immₛ) (Relation.omega stepₛ)
-          (Relation.star stepₜ) (Relation.star stepₜ ∘ᵣ₁ immₜ) (Relation.omega stepₜ) := by
+          (Relation.star stepₜ) (Relation.star stepₜ ∘ᵣ₁ immₜ) (Relation.omega stepₜ)
+          (Relation.star stepₛ ∘ᵣ₁ blkₛ) (Relation.star stepₜ ∘ᵣ₁ blkₜ) := by
     have h := StrongRefinement.sequential (Yₛ := ∅) (Yₜ := ∅) ref refImm
-      (Diverging.Empty R)
+      (Diverging.Empty R) refBlk
     rwa [Relation.lcomp₁.right_empty_eq_empty, Set.empty_union,
       Relation.lcomp₁.right_empty_eq_empty, Set.empty_union] at h
 

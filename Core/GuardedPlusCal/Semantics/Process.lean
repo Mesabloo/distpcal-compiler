@@ -14,8 +14,8 @@ public import Mathlib.Tactic.Monotonicity
   is simply absent from its table, mapping to `∅` in both components, so nothing downstream needs a
   separate notion of ownership to know a label is unschedulable. Both `GuardedPlusCal` and
   `NetworkPlusCal` build their table from their own syntax and instantiate what follows;
-  `NetworkPlusCal`'s table additionally answers for its `.rx` threads' labels, which is the only way
-  the two languages differ at this level.
+  `NetworkPlusCal`'s table additionally fills `relay` with its `.rx` threads' label-free receiving
+  steps, which is the only way the two languages differ at this level.
 
   `Instances`/`AlgState` are indexed by an arbitrary `ι` rather than by a `Process` value. The paper
   writes the algorithm state as a set of pairs `⟨P, σ⟩` and updates it with
@@ -46,21 +46,27 @@ abbrev ProcState (V : Type) : Type := Memory V × Set String
 layer threads one copy through every process rather than giving each its own. -/
 abbrev ProcConfig (V : Type) : Type := ProcState V × FIFOs V
 
-/-- The paper's `Ξₚ`: what the atomic block at each label does. Two relations rather than one,
-because a block can step or go wrong; there is no third, since a block never diverges (its
-non-terminating semantics is empty, every statement being a single step).
+/-- The paper's `Ξₚ`: what the atomic block at each label does, together with any step the process
+takes with no label scheduled. `reducing`/`aborting` are keyed by label — a block can step or go
+wrong, and there is no third, since a block never diverges (its non-terminating semantics is empty,
+every statement being a single step). `relay` collects the label-free steps.
 
-A label with no block maps to `∅` in both, which makes it unschedulable rather than an error. -/
+A label with no block maps to `∅` in `reducing`/`aborting`, which makes it unschedulable rather than
+an error. -/
 structure CodeTable (V : Type) : Type where
   /-- Where the block at this label can step to, and what it emits. -/
   reducing : String → Set (LocalState V × Trace V × LocalState V)
   /-- Where the block at this label goes wrong. -/
   aborting : String → Set (LocalState V × Trace V)
+  /-- Reducing steps taken with no scheduled label consumed and none produced — a `.rx` thread's
+  receiving steps. Empty for a process with no such thread. -/
+  relay : Set (LocalState V × Trace V × LocalState V)
 
 /-! # Processes -/
 
-/-- One step of a process: pick a scheduled label the process owns, run the block at that label, and
-replace the label with the one the block's terminal `goto` reached.
+/-- One step of a process: either pick a scheduled label the process owns, run the block at that
+label, and replace the label with the one the block's terminal `goto` reached; or take one of the
+process's label-free `relay` steps, leaving the scheduled set untouched.
 
 `self` is the process instance's identity. The paper's `self ↦ p ∈ M` side condition appears here as
 a lookup: a process only steps in a memory that binds its own identity, which `initProc` establishes
@@ -71,6 +77,10 @@ def CodeTable.procReducing (T : CodeTable V) (self : V) :
     ⟨⟨M, F, .none⟩, τ, ⟨M', F', .some l'⟩⟩ ∈ T.reducing l ∧
     M.lookup selfName = .some self ∧
     L' = insert l' (L \ {l})}
+  ∪ {⟨⟨⟨M, L⟩, F⟩, τ, ⟨⟨M', L'⟩, F'⟩⟩ |
+    ⟨⟨M, F, .none⟩, τ, ⟨M', F', .none⟩⟩ ∈ T.relay ∧
+    M.lookup selfName = .some self ∧
+    L' = L}
 
 /-- A process goes wrong when the block at one of its scheduled labels does. -/
 def CodeTable.procAborting (T : CodeTable V) (self : V) :
@@ -364,6 +374,7 @@ def Process.codeTable [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
   aborting l :=
     {x | ∃ T ∈ p.threads, ∃ B ∈ T, B.label = l ∧
       ∃ Br ∈ B.branches, x ∈ AtomicBranch.aborting Ξ Ω Br}
+  relay := ∅
 
 /-! # Instantiating the algorithm layer
 
@@ -379,7 +390,8 @@ def Algorithm.algebra [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
     (algo : ComputableGuardedPlusCal.Algorithm) :
     Algebra V :=
   λ ⟨name, _⟩ ↦
-    (algo.processes.find? (·.name == name)).elim { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅ }
+    (algo.processes.find? (·.name == name)).elim
+      { reducing := λ _ ↦ ∅, aborting := λ _ ↦ ∅, relay := ∅ }
       (Process.codeTable Ξ Ω)
 
 /-- The instance identities an `«=|∈»`/`id` pair contributes: `id`'s own value for `=`, each member

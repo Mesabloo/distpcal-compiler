@@ -76,7 +76,8 @@ theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : 
         (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
       (Block.diverging
         (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.diverging)
-        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω) (A.map (λ ⦃_⦄ ↦ convertActionStmt))) := by
+        (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω) (A.map (λ ⦃_⦄ ↦ convertActionStmt)))
+      ∅ ∅ := by
   induction A using Block.cons_end_induct with
   | «end» S =>
     rw [Block.map_end, Block.reducing_end, Block.reducing_end, Block.aborting_end,
@@ -85,8 +86,9 @@ theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : 
   | cons S A IH =>
     rw [Block.map_cons, Block.reducing_cons, Block.reducing_cons, Block.aborting_cons,
       Block.aborting_cons, Block.diverging_cons, Block.diverging_cons]
-    exact StrongRefinement.Comp _ (action_refines S (fresh S List.mem_cons_self))
+    have h := StrongRefinement.Comp _ (action_refines S (fresh S List.mem_cons_self))
       (IH (λ S' hS' ↦ fresh S' (List.mem_cons_of_mem _ hS')) freshLast)
+    simpa only [Relation.lcomp₁.right_empty_eq_empty, Set.empty_union] using h
 
 omit [SeqBuiltins V] in
 /-- **The two halves of a branch, joined.** The precondition's refinement (as
@@ -118,7 +120,7 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
         pre'.elim Relation.Idle (Block.reducing
             (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω)) ∘ᵣ₁
           NetworkPlusCal.Statement.listAborting Ξ Ω assigns)
-      ∅)
+      ∅ ∅ ∅)
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S) (alast : Fresh mbox Br.action.last) :
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) (GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) ∅
@@ -126,7 +128,7 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
       (NetworkPlusCal.AtomicBranch.aborting Ξ Ω ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
-      ∅ := by
+      ∅ ∅ ∅ := by
   have hcomp := StrongRefinement.Comp _ hpre (actionBlock_refines (V := V) afresh alast)
   -- `union_lcomp₂` normalizes `Comp`'s output, not the goal: the goal is already in its right-hand
   -- form once `Block.aborting_prepend` has split the prepended assignments off
@@ -244,6 +246,7 @@ structure BranchRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
   refines : StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
     (GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) (GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) ∅
     (NetworkPlusCal.AtomicBranch.reducing Ξ Ω Br') (NetworkPlusCal.AtomicBranch.aborting Ξ Ω Br') ∅
+    ∅ ∅
   /-- And it leaves for the same place: `Block.prepend` does not touch `last`, and
   `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
   last_eq : Br'.action.last = convertActionStmt Br.action.last

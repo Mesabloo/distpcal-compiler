@@ -31,12 +31,14 @@ because that is the direction a whole-pipeline statement composes along. -/
 structure Correctness {α β} {m : Type _ → Type _} {ps} {pₛ pₜ} {εₛ εₜ} [Monad m] [WPMonad m ps]
   [Monoid εₛ] [Monoid εₜ] [inst : Trace εₛ εₜ]
   [Reduce pₛ (Set (α × εₛ × α))] [Abort pₛ (Set (α × εₛ))] [Diverge pₛ (Set (α × εₛ))]
+  [Block pₛ (Set (α × εₛ))]
   [Reduce pₜ (Set (β × εₜ × β))] [Abort pₜ (Set (β × εₜ))] [Diverge pₜ (Set (β × εₜ))]
+  [Block pₜ (Set (β × εₜ))]
     (R : pₛ → pₜ → Rel α β) (C : pₛ → m pₜ) (isInit : pₛ → α → Prop) (isInit' : pₜ → β → Prop) :
     Prop where
   correct : ∀ x : pₛ, ⦃⌜True⌝⦄ C x ⦃⇓? y =>
     ⌜(∀ s' : β, isInit' y s' → ∃ s : α, isInit x s ∧ R x y s s') ∧
-      StrongRefinement (R x y) inst.Rτ ⟦x⟧* ⟦x⟧⊥ ⟦x⟧∞ ⟦y⟧* ⟦y⟧⊥ ⟦y⟧∞⌝⦄
+      StrongRefinement (R x y) inst.Rτ ⟦x⟧* ⟦x⟧⊥ ⟦x⟧∞ ⟦y⟧* ⟦y⟧⊥ ⟦y⟧∞ ⟦x⟧⊘ ⟦y⟧⊘⌝⦄
 
 /-- **The same statement with the relation forgotten** — the form that composes.
 
@@ -50,18 +52,22 @@ composition go through, and it loses nothing a caller of a whole-pipeline theore
 def Correct {α β} {m : Type _ → Type _} {ps} {pₛ pₜ} {εₛ εₜ} [Monad m] [WPMonad m ps]
   [Monoid εₛ] [Monoid εₜ] [inst : Trace εₛ εₜ]
   [Reduce pₛ (Set (α × εₛ × α))] [Abort pₛ (Set (α × εₛ))] [Diverge pₛ (Set (α × εₛ))]
+  [Block pₛ (Set (α × εₛ))]
   [Reduce pₜ (Set (β × εₜ × β))] [Abort pₜ (Set (β × εₜ))] [Diverge pₜ (Set (β × εₜ))]
+  [Block pₜ (Set (β × εₜ))]
     (C : pₛ → m pₜ) (isInit : pₛ → α → Prop) (isInit' : pₜ → β → Prop) : Prop :=
   ∀ x : pₛ, ⦃⌜True⌝⦄ C x ⦃⇓? y => ⌜∃ R : Rel α β,
     (∀ s' : β, isInit' y s' → ∃ s : α, isInit x s ∧ R s s') ∧
-      StrongRefinement R inst.Rτ ⟦x⟧* ⟦x⟧⊥ ⟦x⟧∞ ⟦y⟧* ⟦y⟧⊥ ⟦y⟧∞⌝⦄
+      StrongRefinement R inst.Rτ ⟦x⟧* ⟦x⟧⊥ ⟦x⟧∞ ⟦y⟧* ⟦y⟧⊥ ⟦y⟧∞ ⟦x⟧⊘ ⟦y⟧⊘⌝⦄
 
 /-- A pass proved correct at a named relation is correct. The only direction there is: coming back
 would have to pick the relation out of a postcondition. -/
 theorem Correctness.toCorrect {α β} {m : Type _ → Type _} {ps} {pₛ pₜ} {εₛ εₜ} [Monad m]
   [WPMonad m ps] [Monoid εₛ] [Monoid εₜ] [inst : Trace εₛ εₜ]
   [Reduce pₛ (Set (α × εₛ × α))] [Abort pₛ (Set (α × εₛ))] [Diverge pₛ (Set (α × εₛ))]
+  [Block pₛ (Set (α × εₛ))]
   [Reduce pₜ (Set (β × εₜ × β))] [Abort pₜ (Set (β × εₜ))] [Diverge pₜ (Set (β × εₜ))]
+  [Block pₜ (Set (β × εₜ))]
   {R : pₛ → pₜ → Rel α β} {C : pₛ → m pₜ} {isInit : pₛ → α → Prop} {isInit' : pₜ → β → Prop}
   (h : Correctness R C isInit isInit') : Correct C isInit isInit' := by
   intro x
@@ -82,8 +88,11 @@ same seam. -/
 theorem Correct.comp {α β γ} {m : Type _ → Type _} {ps} {pₛ pₜ pᵤ} {εₛ εₜ εᵤ} [Monad m]
   [WPMonad m ps] [Monoid εₛ] [Monoid εₜ] [Monoid εᵤ] [inst₁ : Trace εₛ εₜ] [inst₂ : Trace εₜ εᵤ]
   [Reduce pₛ (Set (α × εₛ × α))] [Abort pₛ (Set (α × εₛ))] [Diverge pₛ (Set (α × εₛ))]
+  [Block pₛ (Set (α × εₛ))]
   [Reduce pₜ (Set (β × εₜ × β))] [Abort pₜ (Set (β × εₜ))] [Diverge pₜ (Set (β × εₜ))]
+  [Block pₜ (Set (β × εₜ))]
   [Reduce pᵤ (Set (γ × εᵤ × γ))] [Abort pᵤ (Set (γ × εᵤ))] [Diverge pᵤ (Set (γ × εᵤ))]
+  [Block pᵤ (Set (γ × εᵤ))]
   {C₁ : pₛ → m pₜ} {C₂ : pₜ → m pᵤ} {isInit : pₛ → α → Prop} {isInit' : pₜ → β → Prop}
   {isInit'' : pᵤ → γ → Prop} (h₁ : Correct C₁ isInit isInit') (h₂ : Correct C₂ isInit' isInit'') :
     Correct (inst := Trace.comp (εₜ := εₜ)) (C₁ >=> C₂) isInit isInit'' := by

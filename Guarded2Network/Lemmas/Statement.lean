@@ -680,7 +680,7 @@ theorem action_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
       (GuardedPlusCal.Statement.diverging S)
       (NetworkPlusCal.Statement.reducing Ξ Ω (convertActionStmt S))
       (NetworkPlusCal.Statement.aborting Ξ Ω (convertActionStmt S))
-      (NetworkPlusCal.Statement.diverging (convertActionStmt S)) := by
+      (NetworkPlusCal.Statement.diverging (convertActionStmt S)) ∅ ∅ := by
   have hterm : StrongRefinement.Terminating (relatesTo (V := V) Ξ Ω mbox pref)
       (relatesTo Ξ Ω mbox pref)
       (instTrace (V := V)).Rτ (GuardedPlusCal.Statement.reducing Ξ Ω S)
@@ -712,7 +712,7 @@ theorem guard_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.Statement.reducing Ξ Ω S) (GuardedPlusCal.Statement.aborting Ξ Ω S)
       (GuardedPlusCal.Statement.diverging S)
-      (GuardedPlusCal.Statement.reducing Ξ Ω S) (GuardedPlusCal.Statement.aborting Ξ Ω S) ∅ := by
+      (GuardedPlusCal.Statement.reducing Ξ Ω S) (GuardedPlusCal.Statement.aborting Ξ Ω S) ∅ ∅ ∅ := by
   refine StrongRefinement.ofNonDiverging (relatesTo (V := V) Ξ Ω mbox pref) ?_ ?_
   · intro σₜ σₜ' ε σₛ sim step
     obtain ⟨σₛ', hrel, hstep⟩ := Statement.guardReducing'_sim S notRecv fresh sim step

@@ -1691,7 +1691,7 @@ per concrete process/address wanted.
 over event traces (`τ` with `Monoid`, `PartialOrder`, two compatibility axioms between
 `≤` and `*`), used to make refinement composable regardless of a given pass's trace
 alphabet. `VerifiedCompiler/Denotational/StrongRefinement.lean` defines simulation
-relations `Terminating`/`Diverging` between source and target language *denotational*
+relations `Terminating`/`Diverging`/`Blocking` between source and target language *denotational*
 semantics — each language's meaning given directly as a `Set (state × trace × state)`
 relation (a program denotes the set of input/trace/output triples it can produce, how
 non-determinism is represented here, per `Core/*/Semantics/Denotational.lean`), not as an
@@ -1700,6 +1700,17 @@ operational small-step system — with a useful algebra on top: composability ac
 for semantics defined as fixpoints (needed for loops/recursion). Worth vendoring
 essentially as-is — generic over source/target languages and traces, no dependency on the
 domain-specific AST code being rewritten.
+
+`StrongRefinement` bundles the four behaviours a maximal run can have: terminate, abort,
+diverge, block. `Blocking` — the refinement obligation for a finite run ending in a blocked
+configuration — shares `Diverging`'s shape (no output state, a matched disjunct at `Rτ` and an
+abort fallback at `≼[Rτ]`), so its `Comp`/`Trans`/`Mono`/`Empty`/`union`/`star` lemmas are
+`Diverging.*` by definitional equality; only `sup` and `starStutter` are proved directly. What
+makes the field bite is the *blocking semantics* `⟦·⟧∅` plugged into it at the algorithm level,
+where T_rx is in scope — a positive definition (`AtomicBranch.blocking` inductive,
+`AtomicBlock.blocking = ⋂ branches`, a process blocks iff every thread's block blocks including
+T_rx's on an empty channel). `.claude/plans/blocking-clause-plan.md` owns that construction and
+the new rx-thread model (`L_s = L_t`, virtual `RECEIVE` rule) it builds on.
 
 Two generalizations of that vendored framework are in scope, both driven by Guarded→Network
 (§6.2) needing them to be provable at all rather than merely convenient.

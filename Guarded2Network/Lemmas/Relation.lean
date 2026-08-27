@@ -285,10 +285,9 @@ end Chan
   *all* keys at once — an existential inside each instance's clause would give each instance its own
   witness with nothing relating them, and the map-level statement could not be phrased.
 
-  **Labels.** The target has the source's threads plus one `.rx` thread per channel, so its label set
-  is the source's together with those threads' labels — `rx p`, supplied per instance by whatever
-  builds this relation from a compiled algorithm. The disjointness clause is what says the `.rx`
-  labels are genuinely new, which `freshName` guarantees at the syntax level.
+  **Labels.** The target has the source's threads plus one `.rx` thread per channel, but a `.rx`
+  thread owns no label and its step leaves the scheduled set untouched, so the two label sets are
+  equal — `procRelatesTo`'s `L₂ = L₁`.
 -/
 
 /-- What one instance's `inbox` accounts for: the FIFO key it receives on, and the values it has
@@ -300,12 +299,13 @@ structure InboxState (V : Type) : Type where
   contents : List V
 
 /-- One process instance's state, related. `ib` is `none` exactly when `mb` is: an instance with no
-`receive` got no `inbox`, and its memory is equal to the source's rather than equal-off-`inbox`. -/
-def procRelatesTo (Ξ : OperatorEnv) (Ω : Model V) (mb : Mailbox) (rx : Set String)
+`receive` got no `inbox`, and its memory is equal to the source's rather than equal-off-`inbox`. The
+scheduled labels are equal — a `.rx` thread owns none, so the target adds nothing to the set. -/
+def procRelatesTo (Ξ : OperatorEnv) (Ω : Model V) (mb : Mailbox)
     (ib : Option (InboxState V)) :
     Rel (ProcState V) (ProcState V) :=
   λ ⟨M₁, L₁⟩ ⟨M₂, L₂⟩ ↦
-    L₂ = L₁ ∪ rx ∧ Disjoint L₁ rx ∧
+    L₂ = L₁ ∧
     match mb, ib with
     | .none, .none => M₁ = M₂
     | .some (c, inbox), .some ib =>
@@ -320,11 +320,11 @@ one level up, and stated the same way so that a caller need not know whether the
 What the algorithm level reads through it is `selfName`: a process only steps in a memory binding its
 own identity (`CodeTable.procReducing`), the target's does, and the source's agrees with it there
 because the pass's generated `inbox` is not `self`. -/
-theorem procRelatesTo.mem_agree' {mb : Mailbox} {rx : Set String} {ib : Option (InboxState V)}
+theorem procRelatesTo.mem_agree' {mb : Mailbox} {ib : Option (InboxState V)}
     {M₁ M₂ : Memory V} {L₁ L₂ : Set String}
-    (h : procRelatesTo Ξ Ω mb rx ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩) :
+    (h : procRelatesTo Ξ Ω mb ib ⟨M₁, L₁⟩ ⟨M₂, L₂⟩) :
     ∀ x, (∀ c inbox, mb = .some (c, inbox) → x ≠ inbox) → M₁.lookup x = M₂.lookup x := by
-  obtain ⟨-, -, hmatch⟩ := h
+  obtain ⟨-, hmatch⟩ := h
   match mb, ib with
   | .none, .none => exact λ x _ ↦ by rw [hmatch]
   | .some (c, inbox), .some _ => exact λ x hx ↦ hmatch.1 x (hx c inbox rfl)
@@ -350,15 +350,14 @@ this rides along; establishing it initially is `Algorithm.init`'s business.
 instance" is definitional on both sides — nothing to carry. The one clause that *does* still need
 stating is that the two sides agree on which instances exist and how they relate, which is the
 `match` below: `Ps p`/`Qs p` are either both absent or both present and `procRelatesTo`-related. -/
-def algRelatesTo (Ξ : OperatorEnv) (Ω : Model V) {ι : Type} (mb : ι → Mailbox)
-    (rx : ι → Set String) :
+def algRelatesTo (Ξ : OperatorEnv) (Ω : Model V) {ι : Type} (mb : ι → Mailbox) :
     Rel (AlgState ι V) (AlgState ι V) :=
   λ ⟨Ps, F₁⟩ ⟨Qs, F₂⟩ ↦
     ∃ (ib : ι → Option (InboxState V)) (pref : ChanKey V → List V),
       -- the same instances on both sides, pairwise related
       (∀ p, match Ps p, Qs p with
         | .none, .none => True
-        | .some σ, .some σ' => procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ'
+        | .some σ, .some σ' => procRelatesTo Ξ Ω (mb p) (ib p) σ σ'
         | _, _ => False) ∧
       -- an index that names no instance of this state accounts for nothing: without this the
       -- witness could invent an inbox for an absent instance and the FIFO clauses below would
@@ -376,17 +375,17 @@ def algRelatesTo (Ξ : OperatorEnv) (Ω : Model V) {ι : Type} (mb : ι → Mail
       (∀ k : ChanKey V, F₁.lookup k = (pref k ++ ·) <$> F₂.lookup k)
 
 @[inherit_doc algRelatesTo]
-scoped notation:60 Sₛ:60 " ≋[" Ξ:0 ", " Ω:0 ", " mb:0 ", " rx:0 "] " Sₜ:60 =>
-  Guarded2Network.algRelatesTo Ξ Ω mb rx Sₛ Sₜ
+scoped notation:60 Sₛ:60 " ≋[" Ξ:0 ", " Ω:0 ", " mb:0 "] " Sₜ:60 =>
+  Guarded2Network.algRelatesTo Ξ Ω mb Sₛ Sₜ
 
 namespace algRelatesTo
 
-variable {ι : Type} {mb : ι → Mailbox} {rx : ι → Set String} {Sₛ Sₜ : AlgState ι V}
+variable {ι : Type} {mb : ι → Mailbox} {Sₛ Sₜ : AlgState ι V}
 
 /-- Every source instance has a related target instance. -/
-theorem forward (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
+theorem forward (h : Sₛ ≋[Ξ, Ω, mb] Sₜ) :
     ∃ ib : ι → Option (InboxState V), ∀ p σ, Sₛ.1 p = .some σ →
-      ∃ σ', Sₜ.1 p = .some σ' ∧ procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ' := by
+      ∃ σ', Sₜ.1 p = .some σ' ∧ procRelatesTo Ξ Ω (mb p) (ib p) σ σ' := by
   obtain ⟨ib, pref, hmatch, -, -, -, -, -, -⟩ := h
   refine ⟨ib, λ p σ hσ ↦ ?_⟩
   have hm := hmatch p
@@ -397,9 +396,9 @@ theorem forward (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
 
 /-- Every target instance has a related source instance — the direction that rules out the target
 inventing an instance the source never had. -/
-theorem backward (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
+theorem backward (h : Sₛ ≋[Ξ, Ω, mb] Sₜ) :
     ∃ ib : ι → Option (InboxState V), ∀ p σ', Sₜ.1 p = .some σ' →
-      ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ' := by
+      ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo Ξ Ω (mb p) (ib p) σ σ' := by
   obtain ⟨ib, pref, hmatch, -, -, -, -, -, -⟩ := h
   refine ⟨ib, λ p σ' hσ' ↦ ?_⟩
   have hm := hmatch p
@@ -412,7 +411,7 @@ theorem backward (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
 `pref` is the inbox of the one instance receiving on that key, or empty. The `ib` witness is shared
 with `forward`/`backward`, which is what makes this composable with them rather than a separate
 fact. -/
-theorem fifos (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
+theorem fifos (h : Sₛ ≋[Ξ, Ω, mb] Sₜ) :
     ∃ (ib : ι → Option (InboxState V)) (pref : ChanKey V → List V),
       (∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q) ∧
       (∀ p x, ib p = .some x → pref x.key = x.contents) ∧
@@ -423,9 +422,9 @@ theorem fifos (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
 
 /-- Every key an instance receives on is a channel that exists. Separate from `fifos` because it is
 consumed on its own: it is what says the target's receiving thread cannot abort. -/
-theorem chan_exists (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
+theorem chan_exists (h : Sₛ ≋[Ξ, Ω, mb] Sₜ) :
     ∃ ib : ι → Option (InboxState V), (∀ p σ', Sₜ.1 p = .some σ' →
-        ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ') ∧
+        ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo Ξ Ω (mb p) (ib p) σ σ') ∧
       ∀ p x, ib p = .some x → Sₜ.2.lookup x.key ≠ .none := by
   obtain ⟨ib, pref, hmatch, habsent, hinj, hkey, hoff, hpresent, hfifo⟩ := h
   refine ⟨ib, λ p σ' hσ' ↦ ?_, hpresent⟩
@@ -438,15 +437,15 @@ theorem chan_exists (h : Sₛ ≋[Ξ, Ω, mb, rx] Sₜ) :
 /-- The introduction form: one hypothesis per clause, against a single choice of witnesses. Needs no
 `Functional` hypothesis on either side — `Instances` being a function, that holds definitionally. -/
 theorem intro {ib : ι → Option (InboxState V)} {pref : ChanKey V → List V}
-    (hfwd : ∀ p σ, Sₛ.1 p = .some σ → ∃ σ', Sₜ.1 p = .some σ' ∧ procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ')
-    (hbwd : ∀ p σ', Sₜ.1 p = .some σ' → ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ')
+    (hfwd : ∀ p σ, Sₛ.1 p = .some σ → ∃ σ', Sₜ.1 p = .some σ' ∧ procRelatesTo Ξ Ω (mb p) (ib p) σ σ')
+    (hbwd : ∀ p σ', Sₜ.1 p = .some σ' → ∃ σ, Sₛ.1 p = .some σ ∧ procRelatesTo Ξ Ω (mb p) (ib p) σ σ')
     (habsent : ∀ p, Sₛ.1 p = .none → ib p = .none)
     (hinj : ∀ p q x y, ib p = .some x → ib q = .some y → x.key = y.key → p = q)
     (hkey : ∀ p x, ib p = .some x → pref x.key = x.contents)
     (hoff : ∀ k : ChanKey V, (∀ p x, ib p = .some x → x.key ≠ k) → pref k = [])
     (hpresent : ∀ p x, ib p = .some x → Sₜ.2.lookup x.key ≠ .none)
     (hfifo : ∀ k : ChanKey V, Sₛ.2.lookup k = (pref k ++ ·) <$> Sₜ.2.lookup k) :
-    Sₛ ≋[Ξ, Ω, mb, rx] Sₜ := by
+    Sₛ ≋[Ξ, Ω, mb] Sₜ := by
   refine ⟨ib, pref, λ p ↦ ?_, habsent, hinj, hkey, hoff, hpresent, hfifo⟩
   match hp : Sₛ.1 p, hq : Sₜ.1 p with
   | .none, .none => trivial
@@ -467,10 +466,10 @@ being `none` (a syntactic fact about the compiled process) forces the witness to
 none of the FIFO clauses mention that instance. Needs the instance to be present, which is what
 `forward` supplies. -/
 theorem inbox_none {ib : ι → Option (InboxState V)} {p : ι} {σ σ' : ProcState V}
-    (hmb : mb p = .none) (h : procRelatesTo Ξ Ω (mb p) (rx p) (ib p) σ σ') : ib p = .none := by
+    (hmb : mb p = .none) (h : procRelatesTo Ξ Ω (mb p) (ib p) σ σ') : ib p = .none := by
   obtain ⟨M₁, L₁⟩ := σ
   obtain ⟨M₂, L₂⟩ := σ'
-  obtain ⟨-, -, hmatch⟩ := h
+  obtain ⟨-, hmatch⟩ := h
   rw [hmb] at hmatch
   match hib : ib p with
   | .none => rfl
