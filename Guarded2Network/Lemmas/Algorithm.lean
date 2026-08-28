@@ -433,29 +433,6 @@ theorem algRelatesTo.aborting [DecidableEq V]
   StrongRefinement.Aborting.starStutter (algRelatesTo.terminating href used fresh)
     (algRelatesTo.immediateAbort href used fresh)
 
-omit [SeqBuiltins V] in
-/-- **The algorithm-level refinement, whole.** All three components at the closed forms
-`Algebra.reducing`/`.aborting`/`.diverging`, against one state relation.
-
-`href`/`used`/`fresh` are established from a compiled algorithm by `Algorithm.toNetwork_spec`
-and the front end, and `algRelatesTo` at the initial states by `Algorithm.init`; the refinement
-argument asks for nothing beyond those. -/
-theorem algRelatesTo.refines [DecidableEq V]
-    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
-    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
-    StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
-      (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
-      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
-      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
-      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing
-      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting
-      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging ∅ ∅ where
-  terminating := algRelatesTo.terminating_reducing href used fresh
-  aborting := algRelatesTo.aborting href used fresh
-  diverging := algRelatesTo.diverging href used fresh
-  blocking := by rintro _ _ _ _ (_|_)
-
 open Std.Do in
 /-- **The walk over an algorithm's processes.** `Process.toNetwork_spec` iterated by
 `Spec.mapM_list`.
@@ -518,42 +495,6 @@ theorem Algorithm.toNetwork_spec {mbox : String → String → Mailbox}
   -- `-Spec.mapM_list`, or the generic loop spec matches the walk before `mapM_processToNetwork_spec`
   mvcgen [ComputableGuardedPlusCal.Algorithm.toNetwork, mapM_processToNetwork_spec,
     -Std.Do.Spec.mapM_list]
-
-open Std.Do in
-/-- **The pass is correct.** Compiling an algorithm yields one whose algebra refines the source's,
-under `algRelatesTo` at the mailbox and receiving labels the compiled algorithm itself determines.
-
-Everything in this development meets here. `Algorithm.toNetwork_spec` is the syntactic half, the
-four walks; `algRelatesTo.refines` is the refinement argument, `Terminating`/`Aborting`/`Diverging`
-at the three closed forms, each resolving the per-process refinement into the algebra-level label
-dispatch inline. `triple_forall` is the joint: `BranchesRefine` is needed
-at every prefix function and the spec supplies one per instantiation.
-
-The two front-end hypotheses are not the pass's. `AlgorithmFresh` is the syntactic conditions on the
-source program and the generated `inbox`; `MailboxUsed` says a declared mailbox is one its process
-receives on (`checkReceiveChannels`).
-
-Relating `Algorithm.init`'s initial states under `algRelatesTo` is a separate statement, and
-`Algorithm.toNetwork_spec` reports `globalState` because that is what it is stated against. -/
-theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String → Mailbox}
-  {c₀ : String → ComputableGuardedPlusCal.Ref} {algo : ComputableGuardedPlusCal.Algorithm}
-  (fresh : AlgorithmFresh mbox c₀ algo) (used : MailboxUsed mbox algo) :
-    ⦃⌜True⌝⦄
-    ComputableGuardedPlusCal.Algorithm.toNetwork (m := G2NM) algo
-    ⦃⇓? algo' _ => ⌜algo'.globalState = algo.globalState ∧
-      StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
-        (instTrace (V := V)).Rτ
-        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
-        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
-        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
-        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing
-        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting
-        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging ∅ ∅⌝⦄ := by
-  refine triple_forall (ι := ChanKey V → List V)
-    (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) fresh) ?_
-  intro algo' h
-  exact ⟨(h λ _ ↦ []).1,
-    algRelatesTo.refines (λ pref ↦ (h pref).2) used fresh⟩
 
 /-! # The initial state
 

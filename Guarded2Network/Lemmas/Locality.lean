@@ -64,6 +64,26 @@ theorem Statement.reducing_locality {g b : Bool}
       obtain ⟨u, -, rfl⟩ := hb
       exact Finmap.lookup_insert_of_ne _ (hy x rfl)
 
+/-- **A statement *list* writes only what its statements write** — `Block.reducing_locality` on the
+list form the precondition walk is stated against. -/
+theorem Statement.listReducing_locality {g : Bool}
+    {A : List (ComputableGuardedPlusCal.Statement g false)} {σ σ' : LocalState V} {ε : Trace V}
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      GuardedPlusCal.Statement.listReducing Ξ Ω A)
+    {y : String}
+    (h : ∀ S ∈ A, ∀ x, Statement.writtenName? S = .some x → y ≠ x) :
+    σ'.mem.lookup y = σ.mem.lookup y := by
+  induction A generalizing σ σ' ε with
+  | nil =>
+    rw [GuardedPlusCal.Statement.listReducing_nil] at step
+    obtain ⟨rfl, rfl⟩ := step
+    rfl
+  | cons S A IH =>
+    rw [GuardedPlusCal.Statement.listReducing_cons] at step
+    obtain ⟨σ'', ε₁, ε₂, hhead, htail, rfl⟩ := step
+    rw [IH htail (λ S' hS' ↦ h S' (List.mem_cons_of_mem _ hS'))]
+    exact Statement.reducing_locality hhead (h S List.mem_cons_self)
+
 /-- **A block writes only what its statements write.** The same left-to-right induction
 `actionBlock_refines` runs, with one `Statement.reducing_locality` per step and the intermediate
 lookups chained. -/
@@ -140,6 +160,61 @@ theorem AtomicBranch.reducing_evalArgs {mbox : Mailbox} {c : ComputableGuardedPl
   · intro _ hx
     rintro rfl
     exact (hlast c inbox hmb).2.2.1 _ hx hy
+
+/-- **A guard or a plain assignment leaves the channels untouched** — the only Network statements
+that reach a fifo are `send` and `multicast`, and the compiled precondition together with its
+consumption assignments is neither. -/
+theorem NetworkPlusCal.Statement.reducing_fifos_of_guardOrAssign
+    {S : ComputableNetworkPlusCal.Statement true false} {σ σ' : LocalState V} {ε : Trace V}
+    (hS : (∃ e, S = .await e) ∨ ∃ x ann bound e, S = .with x ann bound e)
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      NetworkPlusCal.Statement.reducing Ξ Ω S) :
+    σ'.fifos = σ.fifos := by
+  rcases hS with ⟨e, rfl⟩ | ⟨x, ann, bound, e, rfl⟩
+  · obtain ⟨M, F, rfl, rfl, -, -⟩ := NetworkPlusCal.Statement.reducing.await.elim step; rfl
+  · obtain ⟨M, F, v, u, -, -, -, rfl, rfl, -⟩ := NetworkPlusCal.Statement.reducing.with.iff.mp step
+    rfl
+
+@[inherit_doc NetworkPlusCal.Statement.reducing_fifos_of_guardOrAssign]
+theorem NetworkPlusCal.Statement.reducing_fifos_assign
+    {r : ComputableGuardedPlusCal.Ref} {e : ComputablePlusCal.Expression}
+    {σ σ' : LocalState V} {ε : Trace V}
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      NetworkPlusCal.Statement.reducing Ξ Ω (.assign r e)) :
+    σ'.fifos = σ.fifos := by
+  obtain ⟨M, F, M', v, rpath, -, -, -, rfl, rfl, -⟩ := NetworkPlusCal.Statement.reducing.assign.elim step
+  rfl
+
+/-- The list form for the compiled guards. -/
+theorem NetworkPlusCal.Statement.listReducing_fifos_of_guards
+    {A : List (ComputableNetworkPlusCal.Statement true false)} {σ σ' : LocalState V} {ε : Trace V}
+    (hA : ∀ S ∈ A, (∃ e, S = .await e) ∨ ∃ x ann bound e, S = .with x ann bound e)
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      NetworkPlusCal.Statement.listReducing Ξ Ω A) :
+    σ'.fifos = σ.fifos := by
+  induction A generalizing σ σ' ε with
+  | nil => rw [NetworkPlusCal.Statement.listReducing_nil] at step; obtain ⟨rfl, rfl⟩ := step; rfl
+  | cons S A IH =>
+    rw [NetworkPlusCal.Statement.listReducing_cons] at step
+    obtain ⟨σ'', ε₁, ε₂, hhead, htail, rfl⟩ := step
+    rw [IH (λ S' hS' ↦ hA S' (List.mem_cons_of_mem _ hS')) htail,
+      NetworkPlusCal.Statement.reducing_fifos_of_guardOrAssign (hA S List.mem_cons_self) hhead]
+
+/-- And for the consumption assignments. -/
+theorem NetworkPlusCal.Statement.listReducing_fifos_of_assigns
+    {A : List (ComputableNetworkPlusCal.Statement false false)} {σ σ' : LocalState V} {ε : Trace V}
+    (hA : ∀ S ∈ A, ∃ r e, S = .assign r e)
+    (step : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈
+      NetworkPlusCal.Statement.listReducing Ξ Ω A) :
+    σ'.fifos = σ.fifos := by
+  induction A generalizing σ σ' ε with
+  | nil => rw [NetworkPlusCal.Statement.listReducing_nil] at step; obtain ⟨rfl, rfl⟩ := step; rfl
+  | cons S A IH =>
+    rw [NetworkPlusCal.Statement.listReducing_cons] at step
+    obtain ⟨σ'', ε₁, ε₂, hhead, htail, rfl⟩ := step
+    obtain ⟨r, e, rfl⟩ := hA S List.mem_cons_self
+    rw [IH (λ S' hS' ↦ hA S' (List.mem_cons_of_mem _ hS')) htail,
+      NetworkPlusCal.Statement.reducing_fifos_assign hhead]
 
 end Guarded2Network
 

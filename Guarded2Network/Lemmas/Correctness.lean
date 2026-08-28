@@ -1,7 +1,7 @@
 module
 
 meta import CustomPrelude
-public import Guarded2Network.Lemmas.Algorithm
+public import Guarded2Network.Lemmas.Blocking
 public import VerifiedCompiler.Denotational.Correctness
 
 @[expose] public section
@@ -86,11 +86,8 @@ instance : Abort (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace
 instance : Diverge (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
   ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).diverging⟩
 
--- TODO(blocking-clause): both `Block` instances denote `∅`, which keeps `StrongRefinement`'s
--- blocking field wired (discharged by an empty-target refinement) while the semantics layer that
--- gives an algebra its blocking behaviour is pending. Replace with `(…algebra…).blocking`.
 instance : Block (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
-  ⟨λ _ ↦ ∅⟩
+  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).blocking⟩
 
 instance : Reduce (TargetProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
@@ -103,7 +100,7 @@ instance : Diverge (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Tra
   ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging⟩
 
 instance : Block (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
-  ⟨λ _ ↦ ∅⟩
+  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').blocking⟩
 
 /-- The pass itself, at those two types. `Algorithm.toNetwork` never looks at anything a
 `SourceProgram` carries beyond the algorithm — the rest is what the *proof* reads. -/

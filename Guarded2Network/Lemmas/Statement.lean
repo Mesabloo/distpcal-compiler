@@ -598,6 +598,38 @@ theorem Statement.guardAborting'_sim {mbox : Mailbox} {pref : ChanKey V → List
     absurd (rfl : GuardedPlusCal.Statement.receive c r coe = .receive c r coe)
     exact notRecv c r coe
 
+/-- `guardAborting'_sim` for the *blocked* case. `await` blocks on a non-`TRUE` boolean, `with` on a
+present-but-empty set; both conditions are about the guard expression's value, which
+`relatesTo.eval_iff'` carries across. `receive` is excluded — its blocking is not `relatesTo`-stable
+(a message can sit in the mailbox unrelayed), and is handled at the algorithm level where the channel
+is known drained. -/
+theorem Statement.guardBlocking'_sim {mbox : Mailbox} {pref : ChanKey V → List V}
+    (S : ComputableGuardedPlusCal.Statement true false)
+    (notRecv : ∀ c r coe, S ≠ .receive c r coe) (fresh : Fresh mbox S)
+    {σₛ σₜ : LocalState V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
+    (step : (⟨σₜ, ε⟩ : LocalState V × GuardedPlusCal.Trace V) ∈
+      GuardedPlusCal.Statement.blocking Ξ Ω S) :
+    (⟨σₛ, ε⟩ : LocalState V × GuardedPlusCal.Trace V) ∈
+      GuardedPlusCal.Statement.blocking Ξ Ω S := by
+  obtain ⟨M₁, F₁, l₁⟩ := σₛ
+  have hlabel := sim.label_eq
+  cases S with
+  | «with» x ann bound e =>
+    have heval {v : V} : ExprSemantics.Eval Ξ Ω M₁ e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v :=
+      sim.eval_iff' λ c i h ↦ (fresh c i h).1
+    obtain ⟨M, F, v, hv, rfl, rfl, hb⟩ := step
+    subst hlabel
+    exact ⟨M₁, F₁, v, heval.mpr hv, rfl, rfl, hb⟩
+  | await e =>
+    have heval {v : V} : ExprSemantics.Eval Ξ Ω M₁ e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v :=
+      sim.eval_iff' λ c i h ↦ (fresh c i h).1
+    obtain ⟨M, F, v, hbool, hne, hv, rfl, rfl⟩ := step
+    subst hlabel
+    exact ⟨M₁, F₁, v, hbool, hne, heval.mpr hv, rfl, rfl⟩
+  | receive c r coe =>
+    absurd (rfl : GuardedPlusCal.Statement.receive c r coe = .receive c r coe)
+    exact notRecv c r coe
+
 theorem convertActionStmt_reducing' {b : Bool} (S : ComputableGuardedPlusCal.Statement false b) :
     NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (convertActionStmt S) =
       GuardedPlusCal.Statement.reducing (V := V) Ξ Ω S := by
@@ -626,6 +658,9 @@ theorem convertActionStmt_diverging' {b : Bool} (S : ComputableGuardedPlusCal.St
   per-constructor, and the class of statements it covers is not the image of any function.
 -/
 
+/-- The two languages' `with`/`await` denote the same reducing/aborting/blocking/diverging relation
+on the nose — `stepStatement` writes the target constructor out directly, and there is no conversion
+function to state this against (`receive` has no image). -/
 theorem with_reducing'_eq {x : String} {ann : ComputableTLAPlus.Typ} {bound : Bool}
     {e : ComputablePlusCal.Expression} :
     NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.with x ann bound e) =
@@ -664,6 +699,19 @@ omit [ExprSemantics V] in
 theorem await_diverging'_eq {e : ComputablePlusCal.Expression} :
     NetworkPlusCal.Statement.diverging (V := V) (.await e) =
       GuardedPlusCal.Statement.diverging (V := V) (.await e) :=
+  rfl
+
+@[inherit_doc with_reducing'_eq]
+theorem with_blocking'_eq {x : String} {ann : ComputableTLAPlus.Typ} {bound : Bool}
+    {e : ComputablePlusCal.Expression} :
+    NetworkPlusCal.Statement.blocking (V := V) Ξ Ω (.with x ann bound e) =
+      GuardedPlusCal.Statement.blocking (V := V) Ξ Ω (.with x ann bound e) :=
+  rfl
+
+@[inherit_doc with_reducing'_eq]
+theorem await_blocking'_eq {e : ComputablePlusCal.Expression} :
+    NetworkPlusCal.Statement.blocking (V := V) Ξ Ω (.await e) =
+      GuardedPlusCal.Statement.blocking (V := V) Ξ Ω (.await e) :=
   rfl
 
 /-- `convertActionStmt` refines, statement by statement, at this pass's

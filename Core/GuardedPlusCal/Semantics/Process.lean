@@ -113,6 +113,13 @@ def CodeTable.procBlocking (T : CodeTable V) (self : V) :
     ⟨M, F, .none⟩ ∈ T.relayBlocking ∧
     M.lookup selfName = .some self}
 
+/-- A process is *done* when no scheduled label names a block it owns — every thread has reached a
+sentinel like `Done`. The complement of `procBlocking`'s non-emptiness clause: a deadlocked
+configuration is one where every process is `procBlocking` or `procDone`, with at least one of the
+former. -/
+def CodeTable.procDone (T : CodeTable V) : Set (ProcState V) :=
+  {⟨_, L⟩ | L ∩ T.owned = ∅}
+
 /-! # Algorithms -/
 
 /-- Every process instance paired with its own state — a partial function, not the paper's set of
@@ -170,13 +177,15 @@ def Algebra.immediateAbort (A : Algebra V) : Set (AlgState (String × V) V × Tr
   {⟨⟨Ps, F⟩, τ⟩ | ∃ p σ, Ps p = .some σ ∧
     ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procAborting p.2}
 
-/-- Every process is blocked *now*: the paper's `P∅_red`, the immediate half of the blocking
-semantics. `∀` where `immediateAbort` is `∃` — one process going wrong stops the algorithm, but a
-config is blocked only when nothing can move — with a nonemptiness guard so the empty instance map
-is not vacuously blocked. -/
+/-- The algorithm is deadlocked *now*: the immediate half of the blocking semantics. Every process
+is `procBlocking` or `procDone`, and at least one is `procBlocking` — a process finishing while
+another wedges is still a deadlock (the finished one just cannot help). `∀`/`∃` where
+`immediateAbort` is a plain `∃`, because one process going wrong stops the algorithm but a deadlock
+needs *nothing* to be able to move. -/
 def Algebra.immediateBlock (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
-  {⟨⟨Ps, F⟩, τ⟩ | (∃ p σ, Ps p = .some σ) ∧
-    ∀ p σ, Ps p = .some σ → ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procBlocking p.2}
+  {⟨⟨Ps, F⟩, τ⟩ | (∃ p σ, Ps p = .some σ ∧ ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procBlocking p.2) ∧
+    ∀ p σ, Ps p = .some σ →
+      ⟨⟨σ, F⟩, τ⟩ ∈ (A p).procBlocking p.2 ∨ σ ∈ (A p).procDone}
 
 /-- Every **finite** sequence of algorithm steps, with the concatenated trace: `step*`.
 

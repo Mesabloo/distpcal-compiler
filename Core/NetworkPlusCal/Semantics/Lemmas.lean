@@ -325,6 +325,82 @@ theorem Statement.listAborting_append {g : Bool}
       Statement.listAborting Ξ Ω A ∪ Statement.listReducing Ξ Ω A ∘ᵣ₁ Statement.listAborting Ξ Ω B :=
   Block.listAborting_append _ _
 
+theorem Statement.listBlocking_nil {g : Bool} :
+    Statement.listBlocking (V := V) Ξ Ω (g := g) [] = ∅ := rfl
+
+theorem Statement.listBlocking_cons {g : Bool} {S : ComputableNetworkPlusCal.Statement g false}
+    {A : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listBlocking (V := V) Ξ Ω (S :: A) =
+      Statement.blocking Ξ Ω S ∪ Statement.reducing Ξ Ω S ∘ᵣ₁ Statement.listBlocking Ξ Ω A := rfl
+
+@[inherit_doc Statement.listReducing_append]
+theorem Statement.listBlocking_append {g : Bool}
+    {A B : List (ComputableNetworkPlusCal.Statement g false)} :
+    Statement.listBlocking (V := V) Ξ Ω (A ++ B) =
+      Statement.listBlocking Ξ Ω A ∪ Statement.listReducing Ξ Ω A ∘ᵣ₁ Statement.listBlocking Ξ Ω B :=
+  Block.listAborting_append _ _
+
+/-- A blocked guard emits nothing — the Network twin of
+`GuardedPlusCal.Statement.blocking_trace_eq_one`. -/
+theorem Statement.blocking_trace_eq_one {b b' : Bool}
+    {S : ComputableNetworkPlusCal.Statement b b'} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ Statement.blocking Ξ Ω S) : ε = 1 := by
+  cases S with
+  | «with» x ann bound e => obtain ⟨-, -, -, -, -, rfl, -⟩ := h; rfl
+  | await e => obtain ⟨-, -, -, -, -, -, -, rfl⟩ := h; rfl
+  | _ => exact h.elim
+
+/-- No execution statement blocks, so no block of them does — the Network twin of
+`GuardedPlusCal.Statement.blockBlocking_eq_empty`. -/
+theorem Statement.blockBlocking_eq_empty {b : Bool}
+    {B : Block (ComputableNetworkPlusCal.Statement false) b} :
+    Statement.blockBlocking (V := V) Ξ Ω B = ∅ := by
+  rw [Statement.blockBlocking, ← GuardedPlusCal.Block.diverging_eq_aborting]
+  apply GuardedPlusCal.Block.diverging_eq_empty
+  rintro b S
+  rfl
+
+/-- A branch is blocked exactly when its precondition is — the Network twin of
+`GuardedPlusCal.AtomicBranch.blocking_eq_precondition`. -/
+theorem AtomicBranch.blocking_eq_precondition (B : ComputableNetworkPlusCal.AtomicBranch) :
+    AtomicBranch.blocking (V := V) Ξ Ω B =
+      B.precondition.elim ∅ (Statement.blockBlocking Ξ Ω) := by
+  rw [AtomicBranch.blocking]
+  cases B.precondition with
+  | none => simp only [Option.elim_none, Statement.blockBlocking_eq_empty]
+  | some B' =>
+    simp only [Option.elim_some, Statement.blockBlocking_eq_empty,
+      Relation.lcomp₁.right_empty_eq_empty, Set.union_empty]
+
+/-- A list of Network guards is silent throughout — the twin of
+`GuardedPlusCal.Statement.listBlocking_trace_eq_one`. -/
+theorem Statement.listBlocking_trace_eq_one
+    {A : List (ComputableNetworkPlusCal.Statement true false)} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ Statement.listBlocking Ξ Ω A) : ε = 1 := by
+  induction A generalizing σ ε with
+  | nil => rw [Statement.listBlocking_nil] at h; exact h.elim
+  | cons S A ih =>
+    rw [Statement.listBlocking_cons] at h
+    rcases h with h | ⟨σ', ε₁, ε₂, hred, htail, rfl⟩
+    · exact Statement.blocking_trace_eq_one h
+    · cases S with
+      | «with» x ann bound e =>
+        obtain ⟨-, -, -, -, -, -, rfl, -⟩ := hred; rw [ih htail, one_mul]
+      | await e => obtain ⟨-, -, -, -, -, rfl⟩ := hred; rw [ih htail, one_mul]
+
+/-- A blocked branch emits nothing — the Network twin of
+`GuardedPlusCal.AtomicBranch.blocking_trace_eq_one`. -/
+theorem AtomicBranch.blocking_trace_eq_one {B : ComputableNetworkPlusCal.AtomicBranch}
+    {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ AtomicBranch.blocking Ξ Ω B) : ε = 1 := by
+  rw [AtomicBranch.blocking_eq_precondition] at h
+  cases hpre : B.precondition with
+  | none => rw [hpre] at h; exact h.elim
+  | some B' =>
+    rw [hpre, Option.elim_some, Statement.blockBlocking,
+      GuardedPlusCal.Block.aborting_eq_listAborting] at h
+    exact Statement.listBlocking_trace_eq_one h
+
 /-- An `await` that fires changes nothing and emits nothing, so its step relation sits inside
 `Relation.Idle`. What lets a guard be dropped off the front of a run that fails after it. -/
 theorem Statement.reducing_await_le_idle {e : ComputablePlusCal.Expression} :

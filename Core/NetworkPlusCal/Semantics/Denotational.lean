@@ -178,6 +178,14 @@ def Statement.listDiverging (Ξ : OperatorEnv) (Ω : Model V) {g : Bool}
     Set (LocalState V × Trace V) :=
   Block.listAborting (λ ⦃_⦄ ↦ Statement.diverging) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) A
 
+/-- A possibly-empty list of Network guards, blocked: some prefix reduces to a state at which the
+next guard blocks — the list counterpart of `Statement.blockBlocking`, mirroring
+`Statement.listAborting`. -/
+def Statement.listBlocking (Ξ : OperatorEnv) (Ω : Model V) {g : Bool}
+    (A : List (ComputableNetworkPlusCal.Statement g false)) :
+    Set (LocalState V × Trace V) :=
+  Block.listAborting (λ ⦃_⦄ ↦ Statement.blocking Ξ Ω) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) A
+
 def AtomicBranch.reducing (Ξ : OperatorEnv) (Ω : Model V)
     (B : ComputableNetworkPlusCal.AtomicBranch) :
     Set (LocalState V × Trace V × LocalState V) :=

@@ -563,6 +563,29 @@ variable {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
   {pref : ChanKey V → List V} {p : ComputableGuardedPlusCal.Process}
   {p' : ComputableNetworkPlusCal.Process}
 
+/-- **The owned labels are the source's.** A `.rx` thread owns no label; a code thread owns its
+source thread's blocks' labels unchanged. -/
+theorem ProcessRefines.ownedLabels_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p') :
+    NetworkPlusCal.Process.ownedLabels p' = GuardedPlusCal.Process.ownedLabels p := by
+  obtain ⟨rxs, codes, _, hsplit, -, hrx, hcode, -, -, -⟩ := h.threads
+  ext l
+  iff_rintro ⟨T, hT, hl⟩ ⟨T₀, hT₀, blk, hblk, rfl⟩
+  · rw [hsplit] at hT
+    rcases List.mem_append.mp hT with hin | hin
+    · -- a receiving thread owns no label
+      obtain ⟨_, _, lbl, τ, rfl, _⟩ := hrx _ hin
+      simp only [NetworkPlusCal.Thread.labels] at hl
+      exact nomatch hl
+    · obtain ⟨T₀, hT₀, blocks, rfl, hblocks⟩ := hcode.exists_left hin
+      simp only [NetworkPlusCal.Thread.labels, List.mem_map] at hl
+      obtain ⟨blk', hblk', rfl⟩ := hl
+      obtain ⟨blk, hblk, hlab, -⟩ := hblocks.exists_left hblk'
+      exact ⟨T₀, hT₀, blk, hblk, hlab.symm⟩
+  · obtain ⟨T', hT', blocks, rfl, hblocks⟩ := hcode.exists_right hT₀
+    obtain ⟨blk', hblk', hlab, -⟩ := hblocks.exists_right hblk
+    exact ⟨.code blocks, hsplit ▸ List.mem_append_right _ hT',
+      by simp only [NetworkPlusCal.Thread.labels, List.mem_map]; exact ⟨blk', hblk', hlab⟩⟩
+
 /-- **The entry labels are the source's.** A `.rx` thread owns no label, so it contributes nothing;
 a code thread starts at its source thread's first block. -/
 theorem ProcessRefines.entryLabels_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p') :
@@ -762,12 +785,66 @@ theorem ProcessRefines.branchesRefine (h : ProcessRefines (V := V) Ξ Ω mbox c�
     obtain ⟨Br, hBr, href⟩ := hbranches.exists_left hmem
     exact ⟨Br, mem_srcBranchesAt.mpr ⟨T₀, hT₀, blk, hblk, hlabeq ▸ hlab, hBr⟩, href⟩
 
+/-- **The source→target direction of `branchesRefine`** — every *source* branch at a label has a
+compiled one, refined. What `procBlockTransfer` needs: the source `blocking` semantics is universal
+over a block's branches, so it has to reach each one's compilation. -/
+def SrcBranchesRefine (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox) (pref : ChanKey V → List V)
+  (brs : List ComputableGuardedPlusCal.AtomicBranch)
+  (brs' : List ComputableNetworkPlusCal.AtomicBranch) : Prop :=
+    ∀ Br ∈ brs, ∃ Br' ∈ brs', BranchRefines (V := V) Ξ Ω mbox pref Br Br'
+
+theorem ProcessRefines.srcBranchesRefine (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inbox pref p p')
+    (l : String) :
+    SrcBranchesRefine (V := V) Ξ Ω mbox pref (srcBranchesAt p l) (tgtBranchesAt p' l) := by
+  obtain ⟨rxs, codes, _, hsplit, -, -, hcode, -, -, -⟩ := h.threads
+  intro Br hBr
+  obtain ⟨T₀, hT₀, blk, hblk, hlab, hmem⟩ := mem_srcBranchesAt.mp hBr
+  obtain ⟨T', hT', blocks, rfl, hblocks⟩ := hcode.exists_right hT₀
+  obtain ⟨blk', hblk', hlabeq, hbranches⟩ := hblocks.exists_right hblk
+  obtain ⟨Br', hBr', href⟩ := hbranches.exists_right hmem
+  exact ⟨Br', mem_tgtBranchesAt.mpr ⟨blocks, hsplit ▸ List.mem_append_right _ hT', blk', hblk',
+    hlabeq.trans hlab, hBr'⟩, href⟩
+
+/-- **A compiled block blocks at a label ⟹ every one of that label's compiled branches blocks.**
+The `∀`-elimination of `NetworkPlusCal.Process.codeTable`'s `blocking` clause, in the
+thread/block/branch form. -/
+theorem tgt_blocking_le {p' : ComputableNetworkPlusCal.Process} {l : String}
+    {x : GuardedPlusCal.LocalState V × GuardedPlusCal.Trace V}
+    (hx : x ∈ (NetworkPlusCal.Process.codeTable (V := V) Ξ Ω p').blocking l)
+    {Br' : ComputableNetworkPlusCal.AtomicBranch} (hBr' : Br' ∈ tgtBranchesAt p' l) :
+    x ∈ NetworkPlusCal.AtomicBranch.blocking Ξ Ω Br' := by
+  obtain ⟨blocks, hT, blk', hblk', hlab, hmem⟩ := mem_tgtBranchesAt.mp hBr'
+  exact hx _ hT blocks rfl blk' hblk' hlab Br' hmem
+
+/-- **And its converse.** Every source branch at a label blocking ⟹ the source block blocks there —
+the `∀`-introduction of `GuardedPlusCal.Process.codeTable`'s `blocking` clause. -/
+theorem src_blocking_le {p : ComputableGuardedPlusCal.Process} {l : String}
+    {x : GuardedPlusCal.LocalState V × GuardedPlusCal.Trace V}
+    (hall : ∀ Br ∈ srcBranchesAt p l, x ∈ GuardedPlusCal.AtomicBranch.blocking Ξ Ω Br) :
+    x ∈ (GuardedPlusCal.Process.codeTable (V := V) Ξ Ω p).blocking l := by
+  intro T hT B hB hlab Br hBr
+  exact hall Br (mem_srcBranchesAt.mpr ⟨T, hT, B, hB, hlab, hBr⟩)
+
 /-! ## The receiving side of the dispatch
 
   A receiving thread's step is `Process.codeTable`'s `relay`, not a labelled entry. All this side
   needs is that the thread is one the pass registered, on the channel and `inbox` the invariant is
   stated against.
 -/
+
+/-- **A `.some` `rxMailbox` names a real receiving thread.** `rxMailbox` is a `findSome?` over the
+threads, so a `.some` answer is one of them matching. What `procBlockTransfer` uses to reach the
+drained-channel fact `relayBlocking` states per `.rx` thread. -/
+theorem rxMailbox_mem {p' : ComputableNetworkPlusCal.Process}
+    {chan : ComputableGuardedPlusCal.Ref} {ib : String}
+    (h : rxMailbox p' = .some (chan, ib)) :
+    ∃ label τ, NetworkPlusCal.Thread.rx chan label τ ib ∈ p'.threads := by
+  obtain ⟨T, hT, hfT⟩ := List.exists_of_findSome?_eq_some h
+  match T, hfT with
+  | .rx c label τ i, hfT =>
+    simp only [Option.some.injEq, Prod.mk.injEq] at hfT
+    obtain ⟨rfl, rfl⟩ := hfT
+    exact ⟨label, τ, hT⟩
 
 /-- **Any receiving thread of a compiled process is one the pass registered**, and so is on the
 process's own channel and `inbox` — which in turn means the process has a mailbox naming both.

@@ -555,6 +555,128 @@ theorem Statement.listAborting_append {g : Bool}
       Statement.listAborting Ξ Ω A ∪ Statement.listReducing Ξ Ω A ∘ᵣ₁ Statement.listAborting Ξ Ω B :=
   Block.listAborting_append _ _
 
+/-- A possibly-empty *list* of Guarded guards, blocked: some prefix reduces to a state at which the
+next guard blocks. `Block.listAborting` at the blocking/reducing leaves — the list counterpart of
+`Statement.blockBlocking`, mirroring `Statement.listAborting`. -/
+def Statement.listBlocking (Ξ : OperatorEnv) (Ω : Model V) {g : Bool}
+    (A : List (ComputableGuardedPlusCal.Statement g false)) :
+    Set (LocalState V × Trace V) :=
+  Block.listAborting (λ ⦃_⦄ ↦ Statement.blocking Ξ Ω) (λ ⦃_⦄ ↦ Statement.reducing Ξ Ω) A
+
+theorem Statement.listBlocking_nil {g : Bool} :
+    Statement.listBlocking (V := V) Ξ Ω (g := g) [] = ∅ := rfl
+
+theorem Statement.listBlocking_cons {g : Bool} {S : ComputableGuardedPlusCal.Statement g false}
+    {A : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listBlocking (V := V) Ξ Ω (S :: A) =
+      Statement.blocking Ξ Ω S ∪ Statement.reducing Ξ Ω S ∘ᵣ₁ Statement.listBlocking Ξ Ω A := rfl
+
+@[inherit_doc Statement.listReducing_append]
+theorem Statement.listBlocking_append {g : Bool}
+    {A B : List (ComputableGuardedPlusCal.Statement g false)} :
+    Statement.listBlocking (V := V) Ξ Ω (A ++ B) =
+      Statement.listBlocking Ξ Ω A ∪ Statement.listReducing Ξ Ω A ∘ᵣ₁ Statement.listBlocking Ξ Ω B :=
+  Block.listAborting_append _ _
+
+/-- A blocked guard emits nothing — every case of `Statement.blocking` fixes the trace at `1`. -/
+theorem Statement.blocking_trace_eq_one {b b' : Bool}
+    {S : ComputableGuardedPlusCal.Statement b b'} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ Statement.blocking Ξ Ω S) : ε = 1 := by
+  cases S with
+  | «with» x ann bound e => obtain ⟨-, -, -, -, -, rfl, -⟩ := h; rfl
+  | await e => obtain ⟨-, -, -, -, -, -, -, rfl⟩ := h; rfl
+  | receive c r coe => obtain ⟨-, -, -, -, -, -, rfl⟩ := h; rfl
+  | _ => exact h.elim
+
+/-- A guard's reducing step emits nothing — `await`/`with`/`receive` are all silent. -/
+theorem Statement.reducing_guard_trace_eq_one {b' : Bool}
+    {S : ComputableGuardedPlusCal.Statement true b'} {σ σ' : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε, σ'⟩ : LocalState V × Trace V × LocalState V) ∈ Statement.reducing Ξ Ω S) :
+    ε = 1 := by
+  cases S with
+  | «with» x ann bound e => obtain ⟨-, -, -, -, -, -, rfl, -⟩ := h; rfl
+  | await e => obtain ⟨-, -, -, -, -, rfl⟩ := h; rfl
+  | receive c r coe => obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, rfl⟩ := h; rfl
+
+/-- Going wrong in a guard emits nothing — every case of `Statement.aborting` at guard class fixes
+the trace at `1`. -/
+theorem Statement.aborting_guard_trace_eq_one {b' : Bool}
+    {S : ComputableGuardedPlusCal.Statement true b'} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ Statement.aborting Ξ Ω S) : ε = 1 := by
+  cases S <;>
+    simp only [Statement.aborting, Set.mem_union, Set.mem_setOf_eq] at h <;>
+    aesop
+
+/-- And a blocked guard *block* emits nothing — the list of guards is silent throughout. -/
+theorem Statement.listBlocking_trace_eq_one
+    {A : List (ComputableGuardedPlusCal.Statement true false)} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ Statement.listBlocking Ξ Ω A) : ε = 1 := by
+  induction A generalizing σ ε with
+  | nil => rw [Statement.listBlocking_nil] at h; exact h.elim
+  | cons S A ih =>
+    rw [Statement.listBlocking_cons] at h
+    rcases h with h | ⟨σ', ε₁, ε₂, hred, htail, rfl⟩
+    · exact Statement.blocking_trace_eq_one h
+    · rw [Statement.reducing_guard_trace_eq_one hred, ih htail, mul_one]
+
+/-- Going wrong in a guard list emits nothing — every guard, whether it steps or aborts, is
+silent. -/
+theorem Statement.listAborting_guard_trace_eq_one
+    {A : List (ComputableGuardedPlusCal.Statement true false)} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ Statement.listAborting Ξ Ω A) : ε = 1 := by
+  induction A generalizing σ ε with
+  | nil => rw [Statement.listAborting_nil] at h; exact h.elim
+  | cons S A ih =>
+    rw [Statement.listAborting_cons] at h
+    rcases h with h | ⟨σ', ε₁, ε₂, hred, htail, rfl⟩
+    · exact Statement.aborting_guard_trace_eq_one h
+    · rw [Statement.reducing_guard_trace_eq_one hred, ih htail, mul_one]
+
+/-- A blocked branch's abort — which is entirely in its (guard) precondition — is silent. -/
+theorem AtomicBranch.precondition_aborting_trace_eq_one
+    {B : ComputableGuardedPlusCal.AtomicBranch} {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈
+      B.precondition.elim ∅ (Statement.blockAborting Ξ Ω)) : ε = 1 := by
+  cases hpre : B.precondition with
+  | none => rw [hpre] at h; exact h.elim
+  | some B' =>
+    rw [hpre, Option.elim_some, Statement.blockAborting, Block.aborting_eq_listAborting] at h
+    exact Statement.listAborting_guard_trace_eq_one h
+
+/-- No execution statement blocks — `Statement.blocking` is `∅` at guard class `false` — so no block
+of them does either. What lets a branch's blocking semantics forget its action entirely. -/
+theorem Statement.blockBlocking_eq_empty {b : Bool}
+    {B : Block (ComputableGuardedPlusCal.Statement false) b} :
+    Statement.blockBlocking (V := V) Ξ Ω B = ∅ := by
+  rw [Statement.blockBlocking, ← Block.diverging_eq_aborting]
+  apply Block.diverging_eq_empty
+  rintro b S
+  rfl
+
+/-- The `match` on the precondition, discharged, for `blocking`: the action block never blocks
+(`Statement.blockBlocking_eq_empty`), so a branch is blocked exactly when its precondition is. The
+counterpart of `AtomicBranch.aborting_eq`. -/
+theorem AtomicBranch.blocking_eq_precondition (B : ComputableGuardedPlusCal.AtomicBranch) :
+    AtomicBranch.blocking (V := V) Ξ Ω B =
+      B.precondition.elim ∅ (Statement.blockBlocking Ξ Ω) := by
+  rw [AtomicBranch.blocking]
+  cases B.precondition with
+  | none => simp only [Option.elim_none, Statement.blockBlocking_eq_empty]
+  | some B' =>
+    simp only [Option.elim_some, Statement.blockBlocking_eq_empty,
+      Relation.lcomp₁.right_empty_eq_empty, Set.union_empty]
+
+/-- A blocked branch emits nothing — its precondition is all guards, and guards are silent. -/
+theorem AtomicBranch.blocking_trace_eq_one {B : ComputableGuardedPlusCal.AtomicBranch}
+    {σ : LocalState V} {ε : Trace V}
+    (h : (⟨σ, ε⟩ : LocalState V × Trace V) ∈ AtomicBranch.blocking Ξ Ω B) : ε = 1 := by
+  rw [AtomicBranch.blocking_eq_precondition] at h
+  cases hpre : B.precondition with
+  | none => rw [hpre] at h; exact h.elim
+  | some B' =>
+    rw [hpre, Option.elim_some, Statement.blockBlocking, Block.aborting_eq_listAborting] at h
+    exact Statement.listBlocking_trace_eq_one h
+
 /-- The `match` on the precondition, discharged: `.none` composes with the identity relation and
 contributes no aborting runs of its own, which is exactly what `Option.elim` says. The uniform form
 is what a `StrongRefinement.Comp` of a precondition half and an action half produces, so this is the

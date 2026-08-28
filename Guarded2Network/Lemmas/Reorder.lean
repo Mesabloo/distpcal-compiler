@@ -79,6 +79,16 @@ theorem consumptions_cons {a : ComputableGuardedPlusCal.Ref × ComputablePlusCal
   obtain ⟨_, _, _⟩ := a
   rfl
 
+/-- Every statement `consumptions` emits is an assignment — the trivial reading of its definition,
+in the shape `NetworkPlusCal.Statement.listReducing_fifos_of_assigns` asks for. -/
+theorem consumptions_all_assign
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)} :
+    ∀ S ∈ consumptions A, ∃ r e, S = NetworkPlusCal.Statement.assign r e := by
+  intro S hS
+  simp only [consumptions, List.mem_map] at hS
+  obtain ⟨⟨r, e, pos⟩, -, rfl⟩ := hS
+  exact ⟨r, e, rfl⟩
+
 /-- `ExprSemantics.evalSubstRef` at the shape the statement semantics writes reference paths in —
 `List.Forall₂ (EvalStep M)` rather than `ResolvesPath`, bridged by `EvalStep.resolvesPath_iff`. Every
 branch of the two reorder lemmas needs the transfer in this form, so the conversion happens once. -/
@@ -482,6 +492,90 @@ theorem reorder_assigns_guard_abort'
       (reorder_assign_guard' (fresh a List.mem_cons_self).substGuards).symm
       (reorder_assign_guard_abort' (fresh a List.mem_cons_self).substGuards) le_rfl ?_
     exact IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)
+
+/-- **One consumption pair past a source-written guard, for the runs that *block*.**
+`reorder_assign_guard_abort`'s blocking twin. Blocking is terminal — the guard never reaches the
+assignment — so the only input is the substituted guard blocking, and it becomes either the
+assignment aborting (it could not run) or the assignment running and the plain guard blocking after
+(`assign_aborts_or_steps` — the substitution *is* the assignment). -/
+theorem reorder_assign_guard_block {r : ComputableGuardedPlusCal.Ref}
+    {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : GuardFresh r rhs S) :
+    NetworkPlusCal.Statement.blocking Ξ Ω (substGuardStmt r rhs S) ≤
+      NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ∪
+        NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₁
+          NetworkPlusCal.Statement.blocking Ξ Ω S := by
+  cases S with
+  | «with» x ann bound e =>
+    rw [substGuardStmt_with]
+    rintro ⟨σ, ε⟩ ⟨M, F, v, hv, rfl, rfl, hbound⟩
+    rcases assign_aborts_or_steps (r := r) (rhs := rhs) (M := M) (F := F) with
+      hab | ⟨w, rpath, M', hw, hpath, hupd⟩
+    · exact .inl hab
+    · exact .inr ⟨⟨M', F, .none⟩, 1, 1, NetworkPlusCal.Statement.reducing.assign.intro
+        ⟨M, F, M', w, rpath, hw, hpath, hupd, rfl, rfl, rfl⟩,
+        ⟨M', F, v, (evalSubstRef hw hpath hupd).mpr hv, rfl, rfl, hbound⟩, (one_mul 1).symm⟩
+  | await e =>
+    rw [substGuardStmt_await]
+    rintro ⟨σ, ε⟩ ⟨M, F, v, hbool, hne, hv, rfl, rfl⟩
+    rcases assign_aborts_or_steps (r := r) (rhs := rhs) (M := M) (F := F) with
+      hab | ⟨w, rpath, M', hw, hpath, hupd⟩
+    · exact .inl hab
+    · exact .inr ⟨⟨M', F, .none⟩, 1, 1, NetworkPlusCal.Statement.reducing.assign.intro
+        ⟨M, F, M', w, rpath, hw, hpath, hupd, rfl, rfl, rfl⟩,
+        ⟨M', F, v, hbool, hne, (evalSubstRef hw hpath hupd).mpr hv, rfl, rfl⟩, (one_mul 1).symm⟩
+
+/-- **The whole accumulator past one source-written guard, for the runs that block.**
+`reorder_assigns_guard_abort'`'s blocking twin — the accumulated pairs either abort somewhere or run
+in full and leave the plain guard blocking. -/
+theorem reorder_assigns_guard_block
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    {S : ComputableNetworkPlusCal.Statement true false}
+    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    NetworkPlusCal.Statement.blocking (V := V) Ξ Ω (substGuards A S) ≤
+      NetworkPlusCal.Statement.listAborting (V := V) Ξ Ω (consumptions A) ∪
+        NetworkPlusCal.Statement.listReducing Ξ Ω (consumptions A) ∘ᵣ₁
+          NetworkPlusCal.Statement.blocking Ξ Ω S := by
+  induction A with
+  | nil =>
+    rw [consumptions_nil, substGuards_nil, NetworkPlusCal.Statement.listAborting_nil,
+      NetworkPlusCal.Statement.listReducing_nil, Relation.lcomp₁.left_id_eq, Set.empty_union]
+  | cons a A IH =>
+    rw [consumptions_cons, substGuards_cons, NetworkPlusCal.Statement.listAborting_cons,
+      NetworkPlusCal.Statement.listReducing_cons, Relation.lcomp₁.union_lcomp₂]
+    refine le_trans (reorder_assign_guard_block (fresh a List.mem_cons_self).substGuards) ?_
+    exact Set.union_subset_union le_rfl
+      (Relation.lcomp₁.mono le_rfl (IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)))
+
+/-- **The consumption assignments are total.** From any state, the whole list either reduces to some
+state or aborts — an `assign` has no third outcome (`assign_aborts_or_steps`), and the fifo map is
+untouched throughout. What the blocking walk feeds `WalkInv`'s reducing/aborting refinement: at the
+point a compiled guard blocks, the pending pairs have not run, and this is how they are completed so
+the refinement applies. -/
+theorem consumptions_total
+    (A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan))
+    (M : Memory V) (F : FIFOs V) :
+    (⟨(⟨M, F, .none⟩ : LocalState V), (1 : Trace V)⟩ : LocalState V × Trace V) ∈
+        NetworkPlusCal.Statement.listAborting Ξ Ω (consumptions A) ∨
+      ∃ M', (⟨(⟨M, F, .none⟩ : LocalState V), (1 : Trace V), (⟨M', F, .none⟩ : LocalState V)⟩ :
+        LocalState V × Trace V × LocalState V) ∈
+          NetworkPlusCal.Statement.listReducing Ξ Ω (consumptions A) := by
+  induction A generalizing M with
+  | nil =>
+    exact .inr ⟨M, by rw [consumptions_nil, NetworkPlusCal.Statement.listReducing_nil]; exact ⟨rfl, rfl⟩⟩
+  | cons a A IH =>
+    rw [consumptions_cons, NetworkPlusCal.Statement.listAborting_cons,
+      NetworkPlusCal.Statement.listReducing_cons]
+    rcases assign_aborts_or_steps (r := a.1) (rhs := a.2.1) (M := M) (F := F) with
+      hab | ⟨v, rpath, M', hv, hpath, hupd⟩
+    · exact .inl (Set.mem_union_left _ hab)
+    · have hstep : (⟨(⟨M, F, .none⟩ : LocalState V), (1 : Trace V), (⟨M', F, .none⟩ : LocalState V)⟩ :
+          LocalState V × Trace V × LocalState V) ∈
+            NetworkPlusCal.Statement.reducing Ξ Ω (.assign a.1 a.2.1) :=
+        NetworkPlusCal.Statement.reducing.assign.intro ⟨M, F, M', v, rpath, hv, hpath, hupd, rfl, rfl, rfl⟩
+      rcases IH M' with hab' | ⟨M'', hred'⟩
+      · exact .inl (Set.mem_union_right _ ⟨_, 1, 1, hstep, hab', (one_mul 1).symm⟩)
+      · exact .inr ⟨M'', _, 1, 1, hstep, hred', (one_mul 1).symm⟩
 
 end Guarded2Network
 

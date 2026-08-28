@@ -30,8 +30,8 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
-open ComputableTLAPlus (OperatorEnv Model)
-open GuardedPlusCal (Block ChanKey LocalState Trace)
+open ComputableTLAPlus (OperatorEnv Model Memory PathStep)
+open GuardedPlusCal (Block ChanKey EvalStep FIFOs LocalState Trace)
 
 variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
   {Ω : Model V}
@@ -140,6 +140,44 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     NetworkPlusCal.Statement.blockReducing, NetworkPlusCal.Statement.blockAborting,
     Block.reducing_prepend', Block.aborting_prepend, Relation.lcomp₂.assoc]
   exact hcomp
+
+omit [SeqBuiltins V] in
+/-- **The `blockTransfer` field of `BranchRefines`.** An action never blocks, so a blocked compiled
+branch is a blocked compiled precondition; `WalkInvBlocking` — as `processPrecondition_spec` leaves
+it — carries that to the source precondition, and `AtomicBranch.blocking_eq_precondition` /
+`AtomicBranch.aborting_eq` re-wrap both ends at branch shape. -/
+private theorem branch_blockTransfer {mbox : Mailbox} {pref : ChanKey V → List V}
+    {Br : ComputableGuardedPlusCal.AtomicBranch}
+    {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
+    {assigns : List (ComputableNetworkPlusCal.Statement false false)}
+    (hpblk : WalkInvBlocking (V := V) Ξ Ω mbox pref (preconditionList Br.precondition)
+      (pre'.elim [] Block.toList))
+    {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V}
+    (sim : (⟨M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω, mbox, pref] ⟨M₂, F₂, .none⟩)
+    (hdrain : ∀ (c : ComputableGuardedPlusCal.Ref) (ib : String)
+      (cpath : List (PathStep V)), mbox = .some (c, ib) →
+      List.Forall₂ (EvalStep Ξ Ω M₁) c.args cpath →
+      F₂.lookup (⟨c.name, cpath⟩ : ChanKey V) = some [])
+    (hin : (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
+      NetworkPlusCal.AtomicBranch.blocking Ξ Ω
+        ⟨pre', Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩) :
+    (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
+      GuardedPlusCal.AtomicBranch.blocking Ξ Ω Br ∨
+    (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
+      GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br := by
+  rw [NetworkPlusCal.AtomicBranch.blocking_eq_precondition, ← listBlocking_toList_net] at hin
+  rcases hpblk sim hdrain hin with ⟨ε', hτ, hb⟩ | ⟨ε', hpfx, ha⟩
+  · obtain rfl : ε' = ε := hτ
+    refine .inl ?_
+    rwa [GuardedPlusCal.AtomicBranch.blocking_eq_precondition, ← listBlocking_preconditionList]
+  · rw [listAborting_preconditionList (V := V)] at ha
+    obtain rfl : ε' = ε := by
+      have h1 : ε' = 1 := GuardedPlusCal.AtomicBranch.precondition_aborting_trace_eq_one ha
+      have h2 : ε = 1 := NetworkPlusCal.Statement.listBlocking_trace_eq_one hin
+      rw [h1, h2]
+    refine .inr ?_
+    rw [GuardedPlusCal.AtomicBranch.aborting_eq]
+    exact Set.mem_union_left _ ha
 
 /-- Every thread of a list is a receive loop on this process's channel and `inbox`, under a label the
 pass generated. Stated on the bare list rather than on `ThreadState` because `Thread.toNetwork` hands
@@ -250,6 +288,22 @@ structure BranchRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
   /-- And it leaves for the same place: `Block.prepend` does not touch `last`, and
   `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
   last_eq : Br'.action.last = convertActionStmt Br.action.last
+  /-- **And where the compiled branch blocks, the source blocks or aborts** — provided the mailbox
+  channel is drained (`hdrain`, the fact the algorithm level reads off `relayBlocking`). The
+  precondition-only half of the refinement: an action never blocks, so a blocked branch is a blocked
+  precondition, and `WalkInvBlocking` carries that transfer. -/
+  blockTransfer : ∀ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V},
+    (⟨M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω, mbox, pref] ⟨M₂, F₂, .none⟩ →
+    (∀ (c : ComputableGuardedPlusCal.Ref) (ib : String)
+      (cpath : List (PathStep V)), mbox = .some (c, ib) →
+      List.Forall₂ (EvalStep Ξ Ω M₁) c.args cpath →
+      F₂.lookup (⟨c.name, cpath⟩ : ChanKey V) = some []) →
+    (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
+      NetworkPlusCal.AtomicBranch.blocking Ξ Ω Br' →
+    (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
+      GuardedPlusCal.AtomicBranch.blocking Ξ Ω Br ∨
+    (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
+      GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br
 
 /-- **What a whole label's worth of branches owes**: every compiled branch is *some* source branch,
 refined. Deliberately weaker than the positional `List.Forall₂` a single compiled block satisfies.
@@ -359,10 +413,11 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     obtain ⟨⟨hrx₀, hloc₀, hboth₀⟩, hreg⟩ := ‹RxThreads _ _ _ _ ∧ Registered _ _›
     -- `processPrecondition_spec`'s postcondition arrives as one unsplit conjunction: what the walk
     -- recorded about the channels, that a `receive` leaves `rxs` non-empty, and the refinement
-    obtain ⟨hrxs, hrecv, href⟩ := ‹_ ∧ _ ∧ _›
-    refine ⟨⟨?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
+    obtain ⟨hrxs, hrecv, href, hpblk⟩ := ‹_ ∧ _ ∧ _ ∧ _›
+    refine ⟨⟨?_, ?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
     · exact branch_refines href afresh alast
     · rfl
+    · exact fun sim hdrain hin ↦ branch_blockTransfer hpblk sim hdrain hin
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; `IsRxThread` stays
     -- out of the simp set, one obligation per thread. The locals hypotheses are cleared first, so
     -- `simp_all` does not shred a pair-typed `∀ e ∈ …` it has no use for here.

@@ -150,6 +150,7 @@ Generic data-structure lemmas and instances.
 - `Lemmas/Thread.lean` — one thread.
 - `Lemmas/Process.lean` — one process, and label disjointness.
 - `Lemmas/Algorithm.lean` — the algorithm level and the pass's correctness theorem.
+- `Lemmas/Blocking.lean` — the blocking half of the algorithm-level refinement.
 - `Lemmas/Correctness.lean` — the packaging as a `Compiler.Correctness`.
 
 ## `Network2Go/`
