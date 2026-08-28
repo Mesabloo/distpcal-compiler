@@ -86,6 +86,13 @@ theorem procBlockTransfer
       (GuardedPlusCal.Process.codeTable Ξ Ω psrc).owned := hpr.ownedLabels_eq
     have sim : (⟨M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω, mbox psrc.name inbox, pref] ⟨M₂, F₂, .none⟩ := by
       rw [← hmbeq]; exact relatesTo_of_procRelatesTo hproc (hkey (name, v)) hfifo .none
+    have hib : ∀ (c : ComputableGuardedPlusCal.Ref) (i : String),
+        mbox psrc.name inbox = .some (c, i) → i ∉ GuardedPlusCal.Ref.freeVars c := by
+      intro c i hmb
+      have hrxmb : rxMailbox p' = .some (c, i) := by rw [hpr.rxMailbox_eq hused']; exact hmb
+      obtain ⟨lbl, tτ, hT⟩ := rxMailbox_mem hrxmb
+      obtain ⟨-, hnf, hcc', hii'⟩ := hpr.rxThread hT
+      rw [hii', hcc']; exact hnf
     have hdrain : ∀ (c : ComputableGuardedPlusCal.Ref) (i : String)
         (cp : List (ComputableTLAPlus.PathStep V)), mbox psrc.name inbox = .some (c, i) →
         List.Forall₂ (GuardedPlusCal.EvalStep Ξ Ω M₁) c.args cp →
@@ -93,9 +100,7 @@ theorem procBlockTransfer
       intro c i cp hmb hcp
       have hrxmb : rxMailbox p' = .some (c, i) := by rw [hpr.rxMailbox_eq hused']; exact hmb
       obtain ⟨lbl, tτ, hT⟩ := rxMailbox_mem hrxmb
-      have hinf : i ∉ GuardedPlusCal.Ref.freeVars c := by
-        obtain ⟨-, hnf, hcc', hii'⟩ := hpr.rxThread hT
-        rw [hii', hcc']; exact hnf
+      have hinf : i ∉ GuardedPlusCal.Ref.freeVars c := hib c i hmb
       obtain ⟨cp', hcp', hlk'⟩ := hrelay _ hT c lbl tτ i rfl
       have hagree : ∀ y ∈ GuardedPlusCal.Ref.freeVars c,
           Finmap.lookup y M₁ = Finmap.lookup y M₂ := by
@@ -127,7 +132,7 @@ theorem procBlockTransfer
         have htgt : (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
             NetworkPlusCal.AtomicBranch.blocking Ξ Ω Br' :=
           tgt_blocking_le (hbl l (hproc.1 ▸ hlL) (howned ▸ hlO)) hBr'
-        rcases href'.blockTransfer sim hdrain htgt with hb | ha
+        rcases href'.blockTransfer hib sim hdrain htgt with hb | ha
         · exact hb
         · exact (habt ⟨l, hlL, Br, hBr, ha⟩).elim
 

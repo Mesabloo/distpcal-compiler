@@ -104,6 +104,7 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
+    {Bₛ Bₜ : Set (LocalState V × Trace V)}
     (hpre : StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (Br.precondition.elim Relation.Idle (Block.reducing
         (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω)))
@@ -120,7 +121,7 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
         pre'.elim Relation.Idle (Block.reducing
             (λ ⦃_⦄ ↦ NetworkPlusCal.Statement.reducing Ξ Ω)) ∘ᵣ₁
           NetworkPlusCal.Statement.listAborting Ξ Ω assigns)
-      ∅ ∅ ∅)
+      ∅ Bₛ Bₜ)
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S) (alast : Fresh mbox Br.action.last) :
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br) (GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br) ∅
@@ -129,7 +130,11 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
       (NetworkPlusCal.AtomicBranch.aborting Ξ Ω ⟨pre',
         Block.prepend assigns (Br.action.map (λ ⦃_⦄ ↦ convertActionStmt))⟩)
       ∅ ∅ ∅ := by
-  have hcomp := StrongRefinement.Comp _ hpre (actionBlock_refines (V := V) afresh alast)
+  -- an action never blocks, so the branch's blocking transfer is the precondition's alone
+  -- (`branch_blockTransfer`); here only the terminating/aborting/diverging halves are joined
+  have hpre' := (⟨hpre.terminating, hpre.aborting, hpre.diverging, StrongRefinement.Blocking.Empty _⟩ :
+    StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ _ _ _ _ _ _ ∅ ∅)
+  have hcomp := StrongRefinement.Comp _ hpre' (actionBlock_refines (V := V) afresh alast)
   -- `union_lcomp₂` normalizes `Comp`'s output, not the goal: the goal is already in its right-hand
   -- form once `Block.aborting_prepend` has split the prepended assignments off
   simp only [GuardedPlusCal.Statement.blockDiverging_eq_empty, NetworkPlusCal.Statement.blockDiverging_eq_empty,
@@ -143,15 +148,24 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
 
 omit [SeqBuiltins V] in
 /-- **The `blockTransfer` field of `BranchRefines`.** An action never blocks, so a blocked compiled
-branch is a blocked compiled precondition; `WalkInvBlocking` — as `processPrecondition_spec` leaves
-it — carries that to the source precondition, and `AtomicBranch.blocking_eq_precondition` /
-`AtomicBranch.aborting_eq` re-wrap both ends at branch shape. -/
+branch is a blocked compiled precondition; the walk's `blocking` field — as `processPrecondition_spec`
+leaves it — carries that to the source precondition, and `AtomicBranch.blocking_eq_precondition` /
+`AtomicBranch.aborting_eq` re-wrap both ends at branch shape. `hdrain` (at the source memory) becomes
+the walk clause's `Drained` (at the target memory) by `sim` — the mailbox args do not mention `inbox`
+(`hib`). -/
 private theorem branch_blockTransfer {mbox : Mailbox} {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
-    (hpblk : WalkInvBlocking (V := V) Ξ Ω mbox pref (preconditionList Br.precondition)
-      (pre'.elim [] Block.toList))
+    (hblk : StrongRefinement.Blocking (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Statement.listBlocking Ξ Ω (preconditionList Br.precondition))
+      (Br.precondition.elim ∅ (Block.aborting
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.aborting Ξ Ω)
+        (λ ⦃_⦄ ↦ GuardedPlusCal.Statement.reducing Ξ Ω)))
+      {x ∈ NetworkPlusCal.Statement.listBlocking Ξ Ω (pre'.elim [] Block.toList) |
+        Drained Ξ Ω mbox x})
+    (hib : ∀ (c : ComputableGuardedPlusCal.Ref) (ib : String), mbox = .some (c, ib) →
+      ib ∉ GuardedPlusCal.Ref.freeVars c)
     {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V}
     (sim : (⟨M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω, mbox, pref] ⟨M₂, F₂, .none⟩)
     (hdrain : ∀ (c : ComputableGuardedPlusCal.Ref) (ib : String)
@@ -166,12 +180,18 @@ private theorem branch_blockTransfer {mbox : Mailbox} {pref : ChanKey V → List
     (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
       GuardedPlusCal.AtomicBranch.aborting Ξ Ω Br := by
   rw [NetworkPlusCal.AtomicBranch.blocking_eq_precondition, ← listBlocking_toList_net] at hin
-  rcases hpblk sim hdrain hin with ⟨ε', hτ, hb⟩ | ⟨ε', hpfx, ha⟩
+  have hdrained : Drained Ξ Ω mbox (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) := by
+    intro c ib cp hmb hcp
+    refine hdrain c ib cp hmb ((Ref.EvalArgs.congr_of_agree (fun y hy ↦ ?_)).mpr hcp)
+    refine sim.mem_agree' y (fun _ ib₁ h ↦ ?_)
+    simp only [hmb, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact fun heq ↦ hib c ib hmb (heq ▸ hy)
+  rcases hblk _ ε _ sim ⟨hin, hdrained⟩ with ⟨ε', hτ, hb⟩ | ⟨ε', hpfx, ha⟩
   · obtain rfl : ε' = ε := hτ
     refine .inl ?_
     rwa [GuardedPlusCal.AtomicBranch.blocking_eq_precondition, ← listBlocking_preconditionList]
-  · rw [listAborting_preconditionList (V := V)] at ha
-    obtain rfl : ε' = ε := by
+  · obtain rfl : ε' = ε := by
       have h1 : ε' = 1 := GuardedPlusCal.AtomicBranch.precondition_aborting_trace_eq_one ha
       have h2 : ε = 1 := NetworkPlusCal.Statement.listBlocking_trace_eq_one hin
       rw [h1, h2]
@@ -289,10 +309,13 @@ structure BranchRefines (Ξ : OperatorEnv) (Ω : Model V) (mbox : Mailbox)
   `convertActionBlock` maps it pointwise, so a terminal `goto` survives compilation unchanged. -/
   last_eq : Br'.action.last = convertActionStmt Br.action.last
   /-- **And where the compiled branch blocks, the source blocks or aborts** — provided the mailbox
-  channel is drained (`hdrain`, the fact the algorithm level reads off `relayBlocking`). The
-  precondition-only half of the refinement: an action never blocks, so a blocked branch is a blocked
-  precondition, and `WalkInvBlocking` carries that transfer. -/
+  channel is drained (`hdrain`, the fact the algorithm level reads off `relayBlocking`) and the
+  mailbox reference does not mention the generated `inbox` (`hib`, a freshness fact `relayBlocking`
+  supplies alongside). The precondition-only half of the refinement: an action never blocks, so a
+  blocked branch is a blocked precondition, and the walk's `blocking` field carries that transfer. -/
   blockTransfer : ∀ {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ε : Trace V},
+    (∀ (c : ComputableGuardedPlusCal.Ref) (ib : String), mbox = .some (c, ib) →
+      ib ∉ GuardedPlusCal.Ref.freeVars c) →
     (⟨M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω, mbox, pref] ⟨M₂, F₂, .none⟩ →
     (∀ (c : ComputableGuardedPlusCal.Ref) (ib : String)
       (cpath : List (PathStep V)), mbox = .some (c, ib) →
@@ -413,11 +436,11 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     obtain ⟨⟨hrx₀, hloc₀, hboth₀⟩, hreg⟩ := ‹RxThreads _ _ _ _ ∧ Registered _ _›
     -- `processPrecondition_spec`'s postcondition arrives as one unsplit conjunction: what the walk
     -- recorded about the channels, that a `receive` leaves `rxs` non-empty, and the refinement
-    obtain ⟨hrxs, hrecv, href, hpblk⟩ := ‹_ ∧ _ ∧ _ ∧ _›
+    obtain ⟨hrxs, hrecv, href⟩ := ‹_ ∧ _ ∧ _›
     refine ⟨⟨?_, ?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
     · exact branch_refines href afresh alast
     · rfl
-    · exact fun sim hdrain hin ↦ branch_blockTransfer hpblk sim hdrain hin
+    · exact fun hib sim hdrain hin ↦ branch_blockTransfer href.blocking hib sim hdrain hin
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; `IsRxThread` stays
     -- out of the simp set, one obligation per thread. The locals hypotheses are cleared first, so
     -- `simp_all` does not shred a pair-typed `∀ e ∈ …` it has no use for here.

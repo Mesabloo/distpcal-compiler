@@ -176,6 +176,11 @@ Citations illustrate the rule; this file is not a list of things to fix.
   transparency, which does not see through a local definition; `using!` matches at the ambient one.
   At `:394` the goal is about `σₛ` and the term about `σs 0` — defeq only after `σs` unfolds, so
   plain `using` fails there.
+- **`intro …` then a closing `simp` is `simp_intro …`.** When a subgoal is `intro`'d only to be
+  finished by a bare `simp`, `simp_intro` does both — it introduces the binders and simplifies as
+  each arrives. `simp_intro ..` introduces every remaining binder. Name the lemmas
+  (`simp_intro x [S]`) when the `simp` needs them, for the same reason a terminal `simp` is a
+  liability. `Guarded2Network/Lemmas/Precondition.lean:1297`
 - **Merge `rw [...]` into a following `simp only [...]`.** Rewrite lemmas go straight into the
   `simp only` set — two traversals become one, and the intermediate goal nobody looks at stops
   existing. `VerifiedCompiler/Denotational/StrongRefinement.lean:316`, `:368`
