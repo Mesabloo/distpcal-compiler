@@ -233,7 +233,7 @@ theorem algRelatesTo.step_or_stutter [DecidableEq V]
   obtain ⟨⟨name, v⟩, ⟨M₂, L₂⟩, hin, ⟨M₂', L₂'⟩, hstepp, hQs⟩ := hstep
   obtain ⟨ib, hbwd⟩ := hrel.backward
   obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd (name, v) ⟨M₂, L₂⟩ hin
-  rcases hstepp with ⟨l, hl, l', hred, hself, rfl⟩ | ⟨hred, -, rfl⟩
+  rcases hstepp with ⟨l, hl, l', hred, hself, rfl⟩ | ⟨hred, -, -, rfl⟩
   · -- a compiled code block moved: the source block at the same label answers
     -- a process only steps in a memory binding its own identity; the source's does because it agrees
     -- with the target's away from the generated `inbox`, which is not `self`

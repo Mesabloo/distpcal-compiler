@@ -176,6 +176,24 @@ theorem procDoneTransfer
     rwa [hpr.ownedLabels_eq] at hdone
 
 omit [SeqBuiltins V] in
+/-- **Whole-configuration doneness, transferred.** Every process instance of the compiled algorithm
+done implies every instance of the source done — `procDoneTransfer` per instance, since
+`procRelatesTo` keeps `L` equal over the same owned labels. This is what restricts the reducing
+refinement to `Algebra.terminating` (runs that end done) on both sides. -/
+theorem algRelatesTo.isDone_of
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
+    {Sₛ Sₜ : AlgState (String × V) V}
+    (hrel : Sₛ ≋[Ξ, Ω, procMailbox algo'] Sₜ)
+    (hdone : Algebra.isDone (NetworkPlusCal.Algorithm.algebra Ξ Ω algo') Sₜ) :
+    Algebra.isDone (GuardedPlusCal.Algorithm.algebra Ξ Ω algo) Sₛ := by
+  obtain ⟨Ps, F₁⟩ := Sₛ
+  obtain ⟨Qs, F₂⟩ := Sₜ
+  intro p σₛ hS
+  obtain ⟨ib, hfwd⟩ := hrel.forward
+  obtain ⟨σₜ, hin, -⟩ := hfwd p σₛ hS
+  exact procDoneTransfer href hrel hS hin (hdone p σₜ hin)
+
+omit [SeqBuiltins V] in
 /-- **The immediate blocking half.** `NetworkPlusCal.Algebra.immediateBlock` — the algorithm
 deadlocked now — is matched by the source's, or by the source aborting now. Per-instance dispatch:
 `procBlockTransfer` for the wedged processes, `procDoneTransfer` for the finished ones, and one
@@ -243,8 +261,25 @@ theorem algRelatesTo.blocking [DecidableEq V]
     (algRelatesTo.immediateBlock href used)
 
 omit [SeqBuiltins V] in
+/-- **The terminating semantics, the paper's `⟦A⟧⁺`.** `terminating_reducing` cut down to runs that
+end in a done configuration on both sides. The target restriction is free (`Terminating.Mono`); the
+source restriction rides on `algRelatesTo.isDone_of`, since a shorter source set is otherwise harder
+to land in. -/
+theorem algRelatesTo.terminating_done [DecidableEq V]
+    (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
+    (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
+    StrongRefinement.Terminating (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
+      (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
+      (instTrace (V := V)).Rτ
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).terminating
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').terminating :=
+  StrongRefinement.Terminating.restrictEnd (algRelatesTo.terminating_reducing href used fresh)
+    (fun _ _ hR hdone ↦ algRelatesTo.isDone_of href hR hdone)
+
+omit [SeqBuiltins V] in
 /-- **The algorithm-level refinement, whole.** All four components at the closed forms
-`Algebra.reducing`/`.aborting`/`.diverging`/`.blocking`, against one state relation.
+`Algebra.terminating`/`.aborting`/`.diverging`/`.blocking`, against one state relation.
 
 `href`/`used`/`fresh` are established from a compiled algorithm by `Algorithm.toNetwork_spec`
 and the front end, and `algRelatesTo` at the initial states by `Algorithm.init`; the refinement
@@ -254,15 +289,15 @@ theorem algRelatesTo.refines [DecidableEq V]
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
       (instTrace (V := V)).Rτ
-      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
+      (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).terminating
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
-      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing
+      (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').terminating
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).blocking
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').blocking where
-  terminating := algRelatesTo.terminating_reducing href used fresh
+  terminating := algRelatesTo.terminating_done href used fresh
   aborting := algRelatesTo.aborting href used fresh
   diverging := algRelatesTo.diverging href used fresh
   blocking := algRelatesTo.blocking href used fresh
@@ -290,10 +325,10 @@ theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String �
     ⦃⇓? algo' _ => ⌜algo'.globalState = algo.globalState ∧
       StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
         (instTrace (V := V)).Rτ
-        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
+        (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).terminating
         (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
         (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).diverging
-        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing
+        (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').terminating
         (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting
         (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging
         (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).blocking

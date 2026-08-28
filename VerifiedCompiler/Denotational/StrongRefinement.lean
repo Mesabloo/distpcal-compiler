@@ -101,6 +101,22 @@ namespace StrongRefinement
     · exact Or.inl ⟨σₛ', ε', R_σₛ'_σᵤ', Rτ_ε'_ε, Set.mem_of_subset_of_mem hyp₁ sem_σₛ'⟩
     · exact Or.inr ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
 
+  /-- Both reduce sets cut down to the runs whose final state satisfies a predicate the post-relation
+  transports backward. Restricting the *target* set alone is `Mono`; restricting the *source* set is
+  not monotone — a smaller source set is harder to land in — so it needs the endpoint fact. This is
+  what turns a reachability relation (every partial run) into a terminating semantics (runs that end
+  in a distinguished class of states) on both sides of the refinement at once. -/
+  protected theorem Terminating.restrictEnd {R : Rel α β} [T : Trace εₛ εₜ]
+      {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
+      {Qₛ : α → Prop} {Qₜ : β → Prop}
+      (ref : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ)
+      (hback : ∀ σₛ σₜ, R σₛ σₜ → Qₜ σₜ → Qₛ σₛ) :
+      StrongRefinement.Terminating R R T.Rτ {x ∈ semₛ | Qₛ x.2.2} semₛ' {x ∈ semₜ | Qₜ x.2.2} := by
+    rintro σₜ σₜ' ε σₛ hR ⟨hmem, hQ⟩
+    obtain ⟨σₛ', ε', hR', hRτ, hsem⟩ | ⟨ε', hscp, habt⟩ := ref σₜ σₜ' ε σₛ hR hmem
+    · exact Or.inl ⟨σₛ', ε', hR', hRτ, hsem, hback σₛ' σₜ' hR' hQ⟩
+    · exact Or.inr ⟨ε', hscp, habt⟩
+
   /-- A target with no reducing behavior is refined by anything: the empty target set vacates the
   premise, so the pre- and post-relations and both source sets are unconstrained. -/
   protected theorem Terminating.Empty [T : Trace εₛ εₜ]

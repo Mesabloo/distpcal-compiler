@@ -2162,12 +2162,19 @@ endofunctions. The refinement framework proves one preservation law per operator
 downstream has to unfold a fixed point; `VerifiedCompiler/ClosedForm.lean` carries the identities
 with the corresponding least fixed points as checks that the closed forms denote the same sets.
 
-- `⟦A⟧*` is `step*` (`Relation.star`) — every **finite** sequence of steps, with the concatenated
-  trace. The empty execution is the zero-length run rather than a reflexive disjunct that has to be
-  supplied: `μX. Id ∪ (X ∘ᵣ₂ step)` needs that disjunct or its least fixed point is `∅`, since every
-  element of a composition needs a witness drawn from `X`.
+- `Algebra.reducing` is `step*` (`Relation.star`) — every **finite** sequence of steps, with the
+  concatenated trace. This is a *reachability* relation, not a denotation on its own: it holds every
+  partial run to any configuration, so it overlaps `Algebra.blocking` at the endpoint and contains
+  every finite prefix of a divergent run. The empty execution is the zero-length run rather than a
+  reflexive disjunct that has to be supplied: `μX. Id ∪ (X ∘ᵣ₂ step)` needs that disjunct or its
+  least fixed point is `∅`, since every element of a composition needs a witness drawn from `X`.
+- `⟦A⟧⁺` (`Algebra.terminating`) is `Algebra.reducing` cut to runs whose final configuration is
+  `Algebra.isDone` — every process at a sentinel, `L ∩ owned = ∅`. This `isDone` on the endpoint is
+  the paper's, and it is what makes `⟦A⟧⁺` the *terminating* semantics rather than "reachable
+  configs". The `init` restriction the paper also puts on `⟦A⟧⁺` is **not** in the set — see below.
 - `⟦A⟧⊥` is `step* ∘ᵣ₁ immediateAbort`, where `immediateAbort` is "some process goes wrong now" —
-  finitely many steps, then an abort.
+  finitely many steps, then an abort. (The prefix is `step*`, the reachability relation, not `⟦A⟧⁺`;
+  a run to an abort need not pass through done configs.)
 - `⟦A⟧∞` is `step^∞` (`Relation.omega`): the runs taking infinitely many steps, each paired with the
   infinite product of the traces those steps emit. **Not** a greatest fixed point. `νX. step ∘ᵣ₁ X`
   overshoots: a step emitting the empty trace makes that endofunction non-contractive, so at
@@ -2182,10 +2189,18 @@ with the corresponding least fixed points as checks that the closed forms denote
 
 Initial states are a **relation**, not a function: local variables are given by initializer
 expressions and evaluation is relational, so an algorithm with a meaningless initializer has no
-initial state rather than a junk one.
+initial state rather than a junk one. The paper's `⟦A⟧⁺`/`⟦A⟧⊥`/`⟦A⟧∅`/`⟦A⟧∞` also fix
+`σ_A = init(A)`; the four sets here do **not**. `Compiler.Correctness` carries the initial states as
+a separate coverage conjunct — every initial state of the compiled algorithm is covered by a related
+initial state of the source — because `StrongRefinement.Terminating` is `∀ σₛ, R σₛ σₜ → …` and
+reuses that `σₛ` as the source run's start, so an `init` filter on the *source* set would demand
+`init` of an arbitrary `R`-related state, which `algRelatesTo` does not give. Restricting the
+*target* sets would be sound and free; it is not currently done. The `isDone` endpoint on `⟦A⟧⁺` is
+in the set (both sides), transported backward across `algRelatesTo` by `procDoneTransfer`
+(`Terminating.restrictEnd`).
 
-The pass's correctness theorem is stated **on `Algebra`**, over those three fixed points restricted
-to initial states (`reducingFrom`/`abortingFrom`/`divergingFrom`), not over the individual atomic
+The pass's correctness theorem is stated **on `Algebra`**, over the four closed forms
+(`terminating`/`aborting`/`diverging`/`blocking`), not over the individual atomic
 blocks a process happens to contain. Per-block refinement is an intermediate lemma, not the
 deliverable: it cannot say anything about the `.rx` thread, which is a target-side label with no
 source counterpart and is only meaningful once labels are being scheduled. Lifting the block-level

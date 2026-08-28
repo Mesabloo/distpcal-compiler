@@ -78,6 +78,12 @@ structure CodeTable (V : Type) : Type where
 label, and replace the label with the one the block's terminal `goto` reached; or take one of the
 process's label-free `relay` steps, leaving the scheduled set untouched.
 
+A `relay` step is available only while the process still owns a scheduled label — `(L ∩ T.owned)`
+non-empty, the same "not done" condition `procBlocking` gates on. This is the paper's `L ≠ {Done}`
+side condition on `receive`: a `.rx` thread stops relaying once every code thread has reached its
+sentinel, so a finished process contributes no further steps rather than looping on its mailbox
+forever.
+
 `self` is the process instance's identity. The paper's `self ↦ p ∈ M` side condition appears here as
 a lookup: a process only steps in a memory that binds its own identity, which `initProc` establishes
 and no step disturbs. -/
@@ -89,6 +95,7 @@ def CodeTable.procReducing (T : CodeTable V) (self : V) :
     L' = insert l' (L \ {l})}
   ∪ {⟨⟨⟨M, L⟩, F⟩, τ, ⟨⟨M', L'⟩, F'⟩⟩ |
     ⟨⟨M, F, .none⟩, τ, ⟨M', F', .none⟩⟩ ∈ T.relay ∧
+    (L ∩ T.owned).Nonempty ∧
     M.lookup selfName = .some self ∧
     L' = L}
 
@@ -222,12 +229,30 @@ The two agree exactly when `Relation.Productive step` holds, which `Algebra.step
 def Algebra.diverging (A : Algebra V) : Set (AlgState (String × V) V × Trace V) :=
   Relation.omega A.step
 
-/-! # Restricting to executions from the initial state
+/-- A configuration in which every process instance has finished — no scheduled label names a block
+it still owns (`CodeTable.procDone`). The paper's `isDone`. -/
+def Algebra.isDone (A : Algebra V) (σ : AlgState (String × V) V) : Prop :=
+  ∀ p τ, σ.1 p = .some τ → τ ∈ (A p).procDone
 
-  The paper's `⟦A⟧*`/`⟦A⟧⊥`/`⟦A⟧∞` are these three relations restricted to executions starting from
-  `init(A)`. `init` is a *relation* here, not a function: a process's local variables are given by
-  initializer expressions, and evaluation is relational (`ExprSemantics.Eval`), so an algorithm with
-  a meaningless initializer has no initial state rather than a junk one.
+/-- The paper's `⟦A⟧⁺`, bar the `init` restriction (`Compiler.Correctness` carries the initial
+states as its own coverage conjunct rather than in the sets — see
+`VerifiedCompiler/Denotational/Correctness.lean`).
+
+`Algebra.reducing` on its own is a reachability relation — every partial run to *any* configuration,
+so it overlaps `Algebra.blocking` at the endpoint and holds every finite prefix of a divergent run.
+The `isDone` on the endpoint is what makes this the *terminating* semantics: a complete execution
+that has actually run to completion. -/
+def Algebra.terminating (A : Algebra V) :
+    Set (AlgState (String × V) V × Trace V × AlgState (String × V) V) :=
+  {x ∈ A.reducing | A.isDone x.2.2}
+
+/-! # The initial-state relation
+
+  `init` is a *relation*, not a function: a process's local variables are given by initializer
+  expressions and evaluation is relational (`ExprSemantics.Eval`), so an algorithm with a
+  meaningless initializer has no initial state rather than a junk one. `Compiler.Correctness` uses
+  it to state that every initial state of the compiled algorithm is covered by a related initial
+  state of the source; the four semantics above are not themselves restricted to it.
 -/
 
 /-- The memory a list of initializers and their values builds on top of a memory already in hand:
@@ -366,26 +391,6 @@ theorem InitProc.append_of [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {
   obtain ⟨vs, hvs, hmem, -⟩ := h
   refine ⟨vs ++ ws, List.rel_append hvs hws, ?_, rfl⟩
   rw [hmem, InitMem.append hvs.length_eq]
-
-/-- Executions of `A` from an initial state satisfying `init`. -/
-def Algebra.reducingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
-    Set (AlgState (String × V) V × Trace V × AlgState (String × V) V) :=
-  {x ∈ A.reducing | init x.1}
-
-@[inherit_doc Algebra.reducingFrom]
-def Algebra.abortingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
-    Set (AlgState (String × V) V × Trace V) :=
-  {x ∈ A.aborting | init x.1}
-
-@[inherit_doc Algebra.reducingFrom]
-def Algebra.divergingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
-    Set (AlgState (String × V) V × Trace V) :=
-  {x ∈ A.diverging | init x.1}
-
-@[inherit_doc Algebra.reducingFrom]
-def Algebra.blockingFrom (A : Algebra V) (init : AlgState (String × V) V → Prop) :
-    Set (AlgState (String × V) V × Trace V) :=
-  {x ∈ A.blocking | init x.1}
 
 /-! # Instantiating for Guarded PlusCal
 

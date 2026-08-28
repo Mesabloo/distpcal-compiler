@@ -76,9 +76,11 @@ def TargetProgram (_V : Type) (_Ξ : OperatorEnv) (_Ω : Model _V) : Type :=
 /-! # Their semantics, as the framework indexes it
 -/
 
+/-- The reduce slot of the refinement is the *terminating* semantics `⟦A⟧⁺` — `Algebra.reducing`
+(every partial run) cut to runs that end in a done configuration. See `Algebra.terminating`. -/
 instance : Reduce (SourceProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
-  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).reducing⟩
+  ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).terminating⟩
 
 instance : Abort (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
   ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).aborting⟩
@@ -89,9 +91,10 @@ instance : Diverge (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Tra
 instance : Block (SourceProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
   ⟨λ s ↦ (GuardedPlusCal.Algorithm.algebra Ξ Ω s.algo).blocking⟩
 
+/-- The reduce slot is the terminating semantics `⟦A⟧⁺`, as for the source. -/
 instance : Reduce (TargetProgram V Ξ Ω)
     (Set (AlgState (String × V) V × Trace V × AlgState (String × V) V)) :=
-  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing⟩
+  ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').terminating⟩
 
 instance : Abort (TargetProgram V Ξ Ω) (Set (AlgState (String × V) V × Trace V)) :=
   ⟨λ algo' ↦ (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting⟩
