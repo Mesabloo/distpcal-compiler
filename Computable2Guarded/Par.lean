@@ -63,7 +63,7 @@ where
     | .inr e :: rest => do
       let idxTy := Ref.indexType τ
       let y ← freshName "idx"
-      let body ← go (Ref.stepType τ (.inr e)) rest (.inr (.var y idxTy .binder @@ pos) :: seen)
+      let body ← go (Ref.stepType τ (.inr e)) rest (.inr (.var idxTy (.free y) @@ pos) :: seen)
       pure ⟨[], .with y idxTy true e body @@ pos⟩
 
 /-- Threads `parRef` across every `(rᵢ, vᵢ)` pair in turn (`r1` outermost, matching the
@@ -81,10 +81,10 @@ private partial def parRefsAll (pos : SourceSpan) (rs : List (Ref × String))
 already had its own index temps bound by `parRefsAll`. -/
 private def buildAssigns (pos : SourceSpan) : List (Ref × String) → Block false
   | [] => unreachable! -- only ever called from `buildParChain` with `pairs.length ≥ 2`
-  | [(r, v)] => ⟨[], .assign [(r, .var v (Ref.resultType r) .binder @@ pos)] @@ pos⟩
+  | [(r, v)] => ⟨[], .assign [(r, .var (Ref.resultType r) (.free v) @@ pos)] @@ pos⟩
   | (r, v) :: rest =>
     let ⟨begin, «end»⟩ := buildAssigns pos rest
-    ⟨(.assign [(r, .var v (Ref.resultType r) .binder @@ pos)] @@ pos) :: begin, «end»⟩
+    ⟨(.assign [(r, .var (Ref.resultType r) (.free v) @@ pos)] @@ pos) :: begin, «end»⟩
 
 /-- The outer `with v1=e1 do … with vn=en do body` chain, `v1` outermost — same nested-`⟨[], ·⟩`
 idiom `Desugarer/PlusCal.lean`'s `buildWithChain` already uses for a multi-binder surface

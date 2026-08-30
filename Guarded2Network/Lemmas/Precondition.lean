@@ -56,7 +56,7 @@ variable {V : Type u} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω :
 
 /-- The variable node every sequence expression the pass emits is built over. -/
 def inboxVar (inbox : String) (τ : ComputableTLAPlus.Typ) : ComputablePlusCal.Expression :=
-  .var inbox (.seq τ) .binder
+  .var (.seq τ) (.free inbox)
 
 /-- The reference the tailed sequence is assigned back through. No index path: `inbox` is a plain
 process-local variable. -/
@@ -91,7 +91,7 @@ theorem freeVars_head_inboxVar {τ : ComputableTLAPlus.Typ} {inbox : String} :
   rw [head, inboxVar]
   refine Finset.ext fun z ↦ ?_
   simp [Expression.mem_freeVars_opCall, Finset.mem_singleton,
-    ComputableTLAPlus.freeVars_var_module, ComputableTLAPlus.freeVars_var_binder]
+    ComputableTLAPlus.freeVars_var_module, ComputableTLAPlus.freeVars_var_free]
 
 /-! ## The two compiled pieces, characterized once
 
@@ -1236,7 +1236,7 @@ private theorem WalkRef.step_receive (hΞ : Ξ.WellScoped) {mbox : Mailbox}
     · refine le_of_eq ?_
       simp only [inboxVar, ← Relation.lcomp₂.assoc] at hQ ⊢
       rw [Relation.lcomp₂.assoc (R₁ := NetworkPlusCal.Statement.reducing Ξ Ω
-          (.await (lenGt τ (.var inbox (.seq τ) .binder) k))),
+          (.await (lenGt τ (.var (.seq τ) (.free inbox)) k))),
         ← hQ, ← Relation.lcomp₂.assoc]
     · simp only [inboxVar, inboxRef] at hQ hQa ⊢
       rw [Relation.lcomp₁.union_lcomp₂]

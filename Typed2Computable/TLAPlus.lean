@@ -30,7 +30,7 @@ of `Expression`). -/
 partial def TypedTLAPlus.Expression.toComputable :
     TypedTLAPlus.Expression TypedTLAPlus.Typ → m (ComputableTLAPlus.Expression ComputableTLAPlus.Typ) :=
   λ e ↦ match_source e with
-  | .var v τ o, pos => pure (.var v τ o @@ pos)
+  | .var τ o, pos => pure (.var τ o @@ pos)
   | .nat n, pos => pure (.nat n @@ pos)
   | .str s, pos => pure (.str s @@ pos)
   | .true, pos => pure (.true @@ pos)

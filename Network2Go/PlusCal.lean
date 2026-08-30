@@ -162,13 +162,13 @@ def compileGuard (guardVar : String) :
     ComputableNetworkPlusCal.Statement true false → m (List ComputableGo.Statement)
   | .await e => do
     return [.assign [.var guardVar]
-      [.binary .and (.var guardVar) (goBool (← compileExpr e))]]
+      [.binary .and (.var guardVar) (goBool (← compileExprTop e))]]
   | s@(.with x ann isEq e) => do
     if !isEq then
       throw (.unsupported (posOf s) "with x ∈ S"
         "picking a value of S that satisfies the branch's remaining guards is a search, not a \
          computation — the thesis rejects the construct rather than deferring it")
-    return [.var (binderName x) (← compileTyp ann), .assign [.var (binderName x)] [← compileExpr e]]
+    return [.var (binderName x) (← compileTyp ann), .assign [.var (binderName x)] [← compileExprTop e]]
 
 /-- `net.C[e₁].Send(e₂)`, or `net.C.Send(e₂)` for a channel declared without an index. The channel
 is a field of the `Network` struct named after it, so `send` needs no channel table — the
@@ -178,7 +178,7 @@ private def compileSend (env : ProcEnv) (pos : SourceSpan) (c : ComputableNetwor
   let base : ComputableGo.Expression := .field (.var env.net) (fieldName c.name)
   let target : ComputableGo.Expression ← match c.args with
     | [] => pure base
-    | [.inr i] => pure (.index base (← compileExpr i))
+    | [.inr i] => pure (.index base (← compileExprTop i))
     | [.inl f] =>
       throw (.internalInvariantViolated pos
         s!"send targets the field '{f}' of a channel, which type checking should have rejected")
@@ -186,7 +186,7 @@ private def compileSend (env : ProcEnv) (pos : SourceSpan) (c : ComputableNetwor
       throw (.unsupported pos s!"send on the channel '{c.name}'"
         "a channel indexed by more than one bracket group has no Network field shape to compile \
          against")
-  return .expr (.call (.field target "Send") [← compileExpr e])
+  return .expr (.call (.field target "Send") [← compileExprTop e])
 
 /-- A branch's action statements. These run only once every guard has passed, so they
 are emitted inside the branch's `if guard { … }`. -/
@@ -195,20 +195,20 @@ def compileAction (env : ProcEnv) {b} :
   | .skip => return []
   -- `tlaplus.Print`, not `Go.Statement.print`: that node prints through Go's builtin `println`,
   -- which accepts only basic types, and every TLA⁺ value is a defined type or a struct.
-  | .print e => return [.expr (tlaplusCall "Print" [← compileExpr e])]
+  | .print e => return [.expr (tlaplusCall "Print" [← compileExprTop e])]
   | s@(.assert e) => do
     -- Not `panic` on the negation directly: the runtime's `Bool` has to become a Go `bool` first.
-    return [.if (.unary .not (goBool (← compileExpr e)))
+    return [.if (.unary .not (goBool (← compileExprTop e)))
       [.panic (.str s!"Assertion violated at {posOf s}")] []]
   | s@(.assign r e) => do
     -- A bare `x := e` is a Go assignment; a path `x[i].f := e` rebuilds `x` the way `EXCEPT`
     -- does, since a TLA⁺ function is a lazy map rather than something Go can assign into.
     let lhs : ComputableGo.Ref := .var (binderName r.name)
     if r.args.isEmpty then
-      return [.assign [lhs] [← compileExpr e]]
+      return [.assign [lhs] [← compileExprTop e]]
     else
       return [.assign [lhs]
-        [← compileExcept (posOf s) r.baseType (.var (binderName r.name)) r.args e]]
+        [← compileExceptTop (posOf s) r.baseType (.var (binderName r.name)) r.args e]]
   | s@(.send c e) => return [← compileSend env (posOf s) c e]
   | s@(.multicast c filter) => do
     let some elemTy := env.chanTyps.lookup c
@@ -223,9 +223,9 @@ def compileAction (env : ProcEnv) {b} :
            against")
     return [.expr (.call (commVar "Multicast")
       [ .field (.var env.net) (fieldName c)
-      , ← compileExpr filter.set
+      , ← compileExprTop filter.set
       , .funcLit [(binderName filter.recipient, ← compileTyp filter.ann)] [← compileTyp elemTy]
-          [.return [← compileExpr filter.val]] ])]
+          [.return [← compileExprTop filter.val [filter.recipient]]] ])]
   | .goto l =>
     -- `Done` is the sentinel `WellFormedness/Labelling.lean` reserves; it labels no block.
     pure <| if l == "Done" then
@@ -469,7 +469,7 @@ def initLocks (env : ProcEnv)
       | some (false, s) =>
         stmts := stmts ++
           [.if (.unary .not
-                 (tlaplusCall "SetIn" [← ordDict τ, ← compileExpr s, .var (binderName x)]))
+                 (tlaplusCall "SetIn" [← ordDict τ, ← compileExprTop s, .var (binderName x)]))
              [.panic (.str s!"process {env.proc}: {x} is outside the set it was declared in")] []]
       | _ =>
         throw (.internalInvariantViolated SourceSpan.placeholder
@@ -478,9 +478,9 @@ def initLocks (env : ProcEnv)
     else if needed.contains x then
       stmts := stmts ++ [.var (binderName x) (← compileTyp τ)]
       match init with
-      | some (true, e) => stmts := stmts ++ [.assign [.var (binderName x)] [← compileExpr e]]
+      | some (true, e) => stmts := stmts ++ [.assign [.var (binderName x)] [← compileExprTop e]]
       | some (false, s) =>
-        stmts := stmts ++ [.assign [.var (binderName x)] [tlaplusCall "Pick" [← compileExpr s]]]
+        stmts := stmts ++ [.assign [.var (binderName x)] [tlaplusCall "Pick" [← compileExprTop s]]]
       | none => pure ()
   for l in env.locks.locks do
     let τ ← match ← lockTyp env l with

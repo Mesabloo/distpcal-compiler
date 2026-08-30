@@ -53,8 +53,9 @@ abbrev Origin := TypedTLAPlus.Origin
   kept generic to match `TypedTLAPlus.Expression`'s shape.
 -/
 inductive Expression (α : Type) : Type
-  /-- An unqualified identifier, with its type resolved via `Γ` and its `Origin` recorded. -/
-  | var : String → α → Origin → Expression α
+  /-- An identifier: its type resolved via `Γ` and its `Origin` recording where the name binds. A
+  `.bound` node carries no name — the string hint lives on the enclosing binder. -/
+  | var : α → Origin → Expression α
   /-- An operator application `f(e₁, …, eₙ)`. -/
   | opCall : Expression α → List (Expression α) → Expression α
   /-- Bounded universal quantification. -/
@@ -105,7 +106,7 @@ inductive Expression (α : Type) : Type
 -- `partial`: the recursion is structural, but not visibly decreasing to Lean (nested
 -- `List`/`Option` occurrences of `Expression`).
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
-  | .var v τ o, pos => .var v (f τ) o @@ pos
+  | .var τ o, pos => .var (f τ) o @@ pos
   | .nat n, pos => .nat n @@ pos
   | .str s, pos => .str s @@ pos
   | .true, pos => .true @@ pos
@@ -139,7 +140,7 @@ instance : Functor Expression where
 
 local instance {F : Type → Type} [Applicative F] {α} : Inhabited (F (Expression α)) := ⟨pure .true⟩ in
 protected partial def Expression.traverse {F : Type → Type} [Applicative F] {α β} (f : α → F β) (e : Expression α) : F (Expression β) := match_source e with
-  | .var v τ o, pos => (.var v · o @@ pos) <$> f τ
+  | .var τ o, pos => (.var · o @@ pos) <$> f τ
   | .nat n, pos => pure <| .nat n @@ pos
   | .str s, pos => pure <| .str s @@ pos
   | .true, pos => pure <| .true @@ pos

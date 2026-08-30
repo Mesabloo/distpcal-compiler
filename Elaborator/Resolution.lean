@@ -22,7 +22,7 @@ private local instance {α} [Inhabited α] : Inhabited (m α) := ⟨pure default
   stored type field — those are resolved by `resolveMVars` below, as a second pass.
 -/
 partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
-  | .var v τ o, pos => return .var v τ o @@ pos
+  | .var τ o, pos => return .var τ o @@ pos
   | .nat n, pos => return .nat n @@ pos
   | .str s, pos => return .str s @@ pos
   | .true, pos => return .true @@ pos

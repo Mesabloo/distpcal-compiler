@@ -10,21 +10,33 @@ public section
 /-! The effects the type checker needs: a local typing context `Γ`, a metavariable context,
 error reporting, and fresh-name generation. -/
 
-/-- One `Γ` binding: its type; whether it's a *scheme* (a top-level `operator`/`function`
-definition, freshened into new metavariables on every `.var` reference in `Elaborator/
-Expressions.lean`'s `inferExpr`) versus an ordinary monomorphic binding (`CONSTANT`/`VARIABLE`
-declarations, and every binder — parameters, quantifiers, `CHOOSE`, `EXCEPT`, PlusCal
-variables/channels — used exactly as declared); and its `origin` (`Core/TypedTLAPlus/Syntax.lean`'s
-`Origin`): a binder or a top-level declaration. Only declarations generalize to schemes; binders
-are fixed for the scope of their one body. No default for `origin` — every construction site must
-say which. -/
+/-- One `Γ` entry in the `named` half of `Context` (below): a `Memory`-keyed name
+(`Origin.free` — PlusCal `variables`/`channels`/`fifos`, `self`) or a top-level declaration
+(`Origin.module`/`Origin.intrinsic` — `CONSTANT`/`VARIABLE`/operator/function/builtin). `type` is
+the `Γ`-lookup result; `isScheme` marks a declaration whose `Typ.var`s are freshened into fresh
+metavariables at every reference (`specializeType`, `Elaborator/Expressions.lean`'s `inferExpr`) —
+only `operator`/`function` definitions and `builtinContext` entries; and `origin` is the `Origin`
+baked onto every `Expression.var` node that resolves here. Expression-level lexical binders
+(`\A`/`\E`/`CHOOSE`/set-builders/`map'`/`fn`, operator/function parameters) are *not* `Binding`s —
+they live on `Context.lexical` as de Bruijn positions. No default for `origin` — every
+construction site says which. -/
 structure Binding : Type where
   type : TypedTLAPlus.Typ
   isScheme : Bool := false
   origin : TypedTLAPlus.Origin
 
-/-- The local typing context `Γ` (`Γ,x:τ` grammar). -/
-abbrev Context := Std.HashMap String Binding
+/-- The local typing context `Γ`, split by how a name resolves under locally-nameless binding:
+
+- `lexical` — expression-level binders, innermost first. A `.var` reference matching entry `i`
+  here elaborates to `Origin.bound i`.
+- `named` — everything `Memory`-keyed or top-level (`Origin.free`/`.module`/`.intrinsic`), each
+  carrying its own `Binding`. A `.var` match here takes the stored `origin` verbatim.
+
+`lexical` is consulted first, so an expression binder shadows a same-named PlusCal variable for
+the scope of its body. -/
+structure Context : Type where
+  lexical : List (String × TypedTLAPlus.Typ) := []
+  named : Std.HashMap String Binding := ∅
 
 /--
   The metavariable context: tracks only whether each metavariable is resolved, and to what.

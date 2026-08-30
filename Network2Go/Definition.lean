@@ -42,17 +42,16 @@ open ComputableTLAPlus (Typ)
 
 variable {m : Type → Type} [Monad m] [MonadDiagnostic Empty N2GError m] [MonadFresh m]
 
-/-- Does `name` occur in `e` as a reference to the enclosing *definition* being checked?
+/-- Does `name` occur in `e` as a reference to the enclosing function *definition* being checked?
 
-A function definition's body sees its own name as an ordinary binder (`Elaborator/Context.lean`'s
-`extendAll` tags every binding it introduces `.binder`), which is what distinguishes a self-call
-from a reference to some other module-level definition — those carry `.module`. The caller has
-already ruled out a parameter of the same name, so the origin check is exact and no
-binder-respecting scope walk is needed. -/
+A function definition's body sees its own name in scope, resolved through `Ξ` like any
+module-level name (`.module`); a bare occurrence of `name` inside `name`'s own body is therefore a
+self-reference. The caller has already ruled out a parameter of the same name, so the check is
+exact and no binder-respecting scope walk is needed. -/
 partial def mentionsSelf (name : String) (e : ComputablePlusCal.Expression) : Bool :=
   let go := mentionsSelf name
   match_source e with
-  | .var x _ .binder, _ => x == name
+  | .var _ (.module _ x), _ => x == name
   | .var .., _ | .nat _, _ | .str _, _ | .true, _ | .false, _ => false
   | .opCall f args, _ => go f || args.any go
   | .forall _ _ d b, _ | .exists _ _ d b, _ | .choose _ _ d b, _ | .collect _ _ d b, _ =>
@@ -70,6 +69,13 @@ partial def mentionsSelf (name : String) (e : ComputablePlusCal.Expression) : Bo
   | .if c t f _, _ => go c || go t || go f
   | .case arms other _, _ =>
     arms.any (λ (p, b) ↦ go p || go b) || (other.map go).getD false
+
+/-- Rewrite a function definition body's self-reference — `.module _ f`, since `f` is in scope for
+its own body — to the free name `f`, which is what `MkRecFn`'s generator parameter is called. -/
+private def bindSelf (f : String) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
+  e.mapVars (fun _ τ o pos ↦ match o with
+    | .module _ n => if n == f then .var τ (.free n) @@ pos else .var τ o @@ pos
+    | _ => .var τ o @@ pos) 0
 
 /-- The Go type parameters a definition of type `τ` binds, each paired with the dictionary
 parameter that carries its ordering. Type parameters are unconstrained (`any`): the ordering
@@ -102,7 +108,7 @@ def compileDeclaration (pos : SourceSpan) :
     -- `X == e`: the annotation is the result type directly, not `() => τ` — a parameter-less
     -- definition is referenced by bare name and never called.
     requireMonomorphic pos "the definition" f τ
-    return some (.var (definitionName (isLocal := false) f) (← compileTyp τ) (some (← compileExpr body)))
+    return some (.var (definitionName (isLocal := false) f) (← compileTyp τ) (some (← compileExprTop body)))
   | .operator τ f args body => do
     let .operator paramTys ret := τ
       | throw (.internalInvariantViolated pos
@@ -119,7 +125,7 @@ def compileDeclaration (pos : SourceSpan) :
       { name := definitionName (isLocal := false) f
         typeParams, params := dictParams ++ params
         returnType := [← compileTyp ret]
-        body := [.return [← compileExpr body]] })
+        body := [.return [← compileExprTop body (args.map Prod.fst)]] })
   | .function τ f args body => do
     requireMonomorphic pos "the function definition" f τ
     let .function domτ ranτ := τ
@@ -136,13 +142,16 @@ def compileDeclaration (pos : SourceSpan) :
          reference to the binder")
     let goτ ← compileTyp τ
     let dict ← ordDict domτ
-    let dom' ← compileExpr dom
+    let dom' ← compileExprTop dom
     let paramτ ← compileTyp domτ
     let retτ ← compileTyp ranτ
-    let body' ← compileExpr body
-    -- The self-reference compiles to the *original* name, being an ordinary binder, so naming the
-    -- generator's first parameter after it is exactly what closes the loop. The top-level `var` is
-    -- capitalized and so cannot collide with it.
+    -- The body sees `f` in scope through `Ξ` (`.module`); the recursive knot is tied by `MkRecFn`'s
+    -- generator parameter, an ordinary binder named after `f`, so the self-reference is rewritten to
+    -- that free name. The parameter `x` is a de Bruijn binder, opened to its own name.
+    let body' ← compileExprTop (bindSelf f body) [x]
+    -- The self-reference compiles to the *original* name, so naming the generator's first parameter
+    -- after it is exactly what closes the loop. The top-level `var` is capitalized and so cannot
+    -- collide with it.
     let value :=
       if mentionsSelf f body then
         tlaplusCall "MkRecFn"

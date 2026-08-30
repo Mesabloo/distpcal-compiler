@@ -74,7 +74,7 @@ before recursing into its children (`path`, innermost first, grows only when the
 into a resolved declaration's body — the breadcrumb `Restrictions.lean`'s error messages report
 "reached via" through).
 
-Whenever a node is `.var name _ (.module m)`, resolves `(m, name)` and, the first time this pair
+Whenever a node is `.var _ (.module m name)`, resolves `(m, name)` and, the first time this pair
 is seen (`ReachabilityClosure`-memoized, guarding against looping on a self-recursive `function`
 — `operator`s never self-recurse, per `Elaborator/Declarations.lean` — so only `function` bodies
 can cycle), records the resolution and, if it resolved to an `operator`/`function`, recurses into
@@ -89,10 +89,10 @@ partial def TypedTLAPlus.Expression.walkReachable [MonadStateOf ReachabilityClos
   visit path e
   let recurse := TypedTLAPlus.Expression.walkReachable visit currentModule ownDecls path
   match e with
-  | .var name _ origin =>
+  | .var _ origin =>
     match origin with
-    | .binder | .intrinsic => pure ()
-    | .module declModule => do
+    | .bound _ | .free _ | .intrinsic _ => pure ()
+    | .module declModule name => do
       match ← resolveInModule currentModule ownDecls declModule name with
       | some resolved => do
         let visited ← getThe ReachabilityClosure

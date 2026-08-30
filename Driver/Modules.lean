@@ -254,11 +254,11 @@ builtin like `Bags`'s `EmptyBag` (`Driver/Builtins.lean`) get freshened on every
 `Driver/Builtins.lean` needing any change — arity alone (already present on every `Decl.operator`)
 decides `isScheme`. -/
 private def Decl.bindings (moduleName : String) : Decl → List (String × Binding)
-  | .constants xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName })
-  | .variables xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName })
+  | .constants xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName x })
+  | .variables xs => xs.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName x })
   | .assume _ => []
-  | .operator τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName })]
-  | .function τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName })]
+  | .operator τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName f })]
+  | .function τ f _ _ => [(f, { type := τ, isScheme := true, origin := .module moduleName f })]
 
 /-- Every binding `mod`'s *own* declarations introduce, each tagged `Origin.module mod.name`. Not
 transitive on its own: what a module re-exports through its own `EXTENDS` is `ResolvedDep.
@@ -409,7 +409,7 @@ partial def compileModule (source : String) (containingDir : Option System.FileP
 
     reportFailureOnThrow /- lines colored logLine -/ onModuleEvent mod.name do
       let importedBindings := deps.flatMap (·.bindings)
-      let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insert x b
+      let Γ₀ : Context := importedBindings.foldl (init := builtinContext) λ ctx (x, b) ↦ ctx.insertNamed x b
       let typed ← DiagT.lift (.typeCheck moduleId) (.typeCheck moduleId)
         (CoreTLAPlus.Module.runChecker Γ₀ mod : DiagT TCWarning TCError Base _)
 

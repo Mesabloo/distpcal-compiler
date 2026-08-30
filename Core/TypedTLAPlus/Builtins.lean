@@ -53,9 +53,9 @@ inductive BuiltinOp : Type
 
 /-- The name↔operator table itself, one arm per `BuiltinOp` constructor (exhaustiveness-checked
 by the compiler — a new `BuiltinOp` constructor with no arm here is a build error, not a silent
-gap). `none` for any `(origin, name)` pair not bound by `builtinContext`/`builtinModules`. -/
-def builtinOpOf? : Origin → String → Option BuiltinOp
-  | .intrinsic, name => match name with
+gap). `none` for any `Origin` not bound by `builtinContext`/`builtinModules`. -/
+def builtinOpOf? : Origin → Option BuiltinOp
+  | .intrinsic name => match name with
     | "=" => some .eq | "/=" => some .neq
     | "/\\" => some .and | "\\/" => some .or | "=>" => some .implies | "<=>" => some .iff
     | "\\neg" => some .neg
@@ -67,38 +67,38 @@ def builtinOpOf? : Origin → String → Option BuiltinOp
     | "[]" => some .always | "<>" => some .eventually | "'" => some .prime
     | "StrToSeq" => some .strToSeq
     | _ => none
-  | .module "Naturals", name => match name with
+  | .module "Naturals" name => match name with
     | "+" => some .plus | "-" => some .minus | "-." => some .unaryMinus | "*" => some .times
     | "\\div" => some .intDiv | "%" => some .mod | "^" => some .pow
     | "<" => some .lt | ">" => some .gt | "=<" => some .leq | ">=" => some .geq
     | ".." => some .range | "Nat" => some .natSet
     | _ => none
-  | .module "Sequences", name => match name with
+  | .module "Sequences" name => match name with
     | "Len" => some .len | "Head" => some .head | "Tail" => some .tail | "Append" => some .append
     | _ => none
-  | .module "Integers", name => match name with
+  | .module "Integers" name => match name with
     | "Int" => some .intSet
     | _ => none
-  | .module "FiniteSets", name => match name with
+  | .module "FiniteSets" name => match name with
     | "IsFiniteSet" => some .isFiniteSet | "Cardinality" => some .cardinality
     | _ => none
-  | .module "Bags", name => match name with
+  | .module "Bags" name => match name with
     | "IsABag" => some .isABag | "BagToSet" => some .bagToSet | "SetToBag" => some .setToBag
     | "BagIn" => some .bagIn | "EmptyBag" => some .emptyBag
     | "(+)" => some .bagAdd | "(-)" => some .bagSub | "BagUnion" => some .bagUnion
     | "\\sqsubseteq" => some .bagLeq | "SubBag" => some .subBag | "BagOfAll" => some .bagOfAll
     | "BagCardinality" => some .bagCardinality | "CopiesIn" => some .copiesIn
     | _ => none
-  | .module "Fugue", name => match name with
+  | .module "Fugue" name => match name with
     | "\\prec" => some .addressPrec
     | _ => none
-  | .binder, _ | .module _, _ => none
+  | .free _ | .bound _ | .module _ _ => none
 
-/-- Recognizes `e` as a builtin call — `.opCall (.var name _ origin) args` where
-`(origin, name)` hits `builtinOpOf?` — returning the operator and its argument list. `none` for
-anything else, including a call to a resolved-but-non-builtin operator/function. -/
+/-- Recognizes `e` as a builtin call — `.opCall (.var _ origin) args` where `origin` hits
+`builtinOpOf?` — returning the operator and its argument list. `none` for anything else, including
+a call to a resolved-but-non-builtin operator/function. -/
 def Expression.recognizeBuiltin? {α : Type} : Expression α → Option (BuiltinOp × List (Expression α))
-  | .opCall (.var name _ origin) args => (builtinOpOf? origin name).map (·, args)
+  | .opCall (.var _ origin) args => (builtinOpOf? origin).map (·, args)
   | _ => none
 
 /-- The eight reserved temporal/action operator spellings real TLA⁺ core syntax carries, banned

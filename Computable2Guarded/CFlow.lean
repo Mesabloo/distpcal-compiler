@@ -35,11 +35,11 @@ open ComputablePlusCal (Expression Statement Block Branches)
 
 /-- `¬e`, as an `opCall` against the same builtin `\neg` operator
 `Elaborator/Declarations.lean`'s `Γ₀` already declares (`.operator [.bool] .bool`,
-`origin := .intrinsic`). Registered at the rewritten `if`/`while`'s own span (`pos`) — the
+`origin := .intrinsic "\\neg"`). Registered at the rewritten `if`/`while`'s own span (`pos`) — the
 negation has no source text of its own, but the condition it negates does, and a diagnostic
 about it should point there. -/
 private def negate (pos : SourceSpan) (e : Expression) : Expression :=
-  .opCall (.var "\\neg" (.operator [.bool] .bool) .intrinsic @@ pos) [e] @@ pos
+  .opCall (.var (.operator [.bool] .bool) (.intrinsic "\\neg") @@ pos) [e] @@ pos
 
 /-- Prepends `await g` to `B`'s own non-terminal statements — used to build both `𝒞_cflow`'s
 `if`/`while` rewrite's guarded branches. The synthesized `await` carries the span of the

@@ -75,17 +75,18 @@ def TypedTLAPlus.Expression.checkNode [MonadForeignLookup m]
     (currentModule : String) (ownDecls : List Decl) (path : List String)
     (e : TypedPlusCal.Expression) : m Unit :=
   match_source e with
-  | .var name τ origin, pos => do
+  | .var τ origin, pos => do
     checkNotChannel pos τ
     match origin with
-    | .binder | .intrinsic => pure ()
-    | .module declModule => do
+    | .bound _ | .free _ | .intrinsic _ => pure ()
+    | .module declModule name => do
       match ← resolveInModule currentModule ownDecls declModule name with
       | some (.variable _) => throw (.globalTLAPlusVariable pos name declModule)
       | _ => pure ()
   | .opCall f _, pos => do
     match f with
-    | .var op _ _ => if TypedTLAPlus.reservedTemporalActionNames.contains op then throw (.bareTemporalOrAction pos op path)
+    | .var _ (.intrinsic op) | .var _ (.module _ op) =>
+      if TypedTLAPlus.reservedTemporalActionNames.contains op then throw (.bareTemporalOrAction pos op path)
     | _ => pure ()
   | .forall _ _ dom _, pos => if dom.isNone then throw (.unboundedQuantifier pos path) else pure ()
   | .exists _ _ dom _, pos => if dom.isNone then throw (.unboundedQuantifier pos path) else pure ()
@@ -166,9 +167,9 @@ private def refChannel (c : TypedPlusCal.Ref) : ChannelRef := (c.name, c.args)
 
 /-- Whether a channel reference is indexed by `self` somewhere in its path. `"self"` is the name
 `Elaborator/PlusCal.lean` binds a process instance's own identity to, and a reference to it is an
-ordinary `.var` by the time this pass runs. -/
+ordinary `.var _ (.free "self")` by the time this pass runs. -/
 private def indexedBySelf (c : ChannelRef) : Bool :=
-  c.2.any λ | .inr (.var "self" _ _) => true | _ => false
+  c.2.any λ | .inr (.var _ (.free "self")) => true | _ => false
 
 private def mailboxChannel : String × List TypedPlusCal.Expression → ChannelRef
   | (name, es) => (name, es.map .inr)

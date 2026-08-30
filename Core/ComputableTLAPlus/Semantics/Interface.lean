@@ -256,36 +256,31 @@ class ExprSemantics (V : Type u) where
     Eval Ξ Ω M e v → Eval Ξ Ω M e w → v = w
   /-- A variable node's meaning is dispatched on its `Origin`, each case denoting from exactly one of
   the three environments:
-  - `.binder` — the name is a lexical binder (a PlusCal variable among them): `M.lookup x`.
-  - `.intrinsic` — a hardcoded builtin (`=`, `/\`, `DOMAIN`, …) has no value on its own; it only means
-    something as the head of an `opCall`, which a concrete `ExprSemantics` instance dispatches off the
-    builtin table directly. Bare, it denotes nothing — hence `False`, not a memory lookup: nothing in
-    `Memory` could ever legitimately answer for it, so a law delegating to `M.lookup` here would only
-    happen to give the right answer by nothing being stored under that name, rather than by construction.
-  - `.module m` — looked up in `Ξ`'s entry for `m`. A 0-arity operator/function denotes its body's
-    value, evaluated under the *same* `Ξ`/`Ω`/`M` — every free name a well-typed 0-arity body can
-    contain is, by construction, one this project's type checker already resolved (a binder inside the
-    body itself, an intrinsic, or another `.module`-origined name), so the same three environments
-    already carry whatever that resolution needs. A name `Ξ m` has no 0-arity entry for is either a
-    higher-order operator referenced bare (only an `opCall` gives one meaning — `False`, same reasoning
-    as `.intrinsic`) or a `CONSTANT`, whose value comes from `Ω m x` instead.
+  - `.free name` — the name is `Memory`-keyed (a PlusCal variable, `self`, a statement `with`):
+    `M.lookup name`.
+  - `.bound _` — a de Bruijn index. `Eval` only ever meets a binder body after it has been opened
+    with a name, so a bare `.bound` node denotes nothing — `False`.
+  - `.intrinsic _` — a hardcoded builtin (`=`, `/\`, `DOMAIN`, …) has no value on its own; it only
+    means something as the head of an `opCall`, which a concrete `ExprSemantics` instance dispatches
+    off the builtin table directly. Bare, it denotes nothing — hence `False`, not a memory lookup.
+  - `.module m name` — looked up in `Ξ`'s entry for `m`. A 0-arity operator/function denotes its
+    body's value, evaluated under the *same* `Ξ`/`Ω`/`M`. A name `Ξ m` has no 0-arity entry for is
+    either a higher-order operator referenced bare (`False`, same reasoning as `.intrinsic`) or a
+    `CONSTANT`, whose value comes from `Ω m name` instead.
 
-  Structurally unambiguous throughout: `Origin` alone selects the case, so no invariant about names or
-  shadowing is needed to keep the environments from racing.
-
-  Stated for every `Origin`, not only `.binder`: `Expression.subst` and `Expression.freeVars` both
-  match a `.var` on its name alone and ignore its origin, so `evalSubst` below already commits every
-  `.var` node to being resolved this way — a kind-restricted law would contradict a law already here. -/
-  evalVar {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {x : String} {τ : Typ} {o : Origin} {v : V} :
-    Eval Ξ Ω M (.var x τ o) v ↔
+  Structurally unambiguous throughout: `Origin` alone selects the case, so no invariant about names
+  or shadowing is needed to keep the environments from racing. -/
+  evalVar {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {τ : Typ} {o : Origin} {v : V} :
+    Eval Ξ Ω M (.var τ o) v ↔
       match o with
-      | .binder => M.lookup x = some v
-      | .intrinsic => False
-      | .module m =>
-        match Ξ m x with
+      | .bound _ => False
+      | .free name => M.lookup name = some v
+      | .intrinsic _ => False
+      | .module m name =>
+        match Ξ m name with
         | some ([], body) => Eval Ξ Ω M body v
         | some (_ :: _, _) => False
-        | none => Ω m x = some v
+        | none => Ω m name = some v
   /-- Applying a coercion to an expression denotes the coercion applied to that expression's value.
   `TypedTLAPlus.Coercion.applyComputable` and `coerce` above are the expression-level and
   value-level views of one operation, and this is the only thing connecting them — a pass that

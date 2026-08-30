@@ -1803,6 +1803,13 @@ inductive `Prop` needs only strict positivity, and an expression with no derivat
 expression with no value — so `Aborts` is derived from `Eval`, not assumed alongside it. The real
 TLA⁺ evaluator arrives later as one instance, changing nothing downstream.
 
+The elaborated `Expression` AST uses **locally-nameless binding**: an expression-level binder
+(`\A`/`\E`/`CHOOSE`/set-builder/`map'`/`fn`, and operator parameters) puts a de Bruijn index in its
+body (`Origin.bound`), while a `Memory`-keyed name (PlusCal `variables`/`channels`/`fifos`, `self`,
+a statement `with`) is `Origin.free`. α-equivalent expressions are then syntactically equal, so
+substitution never captures and `evalSubst`/`evalLocal`/`evalCoerce` carry no freshness side
+condition. `.claude/plans/locally-nameless.md` owns the construction; item 6/7 is gated on it.
+
 `isBool` and `isSet` exist to keep *aborting* distinct from *blocking*: a non-boolean guard aborts
 where a false one blocks, and a non-set `with x ∈ e` aborts where an empty set blocks. Membership
 alone cannot separate those.

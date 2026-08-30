@@ -92,6 +92,7 @@ Generic data-structure lemmas and instances.
 ## `Core/TypedPlusCal/`, `Core/TypedTLAPlus/`
 - `Syntax.lean` (each) — elaborator-output ASTs, every annotation a concrete `Typ`.
 - `Coercion.lean` — term-level coercions.
+- `Subst.lean` (`TypedTLAPlus` only) — de Bruijn index manipulation (`liftBound`/`openVar`/`close`).
 - `Builtins.lean` — the builtin-operator table.
 
 ## `Core/ComputablePlusCal/`, `Core/ComputableTLAPlus/`

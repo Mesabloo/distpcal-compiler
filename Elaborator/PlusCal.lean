@@ -98,9 +98,9 @@ Returns the reference's *result* type (`τ`, after every segment) for the caller
 directly — the built `TypedPlusCal.Ref` keeps only `baseType` (`τ₀`, before any segment): see
 `Ref.baseType`'s doc comment (`Core/TypedPlusCal/Syntax.lean`) for why. -/
 private def inferRef (pos : SourceSpan) (r : SrcRef) : m (Typ × TypedPlusCal.Ref) := do
-  match (← readThe Context).get? r.name with
+  match (← readThe Context).lookup r.name with
   | none => throw (.unboundVariable pos r.name)
-  | some { type := τ₀, .. } => do
+  | some (τ₀, _, _) => do
     let (τ, args') ← r.args.foldlM (init := (τ₀, ([] : List (String ⊕ TypedPlusCal.Expression))))
       λ (τ, acc) seg ↦ do
         let (τ', seg') ← stepInto pos τ seg
@@ -144,7 +144,7 @@ private def checkVariables :
   | [] => return ([], [])
   | (x, ann, isParam, init) :: rest => do
     let (τ, entry) ← checkVariable x ann isParam init
-    let (rest', bindings) ← extend x τ (checkVariables rest)
+    let (rest', bindings) ← extendFree x τ (checkVariables rest)
     return (entry :: rest', (x, τ) :: bindings)
 
 /-- One channel declaration entry: every index set checks against `Set(Address)`; the Γ-binding
@@ -175,7 +175,7 @@ private def checkChannelDecls :
   | [] => return ([], [])
   | (x, ann, idxs) :: rest => do
     let (bindTy, elemTy, idxs') ← checkChannelDecl x ann idxs
-    let (rest', bindings) ← extend x bindTy (checkChannelDecls rest)
+    let (rest', bindings) ← extendFree x bindTy (checkChannelDecls rest)
     return ((x, elemTy, idxs') :: rest', (x, bindTy) :: bindings)
 
 /-- `Declarations` checking, shared by both `Algorithm.globalState` and a `Process`'s own
@@ -183,9 +183,9 @@ private def checkChannelDecls :
 next. -/
 def checkPlusCalDeclarations (decls : SrcDeclarations) : m (TypedPlusCal.Declarations × List (String × Typ)) := do
   let (vars', varBindings) ← checkVariables decls.variables
-  extendAll varBindings do
+  extendAllFree varBindings do
     let (channels', chBindings) ← checkChannelDecls decls.channels
-    extendAll chBindings do
+    extendAllFree chBindings do
       let (fifos', fifoBindings) ← checkChannelDecls decls.fifos
       return ({ «variables» := vars', channels := channels', fifos := fifos' },
         varBindings ++ chBindings ++ fifoBindings)
@@ -259,7 +259,7 @@ mutual
       let (τ, val') ← match ann with
         | some τ => pure (τ, ← checkExprR val τ)
         | none => inferExprR val
-      let B' ← extend x τ (checkBlock B)
+      let B' ← extendFree x τ (checkBlock B)
       return .with x τ true val' B' @@ pos
     /-
        Γ|Ξ⊢e⇑Set(τ)       Γ,x:τ|Ξ⊩B ok
@@ -274,7 +274,7 @@ mutual
           match setTy with
           | .set τ => pure (τ, val')
           | _ => throw (.notASetType pos setTy)
-      let B' ← extend x τ (checkBlock B)
+      let B' ← extendFree x τ (checkBlock B)
       return .with x τ false val' B' @@ pos
     /-
        Γ|Ξ⊢e⇓Bool
@@ -336,15 +336,15 @@ mutual
       disambiguate and is not consulted, unlike `with`'s.)
     -/
     | .multicast x filter, pos => do
-      match (← readThe Context).get? x with
+      match (← readThe Context).lookup x with
       | none => throw (.unboundVariable pos x)
-      | some { type := .function domTy (.channel elemTy), .. } => do
+      | some (.function domTy (.channel elemTy), _, _) => do
         let set' ← checkExprR filter.set (.set domTy)
         let val' ← extend filter.recipient domTy (checkExprR filter.val elemTy)
         return .multicast x
           ({ recipient := filter.recipient, ann := domTy, set := set', val := val' } @@ posOf filter)
           @@ pos
-      | some got => throw (.notAChannelType pos got.type)
+      | some (gotTy, _, _) => throw (.notAChannelType pos gotTy)
 
   /-- `Γ|Ξ⊩B ok` for atomic blocks — check every non-terminal statement, then the terminal one. -/
   partial def checkBlock {b} (blk : SrcBlock b) : m (TypedPlusCal.Block b) := do
@@ -370,14 +370,14 @@ end
 -/
 def checkProcess (proc : SrcProcess) : m TypedPlusCal.Process := do
   let id' ← if proc.«=|∈» then checkExprR proc.id .address else checkExprR proc.id (.set .address)
-  extend "self" .address do
+  extendFree "self" .address do
     let mailbox' ← proc.mailbox.mapM λ (name, args) ↦ do
       let args' ← args.mapM λ e ↦ do
         let (_, e') ← inferExprR e
         return e'
       return (name, args')
     let (localState', bindings) ← checkPlusCalDeclarations proc.localState
-    let threads' ← extendAll bindings
+    let threads' ← extendAllFree bindings
       (proc.threads.mapM (·.mapM (λ (l, blk) ↦ return (l, ← checkBlock blk))))
     return {
       mailbox := mailbox'
@@ -395,7 +395,7 @@ Those bindings stay scoped to the algorithm itself — PlusCal declarations don'
 surrounding TLA⁺ module's own `Γ`. -/
 def checkAlgorithm (algo : SrcAlgorithm) : m TypedPlusCal.Algorithm := do
   let (globalState', bindings) ← checkPlusCalDeclarations algo.globalState
-  let processes' ← extendAll bindings (algo.processes.mapM checkProcess)
+  let processes' ← extendAllFree bindings (algo.processes.mapM checkProcess)
   return {
     isFair := algo.isFair
     name := algo.name

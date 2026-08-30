@@ -90,16 +90,16 @@ definition cannot be written at all. -/
 
 /-- `Head(e)`. -/
 def head (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
-  .opCall (.var "Head" (.operator [.seq τ] τ) (.module "Sequences")) [e]
+  .opCall (.var (.operator [.seq τ] τ) (.module "Sequences" "Head")) [e]
 
 /-- `Tail(e)`. -/
 def tail (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
-  .opCall (.var "Tail" (.operator [.seq τ] (.seq τ)) (.module "Sequences")) [e]
+  .opCall (.var (.operator [.seq τ] (.seq τ)) (.module "Sequences" "Tail")) [e]
 
 /-- `Len(e) > n`, `n` a literal `Nat`. -/
 def lenGt (τ : ComputableTLAPlus.Typ) (e : ComputablePlusCal.Expression) (n : Nat) : ComputablePlusCal.Expression :=
-  .opCall (.var ">" (.operator [.int, .int] .bool) (.module "Naturals"))
-    [.opCall (.var "Len" (.operator [.seq τ] .int) (.module "Sequences")) [e], .nat (toString n)]
+  .opCall (.var (.operator [.int, .int] .bool) (.module "Naturals" ">"))
+    [.opCall (.var (.operator [.seq τ] .int) (.module "Sequences" "Len")) [e], .nat (toString n)]
 
 /-- One assignment's effect substituted into a guard-class statement — `.with`'s bound expression or
 `.await`'s condition, the only expression field either constructor carries. Delegates to
@@ -162,7 +162,7 @@ private def stepStatement (chans : Guarded2NetworkChans) (inboxName : String)
       throw (.internalInvariantViolated pos
         s!"receive's channel '{c.name}' does not resolve to any declared channel or fifo")
     | some τ =>
-      let inboxVar : ComputablePlusCal.Expression := .var inboxName (.seq τ) .binder @@ pos
+      let inboxVar : ComputablePlusCal.Expression := .var (.seq τ) (.free inboxName) @@ pos
       let inboxRef : ComputableGuardedPlusCal.Ref := { name := inboxName, args := [], baseType := .seq τ }
       set { st with
         i := st.i + 1

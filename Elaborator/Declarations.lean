@@ -36,41 +36,42 @@ abbrev Decl := TypedTLAPlus.Declaration Typ
 each is a genuine operator definition, so `Typ.var`s used for whatever's meant to be generic get
 freshened into their own metavariable at every reference (`specializeType`,
 `Elaborator/Expressions.lean`'s `inferExpr`). -/
-def builtinContext : Context := Std.HashMap.ofList [
-  -- Equality.
-  ("=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true, origin := .intrinsic }),
-  ("/=", { type := .operator [.var "a", .var "a"] .bool, isScheme := true, origin := .intrinsic }),
-  -- Boolean connectives.
-  ("/\\", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("\\/", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("=>", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("<=>", { type := .operator [.bool, .bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("\\neg", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
-  -- Sets.
-  ("\\in", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true, origin := .intrinsic }),
-  ("\\notin", { type := .operator [.var "a", .set (.var "a")] .bool, isScheme := true, origin := .intrinsic }),
-  ("\\subseteq", { type := .operator [.set (.var "a"), .set (.var "a")] .bool, isScheme := true, origin := .intrinsic }),
-  ("\\cup", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
-  ("\\cap", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
-  ("\\", { type := .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
-  -- Binary, matching how the parser treats it (`Core/SurfaceTLAPlus/Syntax.lean` notes `\X` is
-  -- not really a binary operator in TLA⁺'s grammar; here it has a precedence and left
-  -- associativity like any other). So `A \X B \X C` is `(A \X B) \X C` and its elements are
-  -- pairs whose first component is a pair, not the flat triples TLA⁺ means — a three-component
-  -- product is rejected downstream by the tuple-index bound rather than accepted with the wrong
-  -- shape.
-  ("\\X", { type := .operator [.set (.var "a"), .set (.var "b")] (.set (.tuple [.var "a", .var "b"])), isScheme := true, origin := .intrinsic }),
-  ("DOMAIN", { type := .operator [.function (.var "a") (.var "b")] (.set (.var "a")), isScheme := true, origin := .intrinsic }),
-  -- Temporal/action operators. `^+`/`^*`/`^#` are deliberately excluded — no typing rule exists
-  -- for them, so they're left unbound. `WellFormedness/Restrictions.lean` bans all eight names
-  -- regardless of whether they're bound here — this table only decides whether referencing one
-  -- is caught by that check (with a precise message) or by plain `unboundVariable` first.
-  ("ENABLED", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("UNCHANGED", { type := .operator [.var "a"] .bool, isScheme := true, origin := .intrinsic }),
-  ("[]", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("<>", { type := .operator [.bool] .bool, isScheme := true, origin := .intrinsic }),
-  ("'", { type := .operator [.var "a"] (.var "a"), isScheme := true, origin := .intrinsic }),
-]
+def builtinContext : Context :=
+  { named := Std.HashMap.ofList <| [
+      -- Equality.
+      ("=", .operator [.var "a", .var "a"] .bool),
+      ("/=", .operator [.var "a", .var "a"] .bool),
+      -- Boolean connectives.
+      ("/\\", .operator [.bool, .bool] .bool),
+      ("\\/", .operator [.bool, .bool] .bool),
+      ("=>", .operator [.bool, .bool] .bool),
+      ("<=>", .operator [.bool, .bool] .bool),
+      ("\\neg", .operator [.bool] .bool),
+      -- Sets.
+      ("\\in", .operator [.var "a", .set (.var "a")] .bool),
+      ("\\notin", .operator [.var "a", .set (.var "a")] .bool),
+      ("\\subseteq", .operator [.set (.var "a"), .set (.var "a")] .bool),
+      ("\\cup", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
+      ("\\cap", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
+      ("\\", .operator [.set (.var "a"), .set (.var "a")] (.set (.var "a"))),
+      -- Binary, matching how the parser treats it (`Core/SurfaceTLAPlus/Syntax.lean` notes `\X` is
+      -- not really a binary operator in TLA⁺'s grammar; here it has a precedence and left
+      -- associativity like any other). So `A \X B \X C` is `(A \X B) \X C` and its elements are
+      -- pairs whose first component is a pair, not the flat triples TLA⁺ means — a three-component
+      -- product is rejected downstream by the tuple-index bound rather than accepted with the wrong
+      -- shape.
+      ("\\X", .operator [.set (.var "a"), .set (.var "b")] (.set (.tuple [.var "a", .var "b"]))),
+      ("DOMAIN", .operator [.function (.var "a") (.var "b")] (.set (.var "a"))),
+      -- Temporal/action operators. `^+`/`^*`/`^#` are deliberately excluded — no typing rule exists
+      -- for them, so they're left unbound. `WellFormedness/Restrictions.lean` bans all eight names
+      -- regardless of whether they're bound here — this table only decides whether referencing one
+      -- is caught by that check (with a precise message) or by plain `unboundVariable` first.
+      ("ENABLED", .operator [.bool] .bool),
+      ("UNCHANGED", .operator [.var "a"] .bool),
+      ("[]", .operator [.bool] .bool),
+      ("<>", .operator [.bool] .bool),
+      ("'", .operator [.var "a"] (.var "a")),
+    ].map λ (name, ty) ↦ (name, { type := ty, isScheme := true, origin := .intrinsic name }) }
 
 variable {m : Type → Type} [Monad m] [MonadElaborator m] [MonadPendingBounds m]
 
@@ -100,13 +101,13 @@ def checkDeclaration (moduleName : String) (d : SrcDecl) : m (Decl × List (Stri
   -/
   | .constants xs => do
     let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"CONSTANT `{x}`" ann)
-    return (.constants xs', xs'.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName }))
+    return (.constants xs', xs'.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName x }))
   /-
     Same shape as [Constants].
   -/
   | .variables xs => do
     let xs' ← xs.mapM λ (x, ann) ↦ return (x, ← requireAnnotation SourceSpan.placeholder s!"VARIABLE `{x}`" ann)
-    return (.variables xs', xs'.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName }))
+    return (.variables xs', xs'.map λ (x, τ) ↦ (x, { type := τ, origin := .module moduleName x }))
   /-
      Γ ⊢ e ⇓ Bool
     ─────────────────── [Assumption]
@@ -135,7 +136,7 @@ def checkDeclaration (moduleName : String) (d : SrcDecl) : m (Decl × List (Stri
     | [], retTy => do
       let body' ← checkExpr body retTy
       let body' ← resolveMVars body'
-      return (.operator retTy f args body', [(f, { type := retTy, isScheme := true, origin := .module moduleName })])
+      return (.operator retTy f args body', [(f, { type := retTy, isScheme := true, origin := .module moduleName f })])
     | _, .operator paramTys retTy =>
       if paramTys.length ≠ args.length then
         throw (.arityMismatch (posOf body) paramTys.length args.length)
@@ -144,7 +145,7 @@ def checkDeclaration (moduleName : String) (d : SrcDecl) : m (Decl × List (Stri
         let bindings := args.map Prod.fst |>.zip paramTys
         let body' ← extendAll bindings (checkExpr body retTy)
         let body' ← resolveMVars body'
-        return (.operator τ f args body', [(f, { type := τ, isScheme := true, origin := .module moduleName })])
+        return (.operator τ f args body', [(f, { type := τ, isScheme := true, origin := .module moduleName f })])
     | _, _ => throw (.notAnOperatorType (posOf body) τ)
   /-
      f ∉ Γ       ∀ 1 ≤ i ≤ n, Γ ⊢ eᵢ ⇓ Set(τᵢ)       Γ, f : ⟨τ₁, …, τₙ⟩ → τ, x₁ : τ₁, …, xₙ : τₙ ⊢ e ⇓ τ
@@ -164,10 +165,12 @@ def checkDeclaration (moduleName : String) (d : SrcDecl) : m (Decl × List (Stri
         | _, got => throw (.notATupleType (posOf body) got)
       let args' ← (args.zip τs).mapM λ ((x, e), τᵢ) ↦ do
         return (x, ← resolveMVars (← checkExpr e (.set τᵢ)))
-      let bindings := (f, τ) :: (args.map Prod.fst |>.zip τs)
-      let body' ← extendAll bindings (checkExpr body retTy)
+      -- `f` is in scope for its own body (self-recursion), resolved through `Ξ` like any
+      -- module-level name; the parameters are lexical binders (`Origin.bound`).
+      let body' ← extendAllBindings [(f, { type := τ, origin := .module moduleName f })]
+        (extendAll (args.map Prod.fst |>.zip τs) (checkExpr body retTy))
       let body' ← resolveMVars body'
-      return (.function τ f args' body', [(f, { type := τ, isScheme := true, origin := .module moduleName })])
+      return (.function τ f args' body', [(f, { type := τ, isScheme := true, origin := .module moduleName f })])
     | _ => throw (.notAFunctionType (posOf body) τ)
 
 /-- `Γ ⊢ D₁, …, Dₙ ⊣ Γ'` — checks a whole declaration list, threading `Γ` through each one.

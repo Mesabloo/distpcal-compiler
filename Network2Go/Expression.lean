@@ -2,6 +2,7 @@ module
 
 public import Network2Go.Ord
 public import Core.ComputablePlusCal.Syntax
+public import Core.ComputableTLAPlus.Subst
 public import Core.Go.Syntax
 public import Common.Fresh
 
@@ -134,23 +135,26 @@ partial def compileExpr (e : ComputablePlusCal.Expression) : m ComputableGo.Expr
   | .str s, _ => return tlaplusCall "Str" [.str s]
   | .true, _ => return tlaBool .true
   | .false, _ => return tlaBool .false
-  -- A bound variable — a quantifier's, a process's, a branch's — keeps the name it had:
-  -- capitalization applies to *definitions*, not variables.
-  | .var name _ .binder, _ => return .var (binderName name)
-  | .var name τ (.module mod), pos =>
+  -- A memory-keyed name — a quantifier's, resolved to its hint by `openHints`; a process's; a
+  -- branch's — keeps the name it had: capitalization applies to *definitions*, not variables.
+  | .var _ (.free name), _ => return .var (binderName name)
+  | .var τ (.module mod name), pos =>
     if builtinModuleNames.contains mod then compileBuiltinVar pos mod name τ
     -- A user definition. `LOCAL` ones keep their case, which this reference cannot see; the
     -- definition-compilation step owns that flag and has to agree with what is emitted here.
     else return .var (definitionName (isLocal := false) name)
-  | .var name _ .intrinsic, pos =>
+  | .var _ (.intrinsic name), pos =>
     throw (.unsupported pos name
       "a builtin operator can only be applied, not passed around as a value — Go has no \
        counterpart to refer to")
+  | .var _ (.bound _), pos =>
+    throw (.internalInvariantViolated pos
+      "a de Bruijn index reached code generation — every binder body is opened with its hint first")
   | .opCall f args, pos => do
     let args' ← args.mapM compileExpr
     match f with
-    | .var name τ .intrinsic => compileIntrinsic pos name τ args'
-    | .var name τ (.module mod) =>
+    | .var τ (.intrinsic name) => compileIntrinsic pos name τ args'
+    | .var τ (.module mod name) =>
       if builtinModuleNames.contains mod then compileBuiltinCall pos mod name τ args'
       else return .call (← compileExpr f) args'
     | _ => return .call (← compileExpr f) args'
@@ -467,6 +471,23 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   | _, _, _ => wrongArity pos s!"{mod}!{name}" args.length
 
 end
+
+/-- `compileExpr` for a term straight from an earlier pass — its binders' bodies still carry de
+Bruijn `.bound` indices. `outer` names any binders enclosing `e` that are not nodes within it: an
+operator's or function's parameters, or a `multicast` filter's recipient, in source order. Every
+caller outside this file goes through here so that `compileExpr` itself only ever meets `.free`
+occurrences. -/
+def compileExprTop (e : ComputablePlusCal.Expression) (outer : List String := []) :
+    m ComputableGo.Expression :=
+  compileExpr (e.openHints outer)
+
+/-- `compileExcept` for a path and right-hand side straight from an earlier pass — opens every de
+Bruijn index in the index expressions and the right-hand side against its binder hint first. -/
+def compileExceptTop (pos : SourceSpan) (τ : Typ) (base : ComputableGo.Expression)
+    (path : List (String ⊕ ComputablePlusCal.Expression)) (rhs : ComputablePlusCal.Expression) :
+    m ComputableGo.Expression :=
+  compileExcept pos τ base
+    (path.map (Sum.map id (·.openHints))) (rhs.openHints)
 
 end Network2Go
 

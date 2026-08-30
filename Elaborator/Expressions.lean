@@ -212,12 +212,12 @@ mutual
        Γ ⊢ x ⇑ τ
     -/
     | .var x, pos => do
-      match (← readThe Context).get? x with
+      match (← readThe Context).lookup x with
       | none => throw (.unboundVariable pos x)
-      | some { type := τ, isScheme := true, origin } => do
+      | some (τ, origin, true) => do
         let τ' ← specializeType τ
-        return (τ', .var x τ' origin @@ pos)
-      | some { type := τ, isScheme := false, origin } => return (τ, .var x τ origin @@ pos)
+        return (τ', .var τ' origin @@ pos)
+      | some (τ, origin, false) => return (τ, .var τ origin @@ pos)
     /-
       ────────────── [Number]
        Γ ⊢ n ⇑ Int

@@ -83,19 +83,17 @@ private def unionVars (xs ys : List String) : List String := ys.foldl insertVar 
   The free variables of a TLA⁺ expression, in first-occurrence order, ignoring anything in
   `bound`.
 
-  Only `Origin.binder` references count. A process-local variable is introduced by
-  `Elaborator/Context.lean`'s `extend`/`extendAll`, which tag every binding they make `.binder`,
-  so a `.module` reference is a module-level definition and a `.intrinsic` one a builtin — neither
-  is process state, and neither can be locked. This is the same discriminator
-  `Network2Go/Definition.lean`'s `mentionsSelf` keys on, for the same reason: it is exact, so no
-  scope walk is needed to tell the two apart.
+  Only `Origin.free` references count. A process-local variable, `self`, and a statement `with`
+  local are `Memory`-keyed and carry `.free`; a `.module` reference is a module-level definition, a
+  `.intrinsic` one a builtin, and a `.bound` one an expression binder's own variable — none is
+  process state and none can be locked.
 
-  Quantifier and function-literal binders shadow, and are removed from their body's result only —
-  a domain expression is evaluated outside its own binder (`[x ∈ D ↦ e]` may not mention `x` in
-  `D`), so `bound` grows for `e` and not for `D`.
+  Quantifier and function-literal binders are `.bound` in their body and so never counted; `bound`
+  still tracks their names defensively. A domain expression is evaluated outside its own binder
+  (`[x ∈ D ↦ e]` may not mention `x` in `D`), so `bound` grows for `e` and not for `D`.
 -/
 partial def exprFreeVars (bound : List String) : ComputablePlusCal.Expression → List String
-  | .var x _ .binder => if bound.contains x then [] else [x]
+  | .var _ (.free x) => if bound.contains x then [] else [x]
   | .var .. | .nat _ | .str _ | .true | .false => []
   | .opCall f args => args.foldl (λ acc e ↦ unionVars acc (exprFreeVars bound e)) (exprFreeVars bound f)
   | .forall x _ dom e | .exists x _ dom e | .choose x _ dom e | .collect x _ dom e =>

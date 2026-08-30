@@ -36,20 +36,26 @@ abbrev Typ := SurfaceTLAPlus.Typ
 /-- The type used to identify a not-yet-resolved metavariable `?n`. -/
 abbrev MVarId := Nat
 
-/-- Where a name resolved via `Γ` came from: an ordinary binder; a top-level declaration of some
-real or simulated module (`name` — own, imported, or a `builtinModules` entry like `Naturals`/
-`Sequences`); or `intrinsic`, for a name with no owning module at all — real TLA⁺'s own core
-syntax (`=`, `/\`, `\in`, `\cup`, `DOMAIN`, …), never `EXTENDS`-gated. `intrinsic` is not a fake
-module name: an operator that *does* come from a real module (e.g. `Len`/`Sequences`, `..`/
-`Naturals`) is tagged `.module "Sequences"`/`.module "Naturals"` instead, even when synthesized by
-the compiler itself (`Elaborator/Subtyping.lean`'s coercion machinery). Tagged at `Γ`-construction
-time and baked onto `Expression.var` below, so it survives into the checked AST — later passes
-(`WellFormedness`, `Network2Go`) read it straight off a `.var` node. Not a third type parameter on
-`Expression`: unlike `α`, this doesn't vary by stage. -/
+/-- Where the name of an `Expression.var` node resolves, under locally-nameless binding. Carries
+the name (or index) itself — a `.var` node has no separate name field.
+
+- `bound idx` — a de Bruijn index. `idx` counts the expression-level binders (`\A`/`\E`/`CHOOSE`,
+  the two set-builders, `map'`, `fn`, and operator/function parameters) enclosing the occurrence,
+  up to and not past the one that binds it. `free` bindings do not count.
+- `free name` — a `Memory`-keyed name: a PlusCal `variable`/`channel`/`fifo`, `self`, or a
+  statement-level `with`.
+- `module mod name` — the operator, `CONSTANT`, or `VARIABLE` `name` declared by module `mod`
+  (own, `EXTENDS`-imported, or a `builtinModules` entry like `Naturals`/`Sequences`), resolved
+  through `Ξ`/`Ω`.
+- `intrinsic name` — a core-syntax builtin (`=`, `/\`, `\in`, `\cup`, `DOMAIN`, …) with no owning
+  module, dispatched off the builtin table.
+
+Baked onto `Expression.var` at `Γ`-construction time, so it survives into every downstream AST. -/
 inductive Origin : Type
-  | binder
-  | intrinsic
-  | «module» (name : String)
+  | bound (idx : Nat)
+  | free (name : String)
+  | «module» (mod : String) (name : String)
+  | intrinsic (name : String)
   deriving Repr, Inhabited, BEq
 
 /--
@@ -59,8 +65,9 @@ inductive Origin : Type
   result) and an `Origin`; `mvar`/`seq` are new.
 -/
 inductive Expression (α : Type) : Type
-  /-- An unqualified identifier, now with its type resolved via `Γ` and its `Origin` recorded. -/
-  | var : String → α → Origin → Expression α
+  /-- An identifier: its type resolved via `Γ` and its `Origin` recording where the name binds. A
+  `.bound` node carries no name — the string hint lives on the enclosing binder. -/
+  | var : α → Origin → Expression α
   /-- An operator application `f(e₁, …, eₙ)`. -/
   | opCall : Expression α → List (Expression α) → Expression α
   /-- Bounded or unbounded universal quantification. -/
@@ -141,7 +148,7 @@ inductive Expression (α : Type) : Type
 -- `partial`: the recursion is structural, but not visibly decreasing to Lean (nested
 -- `List`/`Option` occurrences of `Expression`).
 protected partial def Expression.map {α β} (f : α → β) (e : Expression α) : Expression β := match_source e with
-  | .var v τ o, pos => .var v (f τ) o @@ pos
+  | .var τ o, pos => .var (f τ) o @@ pos
   | .nat n, pos => .nat n @@ pos
   | .str s, pos => .str s @@ pos
   | .true, pos => .true @@ pos
@@ -181,7 +188,7 @@ instance : Functor Expression where
 
 local instance {F : Type → Type} [Applicative F] {α} : Inhabited (F (Expression α)) := ⟨pure .true⟩ in
 protected partial def Expression.traverse {F : Type → Type} [Applicative F] {α β} (f : α → F β) (e : Expression α) : F (Expression β) := match_source e with
-  | .var v τ o, pos => (.var v · o @@ pos) <$> f τ
+  | .var τ o, pos => (.var · o @@ pos) <$> f τ
   | .nat n, pos => pure <| .nat n @@ pos
   | .str s, pos => pure <| .str s @@ pos
   | .true, pos => pure <| .true @@ pos

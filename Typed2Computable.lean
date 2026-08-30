@@ -96,7 +96,7 @@ def TypedTLAPlus.Module.toComputable (mod : TypedModule) :
   | some algo => do
     let closure ← TypedPlusCal.Algorithm.collectReachable mod.name (mod.declarations₁ ++ mod.declarations₂) algo
     let declarations₁ ← closure.toList.filterMapM λ ((declModule, name), resolved) ↦
-      if (TypedTLAPlus.builtinOpOf? (.module declModule) name).isSome then pure none
+      if (TypedTLAPlus.builtinOpOf? (.module declModule name)).isSome then pure none
       else some <$> ResolvedDecl.toComputable name resolved
     let algo' ← TypedPlusCal.Algorithm.toComputable algo
     pure {

@@ -1,6 +1,7 @@
 module
 
 public import Core.TypedTLAPlus.Syntax
+public import Core.TypedTLAPlus.Subst
 
 public section
 
@@ -89,33 +90,39 @@ partial def Coercion.apply (c : Coercion) (e : Expr) : Expr :=
   match c with
   | .id => e
   | .strToSeq =>
-    .opCall (.var "StrToSeq" (.operator [.str] (.seq .int)) .intrinsic @@ pos) [e] @@ pos
+    .opCall (.var (.operator [.str] (.seq .int)) (.intrinsic "StrToSeq") @@ pos) [e] @@ pos
   | .seqToFun τ₀ i =>
     let range : Expr :=
-      .opCall (.var ".." (.operator [.int, .int] (.set .int)) (.module "Naturals") @@ pos)
+      .opCall (.var (.operator [.int, .int] (.set .int)) (.module "Naturals" "..") @@ pos)
         [.nat (toString (1 : Nat)) @@ pos,
-         .opCall (.var "Len" (.operator [.seq τ₀] .int) (.module "Sequences") @@ pos) [e] @@ pos] @@ pos
-    .fn i .int τ₀ range (.fnCall e (.seq τ₀) (.var i .int .binder @@ pos) @@ pos) @@ pos
+         .opCall (.var (.operator [.seq τ₀] .int) (.module "Sequences" "Len") @@ pos) [e] @@ pos] @@ pos
+    .fn i .int τ₀ range
+      (.fnCall (Expression.liftBound 1 e) (.seq τ₀) (.var .int (.bound 0) @@ pos) @@ pos) @@ pos
   | .tupleToSeq n τ _ =>
     .seq ((List.range n).map λ i ↦
       .fnCall e (.tuple (List.replicate n τ)) (.nat (toString (i + 1)) @@ pos) @@ pos) τ @@ pos
   | .set x τ τ' c =>
-    .map' (c.apply (.var x τ .binder @@ pos)) x τ τ' e @@ pos
+    .map' (c.apply (.var τ (.bound 0) @@ pos)) x τ τ' e @@ pos
   | .tuple coes τs τs' =>
     (.tuple <| ((List.range coes.length).zip coes).zip τs' |>.map λ ((i, c), τ'ᵢ) ↦
       (τ'ᵢ, c.apply (.fnCall e (.tuple τs) (.nat (toString (i + 1)) @@ pos) @@ pos))) @@ pos
   | .record fields =>
     (.record <| fields.map λ (name, c, τ'ᵢ) ↦ (τ'ᵢ, name, c.apply (.recordAccess e name @@ pos))) @@ pos
   | .function x y dom rng dom' rng' cDom cRng =>
+    let eLift : Expr := Expression.liftBound 1 e
     let domainExpr : Expr :=
-      .opCall (.var "DOMAIN" (.operator [.function dom rng] (.set dom)) .intrinsic @@ pos) [e] @@ pos
-    let newDomain : Expr := .map' (cDom.apply (.var x dom .binder @@ pos)) x dom dom' domainExpr @@ pos
+      .opCall (.var (.operator [.function dom rng] (.set dom)) (.intrinsic "DOMAIN") @@ pos) [e] @@ pos
+    let newDomain : Expr :=
+      .map' (cDom.apply (.var dom (.bound 0) @@ pos)) x dom dom' domainExpr @@ pos
     let eqTy : Typ := .operator [dom', dom'] .bool
+    let domainExprLift : Expr :=
+      .opCall (.var (.operator [.function dom rng] (.set dom)) (.intrinsic "DOMAIN") @@ pos) [eLift] @@ pos
     let recoveredArg : Expr :=
-      .choose x dom (some domainExpr)
-        (.opCall (.var "=" eqTy .intrinsic @@ pos)
-          [cDom.apply (.var x dom .binder @@ pos), .var y dom' .binder @@ pos] @@ pos) @@ pos
-    .fn y dom' rng' newDomain (cRng.apply (.fnCall e (.function dom rng) recoveredArg @@ pos)) @@ pos
+      .choose x dom (some domainExprLift)
+        (.opCall (.var eqTy (.intrinsic "=") @@ pos)
+          [cDom.apply (.var dom (.bound 0) @@ pos), .var dom' (.bound 1) @@ pos] @@ pos) @@ pos
+    .fn y dom' rng' newDomain
+      (cRng.apply (.fnCall eLift (.function dom rng) recoveredArg @@ pos)) @@ pos
   | .comp c₁ c₂ => c₂.apply (c₁.apply e)
 
 /-- A placeholder rendering (module doc). -/

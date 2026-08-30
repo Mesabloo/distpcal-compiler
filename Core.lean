@@ -8,6 +8,7 @@ public import Core.SurfacePlusCal.Pretty
 public import Core.CoreTLAPlus.Syntax
 public import Core.CorePlusCal.Syntax
 public import Core.TypedTLAPlus.Syntax
+public import Core.TypedTLAPlus.Subst
 public import Core.TypedTLAPlus.Coercion
 public import Core.TypedTLAPlus.Builtins
 public import Core.TypedPlusCal.Syntax
