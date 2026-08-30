@@ -22,7 +22,9 @@ namespace NetworkPlusCal
 open ComputableTLAPlus (ExprSemantics OperatorEnv Model)
 open GuardedPlusCal (CodeTable Algebra AlgState EvalStep InitProc)
 
-variable {V : Type}
+universe u
+
+variable {V : Type u}
 
 /-- Every label a process owns, across all of its threads. A `.rx` thread owns none. -/
 def Process.ownedLabels (p : ComputableNetworkPlusCal.Process) : Set String :=

@@ -27,10 +27,12 @@ public import Guarded2Network.Lemmas.Statement
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- **A receiving thread's step is invisible to the source.** The value it moves comes off the head
 of the target's FIFO and goes onto the end of `inbox`, so the source's queue — which the invariant
@@ -43,7 +45,7 @@ No label is mentioned — a `.rx` thread owns none, and its step produces `.none
 `inbox ∉ Ref.freeVars c` is the same freshness this pass carries everywhere: without it the channel
 reference could resolve to a different key under the target's memory than under the source's, and
 the two sides' `ChanKey`s would not be the one the invariant names. -/
-theorem rxStep_step {c : ComputableGuardedPlusCal.Ref} {inbox : String}
+theorem rxStep_step (hΞ : Ξ.WellScoped) {c : ComputableGuardedPlusCal.Ref} {inbox : String}
     {M₁ M₂ : Memory V} {F₁ F₂ : FIFOs V} {ib : InboxState V} {ε : Trace V}
     {σ' : LocalState V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
@@ -67,7 +69,7 @@ theorem rxStep_step {c : ComputableGuardedPlusCal.Ref} {inbox : String}
   -- the two sides resolve the channel to the same key: the reference cannot mention `inbox`, which
   -- is the only name the memories disagree on
   obtain rfl : cpath₁ = cpath :=
-    Ref.EvalArgs.inj hpath₁ ((Ref.EvalArgs.congr_of_fresh hmem hfresh).mpr hpath)
+    Ref.EvalArgs.inj hpath₁ ((Ref.EvalArgs.congr_of_fresh hΞ hmem hfresh).mpr hpath)
   obtain ⟨sv, hsv, hseq⟩ := hinbox
   obtain rfl : sv = old := Option.some.inj (hsv.symm.trans hold)
   refine ⟨v, _, _, rfl, hdone, ?_, ?_, ?_, ?_, ?_, GuardedPlusCal.FIFOs.size_insert_tail hfifo⟩
@@ -92,7 +94,7 @@ to the label bookkeeping as well as to the memory.
 
 The FIFO clauses are returned rather than folded in: they belong to `algRelatesTo`, which quantifies
 over all instances' keys at once, so only their per-instance content can be established here. -/
-theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox : String}
+theorem procRelatesTo.rx_step (hΞ : Ξ.WellScoped) {c : ComputableGuardedPlusCal.Ref} {inbox : String}
     {ib : InboxState V} {M₁ M₂ M₂' : Memory V} {F₁ F₂ F₂' : FIFOs V}
     {L₁ L₂ : Set String} {ε : Trace V}
     (hfresh : inbox ∉ GuardedPlusCal.Ref.freeVars c)
@@ -110,7 +112,7 @@ theorem procRelatesTo.rx_step {c : ComputableGuardedPlusCal.Ref} {inbox : String
       GuardedPlusCal.FIFOs.size F₂' + 1 = GuardedPlusCal.FIFOs.size F₂ := by
   obtain ⟨hlabels, hmem, hinbox, hkey⟩ := h
   obtain ⟨v, M₂'', F₂'', rfl, hdone, hmem', hinbox', hoff, hsplit', hkeep, hsize⟩ :=
-    rxStep_step hfresh hmem hinbox hkey hsplit step
+    rxStep_step hΞ hfresh hmem hinbox hkey hsplit step
   injection hdone with hM hrest
   injection hrest with hF _
   subst hM; subst hF
@@ -124,7 +126,7 @@ This is the rx half of the per-step obligation the algorithm-level refinement di
 answered with *zero* source steps — `Relation.star.refl` — which is why the source side of that
 refinement has to be `Relation.star Aₛ.step` rather than `Aₛ.step`: `GuardedPlusCal.Algebra.reducing`
 is defined as that star, so this is the goal's own shape rather than a weakening of it. -/
-theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox}
+theorem algRelatesTo.rx_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq ι] {mb : ι → Mailbox}
     {Ps Qs Qs' : GuardedPlusCal.Instances ι V} {F₁ F₂ F₂' : FIFOs V}
     {p : ι} {c : ComputableGuardedPlusCal.Ref} {inbox : String}
     {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
@@ -155,7 +157,7 @@ theorem algRelatesTo.rx_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox}
   have hsplitp : F₁.lookup ibp.key = (ibp.contents ++ ·) <$> F₂.lookup ibp.key := by
     rw [hfifo ibp.key, hkey p ibp hibp]
   obtain ⟨v, rfl, hproc', hoff', hsplit', hkeep, hsize⟩ :=
-    procRelatesTo.rx_step hfresh (hmb ▸ hproc) hsplitp hstep
+    procRelatesTo.rx_step hΞ hfresh (hmb ▸ hproc) hsplitp hstep
   subst hQs
   -- every other instance's clause survives unchanged: derived from `hmatch` directly, so it shares
   -- the same `ib` witness the goal below is stated against

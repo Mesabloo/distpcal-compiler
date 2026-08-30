@@ -30,10 +30,12 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (OperatorEnv Model Memory PathStep)
 open GuardedPlusCal (Block ChanKey EvalStep FIFOs LocalState Trace)
 
-variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
+variable {V : Type u} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
   {Ω : Model V}
 
 /-- `Block.map` distributes over `cons`, and leaves `end` alone. Both hold by `rfl` — `Block.map`
@@ -57,7 +59,8 @@ is in the precondition, which is why that half needed a whole file and this one 
 
 Divergence is `∅` throughout, as everywhere else in this development — no statement of either
 language diverges. -/
-theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
+theorem actionBlock_refines (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
+    {b : Bool}
     {A : Block (ComputableGuardedPlusCal.Statement false) b}
     (fresh : ∀ S ∈ A.begin, Fresh mbox S) (freshLast : Fresh mbox A.last) :
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
@@ -82,11 +85,11 @@ theorem actionBlock_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : 
   | «end» S =>
     rw [Block.map_end, Block.reducing_end, Block.reducing_end, Block.aborting_end,
       Block.aborting_end, Block.diverging_end, Block.diverging_end]
-    exact action_refines S freshLast
+    exact action_refines hΞ S freshLast
   | cons S A IH =>
     rw [Block.map_cons, Block.reducing_cons, Block.reducing_cons, Block.aborting_cons,
       Block.aborting_cons, Block.diverging_cons, Block.diverging_cons]
-    have h := StrongRefinement.Comp _ (action_refines S (fresh S List.mem_cons_self))
+    have h := StrongRefinement.Comp _ (action_refines hΞ S (fresh S List.mem_cons_self))
       (IH (λ S' hS' ↦ fresh S' (List.mem_cons_of_mem _ hS')) freshLast)
     simpa only [Relation.lcomp₁.right_empty_eq_empty, Set.empty_union] using h
 
@@ -100,7 +103,7 @@ the action block's *left* edge instead.
 them the join is one `StrongRefinement.Comp` and an associativity step. Stated separately from the
 triple below because it is the whole mathematical content of that triple: everything else there is
 `mvcgen` walking the pass's state bookkeeping, which no refinement depends on. -/
-private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
+private theorem branch_refines (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
@@ -134,7 +137,7 @@ private theorem branch_refines {mbox : Mailbox} {pref : ChanKey V → List V}
   -- (`branch_blockTransfer`); here only the terminating/aborting/diverging halves are joined
   have hpre' := (⟨hpre.terminating, hpre.aborting, hpre.diverging, StrongRefinement.Blocking.Empty _⟩ :
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ _ _ _ _ _ _ ∅ ∅)
-  have hcomp := StrongRefinement.Comp _ hpre' (actionBlock_refines (V := V) afresh alast)
+  have hcomp := StrongRefinement.Comp _ hpre' (actionBlock_refines (V := V) hΞ afresh alast)
   -- `union_lcomp₂` normalizes `Comp`'s output, not the goal: the goal is already in its right-hand
   -- form once `Block.aborting_prepend` has split the prepended assignments off
   simp only [GuardedPlusCal.Statement.blockDiverging_eq_empty, NetworkPlusCal.Statement.blockDiverging_eq_empty,
@@ -153,7 +156,8 @@ leaves it — carries that to the source precondition, and `AtomicBranch.blockin
 `AtomicBranch.aborting_eq` re-wrap both ends at branch shape. `hdrain` (at the source memory) becomes
 the walk clause's `Drained` (at the target memory) by `sim` — the mailbox args do not mention `inbox`
 (`hib`). -/
-private theorem branch_blockTransfer {mbox : Mailbox} {pref : ChanKey V → List V}
+private theorem branch_blockTransfer (hΞ : Ξ.WellScoped) {mbox : Mailbox}
+    {pref : ChanKey V → List V}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     {pre' : Option (Block (ComputableNetworkPlusCal.Statement true) false)}
     {assigns : List (ComputableNetworkPlusCal.Statement false false)}
@@ -182,7 +186,7 @@ private theorem branch_blockTransfer {mbox : Mailbox} {pref : ChanKey V → List
   rw [NetworkPlusCal.AtomicBranch.blocking_eq_precondition, ← listBlocking_toList_net] at hin
   have hdrained : Drained Ξ Ω mbox (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) := by
     intro c ib cp hmb hcp
-    refine hdrain c ib cp hmb ((Ref.EvalArgs.congr_of_agree (fun y hy ↦ ?_)).mpr hcp)
+    refine hdrain c ib cp hmb ((Ref.EvalArgs.congr_of_agree hΞ (fun y hy ↦ ?_)).mpr hcp)
     refine sim.mem_agree' y (fun _ ib₁ h ↦ ?_)
     simp only [hmb, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
@@ -411,7 +415,7 @@ And `Registered`: a branch that receives leaves a receiving thread registered, a
 registered before this branch stays registered. This is the only place either can be established —
 `stepBranch` is the sole writer of `rxThreads` — and the process level is what spends them, to know
 that a source process which receives is compiled to one with a thread to drain its channel. -/
-private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
+private theorem stepBranch_spec (hΞ : Ξ.WellScoped) {chans : Guarded2NetworkChans} {mbox : Mailbox}
     {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V} {H : Prop}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     (hmb : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
@@ -419,7 +423,7 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
         mbox = .some (c₀, inbox))
     (rfresh : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
       GuardedPlusCal.Statement.receive c r coe ∈ preconditionList Br.precondition →
-        c = c₀ ∧ ReceiveFresh c r inbox)
+        c = c₀ ∧ ReceiveFresh c r coe inbox)
     (gfresh : ∀ S ∈ preconditionList Br.precondition, Fresh mbox S)
     (pfresh : PairsFresh inbox (preconditionList Br.precondition))
     (afresh : ∀ S ∈ Br.action.begin, Fresh mbox S)
@@ -438,9 +442,9 @@ private theorem stepBranch_spec {chans : Guarded2NetworkChans} {mbox : Mailbox}
     -- recorded about the channels, that a `receive` leaves `rxs` non-empty, and the refinement
     obtain ⟨hrxs, hrecv, href⟩ := ‹_ ∧ _ ∧ _›
     refine ⟨⟨?_, ?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
-    · exact branch_refines href afresh alast
+    · exact branch_refines hΞ href afresh alast
     · rfl
-    · exact fun hib sim hdrain hin ↦ branch_blockTransfer href.blocking hib sim hdrain hin
+    · exact fun hib sim hdrain hin ↦ branch_blockTransfer hΞ href.blocking hib sim hdrain hin
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; `IsRxThread` stays
     -- out of the simp set, one obligation per thread. The locals hypotheses are cleared first, so
     -- `simp_all` does not shred a pair-typed `∀ e ∈ …` it has no use for here.

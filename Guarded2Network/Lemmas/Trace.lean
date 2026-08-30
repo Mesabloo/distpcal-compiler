@@ -24,24 +24,26 @@ public import Core.NetworkPlusCal.Semantics.Lemmas
 
 namespace Guarded2Network
 
+universe u
+
 /-- Traces are preserved exactly by this pass, so its trace relation is equality. -/
-@[reducible] scoped instance instTrace {V : Type} :
+@[reducible] scoped instance instTrace {V : Type u} :
     _root_.ωTrace (GuardedPlusCal.Trace V) (GuardedPlusCal.Trace V) where
   toTrace := Trace.instSeq
   Rτ_omega := λ _ _ h ↦ congrArg ωMonoid.ωProd (funext h)
 
 /-- `Rτ` unfolded, for rewriting a framework-level obligation into the equation it actually is. -/
-@[simp] theorem instTrace_Rτ {V : Type} :
+@[simp] theorem instTrace_Rτ {V : Type u} :
     (instTrace (V := V)).Rτ = Eq := rfl
 
 /-- The sequentially consistent prefix order at this pass's `Rτ`, in the form leaf goals meet it:
 the source emitted `ε'`, and the target's `ε` extends it. -/
-theorem scPrefix_iff {V : Type} {ε' ε : GuardedPlusCal.Trace V} :
+theorem scPrefix_iff {V : Type u} {ε' ε : GuardedPlusCal.Trace V} :
     ε' ≼[(instTrace (V := V)).Rτ] ε ↔ ∃ δ, ε' * δ = ε := Iff.rfl
 
 /-- The empty trace is a prefix of anything, which is what an abort *before* the target's first
 observable event needs. -/
-theorem one_scPrefix {V : Type} (ε : GuardedPlusCal.Trace V) :
+theorem one_scPrefix {V : Type u} (ε : GuardedPlusCal.Trace V) :
     (1 : GuardedPlusCal.Trace V) ≼[(instTrace (V := V)).Rτ] ε :=
   ⟨ε, one_mul ε⟩
 
@@ -55,7 +57,7 @@ theorem one_scPrefix {V : Type} (ε : GuardedPlusCal.Trace V) :
 /-- Deleting factors that are `1`, at this pass's trace type — `Stream'.Seq.ωProduct_comp_of_ones`,
 which is where the work is. What a stuttering divergence refinement needs, since the source's run is
 indexed by the target indices at which it actually moved. -/
-theorem ωProd_comp {V : Type} (e : ℕ → GuardedPlusCal.Trace V) (n : ℕ → ℕ) (hmono : StrictMono n)
+theorem ωProd_comp {V : Type u} (e : ℕ → GuardedPlusCal.Trace V) (n : ℕ → ℕ) (hmono : StrictMono n)
     (hone : ∀ i, (∀ j, n j ≠ i) → e i = 1) :
     ωMonoid.ωProd e = ωMonoid.ωProd (e ∘ n) :=
   Stream'.Seq.ωProduct_comp_of_ones hmono hone

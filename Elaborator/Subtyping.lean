@@ -103,7 +103,7 @@ private partial def tryAxioms (subtypeRec : Typ → Typ → m SubtypeResult) (τ
     chainWith (.seqToFun τ₀ i) (.function .int τ₀)
   | .tuple (τ₀ :: rest) =>
     if rest.all (· == τ₀) then
-      chainWith (.tupleToSeq (rest.length + 1) τ₀) (.seq τ₀)
+      chainWith (.tupleToSeq (rest.length + 1) τ₀ (Nat.succ_pos _)) (.seq τ₀)
     else return .failure
   | _ => return .failure
 

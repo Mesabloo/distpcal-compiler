@@ -23,7 +23,9 @@ namespace NetworkPlusCal
 open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 open GuardedPlusCal (Block Behavior Trace ChanKey FIFOs LocalState EvalStep selfName)
 
-variable {V : Type} [ExprSemantics V]
+universe u
+
+variable {V : Type u} [ExprSemantics V]
 
 /-! # Reduction of statements -/
 

@@ -24,10 +24,12 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (OperatorEnv Model)
 open GuardedPlusCal (ChanKey)
 
-variable {V : Type} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
+variable {V : Type u} [ComputableTLAPlus.ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv}
   {Ω : Model V}
 
 /-- What one compiled **code** thread owes its source: it is a `.code` thread at all, and its blocks
@@ -57,6 +59,7 @@ at any branch of any block. -/
 private theorem mapM_stepBlock_spec {chans : Guarded2NetworkChans}
   {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
   {H : Prop} {T : ComputableGuardedPlusCal.Thread}
+  (hΞ : Ξ.WellScoped)
   (fresh : ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃λ st ↦ ⌜RxThreads mbox c₀ inbox st ∧ Registered H st⌝⦄
     T.mapM (stepBlock (m := G2NM) chans inbox)
@@ -74,7 +77,8 @@ private theorem mapM_stepBlock_spec {chans : Guarded2NetworkChans}
   -- `mbox`, `c₀` and `H` are, so they are pinned and deliberately absent here: `H`'s goal is a
   -- `Prop` to supply, and `assumption` would supply `H` itself rather than the disjunction the walk
   -- has accumulated (`AtomicBlock.lean` says the same at more length).
-  | vc9 | vc10 | vc11 | vc12 | vc13 | vc14 => intro _ _ _; assumption
+  | vc9 | vc10 | vc11 | vc12 | vc13 | vc14 | vc15 =>
+    solve | assumption | (intro _ _ _; assumption)
 
   case vc1.pre =>
     obtain ⟨hrx, hreg⟩ := ‹_ ∧ _›
@@ -95,7 +99,7 @@ private theorem mapM_stepBlock_spec {chans : Guarded2NetworkChans}
       · exact .inr (List.mem_singleton.mp hm ▸ hblk)
 
   -- the freshness hypothesis at whichever block the walk is currently on
-  case vc15 _ _ _ _ cur _ hsplit _ =>
+  case vc16 _ _ _ _ cur _ hsplit _ =>
     intro _ _ _
     rw [hsplit] at fresh
     exact fresh cur (List.mem_append_right _ List.mem_cons_self)
@@ -114,13 +118,14 @@ appears as such in the conclusion, and dies one level up in `Thread.toNetwork_sp
 @[spec] private theorem mapM_stepBlock_spec_run {chans : Guarded2NetworkChans}
   {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
   {T : ComputableGuardedPlusCal.Thread}
+  (hΞ : Ξ.WellScoped)
   (fresh : ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃⌜True⌝⦄
     ((T.mapM (stepBlock (m := G2NM) chans inbox)).run {})
     ⦃⇓? p _ => ⌜List.Forall₂ (BlockRefines (V := V) Ξ Ω mbox pref) T p.1 ∧
       RxThreads mbox c₀ inbox p.2 ∧ Registered (False ∨ ThreadReceives T) p.2⌝⦄ := by
   intro n _
-  refine mapM_stepBlock_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) (H := False) fresh {} n ?_
+  refine mapM_stepBlock_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) (H := False) hΞ fresh {} n ?_
   exact ⟨⟨nofun, nofun, iff_of_true rfl rfl⟩, nofun⟩
 
 open Std.Do in
@@ -133,6 +138,7 @@ half is `rfl`. -/
 theorem Thread.toNetwork_spec {chans : Guarded2NetworkChans}
   {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
   {T : ComputableGuardedPlusCal.Thread}
+  (hΞ : Ξ.WellScoped)
   (fresh : ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃⌜True⌝⦄
     ComputableGuardedPlusCal.Thread.toNetwork (m := G2NM) chans inbox T
@@ -142,7 +148,7 @@ theorem Thread.toNetwork_spec {chans : Guarded2NetworkChans}
   -- `-StateT.run`, or the toolchain's own spec for it wins and `mapM_stepBlock_spec_run` never
   -- matches — the same removal `processPrecondition_spec` needs one pass level down
   mvcgen [ComputableGuardedPlusCal.Thread.toNetwork, -StateT.run]
-  case vc10.post.success _ _ _ h =>
+  case vc11.post.success _ _ _ h =>
     exact ⟨⟨_, rfl, h.1⟩, h.2.1.1, (λ hrecv ↦ h.2.2 (.inr hrecv)), h.2.1.2.1, h.2.1.2.2⟩
 
 end Guarded2Network

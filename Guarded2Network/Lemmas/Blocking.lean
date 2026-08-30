@@ -24,11 +24,13 @@ public import Guarded2Network.Lemmas.Algorithm
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory OperatorEnv Model)
 open GuardedPlusCal (Algebra AlgState ChanKey EvalStep FIFOs Instances LocalState ProcConfig
   ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {ι : Type} {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] [SeqBuiltins V] {ι : Type u} {Ξ : OperatorEnv} {Ω : Model V}
 
 variable {mbox : String → String → Mailbox} {c₀ : String → ComputableGuardedPlusCal.Ref}
   {pref : ChanKey V → List V} {algo : ComputableGuardedPlusCal.Algorithm}
@@ -43,7 +45,7 @@ The channel-drained conjunct (`hdrain`) is what `procBlocking`'s `relayBlocking`
 makes the receive-guard case exact: with `F_t(c) = ⟨⟩` the invariant gives `F_s(c) = inbox`, and a
 compiled `await Len(inbox) > k` that blocks means the source's queue is emptied after its `k`
 receives. -/
-theorem procBlockTransfer
+theorem procBlockTransfer (hΞ : Ξ.WellScoped)
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo)
     {Ps Qs : Instances (String × V) V} {F₁ F₂ : FIFOs V}
@@ -110,7 +112,7 @@ theorem procBlockTransfer
         obtain ⟨-, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hmb'
         exact hyi' ▸ hy
       obtain rfl : cp = cp' :=
-        GuardedPlusCal.EvalStep.path_inj ((Ref.EvalArgs.congr_of_agree hagree).mp hcp) hcp'
+        GuardedPlusCal.EvalStep.path_inj ((Ref.EvalArgs.congr_of_agree hΞ hagree).mp hcp) hcp'
       exact hlk'
     have hsbr := hpr.srcBranchesRefine (mbox := mbox psrc.name inbox)
     -- either some scheduled owned label has a source branch that aborts, or all block
@@ -203,7 +205,7 @@ omit [SeqBuiltins V] in
 deadlocked now — is matched by the source's, or by the source aborting now. Per-instance dispatch:
 `procBlockTransfer` for the wedged processes, `procDoneTransfer` for the finished ones, and one
 aborting instance is enough to land in the aborting fallback. -/
-theorem algRelatesTo.immediateBlock
+theorem algRelatesTo.immediateBlock (hΞ : Ξ.WellScoped)
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) :
     StrongRefinement.Blocking (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
@@ -239,13 +241,13 @@ theorem algRelatesTo.immediateBlock
   · refine .inl ⟨ε, by trace_rel, ?_, ?_⟩
     · -- at least one source instance is genuinely blocked: `p₀`'s target is
       obtain ⟨σₛ₀, hσₛ₀⟩ := hpair p₀ σ₀ hp₀
-      rcases procBlockTransfer href used hrel' hσₛ₀ hp₀ hp₀blk with hb | ha
+      rcases procBlockTransfer hΞ href used hrel' hσₛ₀ hp₀ hp₀blk with hb | ha
       · exact ⟨p₀, σₛ₀, hσₛ₀, hb⟩
       · exact (habort ⟨p₀, σₛ₀, hσₛ₀, ha⟩).elim
     · intro q σₛ hq
       obtain ⟨σₜ, hqt⟩ := hpair' q σₛ hq
       rcases hall q σₜ hqt with hbt | hdt
-      · rcases procBlockTransfer href used hrel' hq hqt hbt with hb | ha
+      · rcases procBlockTransfer hΞ href used hrel' hq hqt hbt with hb | ha
         · exact .inl hb
         · exact (habort ⟨q, σₛ, hq, ha⟩).elim
       · exact .inr (procDoneTransfer href hrel' hq hqt hdt)
@@ -255,22 +257,22 @@ omit [SeqBuiltins V] in
 immediateBlock`, so this is `Blocking.starStutter` at that — the immediate half above, lifted over
 the run that precedes it by the same per-step `Terminating` the reducing and aborting halves use.
 Any `T_rx` relay steps in that prefix stutter on the source side. -/
-theorem algRelatesTo.blocking [DecidableEq V]
+theorem algRelatesTo.blocking (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement.Blocking (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
       (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).blocking
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').blocking :=
-  StrongRefinement.Blocking.starStutter (algRelatesTo.terminating href used fresh)
-    (algRelatesTo.immediateBlock href used)
+  StrongRefinement.Blocking.starStutter (algRelatesTo.terminating hΞ href used fresh)
+    (algRelatesTo.immediateBlock hΞ href used)
 
 omit [SeqBuiltins V] in
 /-- **The terminating semantics, the paper's `⟦A⟧⁺`.** `terminating_reducing` cut down to runs that
 end in a done configuration on both sides. The target restriction is free (`Terminating.Mono`); the
 source restriction rides on `algRelatesTo.isDone_of`, since a shorter source set is otherwise harder
 to land in. -/
-theorem algRelatesTo.terminating_done [DecidableEq V]
+theorem algRelatesTo.terminating_done (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement.Terminating (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
@@ -279,7 +281,7 @@ theorem algRelatesTo.terminating_done [DecidableEq V]
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).terminating
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').terminating :=
-  StrongRefinement.Terminating.restrictEnd (algRelatesTo.terminating_reducing href used fresh)
+  StrongRefinement.Terminating.restrictEnd (algRelatesTo.terminating_reducing hΞ href used fresh)
     (fun _ _ hR hdone ↦ algRelatesTo.isDone_of href hR hdone)
 
 omit [SeqBuiltins V] in
@@ -289,7 +291,7 @@ omit [SeqBuiltins V] in
 `href`/`used`/`fresh` are established from a compiled algorithm by `Algorithm.toNetwork_spec`
 and the front end, and `algRelatesTo` at the initial states by `Algorithm.init`; the refinement
 argument asks for nothing beyond those. -/
-theorem algRelatesTo.refines [DecidableEq V]
+theorem algRelatesTo.refines (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
@@ -302,10 +304,10 @@ theorem algRelatesTo.refines [DecidableEq V]
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).blocking
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').blocking where
-  terminating := algRelatesTo.terminating_done href used fresh
-  aborting := algRelatesTo.aborting href used fresh
-  diverging := algRelatesTo.diverging href used fresh
-  blocking := algRelatesTo.blocking href used fresh
+  terminating := algRelatesTo.terminating_done hΞ href used fresh
+  aborting := algRelatesTo.aborting hΞ href used fresh
+  diverging := algRelatesTo.diverging hΞ href used fresh
+  blocking := algRelatesTo.blocking hΞ href used fresh
 
 open Std.Do in
 /-- **The pass is correct.** Compiling an algorithm yields one whose algebra refines the source's,
@@ -322,7 +324,7 @@ receives on (`checkReceiveChannels`).
 
 Relating `Algorithm.init`'s initial states under `algRelatesTo` is a separate statement, and
 `Algorithm.toNetwork_spec` reports `globalState` because that is what it is stated against. -/
-theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String → Mailbox}
+theorem Algorithm.toNetwork_refines (hΞ : Ξ.WellScoped) [DecidableEq V] {mbox : String → String → Mailbox}
   {c₀ : String → ComputableGuardedPlusCal.Ref} {algo : ComputableGuardedPlusCal.Algorithm}
   (fresh : AlgorithmFresh mbox c₀ algo) (used : MailboxUsed mbox algo) :
     ⦃⌜True⌝⦄
@@ -339,10 +341,10 @@ theorem Algorithm.toNetwork_refines [DecidableEq V] {mbox : String → String �
         (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).blocking
         (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').blocking⌝⦄ := by
   refine triple_forall (ι := ChanKey V → List V)
-    (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) fresh) ?_
+    (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref) hΞ fresh) ?_
   intro algo' h
   exact ⟨(h λ _ ↦ []).1,
-    algRelatesTo.refines (λ pref ↦ (h pref).2) used fresh⟩
+    algRelatesTo.refines hΞ (λ pref ↦ (h pref).2) used fresh⟩
 
 end Guarded2Network
 

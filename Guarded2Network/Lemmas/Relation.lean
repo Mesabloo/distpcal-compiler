@@ -33,10 +33,12 @@ public import Core.NetworkPlusCal.Semantics.Process
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory OperatorEnv Model)
 open GuardedPlusCal (AlgState ChanKey EvalStep FIFOs LocalState ProcState)
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- The channel a process receives from, paired with the `inbox` variable `Guarded2Network` gave it
 — `none` when the process contains no `receive` at all and so got neither. -/
@@ -292,7 +294,7 @@ end Chan
 
 /-- What one instance's `inbox` accounts for: the FIFO key it receives on, and the values it has
 already taken off that FIFO but not yet consumed. -/
-structure InboxState (V : Type) : Type where
+structure InboxState (V : Type u) : Type u where
   /-- The resolved key of the channel this instance receives on. -/
   key : ChanKey V
   /-- What the instance's `inbox` currently holds, in FIFO order. -/
@@ -350,7 +352,7 @@ this rides along; establishing it initially is `Algorithm.init`'s business.
 instance" is definitional on both sides — nothing to carry. The one clause that *does* still need
 stating is that the two sides agree on which instances exist and how they relate, which is the
 `match` below: `Ps p`/`Qs p` are either both absent or both present and `procRelatesTo`-related. -/
-def algRelatesTo (Ξ : OperatorEnv) (Ω : Model V) {ι : Type} (mb : ι → Mailbox) :
+def algRelatesTo (Ξ : OperatorEnv) (Ω : Model V) {ι : Type u} (mb : ι → Mailbox) :
     Rel (AlgState ι V) (AlgState ι V) :=
   λ ⟨Ps, F₁⟩ ⟨Qs, F₂⟩ ↦
     ∃ (ib : ι → Option (InboxState V)) (pref : ChanKey V → List V),
@@ -380,7 +382,7 @@ scoped notation:60 Sₛ:60 " ≋[" Ξ:0 ", " Ω:0 ", " mb:0 "] " Sₜ:60 =>
 
 namespace algRelatesTo
 
-variable {ι : Type} {mb : ι → Mailbox} {Sₛ Sₜ : AlgState ι V}
+variable {ι : Type u} {mb : ι → Mailbox} {Sₛ Sₜ : AlgState ι V}
 
 /-- Every source instance has a related target instance. -/
 theorem forward (h : Sₛ ≋[Ξ, Ω, mb] Sₜ) :

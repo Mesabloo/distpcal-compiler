@@ -100,6 +100,8 @@ Generic data-structure lemmas and instances.
 - `FreeVars.lean` — free-variable and freshness predicates.
 - `Subst.lean` — substitution.
 - `Semantics/Interface.lean` — `ExprSemantics`, the abstract expression layer.
+- `Semantics/Value.lean` — the concrete value domain `Value := ZFSet` and its literal encodings.
+- `Semantics/Operational.lean` — the concrete `ExprSemantics Value` instance: `Eval` as an inductive relation.
 
 ## `Core/GuardedPlusCal/`
 - `Syntax.lean` — the flat statement AST and `Block`'s list-like interface.

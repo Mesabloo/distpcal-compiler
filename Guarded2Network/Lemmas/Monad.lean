@@ -71,7 +71,7 @@ The precondition is `⌜True⌝` rather than general because that is what every 
 general one would have to be assumed at every `i` separately. `himp` rides along because the caller
 always wants to *spend* the family rather than report it, and weakening a postcondition afterwards
 would need a `PostCond.entails` built by hand. -/
-theorem triple_forall {α ι : Type} {x : G2NM α} {Q : ι → α → Prop} {R : α → Prop}
+theorem triple_forall {α : Type} {ι : Type _} {x : G2NM α} {Q : ι → α → Prop} {R : α → Prop}
     (h : ∀ i, ⦃⌜True⌝⦄ x ⦃⇓? a => ⌜Q i a⌝⦄) (himp : ∀ a, (∀ i, Q i a) → R a) :
     ⦃⌜True⌝⦄ x ⦃⇓? a => ⌜R a⌝⦄ := by
   intro n _

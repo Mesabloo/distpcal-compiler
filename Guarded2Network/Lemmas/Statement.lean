@@ -22,20 +22,22 @@ public import Guarded2Network.Lemmas.Trace
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Expression Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (ChanKey EvalStep LocalState)
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! ## Evaluation transfer -/
 
 /-- Binding a name the expression cannot read leaves its value alone. The one-name case of
 `ExprSemantics.evalLocal`, which is the only case the pass ever needs: it introduces `inbox` and
 nothing else. -/
-theorem eval_insert_of_fresh {M : Memory V} {x : String} {v' v : V}
+theorem eval_insert_of_fresh (hΞ : Ξ.WellScoped) {M : Memory V} {x : String} {v' v : V}
     {e : ComputablePlusCal.Expression} (fresh : Expression.FreshIn x e) :
     ExprSemantics.Eval Ξ Ω (M.insert x v') e v ↔ ExprSemantics.Eval Ξ Ω M e v := by
-  apply ExprSemantics.evalLocal
+  apply ExprSemantics.evalLocal hΞ
   intro y hy
   apply Finmap.lookup_insert_of_ne _
   rintro rfl
@@ -43,12 +45,12 @@ theorem eval_insert_of_fresh {M : Memory V} {x : String} {v' v : V}
 
 /-- Related states evaluate a source expression to the same values, provided the expression does
 not mention `inbox` — which no source expression does, `inbox` being freshly generated. -/
-theorem relatesTo.eval_iff {c : ComputableGuardedPlusCal.Ref} {inbox : String}
+theorem relatesTo.eval_iff (hΞ : Ξ.WellScoped) {c : ComputableGuardedPlusCal.Ref} {inbox : String}
     {pref : ChanKey V → List V}
     {σₛ σₜ : LocalState V} (h : σₛ ∼[Ξ, Ω,.some (c, inbox), pref] σₜ)
     {e : ComputablePlusCal.Expression} {v : V} (fresh : Expression.FreshIn inbox e) :
     ExprSemantics.Eval Ξ Ω σₛ.mem e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v := by
-  apply ExprSemantics.evalLocal
+  apply ExprSemantics.evalLocal hΞ
   intro y hy
   apply h.mem_agree
   rintro rfl
@@ -64,14 +66,14 @@ theorem relatesTo.eval_iff_none {pref : ChanKey V → List V} {σₛ σₜ : Loc
 
 /-- Both cases at once, with the freshness hypothesis stated so that it is vacuous when there is no
 mailbox — the form a lemma quantified over an arbitrary `mbox` needs. -/
-theorem relatesTo.eval_iff' {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
-    (h : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
+theorem relatesTo.eval_iff' (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
+    {σₛ σₜ : LocalState V} (h : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
     {e : ComputablePlusCal.Expression} {v : V}
     (fresh : ∀ c inbox, mbox = .some (c, inbox) → Expression.FreshIn inbox e) :
     ExprSemantics.Eval Ξ Ω σₛ.mem e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v := by
   match mbox with
   | .none => exact h.eval_iff_none
-  | .some (c, inbox) => exact h.eval_iff (fresh c inbox rfl)
+  | .some (c, inbox) => exact h.eval_iff hΞ (fresh c inbox rfl)
 
 /-! ## Reference arguments -/
 
@@ -138,8 +140,8 @@ theorem Ref.EvalArgs.not_pathAborts {M : Memory V} {r : ComputableGuardedPlusCal
 Stated over the names read rather than over a single excepted name, because that is the form a
 *block* needs — a block writes one name per statement, so "all but one" is never the shape on offer
 past the first step. `congr_of_fresh` below is the one-name case. -/
-theorem Ref.EvalArgs.congr_of_agree {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref}
-    {path : List (PathStep V)}
+theorem Ref.EvalArgs.congr_of_agree (hΞ : Ξ.WellScoped) {M₁ M₂ : Memory V}
+    {r : ComputableGuardedPlusCal.Ref} {path : List (PathStep V)}
     (agree : ∀ y ∈ GuardedPlusCal.Ref.freeVars r, M₁.lookup y = M₂.lookup y) :
     Ref.EvalArgs Ξ Ω M₁ r path ↔ Ref.EvalArgs Ξ Ω M₂ r path := by
   unfold Ref.EvalArgs
@@ -169,7 +171,7 @@ theorem Ref.EvalArgs.congr_of_agree {M₁ M₂ : Memory V} {r : ComputableGuarde
           | field f => exact EvalStep.field f
           | index hv =>
             apply EvalStep.index
-            exact (ExprSemantics.evalLocal (hhead _ rfl)).mp hv
+            exact (ExprSemantics.evalLocal hΞ (hhead _ rfl)).mp hv
       · cases h with
         | cons hstep hrest =>
           refine List.Forall₂.cons ?_ ((ih _ htail).mpr hrest)
@@ -177,17 +179,17 @@ theorem Ref.EvalArgs.congr_of_agree {M₁ M₂ : Memory V} {r : ComputableGuarde
           | field f => exact EvalStep.field f
           | index hv =>
             apply EvalStep.index
-            exact (ExprSemantics.evalLocal (hhead _ rfl)).mpr hv
+            exact (ExprSemantics.evalLocal hΞ (hhead _ rfl)).mpr hv
   exact step r.args path (λ e he y hy ↦ agree y (Ref.freeVars_of_mem_args he hy))
 
 /-- The one-name case of `congr_of_agree`: memories agreeing away from `inbox` resolve a reference's
 path identically, provided the reference does not read `inbox`. -/
-theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuardedPlusCal.Ref}
-    {inbox : String} {path : List (PathStep V)}
+theorem Ref.EvalArgs.congr_of_fresh (hΞ : Ξ.WellScoped) {M₁ M₂ : Memory V}
+    {r : ComputableGuardedPlusCal.Ref} {inbox : String} {path : List (PathStep V)}
     (agree : ∀ x ≠ inbox, M₁.lookup x = M₂.lookup x)
     (fresh : inbox ∉ GuardedPlusCal.Ref.freeVars r) :
     Ref.EvalArgs Ξ Ω M₁ r path ↔ Ref.EvalArgs Ξ Ω M₂ r path := by
-  refine Ref.EvalArgs.congr_of_agree (λ y hy ↦ agree y ?_)
+  refine Ref.EvalArgs.congr_of_agree hΞ (λ y hy ↦ agree y ?_)
   rintro rfl
   exact fresh hy
 
@@ -195,13 +197,14 @@ theorem Ref.EvalArgs.congr_of_fresh {M₁ M₂ : Memory V} {r : ComputableGuarde
 shape — vacuous when the process has no mailbox, where the memories agree outright. The `EvalArgs`
 counterpart of `relatesTo.eval_iff'`, and what keeps a simulation from having to know whether the
 process receives before it can move a resolved path across. -/
-theorem relatesTo.evalArgs_iff {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
+theorem relatesTo.evalArgs_iff (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
+    {σₛ σₜ : LocalState V}
     (h : σₛ ∼[Ξ, Ω,mbox, pref] σₜ) {r : ComputableGuardedPlusCal.Ref} {path : List (PathStep V)}
     (fresh : ∀ c inbox, mbox = .some (c, inbox) → inbox ∉ GuardedPlusCal.Ref.freeVars r) :
     Ref.EvalArgs Ξ Ω σₛ.mem r path ↔ Ref.EvalArgs Ξ Ω σₜ.mem r path := by
   match mbox with
   | .none => rw [h.mem_eq]
-  | .some (c, inbox) => exact Ref.EvalArgs.congr_of_fresh h.mem_agree (fresh c inbox rfl)
+  | .some (c, inbox) => exact Ref.EvalArgs.congr_of_fresh hΞ h.mem_agree (fresh c inbox rfl)
 
 /-! ## Transferring a memory update
 
@@ -256,7 +259,8 @@ name must be neither the generated `inbox` — else the target's mailbox content
 the mailbox channel is indexed by — else the key the invariant pins would move out from under it.
 Both conditions arrive from `Fresh` already in the guarded shape, so no use site case-splits on
 `mbox`. -/
-theorem relatesTo.mem_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σₛ σₜ : LocalState V}
+theorem relatesTo.mem_congr (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
+    {σₛ σₜ : LocalState V}
     {M₁ M₂ : Memory V} {x : String} (h : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
     (hbox : ∀ c inbox, mbox = .some (c, inbox) →
       x ≠ inbox ∧ x ∉ GuardedPlusCal.Ref.freeVars c)
@@ -284,7 +288,7 @@ theorem relatesTo.mem_congr {mbox : Mailbox} {pref : ChanKey V → List V} {σ�
     refine ⟨λ y hy ↦ hagree y ?_, cpath, sv, vs, ?_, ?_, hseq, hoff, hsplit⟩
     · rintro _ _ ⟨rfl, rfl⟩
       exact hy
-    · exact (Ref.EvalArgs.congr_of_fresh hs hxc).mpr hpath
+    · exact (Ref.EvalArgs.congr_of_fresh hΞ hs hxc).mpr hpath
     · rw [LocalState.mem_mk, ht inbox (Ne.symm hxi)]
       exact hinbox
 
@@ -345,7 +349,8 @@ and `relatesTo.mem_congr` for `assign`, `relatesTo.fifo_push` for `send`, and
 Nothing here splits on `mbox`. Every hypothesis `Fresh` supplies is already guarded by
 `mbox = .some (c, inbox)`, and every fact taken off `sim` — `mem_agree'`, `eval_iff'`,
 `evalArgs_iff`, `fifo_split` and the transport lemmas — holds in both cases. -/
-theorem Statement.reducing_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
+theorem Statement.reducing_sim (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
+    {b : Bool}
     (S : ComputableGuardedPlusCal.Statement false b) (fresh : Fresh mbox S)
     {σₛ σₜ σₜ' : LocalState V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
     (step : (⟨σₜ, ε, σₜ'⟩ : LocalState V × GuardedPlusCal.Trace V × LocalState V) ∈
@@ -378,14 +383,14 @@ theorem Statement.reducing_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
     subst hlabel
     refine ⟨⟨M₁, F₁, .none⟩, sim.label_congr .none,
       GuardedPlusCal.Statement.reducing.print.intro ⟨M₁, F₁, v, p, rfl, rfl, ?_, ?_, rfl⟩⟩
-    · exact (sim.eval_iff' λ c i h ↦ (fresh c i h).1).mpr hv
+    · exact (sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1).mpr hv
     · exact (hself GuardedPlusCal.selfName λ c i h ↦ (fresh c i h).2.1).trans hp
   | assert e =>
     obtain ⟨M, F, rfl, rfl, hv, rfl⟩ := step
     subst hlabel
     refine ⟨⟨M₁, F₁, .none⟩, sim.label_congr .none,
       GuardedPlusCal.Statement.reducing.assert.intro ⟨M₁, F₁, rfl, rfl, ?_, rfl⟩⟩
-    exact (sim.eval_iff' λ c i h ↦ (fresh c i h).1).mpr hv
+    exact (sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1).mpr hv
   | multicast c filter => exact step.elim
   | assign r e =>
     obtain ⟨M, F, M', v, rpath, hv, hrpath, hupd, rfl, rfl, rfl⟩ := step
@@ -406,10 +411,10 @@ theorem Statement.reducing_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
     refine ⟨⟨M₁', F₁, .none⟩, ?_,
       GuardedPlusCal.Statement.reducing.assign.intro
           ⟨M₁, F₁, M₁', v, rpath, ?_, ?_, hupd₁, rfl, rfl, rfl⟩⟩
-    · exact sim.mem_congr hbox (λ y hy ↦ Memory.lookup_update_ne hupd₁ hy)
+    · exact sim.mem_congr hΞ hbox (λ y hy ↦ Memory.lookup_update_ne hupd₁ hy)
         (λ y hy ↦ Memory.lookup_update_ne hupd hy) hx.symm .none
-    · exact (sim.eval_iff' λ c i h ↦ (fresh_split (fresh c i h).1).2).mpr hv
-    · exact (sim.evalArgs_iff hfr).mpr hrpath
+    · exact (sim.eval_iff' hΞ λ c i h ↦ (fresh_split (fresh c i h).1).2).mpr hv
+    · exact (sim.evalArgs_iff hΞ hfr).mpr hrpath
   | send c e =>
     obtain ⟨M, F, v, cpath, vs, p, hv, hcpath, hlk, hp, rfl, rfl, rfl⟩ := step
     subst hlabel
@@ -421,8 +426,8 @@ theorem Statement.reducing_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
       sim.fifo_push hlk hlk₁ v .none,
       GuardedPlusCal.Statement.reducing.send.intro
           ⟨M₁, F₁, v, cpath, ws ++ vs, p, ?_, ?_, hlk₁, ?_, rfl, rfl, rfl⟩⟩
-    · exact (sim.eval_iff' λ c' i h ↦ (fresh_split (fresh c' i h).1).2).mpr hv
-    · exact (sim.evalArgs_iff λ c' i h ↦ (fresh_split (fresh c' i h).1).1).mpr hcpath
+    · exact (sim.eval_iff' hΞ λ c' i h ↦ (fresh_split (fresh c' i h).1).2).mpr hv
+    · exact (sim.evalArgs_iff hΞ λ c' i h ↦ (fresh_split (fresh c' i h).1).1).mpr hcpath
     · exact (hself GuardedPlusCal.selfName λ c' i h ↦ (fresh c' i h).2.1).trans hp
 
 /-- The aborting counterpart of `reducing'_sim`, and the simpler statement: an abort emits nothing,
@@ -430,7 +435,8 @@ so the source aborts on the *same* trace rather than on a prefix of the target's
 abort disjuncts transfer one by one — a failed evaluation stays failed (`eval_iff'`), an unresolvable
 index path stays unresolvable, a missing FIFO stays missing (`relatesTo.fifo_lookup_none`), and a
 failed update stays failed. -/
-theorem Statement.aborting_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
+theorem Statement.aborting_sim (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
+    {b : Bool}
     (S : ComputableGuardedPlusCal.Statement false b) (fresh : Fresh mbox S)
     {σₛ σₜ : LocalState V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
     (step : (⟨σₜ, ε⟩ : LocalState V × GuardedPlusCal.Trace V) ∈
@@ -445,7 +451,7 @@ theorem Statement.aborting_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
   have habort : ∀ {e : ComputablePlusCal.Expression},
       (∀ c i, mbox = .some (c, i) → Expression.FreshIn i e) →
         ExprSemantics.Aborts Ξ Ω σₜ.mem e → ExprSemantics.Aborts Ξ Ω M₁ e :=
-    λ hfe hab ⟨v, hv⟩ ↦ hab ⟨v, (sim.eval_iff' hfe).mp hv⟩
+    λ hfe hab ⟨v, hv⟩ ↦ hab ⟨v, (sim.eval_iff' hΞ hfe).mp hv⟩
   -- and likewise for a reference's index path
   have hpaths : ∀ {r : ComputableGuardedPlusCal.Ref},
       (∀ c i, mbox = .some (c, i) → i ∉ GuardedPlusCal.Ref.freeVars r) →
@@ -468,7 +474,7 @@ theorem Statement.aborting_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
     rcases step with ⟨M, F, hab, rfl, rfl⟩ | ⟨M, F, v, hv, hvv, rfl, rfl⟩
     · subst hlabel; exact .inl ⟨M₁, F₁, habort (λ c i h ↦ (fresh c i h).1) hab, rfl, rfl⟩
     · subst hlabel
-      exact .inr ⟨M₁, F₁, v, hv, (sim.eval_iff' λ c i h ↦ (fresh c i h).1).mpr hvv, rfl, rfl⟩
+      exact .inr ⟨M₁, F₁, v, hv, (sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1).mpr hvv, rfl, rfl⟩
   | assign r e =>
     have hfr : ∀ c i, mbox = .some (c, i) → i ∉ GuardedPlusCal.Ref.freeVars r :=
       λ c i h ↦ (fresh_split (fresh c i h).1).1
@@ -487,8 +493,8 @@ theorem Statement.aborting_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
     · subst hlabel; exact .inl (.inl (.inr ⟨M₁, F₁, habort hfe hab, rfl, rfl⟩))
     · subst hlabel; exact .inl (.inr ⟨M₁, F₁, hpaths hfr hab, rfl, rfl⟩)
     · subst hlabel
-      refine .inr ⟨M₁, F₁, v, rpath, (sim.eval_iff' hfe).mpr hv, ?_, ?_, rfl, rfl⟩
-      · exact (sim.evalArgs_iff hfr).mpr hrpath
+      refine .inr ⟨M₁, F₁, v, rpath, (sim.eval_iff' hΞ hfe).mpr hv, ?_, ?_, rfl, rfl⟩
+      · exact (sim.evalArgs_iff hΞ hfr).mpr hrpath
       · exact Memory.update_none_transfer (hagree r.name hrname) hupd
   | send c e =>
     have hfc : ∀ c' i, mbox = .some (c', i) → i ∉ GuardedPlusCal.Ref.freeVars c :=
@@ -501,7 +507,7 @@ theorem Statement.aborting_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
     · subst hlabel; exact .inl (.inr ⟨M₁, F₁, hpaths hfc hab, rfl, rfl⟩)
     -- the FIFO the channel resolves to is absent in the target exactly when it is in the source
     · subst hlabel
-      exact .inr ⟨M₁, F₁, cpath, (sim.evalArgs_iff hfc).mpr hcpath,
+      exact .inr ⟨M₁, F₁, cpath, (sim.evalArgs_iff hΞ hfc).mpr hcpath,
         sim.fifo_lookup_none hlk, rfl, rfl⟩
 
 /-! ## The guard class
@@ -516,7 +522,8 @@ theorem Statement.aborting_sim {mbox : Mailbox} {pref : ChanKey V → List V} {b
 /-- `Statement.reducing_sim` for the guard class. `await` reads an expression and changes nothing;
 `with` additionally binds a name, and the binding is invisible to the invariant exactly because
 `Fresh` says the bound name is neither `inbox` nor read by the mailbox channel's index path. -/
-theorem Statement.guardReducing'_sim {mbox : Mailbox} {pref : ChanKey V → List V}
+theorem Statement.guardReducing'_sim (hΞ : Ξ.WellScoped) {mbox : Mailbox}
+    {pref : ChanKey V → List V}
     (S : ComputableGuardedPlusCal.Statement true false)
     (notRecv : ∀ c r coe, S ≠ .receive c r coe) (fresh : Fresh mbox S)
     {σₛ σₜ σₜ' : LocalState V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
@@ -538,11 +545,11 @@ theorem Statement.guardReducing'_sim {mbox : Mailbox} {pref : ChanKey V → List
       λ c i h ↦ ⟨(fresh c i h).2.2.2 x rfl, (fresh c i h).2.2.1 x rfl⟩
     have hnone₁ : Finmap.lookup x M₁ = .none :=
       (hagree x λ c i h ↦ (hbox c i h).1).trans hnone
-    have hv₁ : ExprSemantics.Eval Ξ Ω M₁ e v := (sim.eval_iff' λ c i h ↦ (fresh c i h).1).mpr hv
+    have hv₁ : ExprSemantics.Eval Ξ Ω M₁ e v := (sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1).mpr hv
     -- so the same value is bound in both memories and neither half of the invariant moves
     have hrel : ∀ u : V, (⟨Finmap.insert x u M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω,mbox, pref]
         ⟨Finmap.insert x u M, F, .none⟩ := by
-      refine λ u ↦ sim.mem_congr hbox (λ y hy ↦ Finmap.lookup_insert_of_ne _ hy)
+      refine λ u ↦ sim.mem_congr hΞ hbox (λ y hy ↦ Finmap.lookup_insert_of_ne _ hy)
         (λ y hy ↦ Finmap.lookup_insert_of_ne _ hy) ?_ .none
       rw [Finmap.lookup_insert, Finmap.lookup_insert]
     cases bound with
@@ -561,7 +568,7 @@ theorem Statement.guardReducing'_sim {mbox : Mailbox} {pref : ChanKey V → List
     subst hlabel
     exact ⟨⟨M₁, F₁, .none⟩, sim.label_congr .none,
       GuardedPlusCal.Statement.reducing.await.intro
-          ⟨M₁, F₁, rfl, rfl, (sim.eval_iff' λ c i h ↦ (fresh c i h).1).mpr hv, rfl⟩⟩
+          ⟨M₁, F₁, rfl, rfl, (sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1).mpr hv, rfl⟩⟩
   | receive c r coe =>
     absurd (rfl : GuardedPlusCal.Statement.receive c r coe = .receive c r coe)
     exact notRecv c r coe
@@ -569,7 +576,8 @@ theorem Statement.guardReducing'_sim {mbox : Mailbox} {pref : ChanKey V → List
 /-- `Statement.aborting_sim` for the guard class. Both constructors abort on exactly two things —
 the expression having no value, or having one of the wrong shape — and both transfer by
 `relatesTo.eval_iff'`, in the aborting case through `ExprSemantics.aborts_congr`. -/
-theorem Statement.guardAborting'_sim {mbox : Mailbox} {pref : ChanKey V → List V}
+theorem Statement.guardAborting'_sim (hΞ : Ξ.WellScoped) {mbox : Mailbox}
+    {pref : ChanKey V → List V}
     (S : ComputableGuardedPlusCal.Statement true false)
     (notRecv : ∀ c r coe, S ≠ .receive c r coe) (fresh : Fresh mbox S)
     {σₛ σₜ : LocalState V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
@@ -582,14 +590,14 @@ theorem Statement.guardAborting'_sim {mbox : Mailbox} {pref : ChanKey V → List
   cases S with
   | «with» x ann bound e =>
     have heval {v : V} : ExprSemantics.Eval Ξ Ω M₁ e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v :=
-      sim.eval_iff' λ c i h ↦ (fresh c i h).1
+      sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1
     refine GuardedPlusCal.Statement.aborting.with.intro ?_
     rcases step with ⟨M, F, ha, rfl, rfl⟩ | ⟨M, F, v, hv, rfl, rfl, hset⟩
     · subst hlabel; exact .inl ⟨M₁, F₁, (ExprSemantics.aborts_congr λ _ ↦ heval).mpr ha, rfl, rfl⟩
     · subst hlabel; exact .inr ⟨M₁, F₁, v, heval.mpr hv, rfl, rfl, hset⟩
   | await e =>
     have heval {v : V} : ExprSemantics.Eval Ξ Ω M₁ e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v :=
-      sim.eval_iff' λ c i h ↦ (fresh c i h).1
+      sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1
     refine GuardedPlusCal.Statement.aborting.await.intro ?_
     rcases step with ⟨M, F, ha, rfl, rfl⟩ | ⟨M, F, v, hbool, hv, rfl, rfl⟩
     · subst hlabel; exact .inl ⟨M₁, F₁, (ExprSemantics.aborts_congr λ _ ↦ heval).mpr ha, rfl, rfl⟩
@@ -603,7 +611,8 @@ present-but-empty set; both conditions are about the guard expression's value, w
 `relatesTo.eval_iff'` carries across. `receive` is excluded — its blocking is not `relatesTo`-stable
 (a message can sit in the mailbox unrelayed), and is handled at the algorithm level where the channel
 is known drained. -/
-theorem Statement.guardBlocking'_sim {mbox : Mailbox} {pref : ChanKey V → List V}
+theorem Statement.guardBlocking'_sim (hΞ : Ξ.WellScoped) {mbox : Mailbox}
+    {pref : ChanKey V → List V}
     (S : ComputableGuardedPlusCal.Statement true false)
     (notRecv : ∀ c r coe, S ≠ .receive c r coe) (fresh : Fresh mbox S)
     {σₛ σₜ : LocalState V} {ε : GuardedPlusCal.Trace V} (sim : σₛ ∼[Ξ, Ω,mbox, pref] σₜ)
@@ -616,13 +625,13 @@ theorem Statement.guardBlocking'_sim {mbox : Mailbox} {pref : ChanKey V → List
   cases S with
   | «with» x ann bound e =>
     have heval {v : V} : ExprSemantics.Eval Ξ Ω M₁ e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v :=
-      sim.eval_iff' λ c i h ↦ (fresh c i h).1
+      sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1
     obtain ⟨M, F, v, hv, rfl, rfl, hb⟩ := step
     subst hlabel
     exact ⟨M₁, F₁, v, heval.mpr hv, rfl, rfl, hb⟩
   | await e =>
     have heval {v : V} : ExprSemantics.Eval Ξ Ω M₁ e v ↔ ExprSemantics.Eval Ξ Ω σₜ.mem e v :=
-      sim.eval_iff' λ c i h ↦ (fresh c i h).1
+      sim.eval_iff' hΞ λ c i h ↦ (fresh c i h).1
     obtain ⟨M, F, v, hbool, hne, hv, rfl, rfl⟩ := step
     subst hlabel
     exact ⟨M₁, F₁, v, hbool, hne, heval.mpr hv, rfl, rfl⟩
@@ -721,7 +730,7 @@ The three components come out very differently. `terminating` is the whole of `r
 `aborting` is `aborting'_sim` with the `≼[Rτ]` obligation trivial, an abort emitting the empty
 trace; `diverging` is vacuous, a statement having no non-terminating semantics at all — divergence
 enters only at the block and algorithm layers. -/
-theorem action_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
+theorem action_refines (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
     (S : ComputableGuardedPlusCal.Statement false b) (fresh : Fresh mbox S) :
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
       (GuardedPlusCal.Statement.reducing Ξ Ω S) (GuardedPlusCal.Statement.aborting Ξ Ω S)
@@ -734,7 +743,7 @@ theorem action_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
       (instTrace (V := V)).Rτ (GuardedPlusCal.Statement.reducing Ξ Ω S)
       (GuardedPlusCal.Statement.aborting Ξ Ω S) (GuardedPlusCal.Statement.reducing Ξ Ω S) := by
     intro σₜ σₜ' ε σₛ sim step
-    obtain ⟨σₛ', hrel, hstep⟩ := Statement.reducing_sim S fresh sim step
+    obtain ⟨σₛ', hrel, hstep⟩ := Statement.reducing_sim hΞ S fresh sim step
     refines_match σₛ', ε
     · exact hrel
     · trace_rel
@@ -744,7 +753,7 @@ theorem action_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
     intro σₜ ε σₛ sim step
     refines_abort ε
     · trace_pfx
-    · exact Statement.aborting_sim S fresh sim step
+    · exact Statement.aborting_sim hΞ S fresh sim step
   -- the target cannot diverge, so the framework supplies the third component itself
   rw [convertActionStmt_reducing', convertActionStmt_aborting', convertActionStmt_diverging',
     GuardedPlusCal.Statement.diverging_eq_empty]
@@ -754,7 +763,7 @@ theorem action_refines {mbox : Mailbox} {pref : ChanKey V → List V} {b : Bool}
 constructors denoting the same relation (`with_reducing'_eq` and friends). Stated on the *source*
 semantics for the same reason `action_refines` is stated through `convertActionStmt`: the target's
 semantics is the source's, and saying so once keeps the two languages out of the proof. -/
-theorem guard_refines {mbox : Mailbox} {pref : ChanKey V → List V}
+theorem guard_refines (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanKey V → List V}
     (S : ComputableGuardedPlusCal.Statement true false)
     (notRecv : ∀ c r coe, S ≠ .receive c r coe) (fresh : Fresh mbox S) :
     StrongRefinement (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
@@ -763,7 +772,7 @@ theorem guard_refines {mbox : Mailbox} {pref : ChanKey V → List V}
       (GuardedPlusCal.Statement.reducing Ξ Ω S) (GuardedPlusCal.Statement.aborting Ξ Ω S) ∅ ∅ ∅ := by
   refine StrongRefinement.ofNonDiverging (relatesTo (V := V) Ξ Ω mbox pref) ?_ ?_
   · intro σₜ σₜ' ε σₛ sim step
-    obtain ⟨σₛ', hrel, hstep⟩ := Statement.guardReducing'_sim S notRecv fresh sim step
+    obtain ⟨σₛ', hrel, hstep⟩ := Statement.guardReducing'_sim hΞ S notRecv fresh sim step
     refines_match σₛ', ε
     · exact hrel
     · trace_rel
@@ -771,7 +780,7 @@ theorem guard_refines {mbox : Mailbox} {pref : ChanKey V → List V}
   · intro σₜ ε σₛ sim step
     refines_abort ε
     · trace_pfx
-    · exact Statement.guardAborting'_sim S notRecv fresh sim step
+    · exact Statement.guardAborting'_sim hΞ S notRecv fresh sim step
 
 end Guarded2Network
 

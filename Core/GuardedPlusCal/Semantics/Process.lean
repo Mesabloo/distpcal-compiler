@@ -35,16 +35,18 @@ namespace GuardedPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 
-variable {V : Type} {ι : Type}
+universe u
+
+variable {V : Type u} {ι : Type u}
 
 /-- A process state: the process's local memory together with the set of labels currently scheduled
 for execution — at most one per thread, though nothing here enforces that. The paper's
 `PState = (Var → Value) × 𝒫(Labels)`. -/
-abbrev ProcState (V : Type) : Type := Memory V × Set String
+abbrev ProcState (V : Type u) : Type u := Memory V × Set String
 
 /-- A process's full state, including the channels it can see. Channels are global, so the algorithm
 layer threads one copy through every process rather than giving each its own. -/
-abbrev ProcConfig (V : Type) : Type := ProcState V × FIFOs V
+abbrev ProcConfig (V : Type u) : Type u := ProcState V × FIFOs V
 
 /-- The paper's `Ξₚ`: what the atomic block at each label does, together with any step the process
 takes with no label scheduled. `reducing`/`aborting` are keyed by label — a block can step or go
@@ -54,7 +56,7 @@ every statement being a single step). `relay` collects the label-free steps.
 A label with no block maps to `∅` in `reducing`/`aborting`, which makes it unschedulable rather than
 an error. `blocking` at such a label is `univ` instead — vacuously blocked — and `owned` is what a
 consumer intersects the scheduled set against to tell a blocked process from a done one. -/
-structure CodeTable (V : Type) : Type where
+structure CodeTable (V : Type u) : Type u where
   /-- Where the block at this label can step to, and what it emits. -/
   reducing : String → Set (LocalState V × Trace V × LocalState V)
   /-- Where the block at this label goes wrong. -/
@@ -133,7 +135,7 @@ def CodeTable.procDone (T : CodeTable V) : Set (ProcState V) :=
 pairs `𝒫(⟨P,σ⟩)`. `P` is only ever used as a name to pair a state with, so writing it as a set costs
 a soundness obligation ("at most one state per instance") for nothing: as a function the property is
 definitional, not carried. -/
-abbrev Instances (ι V : Type) : Type := ι → Option (ProcState V)
+abbrev Instances (ι V : Type u) : Type u := ι → Option (ProcState V)
 
 /-- Replacing one instance's state. A named wrapper around `Function.update` rather than raw calls
 to it at each site: `Function.update` needs `[DecidableEq ι]`, and `ι` is arbitrary here, so every
@@ -161,13 +163,13 @@ theorem Instances.update_of_ne {Ps : Instances ι V} {p q : ι} (h : q ≠ p)
 
 /-- An algorithm state: every process instance paired with its own state, plus the shared channels.
 -/
-abbrev AlgState (ι V : Type) : Type := Instances ι V × FIFOs V
+abbrev AlgState (ι V : Type u) : Type u := Instances ι V × FIFOs V
 
 /-- Everything the algorithm layer needs to know about its processes: what the block at each label
 does. A process instance's identity is read off its own index — `self`, the paper's `P*_red` side
 condition, is `p.2` throughout, since `ι = String × V` pairs a declaring `Process`'s name with the
 specific identity it runs under. -/
-abbrev Algebra (V : Type) : Type := String × V → CodeTable V
+abbrev Algebra (V : Type u) : Type u := String × V → CodeTable V
 
 /-- The paper's `P*_red`: one step of one process, chosen non-deterministically, with every other
 process and the channels carried through. -/

@@ -27,10 +27,12 @@ public import VerifiedCompiler.Denotational.Correctness
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory OperatorEnv Model)
 open GuardedPlusCal (AlgState ChanKey FIFOs Instances ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! # The two program types -/
 
@@ -54,11 +56,14 @@ structure FrontEnd (Ξ : OperatorEnv) (Ω : Model V) (mbox : String → String �
   names : (algo.processes.map (·.name)).Nodup
   /-- Each receiving instance starts on a key that resolves, exists, and is its own. -/
   keys : ∀ F : FIFOs V, ∃ key, InitKeys (V := V) Ξ Ω c₀ algo F key
+  /-- Every operator body in `Ξ` is closed over its parameters — `ExprSemantics.evalLocal`'s
+  side condition. Holds for any `Ξ` the checker populates. -/
+  wellScopedEnv : Ξ.WellScoped
 
 /-- **A source program of this pass**: an algorithm, the mailbox and channel assignment its
 processes are read at, and the front end's facts about all three. See this file's module doc for why
 the facts are bundled into the type rather than hoisted into a hypothesis. -/
-structure SourceProgram (V : Type) [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V) : Type where
+structure SourceProgram (V : Type u) [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V) : Type u where
   /-- The algorithm itself. -/
   algo : ComputableGuardedPlusCal.Algorithm
   /-- Which mailbox each process name gets, as a function of the name the pass will generate. -/
@@ -70,7 +75,7 @@ structure SourceProgram (V : Type) [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Mo
 
 /-- **A target program of this pass** — a compiled algorithm, indexed by the value universe its
 semantics is taken in. The index is phantom; see this file's module doc for why it is there. -/
-def TargetProgram (_V : Type) (_Ξ : OperatorEnv) (_Ω : Model _V) : Type :=
+def TargetProgram (_V : Type u) (_Ξ : OperatorEnv) (_Ω : Model _V) : Type :=
   ComputableNetworkPlusCal.Algorithm
 
 /-! # Their semantics, as the framework indexes it
@@ -130,9 +135,10 @@ theorem correct [DecidableEq V] :
     unfold compile
     refine triple_forall (ι := ChanKey V → List V)
       (λ pref ↦ Algorithm.toNetwork_spec (V := V) (Ξ := Ξ) (Ω := Ω) (pref := pref)
-        s.wellFormed.fresh) ?_
+        s.wellFormed.wellScopedEnv s.wellFormed.fresh) ?_
     intro algo' h
-    refine ⟨?_, algRelatesTo.refines (λ pref ↦ (h pref).2) s.wellFormed.used s.wellFormed.fresh⟩
+    refine ⟨?_, algRelatesTo.refines s.wellFormed.wellScopedEnv (λ pref ↦ (h pref).2)
+      s.wellFormed.used s.wellFormed.fresh⟩
     rintro ⟨Ps', F⟩ hinit
     obtain ⟨key, hkeys⟩ := s.wellFormed.keys F
     obtain ⟨Ps, hsrc, hrel⟩ := Algorithm.init_refines (h λ _ ↦ []).2 (h λ _ ↦ []).1

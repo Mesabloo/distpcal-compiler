@@ -26,10 +26,12 @@ public import Guarded2Network.Lemmas.Statement
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Expression Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (Block ChanKey EvalStep LocalState Trace)
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- **One statement writes one name.** Every other binding is exactly where it was.
 
@@ -140,7 +142,8 @@ accounted against *its* key, so a step that moved the key would leave the old ke
 belonging to no instance at all — `algRelatesTo` would be false after the step, not merely
 unprovable. Every other hypothesis this pass carries is about keeping a proof going; this one is
 about the statement being true. -/
-theorem AtomicBranch.reducing_evalArgs {mbox : Mailbox} {c : ComputableGuardedPlusCal.Ref}
+theorem AtomicBranch.reducing_evalArgs (hΞ : Ξ.WellScoped) {mbox : Mailbox}
+    {c : ComputableGuardedPlusCal.Ref}
     {inbox : String} (hmb : mbox = .some (c, inbox))
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     (hpre : ∀ B', Br.precondition = .some B' → ∀ S ∈ Block.toList B', Fresh mbox S)
@@ -150,7 +153,7 @@ theorem AtomicBranch.reducing_evalArgs {mbox : Mailbox} {c : ComputableGuardedPl
       GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br)
     {path : List (PathStep V)} :
     Ref.EvalArgs Ξ Ω σ.mem c path ↔ Ref.EvalArgs Ξ Ω σ'.mem c path := by
-  refine Ref.EvalArgs.congr_of_agree (λ y hy ↦ (AtomicBranch.reducing_locality step ?_ ?_ ?_).symm)
+  refine Ref.EvalArgs.congr_of_agree hΞ (λ y hy ↦ (AtomicBranch.reducing_locality step ?_ ?_ ?_).symm)
   · intro B' hB' S hS _ hx
     rintro rfl
     exact (hpre B' hB' S hS c inbox hmb).2.2.1 _ hx hy

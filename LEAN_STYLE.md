@@ -290,6 +290,13 @@ Citations illustrate the rule; this file is not a list of things to fix.
   constructors — name it with a `have` and let `contradiction` find it.
   `Extra/Seq.lean:71` (`absurd` tactic), `Guarded2Network/Lemmas/Statement.lean:226`
   (`have habs := …` then `contradiction`)
+- **Never `native_decide`, never `decide +native`.** Hard rule, no exceptions. `native_decide`
+  compiles the goal to native code and trusts the result — it widens the trusted base past the
+  kernel and past `Decidable` instances the kernel can actually run, and a miscompile or an
+  `@[implemented_by]` mismatch becomes an unsound proof with no diagnostic. `decide` (kernel
+  reduction) is fine when it terminates; when it does not, the fix is a real proof, not `+native`.
+  A stuck `decide` on a non-exposed definition is a `@[expose]` or an inversion lemma away, not a
+  `native_decide` away.
 - **Aesop terminal or not at all** (plan §3 T1). Non-terminal aesop leave whatever search stopped
   at — same instability as non-terminal `simp`, worse, because later steps written against fixed
   goal order. `Core/NetworkPlusCal/Semantics/Lemmas.lean:449`

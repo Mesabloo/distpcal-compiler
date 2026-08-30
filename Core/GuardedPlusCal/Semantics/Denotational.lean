@@ -47,12 +47,14 @@ namespace GuardedPlusCal
 
 open ComputableTLAPlus (Memory PathStep ExprSemantics OperatorEnv Model)
 
-variable {V : Type} [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
+universe u
+
+variable {V : Type u} [ExprSemantics V] (Ξ : OperatorEnv) (Ω : Model V)
 
 /-- The key identifying a single FIFO: the channel's name together with its resolved index path.
 Only the name and the evaluated indices are observable, and this is also the shape a
 `Behavior.send` reports. -/
-abbrev ChanKey (V : Type) : Type := String × List (PathStep V)
+abbrev ChanKey (V : Type u) : Type u := String × List (PathStep V)
 
 /-- The name a process instance's own identity is bound to, matching `Elaborator/PlusCal.lean`'s
 `extend "self" .address`. -/
@@ -73,7 +75,7 @@ holds — `l: receive(ch, x) ; await FALSE ; goto l'` — pops a message in the 
 block never reduces at all and so never emits anything. No relation up to reordering repairs that:
 the target event has no source counterpart to be reordered against. What ties the channel's contents
 to the target's `inbox` is the refinement invariant `relatesTo`, per channel. -/
-inductive Behavior (V : Type) : Type
+inductive Behavior (V : Type u) : Type u
   | print (p v : V)
   | send (p : V) (c : ChanKey V) (v : V)
 
@@ -92,7 +94,7 @@ infinite above, so no layer boundary carries a `Seq.ofList` coercion. Finiteness
 aborting traces is a derived property rather than a typing constraint: nothing downstream needs it,
 and no proof relies on cancellativity (`Seq` has none — an infinite left factor absorbs its right
 factor, `mul_eq_left_of_not_terminates`). -/
-abbrev Trace (V : Type) : Type := Stream'.Seq (Behavior V)
+abbrev Trace (V : Type u) : Type u := Stream'.Seq (Behavior V)
 
 /-- The global map containing FIFOs. Pushes go on the right, pops come off the left.
 
@@ -101,7 +103,7 @@ order is not observable, and letting it into the type turns commutation lemmas f
 channel is `insert` rather than `AList.replace` — every rule below establishes `F.lookup k = some _`
 before writing `k`, so the two agree wherever either is reached, and `insert` is the one with a
 usable `lookup` equation (`= some v`, not `v <$ lookup k F`). -/
-abbrev FIFOs (V : Type) : Type := Finmap λ _ : ChanKey V ↦ List V
+abbrev FIFOs (V : Type u) : Type u := Finmap λ _ : ChanKey V ↦ List V
 
 /-- The local reduction state of an atomic block: the process's own memory, the channels, and a
 label field that is `none` while running and `some l` once a terminal `goto` has jumped to `l`.
@@ -112,7 +114,7 @@ is gained by also carrying it at the type level — see `Statement.reducing` bel
 There is deliberately no third component for `with`-bound temporaries. That an assignment does not
 target a block-local binder is a syntactic property, checked by `WellFormedness`; keeping it in the
 state would oblige every lemma to translate between two state shapes for no proof-side gain. -/
-abbrev LocalState (V : Type) : Type := Memory V × FIFOs V × Option String
+abbrev LocalState (V : Type u) : Type u := Memory V × FIFOs V × Option String
 
 /-! Named projections. `LocalState` is a nested anonymous product, so its components are otherwise
 reachable only as `σ.1`/`σ.2.1`/`σ.2.2` or by destructuring at every binding site. Named
@@ -319,7 +321,7 @@ has to exist in its own right — and being homogeneous in the guard index, it c
 possibly-terminal `last`. That is the whole difference between the two.
 
 `foldr`, not `foldl`: every proof about one of these is an induction on the list. -/
-def Block.listReducing {α : Bool → Type} {β γ : Type} [Monoid γ]
+def Block.listReducing {α : Bool → Type} {β γ : Type _} [Monoid γ]
     (f : ⦃b : Bool⦄ → α b → Set (β × γ × β)) (A : List (α false)) :
     Set (β × γ × β) :=
   A.foldr (f · ∘ᵣ₂ ·) Relation.Idle
@@ -327,7 +329,7 @@ def Block.listReducing {α : Bool → Type} {β γ : Type} [Monoid γ]
 /-- The list counterpart of `Block.aborting` — and of `Block.diverging` too. Those two are the same
 function, so this one serves both, at whichever instantiation the caller passes
 (`Block.diverging_prepend` is what states it under the diverging name). -/
-def Block.listAborting {α : Bool → Type} {β γ : Type} [Monoid γ]
+def Block.listAborting {α : Bool → Type} {β γ : Type _} [Monoid γ]
     (g : ⦃b : Bool⦄ → α b → Set (β × γ))
     (f : ⦃b : Bool⦄ → α b → Set (β × γ × β)) (A : List (α false)) :
     Set (β × γ) :=
@@ -337,18 +339,18 @@ def Block.listAborting {α : Bool → Type} {β γ : Type} [Monoid γ]
 and `Block.listReducing` computed the same fold before, differing only in that a block's last
 statement may be terminal, and keeping two recursions meant every equation had to be proved twice
 and bridged. -/
-def Block.reducing {α : Bool → Type} {β γ : Type} [Monoid γ] {b : Bool}
+def Block.reducing {α : Bool → Type} {β γ : Type _} [Monoid γ] {b : Bool}
     (f : ⦃b : Bool⦄ → α b → Set (β × γ × β)) (B : Block α b) : Set (β × γ × β) :=
   Block.listReducing f B.begin ∘ᵣ₂ f B.last
 
 @[inherit_doc Block.reducing]
-def Block.aborting {α : Bool → Type} {β γ : Type} [Monoid γ] {b : Bool}
+def Block.aborting {α : Bool → Type} {β γ : Type _} [Monoid γ] {b : Bool}
     (f : ⦃b : Bool⦄ → α b → Set (β × γ)) (g : ⦃b : Bool⦄ → α b → Set (β × γ × β))
     (B : Block α b) : Set (β × γ) :=
   Block.listAborting f g B.begin ∪ Block.listReducing g B.begin ∘ᵣ₁ f B.last
 
 @[inherit_doc Block.reducing]
-def Block.diverging {α : Bool → Type} {β γ : Type} [Monoid γ] {b : Bool}
+def Block.diverging {α : Bool → Type} {β γ : Type _} [Monoid γ] {b : Bool}
     (f : ⦃b : Bool⦄ → α b → Set (β × γ)) (g : ⦃b : Bool⦄ → α b → Set (β × γ × β))
     (B : Block α b) : Set (β × γ) :=
   Block.listAborting f g B.begin ∪ Block.listReducing g B.begin ∘ᵣ₁ f B.last

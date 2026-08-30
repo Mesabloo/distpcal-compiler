@@ -22,7 +22,9 @@ namespace NetworkPlusCal
 open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 open GuardedPlusCal (Block Behavior Trace FIFOs LocalState Ref selfName EvalStep)
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+universe u
+
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! # Constructor-intro lemmas — see `GuardedPlusCal.Semantics.Lemmas`'s `Intro` section for why
 these exist and why they're duplicated per language rather than shared. No `receive` here — that

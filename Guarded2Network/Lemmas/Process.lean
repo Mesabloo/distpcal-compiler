@@ -32,16 +32,19 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory PathStep OperatorEnv Model)
 open GuardedPlusCal (AlgState Block ChanKey FIFOs LocalState LocalState ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 /-- **`AtomicBranch.reducing_evalArgs` against the freshness bundle the block level already
 carries.** `BranchesFresh` quantifies its precondition clause over `preconditionList`, the locality
 argument over the `Block.toList` of a precondition that is present; the two are the same list, and
 saying so is the whole of this lemma. -/
-theorem BranchesFresh.evalArgs {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String}
+theorem BranchesFresh.evalArgs (hΞ : Ξ.WellScoped) {c₀ : ComputableGuardedPlusCal.Ref}
+    {inbox : String}
     {Br : ComputableGuardedPlusCal.AtomicBranch}
     (hf : BranchesFresh (.some (c₀, inbox)) c₀ inbox Br)
     {σ σ' : LocalState V} {ε : Trace V}
@@ -49,7 +52,7 @@ theorem BranchesFresh.evalArgs {c₀ : ComputableGuardedPlusCal.Ref} {inbox : St
       GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br)
     {path : List (PathStep V)} :
     Ref.EvalArgs Ξ Ω σ.mem c₀ path ↔ Ref.EvalArgs Ξ Ω σ'.mem c₀ path := by
-  refine AtomicBranch.reducing_evalArgs rfl (λ B' hB' S hS ↦ hf.gfresh S ?_) hf.afresh hf.alast step
+  refine AtomicBranch.reducing_evalArgs hΞ rfl (λ B' hB' S hS ↦ hf.gfresh S ?_) hf.afresh hf.alast step
   rw [preconditionList, hB']
   exact hS
 
@@ -249,7 +252,7 @@ nobody receives — need that this instance's key did not move either, which is 
 The label a code block leaves at needs no condition — a `.rx` thread owns none, so `L_s = L_t` is
 preserved whatever it is; the scheduled label `label` need not even be shown to be in `L₁`, the
 caller building the source `Algebra.step` doing that. -/
-theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbox}
+theorem algRelatesTo.block_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq ι] {mb : ι → Mailbox}
     {Ps Qs Qs' : GuardedPlusCal.Instances ι V} {F₁ F₂ F₂' : FIFOs V}
     {p : ι} {label label' : String} {M₁ M₂ M₂' : Memory V} {L₁ L₂ : Set String} {ε : Trace V}
     {brs : List ComputableGuardedPlusCal.AtomicBranch}
@@ -309,7 +312,7 @@ theorem algRelatesTo.block_step {ι : Type} [DecidableEq ι] {mb : ι → Mailbo
           LocalState V × Trace V × LocalState V) ∈
           GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br :=
         hsstep
-      exact ((fresh Br hBr c inbox hmb).evalArgs hflat).mp hp
+      exact ((fresh Br hBr c inbox hmb).evalArgs hΞ hflat).mp hp
     subst hQs
     rw [hT]
     obtain ⟨ib'p, hproc', hsame, hnone, hoffk, honk⟩ :=
@@ -986,6 +989,7 @@ apart. -/
 private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2NetworkChans}
   {mbox : Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {inbox : String} {pref : ChanKey V → List V}
   {Ts : List ComputableGuardedPlusCal.Thread}
+  (hΞ : Ξ.WellScoped)
   (fresh : ∀ T ∈ Ts, ∀ blk ∈ T, ∀ Br ∈ blk.branches, BranchesFresh mbox c₀ inbox Br) :
     ⦃⌜True⌝⦄
     Ts.mapM (ComputableGuardedPlusCal.Thread.toNetwork (m := G2NM) chans inbox)
@@ -1005,7 +1009,8 @@ private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2Netwo
       (res.flatMap (·.1) = [] ↔ res.flatMap (·.2.1) = [])⌝
   with
   -- `Thread.toNetwork_spec`'s implicits, abstracted over the loop's context and wrapped in `id`
-  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 => intro _ _; assumption
+  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 | vc13 =>
+    solve | assumption | (intro _ _; assumption)
 
   case vc1.pre => exact ⟨.nil, nofun, nofun, nofun, iff_of_true rfl rfl⟩
   case vc2.post.success =>
@@ -1031,7 +1036,7 @@ private theorem mapM_threadToNetwork_spec [SeqBuiltins V] {chans : Guarded2Netwo
       exact and_congr hinv.2.2.2.2 hboth
 
   -- the freshness hypothesis at whichever thread the walk is currently on
-  case vc13 _ _ cur _ hsplit _ =>
+  case vc14 _ _ cur _ hsplit _ =>
     intro _ _
     rw [hsplit] at fresh
     exact fresh cur (List.mem_append_right _ List.mem_cons_self)
@@ -1045,7 +1050,7 @@ cannot name the counter the program started at, and nothing above needs the numb
 is a single name, shared by every thread of this process, that no source identifier can equal. -/
 theorem Process.toNetwork_spec [SeqBuiltins V] {globalChans : Guarded2NetworkChans}
   {mbox : String → Mailbox} {c₀ : ComputableGuardedPlusCal.Ref} {pref : ChanKey V → List V}
-  {p : ComputableGuardedPlusCal.Process} (fresh : ProcessFresh mbox c₀ p) :
+  {p : ComputableGuardedPlusCal.Process} (hΞ : Ξ.WellScoped) (fresh : ProcessFresh mbox c₀ p) :
     ⦃⌜True⌝⦄
     ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans p
     ⦃⇓? p' _ => ⌜∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox inbox) c₀ inbox pref p p'⌝⦄ := by
@@ -1055,9 +1060,9 @@ theorem Process.toNetwork_spec [SeqBuiltins V] {globalChans : Guarded2NetworkCha
 
   -- the mailbox and the walk's freshness hypothesis, both at the name `freshName` just generated
   case vc6.mbox _ ib _ _ _ => exact mbox ib
-  case vc9.fresh => exact fresh _ ‹_›
+  case vc10.fresh => exact fresh _ ‹_›
 
-  case vc10.post.success.post.success _ _ _ _ hgen _ _ _ _ _ hinv =>
+  case vc11.post.success.post.success _ _ _ _ hgen _ _ _ _ _ hinv =>
     refine ⟨_, ?_, hgen, rfl, rfl, rfl⟩
     refine ⟨_, _, _, rfl, rfl, hinv.2.1, hinv.1, hinv.2.2.1, ?_, ?_⟩
     -- the declared locals are the walk's, deduped: it drops entries but invents none …

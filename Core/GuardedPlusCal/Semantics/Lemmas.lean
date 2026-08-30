@@ -27,6 +27,8 @@ namespace GuardedPlusCal
 
 open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 
+universe u
+
 /-! # How much is queued
 
   The measure a divergence argument needs. A receiving thread's relay moves one message out of a
@@ -37,12 +39,12 @@ open ComputableTLAPlus (Memory ExprSemantics OperatorEnv Model)
 -/
 
 /-- How many messages are queued, across every channel at once. -/
-def FIFOs.size {V : Type} [ExprSemantics V] (F : FIFOs V) : ℕ :=
+def FIFOs.size {V : Type u} [ExprSemantics V] (F : FIFOs V) : ℕ :=
   ∑ k ∈ F.keys, ((F.lookup k).getD []).length
 
 /-- **Popping the head of one queue drops the count by exactly one.** The relay's effect on the
 measure, and the only fact about `FIFOs.size` anything needs. -/
-theorem FIFOs.size_insert_tail {V : Type} [ExprSemantics V] {F : FIFOs V} {k : ChanKey V} {v : V}
+theorem FIFOs.size_insert_tail {V : Type u} [ExprSemantics V] {F : FIFOs V} {k : ChanKey V} {v : V}
     {vs : List V} (h : F.lookup k = .some (v :: vs)) :
     FIFOs.size (F.insert k vs) + 1 = FIFOs.size F := by
   have hmem : k ∈ F := Finmap.mem_of_lookup_eq_some h
@@ -76,7 +78,7 @@ theorem FIFOs.size_insert_tail {V : Type} [ExprSemantics V] {F : FIFOs V} {k : C
 
 section Resolution
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
 
 /-- One path segment resolves to at most one `PathStep`. -/
 theorem EvalStep.inj {a : String ⊕ ComputablePlusCal.Expression} {p q : ComputableTLAPlus.PathStep V}
@@ -182,7 +184,7 @@ end Resolution
 
 section Intro
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 theorem Statement.reducing.with.intro {σ σ' : LocalState V} {ε : Trace V}
     {name ann bound e}
@@ -317,7 +319,7 @@ end Intro
 
 section Reducing
 
-variable {α : Bool → Type} {β γ : Type} [Monoid γ]
+variable {α : Bool → Type} {β γ : Type _} [Monoid γ]
   (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
 theorem Block.listReducing_nil : Block.listReducing f [] = Relation.Idle := rfl
@@ -374,7 +376,7 @@ end Reducing
 
 section Aborting
 
-variable {α : Bool → Type} {β γ : Type} [Monoid γ]
+variable {α : Bool → Type} {β γ : Type _} [Monoid γ]
   (g : ⦃b : Bool⦄ → α b → Set (β × γ))
   (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
@@ -437,7 +439,7 @@ end Aborting
 
 section Diverging
 
-variable {α : Bool → Type} {β γ : Type} [Monoid γ]
+variable {α : Bool → Type} {β γ : Type _} [Monoid γ]
   (d : ⦃b : Bool⦄ → α b → Set (β × γ))
   (f : ⦃b : Bool⦄ → α b → Set (β × γ × β))
 
@@ -496,7 +498,7 @@ end Diverging
 
 section Unprimed
 
-variable {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
 
 omit [ExprSemantics V] in
 /-- No statement diverges. -/

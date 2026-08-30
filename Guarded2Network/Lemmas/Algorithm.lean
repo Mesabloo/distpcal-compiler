@@ -32,10 +32,12 @@ import all Guarded2Network.PlusCal
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory OperatorEnv Model)
 open GuardedPlusCal (Algebra AlgState ChanKey CodeTable FIFOs Instances LocalState ProcState Trace)
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {ι : Type} {Ξ : OperatorEnv} {Ω : Model V}
+variable {V : Type u} [ExprSemantics V] [SeqBuiltins V] {ι : Type u} {Ξ : OperatorEnv} {Ω : Model V}
 
 /-! # The pass at this level: the whole algorithm, compiled
 
@@ -213,7 +215,7 @@ scheduled, and the memory to bind `selfName`. The first comes from the code bran
 together with `procRelatesTo`'s `L₂ = L₁`; the second from memory agreement away from the generated
 `inbox`, which is not `self` — and since both algebras read `self` off the instance's own identity,
 that memory fact needs no translation between the two sides. -/
-theorem algRelatesTo.step_or_stutter [DecidableEq V]
+theorem algRelatesTo.step_or_stutter (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo)
     {Sₜ Sₜ' Sₛ : AlgState (String × V) V} {ε : Trace V}
@@ -278,7 +280,7 @@ theorem algRelatesTo.step_or_stutter [DecidableEq V]
         rw [← heq]
         obtain ⟨T, hT, blk, hblk, -, hBrmem⟩ := mem_srcBranchesAt.mp hBr
         exact fresh p hmem inbox hpr.inbox_generated T hT blk hblk Br hBrmem
-      rcases algRelatesTo.block_step hbref hbfresh hrel hS hin hBr' hstep' hQs with
+      rcases algRelatesTo.block_step hΞ hbref hbfresh hrel hS hin hBr' hstep' hQs with
         ⟨M₁', F₁', ε', hrel', hτ, Br, hBr, hsstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
       · have hsrc_reducing := src_reducing_le hBr hsstep
         rw [← src_algebra_table hfinds] at hsrc_reducing
@@ -305,7 +307,7 @@ theorem algRelatesTo.step_or_stutter [DecidableEq V]
       subst ibf
       have hmailbox : procMailbox algo' (name, v) = .some (c₀ p.name, inbox) := by
         rw [procMailbox_eq (v := v) hfind hpr hused]; exact hmbeq
-      obtain ⟨rfl, hrel', hsize⟩ := algRelatesTo.rx_step hmailbox hfree hrel hS hin hrx hQs
+      obtain ⟨rfl, hrel', hsize⟩ := algRelatesTo.rx_step hΞ hmailbox hfree hrel hS hin hrx hQs
       refine .inr (.inl ⟨hrel', rfl, ?_⟩)
       show GuardedPlusCal.FIFOs.size F₂' < GuardedPlusCal.FIFOs.size F₂
       omega
@@ -315,7 +317,7 @@ omit [SeqBuiltins V] in
 run, a stutter is the empty one, and the abort disjunct passes through unchanged. The measure is
 dropped here — `Terminating` has nowhere to put it, which is exactly why the divergence half needs
 `step_or_stutter` directly. -/
-theorem algRelatesTo.terminating [DecidableEq V]
+theorem algRelatesTo.terminating (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement.Terminating (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
@@ -324,7 +326,7 @@ theorem algRelatesTo.terminating [DecidableEq V]
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').step := by
   intro Sₜ Sₜ' ε Sₛ hrel hstep
-  rcases algRelatesTo.step_or_stutter href used fresh hrel hstep with
+  rcases algRelatesTo.step_or_stutter hΞ href used fresh hrel hstep with
     ⟨Sₛ', ε', hrel', hτ, hsstep⟩ | ⟨hrel', rfl, _⟩ | habort
   · exact .inl ⟨Sₛ', ε', hrel', hτ, Relation.star.single hsstep⟩
   · refine .inl ⟨Sₛ, 1, hrel', ?_, Relation.star.refl _⟩
@@ -391,7 +393,7 @@ omit [SeqBuiltins V] in
 `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort`, so this is `Terminating.starStutter` at those and
 nothing else — including its absorption side condition, which is `Relation.star.star_lcomp₁_absorb`
 at exactly this shape. -/
-theorem algRelatesTo.terminating_reducing [DecidableEq V]
+theorem algRelatesTo.terminating_reducing (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement.Terminating (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
@@ -399,7 +401,7 @@ theorem algRelatesTo.terminating_reducing [DecidableEq V]
       (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).reducing
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').reducing :=
-  StrongRefinement.Terminating.starStutter (algRelatesTo.terminating href used fresh)
+  StrongRefinement.Terminating.starStutter (algRelatesTo.terminating hΞ href used fresh)
 
 omit [SeqBuiltins V] in
 /-- **And the whole diverging semantics.** `Algebra.diverging` is `step^∞` by definition, so this is
@@ -410,7 +412,7 @@ are built from, here with its measure disjunct finally load-bearing.
 a `send` puts one back — and a `send` is a code thread's step, which *does* move the source. So the
 target cannot relay forever while the source stands still, the source's steps are cofinal in the
 target's, and deleting the idle indices leaves a genuine infinite source run. -/
-theorem algRelatesTo.diverging [DecidableEq V]
+theorem algRelatesTo.diverging (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement.Diverging (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
@@ -418,19 +420,19 @@ theorem algRelatesTo.diverging [DecidableEq V]
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').diverging :=
   StrongRefinement.Diverging.omegaStutter (μ := λ S ↦ GuardedPlusCal.FIFOs.size S.2)
-    (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter href used fresh hrel hstep)
+    (λ _ _ _ _ hrel hstep ↦ algRelatesTo.step_or_stutter hΞ href used fresh hrel hstep)
 
 omit [SeqBuiltins V] in
 /-- **And the whole aborting semantics.** `Algebra.aborting` is `step* ∘ᵣ₁ immediateAbort` by
 definition, so this is `Aborting.starStutter` at that — the immediate half above, lifted over the run
 that precedes it by the same per-step `Terminating` the reducing half uses. -/
-theorem algRelatesTo.aborting [DecidableEq V]
+theorem algRelatesTo.aborting (hΞ : Ξ.WellScoped) [DecidableEq V]
     (href : ∀ pref : ChanKey V → List V, ProcessesRefine (V := V) Ξ Ω mbox c₀ pref algo algo')
     (used : MailboxUsed mbox algo) (fresh : AlgorithmFresh mbox c₀ algo) :
     StrongRefinement.Aborting (algRelatesTo (V := V) Ξ Ω (procMailbox algo'))
       (instTrace (V := V)).Rτ (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').aborting :=
-  StrongRefinement.Aborting.starStutter (algRelatesTo.terminating href used fresh)
+  StrongRefinement.Aborting.starStutter (algRelatesTo.terminating hΞ href used fresh)
     (algRelatesTo.immediateAbort href used fresh)
 
 open Std.Do in
@@ -443,6 +445,7 @@ business, and it needs the by-name lookup anyway. -/
 private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
   {mbox : String → String → Mailbox} {c₀ : String → ComputableGuardedPlusCal.Ref}
   {pref : ChanKey V → List V} {ps : List ComputableGuardedPlusCal.Process}
+  (hΞ : Ξ.WellScoped)
   (fresh : ∀ p ∈ ps, ProcessFresh (mbox p.name) (c₀ p.name) p) :
     ⦃⌜True⌝⦄
     ps.mapM (ComputableGuardedPlusCal.Process.toNetwork (m := G2NM) globalChans)
@@ -459,14 +462,16 @@ private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
   -- `Process.toNetwork_spec`'s seven implicits, answered by shape rather than by tag: three the
   -- context already holds, the mailbox and the channel read off the walk's position, and the
   -- freshness hypothesis at that same process.
-  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 | vc13 =>
-    intro _ _
+  | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 | vc13 | vc14 =>
     first
-      | assumption
-      | exact mbox ‹ComputableGuardedPlusCal.Process›.name
-      | exact c₀ ‹ComputableGuardedPlusCal.Process›.name
-      | (rw [‹ps = _ ++ _ :: _›] at fresh
-         exact fresh _ (List.mem_append_right _ List.mem_cons_self))
+    | assumption
+    | (intro _ _
+       first
+       | assumption
+       | exact mbox ‹ComputableGuardedPlusCal.Process›.name
+       | exact c₀ ‹ComputableGuardedPlusCal.Process›.name
+       | (rw [‹ps = _ ++ _ :: _›] at fresh
+          exact fresh _ (List.mem_append_right _ List.mem_cons_self)))
 
   case vc1.pre => exact .nil
   case vc2.post.success => exact id
@@ -485,7 +490,8 @@ initial-state obligation needs those to be the same two lists on both sides. Not
 `algRelatesTo.refines` wants it. -/
 theorem Algorithm.toNetwork_spec {mbox : String → String → Mailbox}
   {c₀ : String → ComputableGuardedPlusCal.Ref} {pref : ChanKey V → List V}
-  {algo : ComputableGuardedPlusCal.Algorithm} (fresh : AlgorithmFresh mbox c₀ algo) :
+  {algo : ComputableGuardedPlusCal.Algorithm} (hΞ : Ξ.WellScoped)
+  (fresh : AlgorithmFresh mbox c₀ algo) :
     ⦃⌜True⌝⦄
     ComputableGuardedPlusCal.Algorithm.toNetwork (m := G2NM) algo
     ⦃⇓? algo' _ => ⌜algo'.globalState = algo.globalState ∧

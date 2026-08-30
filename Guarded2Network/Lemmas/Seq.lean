@@ -29,11 +29,13 @@ public import Core.ComputableTLAPlus.Semantics.Interface
 
 namespace Guarded2Network
 
+universe u
+
 open ComputableTLAPlus (ExprSemantics Memory Typ OperatorEnv Model)
 
 /-- The meaning of `Guarded2Network`'s own sequence expressions, on top of `ExprSemantics`'s
 value-level sequence vocabulary. -/
-class SeqBuiltins (V : Type) [ExprSemantics V] where
+class SeqBuiltins (V : Type u) [ExprSemantics V] where
   /-- `Head(e)` denotes the first element of the sequence `e` denotes — and denotes nothing when
   that sequence is empty, which is what makes an empty `inbox` *block* the guard rather than abort
   the branch. -/
@@ -71,7 +73,7 @@ class SeqBuiltins (V : Type) [ExprSemantics V] where
   four lines at every use.
 -/
 
-variable {V : Type} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
+variable {V : Type u} [ExprSemantics V] [SeqBuiltins V] {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V}
   {inbox : String} {τ : Typ} {sv : V}
 
 /-- `Head(inbox)` denotes the first element `inbox` holds, and only that. Note the hypothesis has the

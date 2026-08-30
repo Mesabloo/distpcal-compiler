@@ -37,6 +37,8 @@ public import Mathlib.Data.Finmap
 
 namespace ComputableTLAPlus
 
+universe u
+
 /-- The operator environment: a static table from a declaring module's name and an operator name in
 it to that operator's formal parameters (name paired with arity — `0` for a plain value parameter,
 `n > 0` for an `n`-ary higher-order parameter) and its defining body expression. Mirrors
@@ -54,13 +56,98 @@ so `Ξ` needs no value type to be well-formed. Kept a plain function rather than
 in this file's laws ever needs to enumerate or compare two `Ξ`s, only look one name up. -/
 abbrev OperatorEnv : Type := String → String → Option (List (String × Nat) × Expression Typ)
 
+/-- Every operator body in `Ξ` reads from memory only its own formal parameters — no stray free
+`Origin.binder` variable. `evalLocal`/`evalSubst` need this: a `var_op0`/`opCall_op` step evaluates
+a body (or its `substParams` form) that is not a subterm of the call, so agreement on the call's
+free variables says nothing about that body unless the body is closed over its parameters. Populated
+`Ξ`s satisfy it by construction — an operator definition's body is checked against a scope holding
+exactly its parameters plus module-level names, and module-level names are `Origin.module`, which
+`freeVars` does not count. -/
+def OperatorEnv.WellScoped (Ξ : OperatorEnv) : Prop :=
+  ∀ m x params body, Ξ m x = some (params, body) →
+    ∀ z ∈ (body.freeVars), z ∈ params.map Prod.fst
+
+/-- `c`'s synthesized binder names avoid `S` — and, through the nested `{x}`/`insert y S`
+recursions, each other. The freshness side condition `evalCoerce` needs: `Coercion.applyComputable`
+for `.seqToFun` and `.function` wraps the coerced expression `e` in a binder `c` introduces and
+re-evaluates `e` underneath it, so unless that binder is fresh for `e` the built term captures and
+the law is false. `S` is instantiated to `e.freeVars` at the law; a real compilation discharges it
+because every coercion binder is `MonadFresh`-minted and `e`'s names are not.
+
+Only `.seqToFun`/`.function` place `e` under a binder — the other cases keep it in domain or
+argument position, so their arms impose nothing on `S` directly and only recurse. `.set`/inner
+`.function` recurse against `{x}` rather than `S` because there the sub-expression is the bare
+binder node `.var x _ .binder`, not something built over `e`. `.function` also keeps its value
+binder `y` off `x`: `applyComputable`'s recovered-argument `CHOOSE` reuses `x`, and the built
+`x = y` comparison is only correct when the two are distinct. -/
+def _root_.TypedTLAPlus.Coercion.FreshFor : TypedTLAPlus.Coercion → Finset String → Prop
+  | .id, _ => True
+  | .strToSeq, _ => True
+  | .seqToFun _ i, S => i ∉ S
+  | .tupleToSeq _ _ _, _ => True
+  | .set x _ _ c, _ => c.FreshFor {x}
+  | .tuple coes _ _, S => ∀ c ∈ coes, c.FreshFor S
+  | .record fields, S => ∀ f ∈ fields, f.2.1.FreshFor S
+  | .function x y _ _ _ _ cD cR, S => y ∉ insert x S ∧ cD.FreshFor {x} ∧ cR.FreshFor (insert y S)
+  | .comp c₁ c₂, S => c₁.FreshFor S ∧ c₂.FreshFor S
+termination_by c => sizeOf c
+decreasing_by
+  all:
+    first
+      | decreasing_trivial
+      | (have hmem : f ∈ fields := ‹_›
+         obtain ⟨nm, cc, ty⟩ := f
+         calc
+          _ = sizeOf cc := rfl
+          _ < sizeOf (nm, cc, ty) := by decreasing_trivial
+          _ < sizeOf fields := List.sizeOf_lt_of_mem hmem
+          _ < _ := by decreasing_trivial)
+
+/-- `FreshFor` is antitone in the avoided set: fewer names to dodge is a weaker demand. Lets a
+recursive `evalCoerce` call at a sub-expression whose free variables have shrunk (they only ever
+shrink — `Coercion.applyComputable` adds no free variable) reuse the parent's hypothesis. -/
+theorem _root_.TypedTLAPlus.Coercion.FreshFor.mono :
+    ∀ {c : TypedTLAPlus.Coercion} {S S' : Finset String},
+      TypedTLAPlus.Coercion.FreshFor c S → S' ⊆ S → TypedTLAPlus.Coercion.FreshFor c S'
+  | .id, _, _, _, _ => by simp [TypedTLAPlus.Coercion.FreshFor]
+  | .strToSeq, _, _, _, _ => by simp [TypedTLAPlus.Coercion.FreshFor]
+  | .tupleToSeq _ _ _, _, _, _, _ => by simp [TypedTLAPlus.Coercion.FreshFor]
+  | .seqToFun _ _, _, _, h, hsub => by
+      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢; exact fun hi ↦ h (hsub hi)
+  | .set _ _ _ _, _, _, h, _ => by simpa only [TypedTLAPlus.Coercion.FreshFor] using h
+  | .tuple coes _ _, _, _, h, hsub => by
+      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
+      exact fun c hc ↦ (h c hc).mono hsub
+  | .record fields, _, _, h, hsub => by
+      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
+      exact fun f hf ↦ (h f hf).mono hsub
+  | .function _ _ _ _ _ _ _ _, _, _, h, hsub => by
+      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
+      exact ⟨fun hy ↦ h.1 (Finset.insert_subset_insert _ hsub hy), h.2.1,
+        h.2.2.mono (Finset.insert_subset_insert _ hsub)⟩
+  | .comp _ _, _, _, h, hsub => by
+      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
+      exact ⟨h.1.mono hsub, h.2.mono hsub⟩
+termination_by c => sizeOf c
+decreasing_by
+  all:
+    first
+      | decreasing_trivial
+      | (have hmem : f ∈ fields := ‹_›
+         obtain ⟨nm, cc, ty⟩ := f
+         calc
+          _ = sizeOf cc := rfl
+          _ < sizeOf (nm, cc, ty) := by decreasing_trivial
+          _ < sizeOf fields := List.sizeOf_lt_of_mem hmem
+          _ < _ := by decreasing_trivial)
+
 /-- The model: an assignment of a value to every `CONSTANT` a run fixes one for, keyed the same way
 `Ξ` is (declaring module, then name) since a `CONSTANT`'s `.var` node carries the same `Origin.module`
 tag an operator reference does. Kept opaque and partial rather than computed: a `CONSTANT` has no
 defining expression to evaluate (`Declaration.constants` carries only a name and a type), so its
 value can only ever come from outside — one run's choice of `Model`, not this file's laws. A name
 with no entry has no value under `Eval`, same as any other partiality in this class. -/
-abbrev Model (V : Type) : Type := String → String → Option V
+abbrev Model (V : Type u) : Type u := String → String → Option V
 
 /-- A memory: a partial map from names to values.
 
@@ -71,19 +158,19 @@ binding two distinct names in the two possible orders gives equal lookups but un
 any lemma commuting one write past another (`Guarded2Network/Lemmas/Reorder.lean`) then cannot be
 stated as an equation at all. `Finmap` is that quotient, so `Finmap.insert_insert_of_ne` holds and
 extensionality is by `lookup`. `FIFOs` is a `Finmap` for the same reason. -/
-abbrev Memory (V : Type) : Type := Finmap λ _ : String ↦ V
+abbrev Memory (V : Type u) : Type u := Finmap λ _ : String ↦ V
 
 /-- One resolved segment of a reference's access path. Mirrors `ElaboratedPlusCal.Ref.args`'s
 `List (String ⊕ ε)` with the index expressions already evaluated: `.inl f` is the record field `f`,
 `.inr v` is the index `v`. -/
-abbrev PathStep (V : Type) : Type := String ⊕ V
+abbrev PathStep (V : Type u) : Type u := String ⊕ V
 
 /-- `ResolvesPath Eval M path resolved` — every `.inr` index expression in the syntactic path
 `path` evaluates (under `Eval`/`M`) to the matching entry of the semantic path `resolved`; every
 `.inl` field segment carries over unchanged. What `evalExcept` needs to relate `Expression.except`'s
 syntactic update path to `updatePath`'s semantic one. Takes `Eval` as a plain parameter rather than
 an `ExprSemantics` instance so it can be stated *before* the class whose field it appears in. -/
-inductive ResolvesPath {V : Type} (Eval : Memory V → Expression Typ → V → Prop) (M : Memory V) :
+inductive ResolvesPath {V : Type u} (Eval : Memory V → Expression Typ → V → Prop) (M : Memory V) :
     List (String ⊕ Expression Typ) → List (PathStep V) → Prop
   | nil : ResolvesPath Eval M [] []
   | inl {f path resolved} : ResolvesPath Eval M path resolved →
@@ -93,7 +180,7 @@ inductive ResolvesPath {V : Type} (Eval : Memory V → Expression Typ → V → 
 
 /-- Everything the PlusCal semantics needs to know about expressions and the values they denote.
 Held abstract here; a concrete TLA⁺ evaluator later supplies one instance. -/
-class ExprSemantics (V : Type) where
+class ExprSemantics (V : Type u) where
   /-- Values are compared for equality when used as FIFO index keys. -/
   [decEq : DecidableEq V]
   /-- `Eval Ξ Ω M e v` — under operator environment `Ξ`, model `Ω`, and memory `M`, expression `e`
@@ -206,15 +293,23 @@ class ExprSemantics (V : Type) where
   assignment) can relate the two only through this law.
 
   An `↔`: the forward reading turns the target's evaluated right-hand side into the source's
-  `coerce` obligation, the backward one builds the target's from the source's. -/
+  `coerce` obligation, the backward one builds the target's from the source's.
+
+  Needs `Ξ.WellScoped` and `Coercion.FreshFor c e.freeVars` for the same reason `evalLocal` needs the
+  first: `applyComputable` for `.seqToFun`/`.function` re-evaluates `e` under a binder the coercion
+  introduces, and relating that to `e`'s value in the ambient memory is exactly `evalLocal`. -/
   evalCoerce {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {c : TypedTLAPlus.Coercion}
       {e : Expression Typ} {v' : V} :
-    Eval Ξ Ω M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce c v v'
+    Ξ.WellScoped → TypedTLAPlus.Coercion.FreshFor c e.freeVars →
+      (Eval Ξ Ω M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce c v v')
   /-- Evaluation only depends on the free variables `e` actually reads — agreeing memories give
   agreeing results, for shared `Ξ`/`Ω` (immutable within one evaluation, see this file's module doc,
-  so there is nothing to vary them against). -/
+  so there is nothing to vary them against). Needs `Ξ.WellScoped`: an operator call reads its body
+  through `Ξ`, and that body is not part of `e`, so its own free variables have to be confined to
+  the operator's parameters for the call's `freeVars` to bound what memory the call depends on. -/
   evalLocal {Ξ : OperatorEnv} {Ω : Model V} {M₁ M₂ : Memory V} {e : Expression Typ} {v : V} :
-    (∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) → (Eval Ξ Ω M₁ e v ↔ Eval Ξ Ω M₂ e v)
+    Ξ.WellScoped → (∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) →
+      (Eval Ξ Ω M₁ e v ↔ Eval Ξ Ω M₂ e v)
   /-- Substitution is evaluation-under-extended-memory, read backwards: binding `x` to `e'`'s
   value and evaluating `e` agrees with evaluating `e`'s `x`-substituted form under the original
   memory. -/
@@ -233,7 +328,7 @@ attribute [reducible, instance] ExprSemantics.decEq
 
 namespace ExprSemantics
 
-variable {V : Type} [ExprSemantics V]
+variable {V : Type u} [ExprSemantics V]
 
 /-- `seqAppend_isSeq` read against a result already in hand: `seqAppend` is a function, so its
 `some` result is *the* one the law produces. -/
@@ -272,7 +367,7 @@ end ExprSemantics
 by `v`. Fails when `x` is unbound, or when `path` does not resolve inside the value found there.
 Note `x` must already be bound: PlusCal assignment updates a declared variable, it never introduces
 one. -/
-def Memory.update {V : Type} [ExprSemantics V] (M : Memory V) (x : String)
+def Memory.update {V : Type u} [ExprSemantics V] (M : Memory V) (x : String)
     (path : List (PathStep V)) (v : V) : Option (Memory V) := do
   let old ← M.lookup x
   let new ← ExprSemantics.updatePath old path v
@@ -286,7 +381,7 @@ builds a fresh update at a different memory. -/
 
 /-- An update succeeds exactly when the name is bound and `updatePath` accepts the value found
 there; the result is that name rebound to what came back. -/
-theorem Memory.update_eq_some_iff {V : Type} [ExprSemantics V] {M M' : Memory V} {x : String}
+theorem Memory.update_eq_some_iff {V : Type u} [ExprSemantics V] {M M' : Memory V} {x : String}
     {path : List (PathStep V)} {v : V} :
     M.update x path v = some M' ↔
       ∃ old new, M.lookup x = some old ∧ ExprSemantics.updatePath old path v = some new ∧
@@ -299,7 +394,7 @@ theorem Memory.update_eq_some_iff {V : Type} [ExprSemantics V] {M M' : Memory V}
 
 /-- An update fails exactly when the name is unbound, or `updatePath` rejects the value found
 there. -/
-theorem Memory.update_eq_none_iff {V : Type} [ExprSemantics V] {M : Memory V} {x : String}
+theorem Memory.update_eq_none_iff {V : Type u} [ExprSemantics V] {M : Memory V} {x : String}
     {path : List (PathStep V)} {v : V} :
     M.update x path v = none ↔
       ∀ old, M.lookup x = some old → ExprSemantics.updatePath old path v = none := by
@@ -311,7 +406,7 @@ theorem Memory.update_eq_none_iff {V : Type} [ExprSemantics V] {M : Memory V} {x
 part. This is what an *unindexed* assignment `x := e` does to the memory, and it is the form
 substitution describes — `Expression.substRef` on a reference with no `.args` substitutes `e` for
 `x` outright rather than building an `EXCEPT`. -/
-theorem Memory.update_nil {V : Type} [ExprSemantics V] {M M' : Memory V} {x : String} {v : V}
+theorem Memory.update_nil {V : Type u} [ExprSemantics V] {M M' : Memory V} {x : String} {v : V}
     (h : M.update x [] v = some M') : M' = M.insert x v := by
   obtain ⟨_, new, _, hnew, hM'⟩ := Memory.update_eq_some_iff.mp h
   rw [ExprSemantics.updatePath_nil] at hnew
@@ -322,7 +417,7 @@ reaches the same memory as binding `x` first and then updating, and either order
 when the other does. `Memory` being a `Finmap` is what makes this an equation rather than only a
 `lookup`-wise agreement — see that abbreviation's doc. Both readings are used, one per direction of
 `Guarded2Network/Lemmas/Reorder.lean`'s `with` case, where the binding is the `with`'s own. -/
-theorem Memory.update_insert_iff {V : Type} [ExprSemantics V] {M M₂ : Memory V} {x y : String}
+theorem Memory.update_insert_iff {V : Type u} [ExprSemantics V] {M M₂ : Memory V} {x y : String}
     {path : List (PathStep V)} {u v : V} (hne : x ≠ y) :
     (∃ M', M.update y path v = some M' ∧ M₂ = M'.insert x u) ↔
       Memory.update (M.insert x u) y path v = some M₂ := by
@@ -347,7 +442,7 @@ assignment ran.
 never applies to it — `evalVar.mpr hold` below goes through unconditionally, no side condition
 needed (see `evalVar`'s own doc for why `Origin` alone, not a name-shadowing assumption, decides
 this). -/
-theorem ExprSemantics.evalSubstRef {V : Type} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
+theorem ExprSemantics.evalSubstRef {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
     {M M' : Memory V} {r : ElaboratedPlusCal.Ref Typ (Expression Typ)} {rhs e : Expression Typ}
     {v w : V} {rpath : List (PathStep V)} (hrhs : ExprSemantics.Eval Ξ Ω M rhs v)
     (hpath : ResolvesPath (ExprSemantics.Eval Ξ Ω) M r.args rpath)
