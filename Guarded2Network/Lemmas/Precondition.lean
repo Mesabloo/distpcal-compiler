@@ -75,14 +75,17 @@ def receiveInstrs (r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.Coercio
   [(r, coe.applyComputable (head τ (inboxVar inbox τ)), pos), (inboxRef inbox τ, tail τ (inboxVar inbox τ), pos)]
 
 /-- What a `receive` needs of the names around it, in the same shape `Lemmas/Statement.lean`'s
-`Fresh` uses. Three conditions, each earned by construction in a real compilation: the pass's
-`inbox` is generated with a `$` separator so no source reference can mention it, and
-`WellFormedness/Restrictions.lean` keeps a channel's index path clear of what the branch writes. -/
+`Fresh` uses. Four conditions, each earned by construction in a real compilation: the pass's
+`inbox` is generated with a `$` separator so no source reference can mention it,
+`WellFormedness/Restrictions.lean` keeps a channel's index path clear of what the branch writes, and
+elaboration leaves every index expression of the target reference locally closed (no dangling de
+Bruijn), which the consumption assignment's substitution into later guards relies on. -/
 def ReceiveFresh (c r : ComputableGuardedPlusCal.Ref) (coe : TypedTLAPlus.Coercion)
     (inbox : String) : Prop :=
   inbox ∉ GuardedPlusCal.Ref.freeVars c ∧ inbox ∉ GuardedPlusCal.Ref.freeVars r ∧
     r.name ∉ GuardedPlusCal.Ref.freeVars c ∧
-    TypedTLAPlus.Coercion.FreshFor coe {inbox}
+    TypedTLAPlus.Coercion.FreshFor coe {inbox} ∧
+    ∀ eᵢ, Sum.inr eᵢ ∈ r.args → Expression.LC eᵢ
 
 /-- The consumption expression `Head(inbox)` reads only `inbox` — its one free variable, so the
 `Coercion.FreshFor coe {inbox}` clause of `ReceiveFresh` is exactly `evalCoerce`'s side condition. -/
@@ -217,7 +220,7 @@ theorem receive_reducing_sim (hΞ : Ξ.WellScoped) {c r : ComputableGuardedPlusC
           GuardedPlusCal.Statement.reducing Ξ Ω (.receive c r coe)) ∨
       (⟨σₛ, 1⟩ : LocalState V × Trace V) ∈
         GuardedPlusCal.Statement.aborting Ξ Ω (.receive c r coe)) := by
-  obtain ⟨hfc, hfr, hfw, hcfr⟩ := fresh
+  obtain ⟨hfc, hfr, hfw, hcfr, -⟩ := fresh
   have hcfr' : TypedTLAPlus.Coercion.FreshFor coe (head τ (inboxVar inbox τ)).freeVars := by
     rw [freeVars_head_inboxVar]; exact hcfr
   have hrname : r.name ≠ inbox := Ne.symm (ne_name_of_fresh hfr)
@@ -324,7 +327,7 @@ theorem receive_aborting_sim (hΞ : Ξ.WellScoped) {c r : ComputableGuardedPlusC
               (.assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))))) :
     (⟨σₛ, 1⟩ : LocalState V × Trace V) ∈
       GuardedPlusCal.Statement.aborting Ξ Ω (.receive c r coe) := by
-  obtain ⟨hfc, hfr, hfw, hcfr⟩ := fresh
+  obtain ⟨hfc, hfr, hfw, hcfr, -⟩ := fresh
   have hcfr' : TypedTLAPlus.Coercion.FreshFor coe (head τ (inboxVar inbox τ)).freeVars := by
     rw [freeVars_head_inboxVar]; exact hcfr
   have hrname : r.name ≠ inbox := Ne.symm (ne_name_of_fresh hfr)
@@ -641,7 +644,8 @@ inductive ConsumptionPairs (inbox : String) :
     Nat → List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan) → Prop
   | nil : ConsumptionPairs inbox 0 []
   | snoc {k A r coe τ pos} (h : ConsumptionPairs inbox k A) (hne : r.name ≠ inbox)
-      (hcfr : TypedTLAPlus.Coercion.FreshFor coe {inbox}) :
+      (hcfr : TypedTLAPlus.Coercion.FreshFor coe {inbox})
+      (hrLC : ∀ eᵢ, Sum.inr eᵢ ∈ r.args → Expression.LC eᵢ) :
       ConsumptionPairs inbox (k + 1) (A ++ receiveInstrs r coe inbox τ pos)
 
 @[inherit_doc consumptions]
@@ -657,6 +661,42 @@ theorem consumptions_receiveInstrs {r : ComputableGuardedPlusCal.Ref} {coe : Typ
       [.assign r (coe.applyComputable (head τ (inboxVar inbox τ))),
         .assign (inboxRef inbox τ) (tail τ (inboxVar inbox τ))] :=
   rfl
+
+/-- `inboxVar` is a bare free-name node, so trivially locally closed. -/
+theorem inboxVar_lc {inbox : String} {τ : ComputableTLAPlus.Typ} :
+    (inboxVar inbox τ).LC :=
+  Expression.LC.varClosed (fun _ h ↦ nomatch h)
+
+/-- `Head(e)`/`Tail(e)` are locally closed whenever their argument is: an `.opCall` of a
+`.module`-headed operator applied to one locally-closed expression. -/
+theorem head_lc {τ : ComputableTLAPlus.Typ} {e : ComputablePlusCal.Expression} (he : e.LC) :
+    (head τ e).LC :=
+  Expression.LC.opCall (Expression.LC.varClosed (fun _ h ↦ nomatch h))
+    (fun _ he' ↦ (List.mem_singleton.mp he').symm ▸ he)
+
+@[inherit_doc head_lc]
+theorem tail_lc {τ : ComputableTLAPlus.Typ} {e : ComputablePlusCal.Expression} (he : e.LC) :
+    (tail τ e).LC :=
+  Expression.LC.opCall (Expression.LC.varClosed (fun _ h ↦ nomatch h))
+    (fun _ he' ↦ (List.mem_singleton.mp he').symm ▸ he)
+
+/-- The `SubstLC` side condition `reorder_assigns_guard`'s family wants, read off a
+`ConsumptionPairs` chain: each pair's right-hand side is a coercion of `Head`/`Tail` of the inbox —
+locally closed by construction — and each target reference's index expressions are locally closed
+because the `snoc` step carries that (it comes from well-formedness of the source `receive`). -/
+theorem ConsumptionPairs.substLC {inbox : String} {k : Nat}
+    {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
+    (h : ConsumptionPairs inbox k A) : ∀ a ∈ A, SubstLC a.1 a.2.1 := by
+  induction h with
+  | nil => intro a ha; nomatch ha
+  | @snoc k A r coe τ pos h hne hcfr hrLC IH =>
+    intro a ha
+    rcases List.mem_append.mp ha with h' | h'
+    · exact IH a h'
+    · simp only [receiveInstrs, List.mem_cons, List.not_mem_nil, or_false] at h'
+      obtain rfl | rfl := h'
+      · exact ⟨Expression.LC.applyComputable (head_lc inboxVar_lc), hrLC⟩
+      · exact ⟨tail_lc inboxVar_lc, fun eᵢ heᵢ ↦ nomatch heᵢ⟩
 
 /-- **The whole accumulator past one compiled guard.** `k` pending consumption pairs commute past
 `Len(inbox) > n`, leaving `Len(inbox) > n + k` in front of them — each pair drops one element from
@@ -677,7 +717,7 @@ theorem reorder_pairs_lenGt (hΞ : Ξ.WellScoped) {inbox : String} {τ' : Comput
   | nil =>
     rw [consumptions_nil, NetworkPlusCal.Statement.listReducing_nil, Nat.add_zero,
       Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
-  | snoc _ hne hcfr IH =>
+  | snoc _ hne hcfr _ IH =>
     rw [consumptions_append, NetworkPlusCal.Statement.listReducing_append,
       consumptions_receiveInstrs, NetworkPlusCal.Statement.listReducing_cons,
       NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
@@ -708,7 +748,7 @@ theorem reorder_pairs_lenGt_abort (hΞ : Ξ.WellScoped) {inbox : String}
     rw [consumptions_nil, NetworkPlusCal.Statement.listAborting_nil,
       NetworkPlusCal.Statement.listReducing_nil, Relation.lcomp₁.right_empty_eq_empty,
       Relation.lcomp₁.left_id_eq, Set.union_empty, Set.empty_union, Nat.add_zero]
-  | snoc pairs _ hcfr IH =>
+  | snoc pairs _ hcfr _ IH =>
     rw [consumptions_append, NetworkPlusCal.Statement.listAborting_append,
       NetworkPlusCal.Statement.listReducing_append, Relation.lcomp₁.union_lcomp₂,
       consumptions_receiveInstrs, ← Nat.add_assoc, Nat.add_right_comm]
@@ -795,7 +835,7 @@ theorem reorder_pairs_lenGt_block (hΞ : Ξ.WellScoped) {inbox : String}
       NetworkPlusCal.Statement.listReducing_nil,
       Relation.lcomp₁.right_empty_eq_empty, Relation.lcomp₁.left_id_eq, Set.union_empty,
       Set.empty_union, Nat.add_zero]
-  | snoc pairs hne hcfr IH =>
+  | snoc pairs hne hcfr _ IH =>
     rw [consumptions_append, NetworkPlusCal.Statement.listAborting_append,
       NetworkPlusCal.Statement.listReducing_append, Relation.lcomp₁.union_lcomp₂,
       consumptions_receiveInstrs, ← Nat.add_assoc, Nat.add_right_comm]
@@ -990,6 +1030,7 @@ private theorem WalkRef.blocking_step_guard (hΞ : Ξ.WellScoped) {mbox : Mailbo
     (hSn : NetworkPlusCal.Statement.blocking (V := V) Ξ Ω Sn =
       GuardedPlusCal.Statement.blocking Ξ Ω S)
     (notRecv : ∀ c r coe, S ≠ .receive c r coe) (gfresh : Fresh mbox S)
+    (hSubstLC : ∀ a ∈ A, SubstLC a.1 a.2.1)
     (hfresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 Sn)
     (ref : WalkRef (V := V) Ξ Ω mbox pref walked results A) :
     StrongRefinement.Blocking (relatesTo (V := V) Ξ Ω mbox pref) (instTrace (V := V)).Rτ
@@ -1007,7 +1048,7 @@ private theorem WalkRef.blocking_step_guard (hΞ : Ξ.WellScoped) {mbox : Mailbo
         rw [GuardedPlusCal.Statement.listBlocking_append]; exact Set.mem_union_left _ hb⟩
     · exact .inr ⟨ε', hpfx, by
         rw [GuardedPlusCal.Statement.listAborting_append]; exact Set.mem_union_left _ ha⟩
-  · rcases reorder_assigns_guard_block (V := V) (Ξ := Ξ) (Ω := Ω) hfresh hgblk with
+  · rcases reorder_assigns_guard_block (V := V) (Ξ := Ξ) (Ω := Ω) hΞ hSubstLC hfresh hgblk with
       habs | ⟨σ_f, ε₃, ε₄, hcons, hSnblk, rfl⟩
     · have hmem : (⟨σₜ, ε₁ * ε₂⟩ : LocalState V × Trace V) ∈
           NetworkPlusCal.Statement.listAborting Ξ Ω results ∪
@@ -1143,6 +1184,7 @@ private theorem WalkRef.step_guard (hΞ : Ξ.WellScoped) {mbox : Mailbox}
     (hSnB : NetworkPlusCal.Statement.blocking (V := V) Ξ Ω Sn =
       GuardedPlusCal.Statement.blocking Ξ Ω S)
     (notRecv : ∀ c r coe, S ≠ .receive c r coe) (gfresh : Fresh mbox S)
+    (hSubstLC : ∀ a ∈ A, SubstLC a.1 a.2.1)
     (hfresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 Sn)
     (ref : WalkRef (V := V) Ξ Ω mbox pref walked results A) :
     WalkRef (V := V) Ξ Ω mbox pref (walked ++ [S]) (results ++ [substGuards A Sn]) A := by
@@ -1150,7 +1192,7 @@ private theorem WalkRef.step_guard (hΞ : Ξ.WellScoped) {mbox : Mailbox}
   simp only [GuardedPlusCal.Statement.diverging_eq_empty,
     Relation.lcomp₁.right_empty_eq_empty, Set.union_self] at hcomp
   refine ⟨?_, ?_, StrongRefinement.Diverging.Empty _,
-    WalkRef.blocking_step_guard hΞ hSnB notRecv gfresh hfresh ref⟩
+    WalkRef.blocking_step_guard hΞ hSnB notRecv gfresh hSubstLC hfresh ref⟩
   · simp only [GuardedPlusCal.Statement.listReducing_append,
       GuardedPlusCal.Statement.listAborting_append,
       NetworkPlusCal.Statement.listReducing_append,
@@ -1158,7 +1200,8 @@ private theorem WalkRef.step_guard (hΞ : Ξ.WellScoped) {mbox : Mailbox}
       GuardedPlusCal.Statement.listAborting_cons, GuardedPlusCal.Statement.listAborting_nil,
       NetworkPlusCal.Statement.listReducing_cons, NetworkPlusCal.Statement.listReducing_nil,
       Relation.lcomp₂.right_id_eq, Relation.lcomp₁.right_empty_eq_empty, Set.union_empty]
-    rw [← Relation.lcomp₂.assoc, ← reorder_assigns_guard' hΞ hfresh, Relation.lcomp₂.assoc, hSnR]
+    rw [← Relation.lcomp₂.assoc, ← reorder_assigns_guard' hΞ hSubstLC hfresh, Relation.lcomp₂.assoc,
+      hSnR]
     exact hcomp.terminating
   · simp only [GuardedPlusCal.Statement.listAborting_append,
       NetworkPlusCal.Statement.listReducing_append,
@@ -1171,7 +1214,7 @@ private theorem WalkRef.step_guard (hΞ : Ξ.WellScoped) {mbox : Mailbox}
     refine StrongRefinement.Aborting.Mono le_rfl ?_ hcomp.aborting
     rw [Relation.lcomp₁.union_lcomp₂, ← hSnA]
     exact Set.union_le_union le_rfl
-      (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hΞ hfresh))
+      (Relation.lcomp₁.mono le_rfl (reorder_assigns_guard_abort' hΞ hSubstLC hfresh))
 
 /-- **`WalkRef` extended by a `receive`.** The compiled `Len(inbox) > k` guard is composed onto
 `ref`; the pending pairs (the new pair included) commute past it (`reorder_pairs_lenGt`); blocking
@@ -1301,7 +1344,7 @@ private theorem stepStatement_spec (hΞ : Ξ.WellScoped) {chans : Guarded2Networ
       · exact hwf S' h'
       · obtain rfl := List.mem_singleton.mp h'; exact gfresh
     · exact WalkRef.step_guard hΞ with_reducing'_eq with_aborting'_eq with_blocking'_eq
-        (λ _ _ _ h ↦ nomatch h) gfresh hfresh ref
+        (λ _ _ _ h ↦ nomatch h) gfresh (ConsumptionPairs.substLC pairs) hfresh ref
   case vc1.await e st n hinv =>
     obtain ⟨⟨pairs, hlen, hrxs, hrecv, hguards, hwf, ref⟩, gf'⟩ := hinv
     -- an `await` binds nothing, so its freshness against the accumulator is unconditional
@@ -1323,13 +1366,13 @@ private theorem stepStatement_spec (hΞ : Ξ.WellScoped) {chans : Guarded2Networ
       · exact hwf S' h'
       · obtain rfl := List.mem_singleton.mp h'; exact gfresh
     · exact WalkRef.step_guard hΞ await_reducing'_eq await_aborting'_eq await_blocking'_eq
-        (λ _ _ _ h ↦ nomatch h) gfresh hfresh ref
+        (λ _ _ _ h ↦ nomatch h) gfresh (ConsumptionPairs.substLC pairs) hfresh ref
   case vc2.receive.h_2 c r coe st n hinv τ hτ =>
     obtain ⟨⟨pairs, hlen, hrxs, _, hguards, hwf, ref⟩, gf'⟩ := hinv
     -- the one statement that pins the mailbox: from here down the walk is about *this* `inbox`
     obtain rfl := hmb c r coe rfl
     obtain ⟨rfl, hfr⟩ := rfresh c r coe rfl
-    refine ⟨⟨pairs.snoc (ne_name_of_fresh hfr.2.1).symm hfr.2.2.2, by simp [hlen],
+    refine ⟨⟨pairs.snoc (ne_name_of_fresh hfr.2.1).symm hfr.2.2.2.1 hfr.2.2.2.2, by simp [hlen],
       ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
     -- the one step that grows `rxs`: by this `receive`'s own channel, and so to something non-empty
     · intro x hx
@@ -1426,7 +1469,8 @@ theorem rfresh_of_wellFormed {c₀ : ComputableGuardedPlusCal.Ref} {inbox : Stri
       GuardedPlusCal.Statement.receive c r coe ∈ Ss → c = c₀ ∧ ReceiveFresh c r coe inbox :=
   λ c r coe hmem ↦
     ⟨recv.one_channel c r coe hmem, (hinbox c r coe hmem).1, (hinbox c r coe hmem).2.1,
-      recv.target_not_in_channel c r coe hmem, (hinbox c r coe hmem).2.2⟩
+      recv.target_not_in_channel c r coe hmem, (hinbox c r coe hmem).2.2,
+      recv.target_lc c r coe hmem⟩
 
 /-- The statements of a branch's precondition, `[]` when it has none. What the freshness hypotheses
 below quantify over — `Block.toList` cannot, an `Option` having no `toList` of the right shape. -/

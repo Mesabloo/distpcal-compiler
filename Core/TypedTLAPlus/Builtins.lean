@@ -94,6 +94,20 @@ def builtinOpOf? : Origin → Option BuiltinOp
     | _ => none
   | .free _ | .bound _ | .module _ _ => none
 
+/-- `builtinOpOf?` picks out `Nat` only at `Naturals!Nat`. -/
+theorem builtinOpOf?_eq_natSet {o : Origin} :
+    builtinOpOf? o = some .natSet ↔ o = .module "Naturals" "Nat" := by
+  refine ⟨fun h ↦ ?_, fun h ↦ h ▸ rfl⟩
+  simp only [builtinOpOf?] at h
+  split at h <;> first | (split at h <;> simp_all) | simp_all
+
+/-- `builtinOpOf?` picks out `Int` only at `Integers!Int`. -/
+theorem builtinOpOf?_eq_intSet {o : Origin} :
+    builtinOpOf? o = some .intSet ↔ o = .module "Integers" "Int" := by
+  refine ⟨fun h ↦ ?_, fun h ↦ h ▸ rfl⟩
+  simp only [builtinOpOf?] at h
+  split at h <;> first | (split at h <;> simp_all) | simp_all
+
 /-- Recognizes `e` as a builtin call — `.opCall (.var _ origin) args` where `origin` hits
 `builtinOpOf?` — returning the operator and its argument list. `none` for anything else, including
 a call to a resolved-but-non-builtin operator/function. -/

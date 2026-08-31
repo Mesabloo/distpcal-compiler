@@ -147,14 +147,167 @@ unchanged. `ExprSemantics.evalCoerce` needs this to shrink a `Coercion.FreshFor`
 sub-expression (`.comp`, `.function`). -/
 theorem freeVars_applyComputable_subset {c : TypedTLAPlus.Coercion} {e : Expression Typ}
     (hz : z ∈ (TypedTLAPlus.Coercion.applyComputable c e).freeVars) : z ∈ e.freeVars := by
-  -- TODO(locally-nameless): re-derive against the de Bruijn `applyComputable`; the `mem_freeVars_*`
-  -- lemmas above are already updated. Parked with the semantics port (item 6).
-  sorry
+  revert hz
+  fun_induction TypedTLAPlus.Coercion.applyComputable c e with
+  | case1 => exact id
+  | case2 => next e' pos =>
+    simp only [Expression.mem_freeVars_opCall, freeVars_var_intrinsic, Finset.notMem_empty,
+      false_or, List.mem_singleton, exists_eq_left, imp_self]
+  | case3 => next e' pos τ₀ i range =>
+    intro hz
+    simp only [range, mem_freeVars_fn, mem_freeVars_fnCall, Expression.mem_freeVars_opCall,
+      freeVars_var_module, freeVars_var_bound, Finset.notMem_empty, false_or, or_false,
+      List.mem_cons, List.mem_singleton, List.not_mem_nil, Finset.mem_union] at hz
+    grind [Expression.freeVars_liftBound_subset, freeVars_nat, Expression.mem_freeVars_opCall,
+      freeVars_var_module]
+  | case4 => next e' pos n τ hn =>
+    intro hz
+    simp only [Expression.mem_freeVars_seq, List.mem_map] at hz
+    grind [freeVars_fnCall_nat]
+  | case5 => next e' pos x τ τ' cc ih =>
+    intro hz
+    rw [mem_freeVars_map'] at hz
+    rcases hz with h | h
+    · exact h
+    · absurd ih h
+      simp
+  | case6 => next e' pos coes τs τs' ih1 =>
+    intro hz
+    rw [Expression.mem_freeVars_tuple] at hz
+    obtain ⟨p, hp, h⟩ := hz
+    rw [List.mem_map] at hp
+    obtain ⟨⟨j, hj⟩, -, rfl⟩ := hp
+    simp only at h
+    have hf := ih1 j hj h
+    rwa [freeVars_fnCall_nat] at hf
+  | case7 => next e' pos fields ih1 =>
+    intro hz
+    rw [Expression.mem_freeVars_record] at hz
+    obtain ⟨p, hp, h⟩ := hz
+    rw [List.mem_map] at hp
+    obtain ⟨⟨⟨name, cc, τ'ᵢ⟩, hf⟩, -, rfl⟩ := hp
+    simp only at h
+    have hr := ih1 name cc τ'ᵢ hf h
+    rwa [freeVars_recordAccess] at hr
+  | case8 => next e' pos x y dom rng dom' rng' cDom cRng eLift domE newD eqTy domEL rArg ih3 ih2 ih1 =>
+    intro hz
+    rw [mem_freeVars_fn] at hz
+    rcases hz with h | h
+    · simp only [newD, domE, mem_freeVars_map', Expression.mem_freeVars_opCall,
+        freeVars_var_intrinsic, Finset.notMem_empty, false_or, List.mem_singleton,
+        exists_eq_left] at h
+      rcases h with h | h
+      · exact h
+      · absurd ih3 h
+        simp
+    · have hb := ih1 h
+      rw [mem_freeVars_fnCall] at hb
+      rcases hb with h | h
+      · exact Expression.freeVars_liftBound_subset h
+      · simp only [rArg, domEL, mem_freeVars_choose, Expression.mem_freeVars_opCall,
+          freeVars_var_intrinsic, Finset.notMem_empty, false_or, exists_eq_left, List.mem_cons,
+          List.not_mem_nil, or_false] at h
+        rcases h with h | ⟨a, rfl | rfl, ha⟩
+        · exact Expression.freeVars_liftBound_subset h
+        · absurd ih2 ha
+          simp
+        · absurd ha
+          simp
+  | case9 => next e' c₁ c₂ ih₁ ih₂ => exact fun hz ↦ ih₁ (ih₂ hz)
 
 /-- The `⊆` reading of `freeVars_applyComputable_subset`. -/
 theorem freeVars_applyComputable_subset' {c : TypedTLAPlus.Coercion} {e : Expression Typ} :
     (TypedTLAPlus.Coercion.applyComputable c e).freeVars ⊆ e.freeVars :=
   fun _ hz ↦ freeVars_applyComputable_subset hz
+
+/-! ## `Coercion.applyComputable` and `openVar`
+
+`applyComputable` commutes with an `openVar` traversal: every binder it introduces refers to itself
+by `.bound`, every splice of `e` under a binder carries a `liftBound 1` that `openVar` at the
+raised depth cancels (`Expression.openVar_liftBound_one_comm`), and every other node passes the
+traversal through. `ExprSemantics.evalCoerce`'s `.set`/`.function` cases need this: the built `.fn`/
+`.map'` body opens with the binder's hint, and the opened term must read as `applyComputable`
+of the opened argument so the coercion recursion applies. -/
+
+set_option maxHeartbeats 1000000 in
+/-- `mapVars (openVarLam x) k` pushes through `applyComputable`: the depth-generalised statement,
+proved by recursion on the coercion. `openVar_applyComputable` is the `k = 0` reading. -/
+theorem openVar_applyComputable_aux (c : TypedTLAPlus.Coercion) (x : String) :
+    ∀ (e : Expression Typ) (k : Nat),
+      Expression.mapVars (Expression.openVarLam x) k (c.applyComputable e)
+        = c.applyComputable (Expression.mapVars (Expression.openVarLam x) k e) := by
+  intro e
+  fun_induction TypedTLAPlus.Coercion.applyComputable c e with
+  | case1 => intro k; simp only [TypedTLAPlus.Coercion.applyComputable]
+  | case2 => next e' pos =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, Expression.openVarLam,
+      registerSource, List.attach_map_val, List.map_cons, List.map_nil]
+  | case3 => next e' pos τ₀ i range =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource, range,
+      Expression.openVar_liftBound_one_comm, Expression.openVarLam, List.map_cons, List.map_nil,
+      List.attach_map_val]
+    rw [if_neg (by omega), if_neg (by omega)]
+  | case4 => next e' pos n τ hn =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource,
+      List.attach_map_val, List.map_map, Function.comp_def]
+  | case5 => next e' pos x' τ τ' cc ih =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource] at ih ⊢
+    congr 1
+    rewrite [ih (k + 1)]
+    simp only [Expression.openVarLam, registerSource]
+    rw [if_neg (by omega), if_neg (by omega)]
+  | case6 => next e' pos coes τs τs' ih1 =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource] at ih1 ⊢
+    congr 1
+    refine Expression.doubleAttach_map_eq λ ip _ ↦ ?_
+    obtain ⟨i, hi⟩ := ip
+    refine Prod.ext rfl ?_
+    dsimp only
+    rw [ih1 i hi k]
+  | case7 => next e' pos fields ih1 =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource] at ih1 ⊢
+    congr 1
+    refine Expression.doubleAttach_map_eq λ fp _ ↦ ?_
+    obtain ⟨⟨nm, cc, τ'ᵢ⟩, hf⟩ := fp
+    refine Prod.ext rfl (Prod.ext rfl ?_)
+    dsimp only
+    rw [ih1 nm cc τ'ᵢ hf k]
+  | case8 =>
+    next e' pos x' y dom rng dom' rng' cDom cRng eLift domE newD eqTy domEL rArg ih3 _ih2 ih1 =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource,
+      eLift, domE, newD, domEL, rArg, eqTy,
+      List.map_cons, List.map_nil, List.attach_map_val] at ih1 ih3 ⊢
+    rewrite [ih1 (k + 1)]
+    simp only [ih3, Expression.openVar_liftBound_one_comm, Expression.openVarLam, registerSource]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
+      if_neg (by omega), if_neg (by omega)]
+  | case9 => next e' c₁ c₂ ih₁ ih₂ =>
+    intro k
+    simp only [TypedTLAPlus.Coercion.applyComputable]
+    rw [ih₂ k, ih₁ k]
+
+/-- Applying a coercion and then opening the enclosing binder is opening it inside the argument
+first: `openVar` slides through `applyComputable`. -/
+theorem openVar_applyComputable (c : TypedTLAPlus.Coercion) (x : String) (e : Expression Typ) :
+    (c.applyComputable e).openVar x = c.applyComputable (e.openVar x) :=
+  openVar_applyComputable_aux c x e 0
+
+/-- A coercion preserves local closedness. `applyComputable` introduces binders but every splice of
+`e` under one carries a `liftBound 1`, so opening the enclosing binder slides through
+(`openVar_applyComputable`) and lands on `e`, which a locally-closed `e` is fixed by — so the whole
+term is fixed by `openVar`, hence locally closed (`Expression.LC.of_openVar_eq`). -/
+theorem Expression.LC.applyComputable {c : TypedTLAPlus.Coercion} {e : Expression Typ}
+    (he : e.LC) : (c.applyComputable e).LC := by
+  have hx : Expression.openVar "x" e = e := he.mapVars_openVarLam_eq "x" 0
+  refine Expression.LC.of_openVar_eq (name := "x") ?_
+  rw [openVar_applyComputable, hx]
 
 end ComputableTLAPlus
 

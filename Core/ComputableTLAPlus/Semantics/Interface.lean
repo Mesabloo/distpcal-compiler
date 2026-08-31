@@ -56,16 +56,14 @@ so `Ξ` needs no value type to be well-formed. Kept a plain function rather than
 in this file's laws ever needs to enumerate or compare two `Ξ`s, only look one name up. -/
 abbrev OperatorEnv : Type := String → String → Option (List (String × Nat) × Expression Typ)
 
-/-- Every operator body in `Ξ` reads from memory only its own formal parameters — no stray free
-`Origin.binder` variable. `evalLocal`/`evalSubst` need this: a `var_op0`/`opCall_op` step evaluates
-a body (or its `substParams` form) that is not a subterm of the call, so agreement on the call's
-free variables says nothing about that body unless the body is closed over its parameters. Populated
-`Ξ`s satisfy it by construction — an operator definition's body is checked against a scope holding
-exactly its parameters plus module-level names, and module-level names are `Origin.module`, which
-`freeVars` does not count. -/
+/-- Every operator body in `Ξ` is closed: it reads nothing from memory. `evalLocal`/`evalSubst`
+need this — a `var_op0`/`opCall_op` step evaluates a body (or its `substParams` form) that is not a
+subterm of the call, so agreement on the call's free variables says nothing about that body unless
+the body is closed. Populated `Ξ`s satisfy it by construction: an operator definition's body is
+checked against a scope holding exactly its parameters (`Origin.bound`) plus module-level names
+(`Origin.module`), and `freeVars` counts neither — only `Origin.free`, which a body never has. -/
 def OperatorEnv.WellScoped (Ξ : OperatorEnv) : Prop :=
-  ∀ m x params body, Ξ m x = some (params, body) →
-    ∀ z ∈ (body.freeVars), z ∈ params.map Prod.fst
+  ∀ m x params body, Ξ m x = some (params, body) → body.freeVars = ∅
 
 /-- `c`'s synthesized binder names avoid `S` — and, through the nested `{x}`/`insert y S`
 recursions, each other. The freshness side condition `evalCoerce` needs: `Coercion.applyComputable`
@@ -263,24 +261,14 @@ class ExprSemantics (V : Type u) where
   - `.intrinsic _` — a hardcoded builtin (`=`, `/\`, `DOMAIN`, …) has no value on its own; it only
     means something as the head of an `opCall`, which a concrete `ExprSemantics` instance dispatches
     off the builtin table directly. Bare, it denotes nothing — hence `False`, not a memory lookup.
-  - `.module m name` — looked up in `Ξ`'s entry for `m`. A 0-arity operator/function denotes its
-    body's value, evaluated under the *same* `Ξ`/`Ω`/`M`. A name `Ξ m` has no 0-arity entry for is
-    either a higher-order operator referenced bare (`False`, same reasoning as `.intrinsic`) or a
-    `CONSTANT`, whose value comes from `Ω m name` instead.
+  - `.module m name` — `Naturals`'s `Nat`/`Integers`'s `Int` denote their integer-set families; every
+    other name is looked up in `Ξ`'s entry for `m` (0-arity operator body, or `Ω m name` for a
+    `CONSTANT`). Not covered here — no abstract consumer reads a `.module` node this way.
 
-  Structurally unambiguous throughout: `Origin` alone selects the case, so no invariant about names
-  or shadowing is needed to keep the environments from racing. -/
-  evalVar {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {τ : Typ} {o : Origin} {v : V} :
-    Eval Ξ Ω M (.var τ o) v ↔
-      match o with
-      | .bound _ => False
-      | .free name => M.lookup name = some v
-      | .intrinsic _ => False
-      | .module m name =>
-        match Ξ m name with
-        | some ([], body) => Eval Ξ Ω M body v
-        | some (_ :: _, _) => False
-        | none => Ω m name = some v
+  Scoped to `.free`: `Origin` alone selects the case, and this is the only one every abstract
+  consumer needs (all `evalVar` uses are on `Memory`-keyed names). -/
+  evalVar {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {τ : Typ} {name : String} {v : V} :
+    Eval Ξ Ω M (.var τ (.free name)) v ↔ M.lookup name = some v
   /-- Applying a coercion to an expression denotes the coercion applied to that expression's value.
   `TypedTLAPlus.Coercion.applyComputable` and `coerce` above are the expression-level and
   value-level views of one operation, and this is the only thing connecting them — a pass that
@@ -290,9 +278,11 @@ class ExprSemantics (V : Type u) where
   An `↔`: the forward reading turns the target's evaluated right-hand side into the source's
   `coerce` obligation, the backward one builds the target's from the source's.
 
-  Needs `Ξ.WellScoped` and `Coercion.FreshFor c e.freeVars` for the same reason `evalLocal` needs the
-  first: `applyComputable` for `.seqToFun`/`.function` re-evaluates `e` under a binder the coercion
-  introduces, and relating that to `e`'s value in the ambient memory is exactly `evalLocal`. -/
+  Needs `Ξ.WellScoped` for the same reason `evalLocal` does: `applyComputable` for
+  `.seqToFun`/`.function` re-evaluates `e` under a binder the coercion introduces, and relating
+  that to `e`'s value in the ambient memory is exactly `evalLocal`. The binder is opened at a name
+  chosen fresh for `e` (locally-nameless, cofinite `Eval` rules), so the `Coercion.FreshFor c
+  e.freeVars` argument is no longer load-bearing — kept only until its callers are cleaned up. -/
   evalCoerce {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {c : TypedTLAPlus.Coercion}
       {e : Expression Typ} {v' : V} :
     Ξ.WellScoped → TypedTLAPlus.Coercion.FreshFor c e.freeVars →
@@ -307,10 +297,13 @@ class ExprSemantics (V : Type u) where
       (Eval Ξ Ω M₁ e v ↔ Eval Ξ Ω M₂ e v)
   /-- Substitution is evaluation-under-extended-memory, read backwards: binding `x` to `e'`'s
   value and evaluating `e` agrees with evaluating `e`'s `x`-substituted form under the original
-  memory. -/
+  memory. Needs `Ξ.WellScoped` (an operator call's body is evaluated through `Ξ`, and only its
+  parameters may occur free in it) and `Expression.LC e'` (`e'` is spliced under `e`'s binders, so
+  it must carry no dangling de Bruijn index). -/
   evalSubst {Ξ : OperatorEnv} {Ω : Model V} {M : Memory V} {x : String} {e' e : Expression Typ}
       {v' v : V} :
-    Eval Ξ Ω M e' v' → (Eval Ξ Ω (M.insert x v') e v ↔ Eval Ξ Ω M (Expression.subst x e' e) v)
+    Ξ.WellScoped → Expression.LC e' → Eval Ξ Ω M e' v' →
+      (Eval Ξ Ω (M.insert x v') e v ↔ Eval Ξ Ω M (Expression.subst x e' e) v)
   /-- `[f EXCEPT ![path] = rhs]` denotes `updatePath` applied to `f`'s value, `rhs`'s value, and
   the syntactic path resolved (`ResolvesPath`) against the same memory. Scoped to the one-update
   form — the only shape `Expression.substRef` ever produces. -/
@@ -439,7 +432,9 @@ needed (see `evalVar`'s own doc for why `Origin` alone, not a name-shadowing ass
 this). -/
 theorem ExprSemantics.evalSubstRef {V : Type u} [ExprSemantics V] {Ξ : OperatorEnv} {Ω : Model V}
     {M M' : Memory V} {r : ElaboratedPlusCal.Ref Typ (Expression Typ)} {rhs e : Expression Typ}
-    {v w : V} {rpath : List (PathStep V)} (hrhs : ExprSemantics.Eval Ξ Ω M rhs v)
+    {v w : V} {rpath : List (PathStep V)} (hΞ : Ξ.WellScoped) (hrhsLC : Expression.LC rhs)
+    (hargsLC : ∀ eᵢ, Sum.inr eᵢ ∈ r.args → Expression.LC eᵢ)
+    (hrhs : ExprSemantics.Eval Ξ Ω M rhs v)
     (hpath : ResolvesPath (ExprSemantics.Eval Ξ Ω) M r.args rpath)
     (hM' : Memory.update M r.name rpath v = some M') :
     ExprSemantics.Eval Ξ Ω M' e w ↔ ExprSemantics.Eval Ξ Ω M (Expression.substRef r rhs e) w := by
@@ -450,11 +445,12 @@ theorem ExprSemantics.evalSubstRef {V : Type u} [ExprSemantics V] {Ξ : Operator
     rw [ExprSemantics.updatePath_nil] at hnew
     obtain rfl := Option.some.inj hnew
     rw [Expression.substRef_of_args_nil hargs]
-    exact ExprSemantics.evalSubst hrhs
+    exact ExprSemantics.evalSubst hΞ hrhsLC hrhs
   · rw [Expression.substRef_of_args_ne_nil hargs]
-    apply ExprSemantics.evalSubst
-    apply (ExprSemantics.evalExcept (ExprSemantics.evalVar.mpr hold) hpath hrhs).mpr
-    exact hnew
+    refine ExprSemantics.evalSubst hΞ
+      (Expression.LC.except_single (Expression.LC.varClosed (fun i h ↦ nomatch h)) hargsLC hrhsLC)
+      ?_
+    exact (ExprSemantics.evalExcept (ExprSemantics.evalVar.mpr hold) hpath hrhs).mpr hnew
 
 end ComputableTLAPlus
 

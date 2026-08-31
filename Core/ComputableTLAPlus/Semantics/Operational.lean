@@ -2,6 +2,7 @@ module
 
 meta import CustomPrelude
 import Std.Data.String.ToNat
+import Mathlib.Data.Set.Finite.Basic
 public import Core.ComputableTLAPlus.Semantics.Interface
 public import Core.ComputableTLAPlus.Semantics.Value
 public import Core.ComputableTLAPlus.FreeVars
@@ -116,6 +117,7 @@ inductive EvalBuiltin : BuiltinOp → List Value → Value → Prop
   | setMinus {A B : Value} : EvalBuiltin .setMinus [A, B] (A \ B)
   | cartesianProduct {A B v : Value}
       (hv : ∀ z, z ∈ v ↔ ∃ a ∈ A, ∃ b ∈ B, z = Value.ofSeq [a, b]) :
+      -- TODO: why `ofSeq` and not `ofTuple`? This would be less obscure.
       EvalBuiltin .cartesianProduct [A, B] v
   | domain {f v : Value} (hv : ∀ z, z ∈ v ↔ ∃ w, ZFSet.pair z w ∈ f) :
       -- TODO: why not state `hv` as `∀ z, z ∈ v ↔ z ∈ f.Dom`, other than the fact that it requires an additional `f.IsPFunc` hypothesis which is
@@ -142,13 +144,9 @@ inductive EvalBuiltin : BuiltinOp → List Value → Value → Prop
       (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, a ≤ k ∧ k ≤ b ∧ z = Value.ofInt k) :
       -- TODO: Same comment as for `domain`
       EvalBuiltin .range [Value.ofInt a, Value.ofInt b] v
-  -- integer set families
-  | natSet {v : Value} (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, 0 ≤ k ∧ z = Value.ofInt k) :
-      -- TODO: Why not use `v := ZFSet.Nat`?
-      EvalBuiltin .natSet [] v
-  | intSet {v : Value} (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, z = Value.ofInt k) :
-      -- TODO: Same as `natSet`, why not use `v := ZFSet.Int`?
-      EvalBuiltin .intSet [] v
+  -- `Naturals`'s `Nat` and `Integers`'s `Int` are not here: they are never *called* (`Nat()` is not
+  -- a term), only referenced by bare name, so they are `Eval` rules on the `.var` node directly
+  -- (`Eval.natSet`/`Eval.intSet`), not builtin operators.
   -- sequences
   | len {vs : List Value} : EvalBuiltin .len [Value.ofSeq vs] (Value.ofNat vs.length)
   | head {v : Value} {vs : List Value} : EvalBuiltin .head [Value.ofSeq (v :: vs)] v
@@ -177,9 +175,29 @@ theorem substParams_freeVars {params : List (String × Nat)} {args : List (Expre
     {body : Expression Typ} {z : String} (_hlen : params.length = args.length)
     (hz : z ∈ (substParams params args body).freeVars) :
     z ∈ body.freeVars ∨ ∃ a ∈ args, z ∈ a.freeVars := by
-  -- TODO(locally-nameless): needs `Expression.freeVars_instantiate`, still to be added to
-  -- `FreeVars.lean`, alongside the `evalLocal'`/`evalSubst'` rewrite.
-  sorry
+  rcases Expression.freeVars_instantiate hz with h | ⟨a, ha, hza⟩
+  · exact .inl h
+  · exact .inr ⟨a, List.mem_reverse.mp ha, hza⟩
+
+/-- `subst` pushes through `substParams` when the substituend is locally closed and the operator
+body is closed (`Ξ.WellScoped`): it lands on the arguments only. The `opCall_op` step of
+`evalSubst'`, whose sub-derivation is on `substParams params args body`, not a call subterm. -/
+theorem subst_substParams {x : String} {e' : Expression Typ} (hlc : e'.LC)
+    {params : List (String × Nat)} {args : List (Expression Typ)} {body : Expression Typ}
+    (hbody : x ∉ body.freeVars) :
+    Expression.subst x e' (substParams params args body)
+      = substParams params (args.map (Expression.subst x e')) body := by
+  rw [substParams, substParams, Expression.subst_instantiate hlc hbody, List.map_reverse]
+
+/-- A builtin call's head origin (`.module`/`.intrinsic`) is untouched by `subst`. -/
+theorem subst_var_of_builtin {x : String} {e' : Expression Typ} {τ : Typ} {o : Origin}
+    {op : BuiltinOp} (hop : TypedTLAPlus.builtinOpOf? o = some op) :
+    Expression.subst x e' (Expression.var τ o) = Expression.var τ o := by
+  cases o with
+  | free n => simp [TypedTLAPlus.builtinOpOf?] at hop
+  | bound i => simp [TypedTLAPlus.builtinOpOf?] at hop
+  | «module» m n => exact Expression.subst_var_module
+  | intrinsic n => exact Expression.subst_var_intrinsic
 
 mutual
 /-- `Eval Ξ Ω M e v` — under operator environment `Ξ`, model `Ω`, and memory `M`, expression `e`
@@ -200,11 +218,22 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
   | var_free {M : Memory Value} {τ : Typ} {name : String} {v : Value} (h : M.lookup name = some v) :
       Eval Ξ Ω M (.var τ (.free name)) v
   | var_op0 {M : Memory Value} {τ : Typ} {m name : String} {body : Expression Typ}
-      {v : Value} (hΞ : Ξ m name = some ([], body)) (hb : Eval Ξ Ω M body v) :
+      {v : Value} (hΞ : Ξ m name = some ([], body))
+      (hnb : TypedTLAPlus.builtinOpOf? (.module m name) = none) (hb : Eval Ξ Ω M body v) :
       Eval Ξ Ω M (.var τ (.module m name)) v
   | var_const {M : Memory Value} {τ : Typ} {m name : String} {v : Value}
-      (hΞ : Ξ m name = none) (hΩ : Ω m name = some v) :
+      (hΞ : Ξ m name = none)
+      (hnb : TypedTLAPlus.builtinOpOf? (.module m name) = none) (hΩ : Ω m name = some v) :
       Eval Ξ Ω M (.var τ (.module m name)) v
+  -- `Nat` / `Int`: bare references to `Naturals`'s and `Integers`'s integer-set families. They are
+  -- never *called* (`Nat()` is not a term), so they resolve at the `.var` node directly, by name —
+  -- never through `Ξ` (`var_op0`/`var_const` exclude them via `hnb`).
+  | natSet {M : Memory Value} {τ : Typ} {v : Value}
+      (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, 0 ≤ k ∧ z = Value.ofInt k) :
+      Eval Ξ Ω M (.var τ (.module "Naturals" "Nat")) v
+  | intSet {M : Memory Value} {τ : Typ} {v : Value}
+      (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, z = Value.ofInt k) :
+      Eval Ξ Ω M (.var τ (.module "Integers" "Int")) v
   -- operator application: user operator, by substitution. `hnb` gates this rule to names the
   -- builtin table does not know: a builtin-module operator (`Naturals`'s `+`/`..`, `Sequences`'s
   -- `Len`, …) is resolved by `opCall_builtin` regardless of `Ξ`, so `Ξ` and `opCall_op` carry
@@ -214,7 +243,8 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
       (hΞ : Ξ m name = some (params, body))
       (hnb : TypedTLAPlus.builtinOpOf? (.module m name) = none)
       (hlen : params.length = args.length)
-      (hb : Eval Ξ Ω M (substParams params args body) v) :
+      (hb : Eval Ξ Ω M (substParams params args body) v)
+      (hargs : args ≠ []) :
       Eval Ξ Ω M (.opCall (.var τ (.module m name)) args) v
   -- operator application: builtin, by kind-strict value semantics. A builtin's meaning is fixed by
   -- its `Origin` here, not by `Ξ`; `opCall_op`'s `hnb` is the other half of that split.
@@ -224,31 +254,38 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
       (hargs : EvalList Ξ Ω M args argVals)
       (hb : EvalBuiltin op argVals v) :
       Eval Ξ Ω M (.opCall (.var τ o) args) v
-  -- bounded quantifiers. `body.openVar x` swaps the binder's own `.bound 0` for its name hint `x`,
-  -- which `M.insert x w` then answers for; the hint choice is unobservable — α-equal bodies are
-  -- syntactically equal under locally-nameless.
+  -- bounded quantifiers. Each opens `body` with a name `z` drawn from *outside* a finite set `L`
+  -- the derivation names — never the binder's own hint. `M.insert z w` then answers for it. `L`
+  -- lets a proof demand the witness fresh for its own free-variable bookkeeping (`evalUnique'`
+  -- picks a common `z ∉ L₁ ∪ L₂`, `evalSubst'` one avoiding the substituted expression); `body`'s
+  -- value at `w` is `z`-independent, so this pins down the same relation as opening with any one
+  -- fresh name would.
   | forall_true {M : Memory Value} {x : String} {τ : Typ} {dom body : Expression Typ} {S : Value}
+      (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (hall : ∀ w, w ∈ S → Eval Ξ Ω (M.insert x w) (body.openVar x) Value.tru) :
+      (hall : ∀ z, z ∉ L → ∀ w, w ∈ S → Eval Ξ Ω (M.insert z w) (body.openVar z) Value.tru) :
       Eval Ξ Ω M (.forall x τ dom body) Value.tru
   | forall_false {M : Memory Value} {x : String} {τ : Typ} {dom body : Expression Typ} {S w : Value}
+      (L : Finset String)
       (hdom : Eval Ξ Ω M dom S) (hw : w ∈ S)
-      (hbody : Eval Ξ Ω (M.insert x w) (body.openVar x) Value.fls) :
+      (hbody : ∀ z, z ∉ L → Eval Ξ Ω (M.insert z w) (body.openVar z) Value.fls) :
       Eval Ξ Ω M (.forall x τ dom body) Value.fls
   | exists_true {M : Memory Value} {x : String} {τ : Typ} {dom body : Expression Typ} {S w : Value}
+      (L : Finset String)
       (hdom : Eval Ξ Ω M dom S) (hw : w ∈ S)
-      (hbody : Eval Ξ Ω (M.insert x w) (body.openVar x) Value.tru) :
+      (hbody : ∀ z, z ∉ L → Eval Ξ Ω (M.insert z w) (body.openVar z) Value.tru) :
       Eval Ξ Ω M (.exists x τ dom body) Value.tru
   | exists_false {M : Memory Value} {x : String} {τ : Typ} {dom body : Expression Typ} {S : Value}
+      (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (hall : ∀ w, w ∈ S → Eval Ξ Ω (M.insert x w) (body.openVar x) Value.fls) :
+      (hall : ∀ z, z ∉ L → ∀ w, w ∈ S → Eval Ξ Ω (M.insert z w) (body.openVar z) Value.fls) :
       Eval Ξ Ω M (.exists x τ dom body) Value.fls
   -- Hilbert choice. `filt w` is what `pred` denotes at `w`; the value is `Classical.epsilon` over
   -- "in `S`, filtered TRUE", which is deterministic and keeps `Eval` out of the `epsilon` predicate.
   | choose {M : Memory Value} {x : String} {τ : Typ} {dom pred : Expression Typ} {S : Value}
-      (filt : Value → Value)
+      (filt : Value → Value) (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (hfilt : ∀ w ∈ S, Eval Ξ Ω (M.insert x w) (pred.openVar x) (filt w)) :
+      (hfilt : ∀ z, z ∉ L → ∀ w, w ∈ S → Eval Ξ Ω (M.insert z w) (pred.openVar z) (filt w)) :
       Eval Ξ Ω M (.choose x τ dom pred)
         (Classical.epsilon (λ w ↦ w ∈ S ∧ filt w = Value.tru))
   -- set literal
@@ -260,17 +297,18 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
   -- the predicate's value (rather than the proposition "pred holds") is what keeps `Eval` out of a
   -- negative position.
   | collect {M : Memory Value} {x : String} {τ : Typ} {dom pred : Expression Typ} {S v : Value}
-      (filt : Value → Value)
+      (filt : Value → Value) (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (hfilt : ∀ z ∈ S, Eval Ξ Ω (M.insert x z) (pred.openVar x) (filt z))
+      (hfilt : ∀ y, y ∉ L → ∀ z, z ∈ S → Eval Ξ Ω (M.insert y z) (pred.openVar y) (filt z))
       (hto : ∀ z ∈ v, z ∈ S ∧ filt z = Value.tru)
       (hof : ∀ z ∈ S, filt z = Value.tru → z ∈ v) :
+    -- TODO: why not use `ZFSet.sep`? Are you afraid of indexed inductives?
       Eval Ξ Ω M (.collect x τ dom pred) v
   -- set image. `img` names the mapped value at each point, keeping `Eval` out of an existential.
   | map' {M : Memory Value} {body : Expression Typ} {x : String} {ann cod : Typ}
-      {dom : Expression Typ} {S v : Value} (img : Value → Value)
+      {dom : Expression Typ} {S v : Value} (img : Value → Value) (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (himg : ∀ w ∈ S, Eval Ξ Ω (M.insert x w) (body.openVar x) (img w))
+      (himg : ∀ z, z ∉ L → ∀ w, w ∈ S → Eval Ξ Ω (M.insert z w) (body.openVar z) (img w))
       (hto : ∀ z ∈ v, ∃ w ∈ S, z = img w)
       (hof : ∀ w ∈ S, img w ∈ v) :
       Eval Ξ Ω M (.map' body x ann cod dom) v
@@ -282,9 +320,9 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
       Eval Ξ Ω M (.fnCall f fnTyp arg) (fnApply r k)
   -- function literal (existence law: the graph is characterised, not built)
   | fn {M : Memory Value} {x : String} {ann cod : Typ} {dom body : Expression Typ} {S G : Value}
-      (img : Value → Value)
+      (img : Value → Value) (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (himg : ∀ w ∈ S, Eval Ξ Ω (M.insert x w) (body.openVar x) (img w))
+      (himg : ∀ z, z ∉ L → ∀ w, w ∈ S → Eval Ξ Ω (M.insert z w) (body.openVar z) (img w))
       (hto : ∀ z ∈ G, ∃ w ∈ S, z = ZFSet.pair w (img w))
       (hof : ∀ w ∈ S, ZFSet.pair w (img w) ∈ G) :
       Eval Ξ Ω M (.fn x ann cod dom body) G
@@ -303,6 +341,7 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
   -- tuple literal
   | tuple {M : Memory Value} {ets : List (Typ × Expression Typ)} {vs : List Value}
       (hets : ets ≠ []) (hes : EvalList Ξ Ω M (ets.map (·.2)) vs) :
+      -- TODO: `ofTuple` not `ofSeq`
       Eval Ξ Ω M (.tuple ets) (Value.ofSeq vs)
   -- sequence literal
   | seq {M : Memory Value} {es : List (Expression Typ)} {τ : Typ} {vs : List Value}
@@ -460,16 +499,23 @@ theorem evalVar' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
       | .free name => M.lookup name = some v
       | .intrinsic _ => False
       | .module m name =>
-        match Ξ m name with
-        | some ([], body) => Eval Ξ Ω M body v
-        | some (_ :: _, _) => False
-        | none => Ω m name = some v := by
+        match TypedTLAPlus.builtinOpOf? (.module m name) with
+        | some .natSet => ∀ z, z ∈ v ↔ ∃ k : ℤ, 0 ≤ k ∧ z = Value.ofInt k
+        | some .intSet => ∀ z, z ∈ v ↔ ∃ k : ℤ, z = Value.ofInt k
+        | some _ => False
+        | none =>
+          match Ξ m name with
+          | some ([], body) => Eval Ξ Ω M body v
+          | some (_ :: _, _) => False
+          | none => Ω m name = some v := by
   constructor
   · intro h
     cases h with
     | var_free hb => exact hb
-    | var_op0 hΞ hb => simp only [hΞ]; exact hb
-    | var_const hΞ hΩ => simp only [hΞ]; exact hΩ
+    | var_op0 hΞ hnb hb => simp only [hnb, hΞ]; exact hb
+    | var_const hΞ hnb hΩ => simp only [hnb, hΞ]; exact hΩ
+    | natSet hv => simpa only [TypedTLAPlus.builtinOpOf?] using hv
+    | intSet hv => simpa only [TypedTLAPlus.builtinOpOf?] using hv
   · intro h
     cases o with
     | bound => exact h.elim
@@ -477,13 +523,28 @@ theorem evalVar' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     | intrinsic => exact h.elim
     | module m name =>
       simp only at h
-      cases hΞ : Ξ m name with
-      | none => rw [hΞ] at h; exact .var_const hΞ h
-      | some pb =>
-        obtain ⟨p, b⟩ := pb
-        cases p with
-        | nil => rw [hΞ] at h; exact .var_op0 hΞ h
-        | cons _ _ => rw [hΞ] at h; exact h.elim
+      cases hb : TypedTLAPlus.builtinOpOf? (.module m name) with
+      | some op =>
+        rw [hb] at h
+        cases op with
+        | natSet =>
+          have hmn := TypedTLAPlus.builtinOpOf?_eq_natSet.mp hb
+          injection hmn with hm hn; subst hm; subst hn
+          exact .natSet h
+        | intSet =>
+          have hmn := TypedTLAPlus.builtinOpOf?_eq_intSet.mp hb
+          injection hmn with hm hn; subst hm; subst hn
+          exact .intSet h
+        | _ => exact h.elim
+      | none =>
+        rw [hb] at h
+        cases hΞ : Ξ m name with
+        | none => rw [hΞ] at h; exact .var_const hΞ hb h
+        | some pb =>
+          obtain ⟨p, b⟩ := pb
+          cases p with
+          | nil => rw [hΞ] at h; exact .var_op0 hΞ hb h
+          | cons _ _ => rw [hΞ] at h; exact h.elim
 
 /-- Determinism for the builtin-operator relation: each `(op, args)` pair `EvalBuiltin` is defined
 on denotes a single value. `args` is generalized before the case split so that both hypotheses can
@@ -569,6 +630,11 @@ theorem evalOpCall2_inv {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     cases hargs with
     | cons h1 htl => cases htl with | cons h2 htl2 => cases htl2; exact ⟨_, _, h1, h2, hb⟩
 
+/-- Some name outside a given finite set — `String` is infinite. The cofinite binder rules of
+`Eval` hand out "for every `z ∉ L`"; a determinism/inversion proof feeds back one `z` chosen
+outside the union of both derivations' `L`s. -/
+private theorem exists_fresh (s : Finset String) : ∃ z : String, z ∉ s := s.exists_notMem
+
 /-- Evaluation is deterministic: an expression denotes at most one value. Proved through the mutual
 recursor `Eval.rec` — `induction` does not fire on a member of a mutual inductive family, so the
 `EvalList`/`EvalPath` determinism is threaded in as `motive_2`/`motive_3` and discharged in the same
@@ -587,20 +653,34 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
   case fls => intro w h₂; cases h₂ with | fls => rfl
   case var_free hb =>
     intro w h₂; cases h₂ with | var_free hb' => rw [hb] at hb'; exact Option.some.inj hb'
-  case var_op0 hΞ hbdy ihbdy =>
+  case var_op0 hΞ hnb hbdy ihbdy =>
     intro w h₂; cases h₂ with
-    | var_op0 hΞ' hbdy' =>
+    | var_op0 hΞ' hnb' hbdy' =>
       simp only [hΞ, Option.some.injEq, Prod.mk.injEq, true_and] at hΞ'
       subst hΞ'
       exact ihbdy hbdy'
-    | var_const hΞ' hΩ' => rw [hΞ] at hΞ'; contradiction
-  case var_const hΞ hΩ =>
+    | var_const hΞ' hnb' hΩ' => rw [hΞ] at hΞ'; contradiction
+    | natSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+    | intSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+  case var_const hΞ hnb hΩ =>
     intro w h₂; cases h₂ with
-    | var_op0 hΞ' hbdy' => rw [hΞ] at hΞ'; contradiction
-    | var_const hΞ' hΩ' => rw [hΩ] at hΩ'; exact Option.some.inj hΩ'
-  case opCall_op hΞ hnb hlen hbdy ihbdy =>
+    | var_op0 hΞ' hnb' hbdy' => rw [hΞ] at hΞ'; contradiction
+    | var_const hΞ' hnb' hΩ' => rw [hΩ] at hΩ'; exact Option.some.inj hΩ'
+    | natSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+    | intSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+  case natSet hv =>
+    intro w h₂
+    have hw := evalVar'.mp h₂
+    simp only [TypedTLAPlus.builtinOpOf?] at hw
+    exact ZFSet.ext fun z ↦ (hv z).trans (hw z).symm
+  case intSet hv =>
+    intro w h₂
+    have hw := evalVar'.mp h₂
+    simp only [TypedTLAPlus.builtinOpOf?] at hw
+    exact ZFSet.ext fun z ↦ (hv z).trans (hw z).symm
+  case opCall_op hΞ hnb hlen hbdy hargs ihbdy =>
     intro w h₂; cases h₂ with
-    | opCall_op hΞ' hnb' hlen' hbdy' =>
+    | opCall_op hΞ' hnb' hlen' hbdy' hargs' =>
       simp only [hΞ, Option.some.injEq, Prod.mk.injEq] at hΞ'
       obtain ⟨rfl, rfl⟩ := hΞ'
       exact ihbdy hbdy'
@@ -617,78 +697,94 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
       obtain rfl := Option.some.inj hop'
       obtain rfl := ihargs _ hargs'
       exact evalBuiltinUnique hb hb'
-  case forall_true hdom hall ihdom ihall =>
+  case forall_true L hdom hall ihdom ihall =>
     intro w h₂; cases h₂ with
-    | forall_true hdom' hall' => rfl
-    | forall_false hdom' hw' hbody' =>
+    | forall_true L' hdom' hall' => rfl
+    | forall_false L' hdom' hw' hbody' =>
       obtain rfl := ihdom hdom'
-      absurd (ihall _ hw' hbody')
+      obtain ⟨z, hz⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hzL, hzL'⟩ := Finset.notMem_union.mp hz
+      absurd (ihall z hzL _ hw' (hbody' z hzL'))
       exact Value.tru_ne_fls
-  case forall_false hdom hw hbody ihdom ihbody =>
+  case forall_false L hdom hw hbody ihdom ihbody =>
     intro w h₂; cases h₂ with
-    | forall_true hdom' hall' =>
+    | forall_true L' hdom' hall' =>
       obtain rfl := ihdom hdom'
-      absurd (ihbody (hall' _ hw))
+      obtain ⟨z, hz⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hzL, hzL'⟩ := Finset.notMem_union.mp hz
+      absurd (ihbody z hzL (hall' z hzL' _ hw))
       exact Value.fls_ne_tru
-    | forall_false hdom' hw' hbody' => rfl
-  case exists_true hdom hw hbody ihdom ihbody =>
+    | forall_false L' hdom' hw' hbody' => rfl
+  case exists_true L hdom hw hbody ihdom ihbody =>
     intro w h₂; cases h₂ with
-    | exists_true hdom' hw' hbody' => rfl
-    | exists_false hdom' hall' =>
+    | exists_true L' hdom' hw' hbody' => rfl
+    | exists_false L' hdom' hall' =>
       obtain rfl := ihdom hdom'
-      absurd (ihbody (hall' _ hw))
+      obtain ⟨z, hz⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hzL, hzL'⟩ := Finset.notMem_union.mp hz
+      absurd (ihbody z hzL (hall' z hzL' _ hw))
       exact Value.tru_ne_fls
-  case exists_false hdom hall ihdom ihall =>
+  case exists_false L hdom hall ihdom ihall =>
     intro w h₂; cases h₂ with
-    | exists_true hdom' hw' hbody' =>
+    | exists_true L' hdom' hw' hbody' =>
       obtain rfl := ihdom hdom'
-      absurd (ihall _ hw' hbody')
+      obtain ⟨z, hz⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hzL, hzL'⟩ := Finset.notMem_union.mp hz
+      absurd (ihall z hzL _ hw' (hbody' z hzL'))
       exact Value.fls_ne_tru
-    | exists_false hdom' hall' => rfl
-  case choose filt hdom hfilt ihdom ihfilt =>
+    | exists_false L' hdom' hall' => rfl
+  case choose filt L hdom hfilt ihdom ihfilt =>
     intro w h₂; cases h₂ with
-    | choose filt' hdom' hfilt' =>
+    | choose filt' L' hdom' hfilt' =>
       obtain rfl := ihdom hdom'
+      obtain ⟨z, hz⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hzL, hzL'⟩ := Finset.notMem_union.mp hz
       refine congrArg Classical.epsilon (funext λ u ↦ propext (and_congr_right λ hu ↦ ?_))
-      rw [ihfilt u hu (hfilt' u hu)]
+      rw [ihfilt z hzL u hu (hfilt' z hzL' u hu)]
   case set hes hto hof ihes =>
     intro w h₂; cases h₂ with
     | set hes' hto' hof' =>
       obtain rfl := ihes _ hes'
       exact ZFSet.ext λ z ↦ ⟨λ hz ↦ hof' z (hto z hz), λ hz ↦ hof z (hto' z hz)⟩
-  case collect filt hdom hfilt hto hof ihdom ihfilt =>
+  case collect filt L hdom hfilt hto hof ihdom ihfilt =>
     intro w h₂; cases h₂ with
-    | collect filt' hdom' hfilt' hto' hof' =>
+    | collect filt' L' hdom' hfilt' hto' hof' =>
       obtain rfl := ihdom hdom'
+      obtain ⟨y, hy⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hyL, hyL'⟩ := Finset.notMem_union.mp hy
       refine ZFSet.ext λ z ↦ ⟨λ hz ↦ ?_, λ hz ↦ ?_⟩
       · obtain ⟨hzS, hfz⟩ := hto z hz
-        exact hof' z hzS ((ihfilt z hzS (hfilt' z hzS)).symm.trans hfz)
+        exact hof' z hzS ((ihfilt y hyL z hzS (hfilt' y hyL' z hzS)).symm.trans hfz)
       · obtain ⟨hzS, hfz⟩ := hto' z hz
-        exact hof z hzS ((ihfilt z hzS (hfilt' z hzS)).trans hfz)
-  case map' img hdom himg hto hof ihdom ihimg =>
+        exact hof z hzS ((ihfilt y hyL z hzS (hfilt' y hyL' z hzS)).trans hfz)
+  case map' img L hdom himg hto hof ihdom ihimg =>
     intro w h₂; cases h₂ with
-    | map' img' hdom' himg' hto' hof' =>
+    | map' img' L' hdom' himg' hto' hof' =>
       obtain rfl := ihdom hdom'
+      obtain ⟨y, hy⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hyL, hyL'⟩ := Finset.notMem_union.mp hy
       refine ZFSet.ext λ z ↦ ⟨λ hz ↦ ?_, λ hz ↦ ?_⟩
       · obtain ⟨u, huS, rfl⟩ := hto z hz
-        rw [(ihimg u huS (himg' u huS) : img u = img' u)]
+        rw [(ihimg y hyL u huS (himg' y hyL' u huS) : img u = img' u)]
         exact hof' u huS
       · obtain ⟨u, huS, rfl⟩ := hto' z hz
-        rw [← (ihimg u huS (himg' u huS) : img u = img' u)]
+        rw [← (ihimg y hyL u huS (himg' y hyL' u huS) : img u = img' u)]
         exact hof u huS
   case fnCall hf hk hdom ihf ihk =>
     intro w h₂; cases h₂ with
     | fnCall hf' hk' _ => rw [(ihf hf' : _ = _), (ihk hk' : _ = _)]
-  case fn img hdom himg hto hof ihdom ihimg =>
+  case fn img L hdom himg hto hof ihdom ihimg =>
     intro w h₂; cases h₂ with
-    | fn img' hdom' himg' hto' hof' =>
+    | fn img' L' hdom' himg' hto' hof' =>
       obtain rfl := ihdom hdom'
+      obtain ⟨y, hy⟩ := exists_fresh (L ∪ L')
+      obtain ⟨hyL, hyL'⟩ := Finset.notMem_union.mp hy
       refine ZFSet.ext λ z ↦ ⟨λ hz ↦ ?_, λ hz ↦ ?_⟩
       · obtain ⟨u, huS, rfl⟩ := hto z hz
-        rw [(ihimg u huS (himg' u huS) : img u = img' u)]
+        rw [(ihimg y hyL u huS (himg' y hyL' u huS) : img u = img' u)]
         exact hof' u huS
       · obtain ⟨u, huS, rfl⟩ := hto' z hz
-        rw [← (ihimg u huS (himg' u huS) : img u = img' u)]
+        rw [← (ihimg y hyL u huS (himg' y hyL' u huS) : img u = img' u)]
         exact hof u huS
   case record hfs ihfs =>
     intro w h₂; cases h₂ with | record _ hfs' => rw [ihfs _ hfs']
@@ -896,9 +992,165 @@ theorem evalLocal' {Ξ : OperatorEnv} {Ω : Model Value} {M₁ M₂ : Memory Val
     {e : Expression Typ} {v : Value} (hΞ : Ξ.WellScoped)
     (h : ∀ x ∈ e.freeVars, M₁.lookup x = M₂.lookup x) :
     Eval Ξ Ω M₁ e v ↔ Eval Ξ Ω M₂ e v := by
-  -- TODO(locally-nameless): binder cases now recurse into `body.openVar x`; needs
-  -- `(e.openVar x).freeVars.erase x ⊆ e.freeVars`, still to be added to `FreeVars.lean`.
-  sorry
+  have agree_insert : ∀ {N₁ N₂ : Memory Value} {y : String} {w : Value} {S : Finset String},
+      (∀ z ∈ S.erase y, N₁.lookup z = N₂.lookup z) →
+      ∀ z ∈ S, (N₁.insert y w).lookup z = (N₂.insert y w).lookup z := by
+    intro N₁ N₂ y w S hag z hz
+    by_cases hzy : z = y
+    · subst hzy; rw [Finmap.lookup_insert, Finmap.lookup_insert]
+    · rw [Finmap.lookup_insert_of_ne _ hzy, Finmap.lookup_insert_of_ne _ hzy]
+      exact hag z (Finset.mem_erase.mpr ⟨hzy, hz⟩)
+  -- Every binder case recurses into `body.openVar x` with `M.insert x w`; the domain agreement
+  -- covers `body.freeVars`, and `freeVars_openVar_erase` shrinks `(body.openVar x).freeVars \ {x}`
+  -- back onto it. No freshness hypothesis needed.
+  have bind : ∀ {N₁ N₂ : Memory Value} {x : String} {w : Value} {dom body : Expression Typ},
+      (∀ z ∈ dom.freeVars ∪ body.freeVars, N₁.lookup z = N₂.lookup z) →
+      ∀ z ∈ (body.openVar x).freeVars,
+        (N₁.insert x w).lookup z = (N₂.insert x w).lookup z := by
+    intro N₁ N₂ x w dom body hag
+    exact agree_insert (λ z hz ↦
+      hag z (Finset.mem_union_right _ (Expression.freeVars_openVar_erase hz)))
+  have key : ∀ {N₁ : Memory Value} {e' : Expression Typ} {v' : Value}, Eval Ξ Ω N₁ e' v' →
+      ∀ {N₂ : Memory Value}, (∀ x ∈ e'.freeVars, N₁.lookup x = N₂.lookup x) → Eval Ξ Ω N₂ e' v' := by
+    intro N₁ e' v' hev
+    induction hev using Eval.rec
+      (motive_2 := λ N es vs _ ↦ ∀ {N' : Memory Value},
+        (∀ e ∈ es, ∀ x ∈ e.freeVars, N.lookup x = N'.lookup x) → EvalList Ξ Ω N' es vs)
+      (motive_3 := λ N p rs _ ↦ ∀ {N' : Memory Value},
+        (∀ e, Sum.inr e ∈ p → ∀ x ∈ e.freeVars, N.lookup x = N'.lookup x) → EvalPath Ξ Ω N' p rs)
+    case nat hn => exact λ _ ↦ .nat hn
+    case str => exact λ _ ↦ .str
+    case tru => exact λ _ ↦ .tru
+    case fls => exact λ _ ↦ .fls
+    case var_free hb =>
+      intro N₂ hag
+      have hx := hag _ (by rw [Expression.freeVars]; exact Finset.mem_singleton.mpr rfl)
+      exact .var_free (hx ▸ hb)
+    case var_op0 hΞ' hnb' _ ih =>
+      intro N₂ _
+      exact .var_op0 hΞ' hnb' (ih (λ z hz ↦ by simp [hΞ _ _ _ _ hΞ'] at hz))
+    case var_const hΞ' hnb' hΩ' => exact λ _ ↦ .var_const hΞ' hnb' hΩ'
+    case natSet hv => exact λ _ ↦ .natSet hv
+    case intSet hv => exact λ _ ↦ .intSet hv
+    case opCall_op hΞ' hnb hlen _ hargs ih =>
+      intro N₂ hag
+      refine .opCall_op hΞ' hnb hlen (ih (λ z hz ↦ ?_)) hargs
+      rcases substParams_freeVars hlen hz with hbz | ⟨a, ha, hza⟩
+      · simp [hΞ _ _ _ _ hΞ'] at hbz
+      · exact hag z (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, ha, hza⟩))
+    case opCall_builtin hop _ hb ihargs =>
+      intro N₂ hag
+      exact .opCall_builtin hop
+        (ihargs (λ a haa z hz ↦ hag z (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, haa, hz⟩)))) hb
+    case forall_true L _ _ ihdom ihall =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .forall_true L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (λ z hz w hw ↦ ihall z hz w hw (bind hag))
+    case forall_false L _ ihw _ ihdom ihbody =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .forall_false L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz))) ihw
+        (λ z hz ↦ ihbody z hz (bind hag))
+    case exists_true L _ ihw _ ihdom ihbody =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .exists_true L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz))) ihw
+        (λ z hz ↦ ihbody z hz (bind hag))
+    case exists_false L _ _ ihdom ihall =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .exists_false L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (λ z hz w hw ↦ ihall z hz w hw (bind hag))
+    case choose filt L _ _ ihdom ihfilt =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .choose filt L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (λ z hz w hw ↦ ihfilt z hz w hw (bind hag))
+    case set _ hto hof ihes =>
+      intro N₂ hag
+      exact .set (ihes (λ e he z hz ↦ hag z (Expression.mem_freeVars_set.mpr ⟨e, he, hz⟩))) hto hof
+    case collect filt L _ _ hto hof ihdom ihfilt =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .collect filt L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (λ y hy z hz ↦ ihfilt y hy z hz (bind hag)) hto hof
+    case map' img L _ _ hto hof ihdom ihimg =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .map' img L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (λ z hz w hw ↦ ihimg z hz w hw (bind hag)) hto hof
+    case fnCall _ _ hdom ihf ihk =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .fnCall (ihf (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (ihk (λ z hz ↦ hag z (Finset.mem_union_right _ hz))) hdom
+    case fn img L _ _ hto hof ihdom ihbody =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .fn img L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
+        (λ z hz w hw ↦ ihbody z hz w hw (bind hag)) hto hof
+    case record hfne _ ihfs =>
+      intro N₂ hag
+      refine .record hfne (ihfs (λ e he z hz ↦ ?_))
+      obtain ⟨f, hf, rfl⟩ := List.mem_map.mp he
+      exact hag z (Expression.mem_freeVars_record.mpr ⟨f, hf, hz⟩)
+    case recordAccess _ hdom ihe =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .recordAccess (ihe hag) hdom
+    case tuple hets _ ihes =>
+      intro N₂ hag
+      refine .tuple hets (ihes (λ e he z hz ↦ ?_))
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp he
+      exact hag z (Expression.mem_freeVars_tuple.mpr ⟨p, hp, hz⟩)
+    case seq _ ihes =>
+      intro N₂ hag
+      exact .seq (ihes (λ e he z hz ↦ hag z (Expression.mem_freeVars_seq.mpr ⟨e, he, hz⟩)))
+    case «except» _ _ _ hv ihf ihpath ihrhs =>
+      intro N₂ hag
+      simp only [Expression.mem_freeVars_except_single] at hag
+      exact .«except» (ihf (λ z hz ↦ hag z (Or.inl hz)))
+        (ihpath (λ e hep z hz ↦ hag z (.inr (.inl ⟨e, hep, hz⟩))))
+        (ihrhs (λ z hz ↦ hag z (.inr (.inr hz)))) hv
+    case if_true _ _ iht ihc =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .if_true (iht (λ z hz ↦ hag z (Finset.mem_union_left _ (Finset.mem_union_left _ hz))))
+        (ihc (λ z hz ↦ hag z (Finset.mem_union_left _ (Finset.mem_union_right _ hz))))
+    case if_false _ _ ihc ihe =>
+      intro N₂ hag
+      rw [Expression.freeVars] at hag
+      exact .if_false (ihc (λ z hz ↦ hag z (Finset.mem_union_left _ (Finset.mem_union_left _ hz))))
+        (ihe (λ z hz ↦ hag z (Finset.mem_union_right _ hz)))
+    case case_hit hi _ _ _ ihbefore ihp ihq =>
+      intro N₂ hag
+      refine .case_hit hi (λ j hj p' q' hjeq ↦ ihbefore j hj p' q' hjeq (λ z hz ↦ ?_))
+        (ihp (λ z hz ↦ hag z (Expression.mem_freeVars_case.mpr
+          (.inl ⟨_, List.mem_of_getElem? hi, .inl hz⟩))))
+        (ihq (λ z hz ↦ hag z (Expression.mem_freeVars_case.mpr
+          (.inl ⟨_, List.mem_of_getElem? hi, .inr hz⟩))))
+      exact hag z (Expression.mem_freeVars_case.mpr
+        (.inl ⟨(p', q'), List.mem_of_getElem? hjeq, .inl hz⟩))
+    case case_other _ _ ihbefore ihe =>
+      intro N₂ hag
+      refine .case_other (λ j p' q' hjeq ↦ ihbefore j p' q' hjeq (λ z hz ↦ ?_))
+        (ihe (λ z hz ↦ hag z (Expression.mem_freeVars_case.mpr (.inr ⟨_, rfl, hz⟩))))
+      exact hag z (Expression.mem_freeVars_case.mpr
+        (.inl ⟨(p', q'), List.mem_of_getElem? hjeq, .inl hz⟩))
+    case cons =>
+      next _ _ ihh ihhs _ hag =>
+        exact .cons (ihh (λ z hz ↦ hag _ List.mem_cons_self z hz))
+          (ihhs (λ e he z hz ↦ hag e (List.mem_cons_of_mem _ he) z hz))
+    case inl =>
+      next _ ih _ hag =>
+        exact .inl (ih (λ e hep z hz ↦ hag e (List.mem_cons_of_mem _ hep) z hz))
+    case inr =>
+      next _ _ ihh ihrest _ hag =>
+        exact .inr (ihh (λ z hz ↦ hag _ List.mem_cons_self z hz))
+          (ihrest (λ e hep z hz ↦ hag e (List.mem_cons_of_mem _ hep) z hz))
+    all_goals exact .nil
+  exact ⟨λ hev ↦ key hev h, λ hev ↦ key hev (λ x hx ↦ (h x hx).symm)⟩
 
 /-- Application of a sequence value at a valid index: the value stored at that position. -/
 theorem fnApply_ofSeq {vs : List Value} {j : ℕ} (hj : j < vs.length) :
@@ -916,17 +1168,138 @@ theorem fnApply_ofSeq {vs : List Value} {j : ℕ} (hj : j < vs.length) :
   exact h2
 
 /-- The `.seqToFun` case of `evalCoerce'`, standalone: it does not recurse on a sub-coercion, only
-re-evaluates `e` under the fresh binder `i` (`evalLocal'`, hence `hi : i ∉ e.freeVars`). The built
-function `[i ∈ 1 .. Len(e) ↦ e[i]]` reproduces `e` itself when `e` denotes a sequence — its graph
-already *is* that indexed family — and denotes nothing otherwise (`Len` is defined only on
-sequences), which is exactly what `coerce (.seqToFun …)` states. -/
+re-evaluates `e` under the binder the coercion introduces. The cofinite `Eval.fn` rule opens that
+binder at a name chosen fresh for `e`, so `evalLocal'` relates the re-evaluation back to `e`'s
+ambient value with no freshness hypothesis. The built function `[i ∈ 1 .. Len(e) ↦ e[i]]`
+reproduces `e` itself when `e` denotes a sequence — its graph already *is* that indexed family —
+and denotes nothing otherwise (`Len` is defined only on sequences), which is exactly what
+`coerce (.seqToFun …)` states. -/
 theorem evalCoerce'_seqToFun {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     {τ : Typ} {i : String} {e : Expression Typ} {v' : Value}
-    (hΞ : Ξ.WellScoped) (hi : i ∉ e.freeVars) :
+    (hΞ : Ξ.WellScoped) :
     Eval Ξ Ω M (TypedTLAPlus.Coercion.applyComputable (.seqToFun τ i) e) v' ↔
       ∃ v, Eval Ξ Ω M e v ∧ coerce (.seqToFun τ i) v v' := by
-  -- TODO(locally-nameless): `openVar`/`liftBound` cancellation + `evalLocal'`; deferred.
-  sorry
+  have hloc : ∀ {name : String} {w r : Value}, name ∉ e.freeVars →
+      (Eval Ξ Ω (M.insert name w) e r ↔ Eval Ξ Ω M e r) := fun {name w r} hn ↦
+    evalLocal' hΞ fun z hz ↦ Finmap.lookup_insert_of_ne _ fun h ↦ hn (h ▸ hz)
+  -- The built `.fn`'s body opens (at any fresh name) to `.fnCall e (.seq τ) name`: `e` was
+  -- `liftBound`-ed by one when spliced, and `openVar` cancels that exactly.
+  have hob : ∀ name : String,
+      (Expression.fnCall (Expression.liftBound 1 e) (.seq τ)
+          (Expression.var .int (.bound 0) @@ posOf e) @@ posOf e).openVar name
+        = Expression.fnCall e (.seq τ) (Expression.var .int (.free name) @@ posOf e) @@ posOf e := by
+    intro name
+    show Expression.mapVars _ 0 _ = _
+    simp only [Expression.mapVars, registerSource]
+    exact congrArg (Expression.fnCall · _ _) (Expression.openVar_liftBound_one name e)
+  -- the index set of the built function is `{ ofInt k : 1 ≤ k ≤ n }`; `mem` characterises it.
+  have hidx : ∀ {n : ℕ} {w : Value}, (∃ k : ℤ, 1 ≤ k ∧ k ≤ (n : ℤ) ∧ w = Value.ofInt k) ↔
+      ∃ j : ℕ, j < n ∧ w = Value.ofNat (j + 1) := by
+    intro n w
+    constructor
+    · rintro ⟨k, hk1, hk2, rfl⟩
+      refine ⟨k.toNat - 1, by omega, ?_⟩
+      rw [Value.ofNat, Value.ofInt_inj]; omega
+    · rintro ⟨j, hj, rfl⟩
+      refine ⟨(j : ℤ) + 1, by omega, by omega, ?_⟩
+      rw [Value.ofNat, Value.ofInt_inj]; omega
+  simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
+  constructor
+  · intro h
+    cases h with
+    | @fn _ _ _ _ _ _ S G img L hdom himg hto hof =>
+      obtain ⟨z, hz⟩ := exists_fresh (L ∪ e.freeVars)
+      obtain ⟨hzL, hze⟩ := Finset.notMem_union.mp hz
+      replace himg : ∀ w ∈ S, Eval Ξ Ω (M.insert z w)
+          (Expression.fnCall e (.seq τ) (Expression.var .int (.free z) @@ posOf e) @@ posOf e)
+          (img w) := fun w hw ↦ hob z ▸ himg z hzL w hw
+      obtain ⟨vs, he, hSmem⟩ : ∃ vs, Eval Ξ Ω M e (Value.ofSeq vs) ∧
+          ∀ w, w ∈ S ↔ ∃ j : ℕ, j < vs.length ∧ w = Value.ofNat (j + 1) := by
+        cases hdom with
+        | opCall_op _ hnb _ _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+        | opCall_builtin hop hargs hb =>
+          simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop; subst hop
+          cases hargs with
+          | cons hnat hrest =>
+            cases hrest with
+            | cons hlenE hnil =>
+              cases hnil
+              cases hlenE with
+              | opCall_op _ hnb _ _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+              | opCall_builtin hop2 hargs2 hb2 =>
+                simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop2; subst hop2
+                cases hargs2 with
+                | cons hee hnil2 =>
+                  cases hnil2
+                  cases hnat with
+                  | @nat _ _ nn hn1 =>
+                    obtain rfl : nn = 1 := Option.some.inj (hn1.symm.trans (Nat.toNat?_repr 1))
+                    obtain ⟨vs, rfl, rfl⟩ := evalBuiltin_len_inv hb2
+                    obtain ⟨x, y, hx, hy, hSraw⟩ := evalBuiltin_range_inv hb
+                    rw [Value.ofNat, Value.ofInt_inj, Nat.cast_one] at hx
+                    rw [Value.ofNat, Value.ofInt_inj] at hy
+                    subst hx; subst hy
+                    exact ⟨vs, hee, fun w ↦ (hSraw w).trans (hidx (n := vs.length))⟩
+      refine ⟨Value.ofSeq vs, he, ⟨vs, rfl⟩, ?_⟩
+      have himg' : ∀ w ∈ S, img w = fnApply (Value.ofSeq vs) w := by
+        intro w hw
+        obtain ⟨j, hj, rfl⟩ := (hSmem w).mp hw
+        have hb := himg _ hw
+        generalize hg : img (Value.ofNat (j + 1)) = iw at hb
+        cases hb with
+        | fnCall hf hk _ =>
+          cases hk with
+          | var_free hb' =>
+            rw [Finmap.lookup_insert, Option.some.injEq] at hb'
+            subst hb'
+            rw [evalUnique' ((hloc hze).mp hf) he]
+      refine ZFSet.ext fun w ↦ ⟨fun hw ↦ ?_, fun hw ↦ ?_⟩
+      · obtain ⟨u, hu, rfl⟩ := hto w hw
+        obtain ⟨j, hj, rfl⟩ := (hSmem u).mp hu
+        rw [himg' _ hu, fnApply_ofSeq hj]
+        exact Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩
+      · obtain ⟨j, hj, rfl⟩ := Value.mem_ofSeq.mp hw
+        have huS : Value.ofNat (j + 1) ∈ S := (hSmem _).mpr ⟨j, hj, rfl⟩
+        have := hof _ huS
+        rwa [himg' _ huS, fnApply_ofSeq hj] at this
+  · rintro ⟨v, he, ⟨vs, rfl⟩, rfl⟩
+    set S : Value := Value.ofFinSet ((List.range vs.length).map fun j ↦ Value.ofNat (j + 1))
+      with hSdef
+    have hSmem : ∀ w, w ∈ S ↔ ∃ j : ℕ, j < vs.length ∧ w = Value.ofNat (j + 1) := by
+      intro w
+      simp only [hSdef, Value.mem_ofFinSet, List.mem_map, List.mem_range]
+      exact ⟨fun ⟨j, hj, h⟩ ↦ ⟨j, hj, h.symm⟩, fun ⟨j, hj, h⟩ ↦ ⟨j, hj, h.symm⟩⟩
+    have hrng : EvalBuiltin .range [Value.ofNat 1, Value.ofNat vs.length] S := by
+      have h : EvalBuiltin .range [Value.ofInt 1, Value.ofInt (vs.length : ℤ)] S :=
+        .range fun w ↦ (hSmem w).trans (hidx (n := vs.length)).symm
+      simpa only [Value.ofNat, Nat.cast_one] using h
+    have hrangeOp : TypedTLAPlus.builtinOpOf? (.module "Naturals" "..") = some .range := by
+      simp [TypedTLAPlus.builtinOpOf?]
+    have hlenOp : TypedTLAPlus.builtinOpOf? (.module "Sequences" "Len") = some .len := by
+      simp [TypedTLAPlus.builtinOpOf?]
+    have hdomDeriv : Eval Ξ Ω M
+        (Expression.opCall
+          (Expression.var (.operator [.int, .int] (.set .int)) (.module "Naturals" ".."))
+          [Expression.nat (toString (1 : Nat)),
+           Expression.opCall
+             (Expression.var (.operator [.seq τ] .int) (.module "Sequences" "Len")) [e]]) S :=
+      .opCall_builtin hrangeOp
+        (.cons (.nat (Nat.toNat?_repr 1))
+          (.cons (.opCall_builtin hlenOp (.cons he .nil) .len) .nil)) hrng
+    refine .fn (fun w ↦ fnApply (Value.ofSeq vs) w) e.freeVars hdomDeriv ?_ ?_ ?_
+    · intro z hz w hw
+      rw [hob z]
+      obtain ⟨j, hj, rfl⟩ := (hSmem w).mp hw
+      exact .fnCall ((hloc hz).mpr he) (.var_free (Finmap.lookup_insert _))
+        ⟨vs[j], Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩⟩
+    · intro w hw
+      obtain ⟨j, hj, rfl⟩ := Value.mem_ofSeq.mp hw
+      refine ⟨Value.ofNat (j + 1), (hSmem _).mpr ⟨j, hj, rfl⟩, ?_⟩
+      rw [fnApply_ofSeq hj]
+    · intro w hw
+      obtain ⟨j, hj, rfl⟩ := (hSmem w).mp hw
+      rw [fnApply_ofSeq hj]
+      exact Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩
 
 /-- The `.function` case of `evalCoerce'`, standalone. `ihD`/`ihR` are `evalCoerce'` at the strictly
 smaller `cDom`/`cRng` — passed in so this lives outside the `evalCoerce'` recursion block while the
@@ -934,40 +1307,1507 @@ termination checker still sees the calls. -/
 theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     {x y : String} {dom rng dom' rng' : Typ} {cD cR : Coercion} {e : Expression Typ} {v' : Value}
     (hΞ : Ξ.WellScoped)
-    (hfr : y ∉ insert x e.freeVars ∧ Coercion.FreshFor cD {x} ∧
-      Coercion.FreshFor cR (insert y e.freeVars))
     (ihD : ∀ {M : Memory Value} {e : Expression Typ} {v' : Value},
-      Coercion.FreshFor cD e.freeVars →
-        (Eval Ξ Ω M (cD.applyComputable e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce cD v v'))
+      Eval Ξ Ω M (cD.applyComputable e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce cD v v')
     (ihR : ∀ {M : Memory Value} {e : Expression Typ} {v' : Value},
-      Coercion.FreshFor cR e.freeVars →
-        (Eval Ξ Ω M (cR.applyComputable e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce cR v v')) :
+      Eval Ξ Ω M (cR.applyComputable e) v' ↔ ∃ v, Eval Ξ Ω M e v ∧ coerce cR v v') :
     Eval Ξ Ω M (TypedTLAPlus.Coercion.applyComputable
         (.function x y dom rng dom' rng' cD cR) e) v' ↔
-      ∃ v, Eval Ξ Ω M e v ∧ coerce (.function x y dom rng dom' rng' cD cR) v v' := by
-  -- TODO(locally-nameless): `openVar`/`liftBound` cancellation + `evalLocal'`; deferred.
-  sorry
+      ∃ v, Eval Ξ Ω M e v ∧ coerce (.function x y dom rng dom' rng' cD cR) v v' := by classical
+  have hloc : ∀ {name : String} {w r : Value}, name ∉ e.freeVars →
+      (Eval Ξ Ω (M.insert name w) e r ↔ Eval Ξ Ω M e r) := fun {name w r} hn ↦
+    evalLocal' hΞ fun z hz ↦ Finmap.lookup_insert_of_ne _ fun h ↦ hn (h ▸ hz)
+  have hdomOp : TypedTLAPlus.builtinOpOf? (.intrinsic "DOMAIN") = some .domain := by
+    simp [TypedTLAPlus.builtinOpOf?]
+  have heqOp : TypedTLAPlus.builtinOpOf? (.intrinsic "=") = some .eq := by
+    simp [TypedTLAPlus.builtinOpOf?]
+  -- Opening the binders the coercion introduces, at whatever fresh names the cofinite `Eval`
+  -- rules hand out: `newDomain`'s `.map'` body and the recovered-argument `CHOOSE` at `zx`, the
+  -- built `.fn`'s body at `zy` (`eLift` collapses to `e`, the injected `.bound 1` becomes
+  -- `.free zy`).
+  have hR1 : ∀ zx, (cD.applyComputable (Expression.var dom (.bound 0))).openVar zx
+      = cD.applyComputable (Expression.var dom (.free zx)) := by
+    intro zx
+    rw [openVar_applyComputable]
+    congr 1
+    simp only [Expression.openVar, Expression.mapVars, Expression.openVarLam, registerSource, if_pos]
+  have hR2 : ∀ zy, (cR.applyComputable ((Expression.liftBound 1 e).fnCall (.function dom rng)
+        (Expression.choose x dom
+          ((Expression.var (.operator [.function dom rng] (.set dom)) (.intrinsic "DOMAIN")).opCall
+            [Expression.liftBound 1 e])
+          ((Expression.var (.operator [dom', dom'] .bool) (.intrinsic "=")).opCall
+            [cD.applyComputable (Expression.var dom (.bound 0)),
+              Expression.var dom' (.bound 1)])))).openVar zy
+      = cR.applyComputable (Expression.fnCall e (.function dom rng)
+        (Expression.choose x dom
+          ((Expression.var (.operator [.function dom rng] (.set dom)) (.intrinsic "DOMAIN")).opCall [e])
+          ((Expression.var (.operator [dom', dom'] .bool) (.intrinsic "=")).opCall
+            [cD.applyComputable (Expression.var dom (.bound 0)),
+              Expression.var dom' (.free zy)]))) := by
+    intro zy
+    rw [openVar_applyComputable]
+    congr 1
+    show Expression.mapVars _ 0 _ = _
+    rewrite [Expression.mapVars]
+    simp only [registerSource]
+    rw [show Expression.mapVars (Expression.openVarLam zy) 0 (Expression.liftBound 1 e) = e from
+          Expression.openVar_liftBound_one zy e]
+    congr 1
+    rewrite [Expression.mapVars]
+    simp only [registerSource]
+    congr 1
+    · rewrite [Expression.mapVars]
+      simp only [registerSource, List.attach_map_val, List.map_cons, List.map_nil,
+        Expression.mapVars, Expression.openVarLam]
+      rw [show Expression.mapVars (Expression.openVarLam zy) 0 (Expression.liftBound 1 e) = e from
+            Expression.openVar_liftBound_one zy e]
+    · rewrite [Expression.mapVars]
+      simp only [registerSource, List.attach_map_val, List.map_cons, List.map_nil]
+      rewrite [ComputableTLAPlus.openVar_applyComputable_aux cD zy (Expression.var dom (.bound 0)) 1]
+      simp only [Expression.mapVars, Expression.openVarLam, registerSource, reduceIte,
+        Nat.reduceEqDiff, Nat.reduceLT]
+  have hR3 : ∀ zx zy, ((Expression.var (.operator [dom', dom'] .bool) (.intrinsic "=")).opCall
+        [cD.applyComputable (Expression.var dom (.bound 0)),
+          Expression.var dom' (.free zy)]).openVar zx
+      = (Expression.var (.operator [dom', dom'] .bool) (.intrinsic "=")).opCall
+        [cD.applyComputable (Expression.var dom (.free zx)), Expression.var dom' (.free zy)] := by
+    intro zx zy
+    show Expression.mapVars _ 0 _ = _
+    rewrite [Expression.mapVars]
+    simp only [registerSource, List.attach_map_val, List.map_cons, List.map_nil]
+    rewrite [ComputableTLAPlus.openVar_applyComputable_aux cD zx (Expression.var dom (.bound 0)) 0]
+    simp only [Expression.mapVars, Expression.openVarLam, registerSource, reduceIte, Nat.reduceLT]
+  simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
+  constructor
+  · intro h
+    cases h with
+    | @fn _ _ _ _ _ _ SdV _ imgB Lfn hdomND himgBR htoG hofG =>
+      obtain ⟨zy, hzy⟩ := exists_fresh (Lfn ∪ e.freeVars)
+      obtain ⟨hzyL, hzye⟩ := Finset.notMem_union.mp hzy
+      cases hdomND with
+      | @map' _ _ _ _ _ _ DV _ imgD Lmap hdomDE himgD htoD hofD =>
+        obtain ⟨zx, hzx⟩ := exists_fresh Lmap
+        obtain ⟨ve, hev, hbD⟩ := evalOpCall1_inv hdomOp hdomDE
+        have hDchar : ∀ z, z ∈ DV ↔ ∃ w, ZFSet.pair z w ∈ ve := evalBuiltin_domain_inv hbD
+        have hcoeD : ∀ k ∈ DV, coerce cD k (imgD k) := by
+          intro k hk
+          have hd := himgD zx hzx k hk
+          rw [hR1 zx] at hd
+          obtain ⟨vv, hvar, hc⟩ := ihD.mp hd
+          simp only [evalVar', Finmap.lookup_insert, Option.some.injEq] at hvar
+          subst hvar
+          exact hc
+        have hcoeR : ∀ w ∈ SdV,
+            coerce cR (fnApply ve (Classical.epsilon fun k ↦ k ∈ DV ∧ coerce cD k w)) (imgB w) := by
+          intro w hw
+          have hbr := himgBR zy hzyL w hw
+          rw [hR2 zy] at hbr
+          obtain ⟨vv, hcall, hcR⟩ := ihR.mp hbr
+          cases hcall with
+          | fnCall hf hka _ =>
+            obtain rfl := evalUnique' ((hloc hzye).mp hf) hev
+            cases hka with
+            | @choose _ _ _ _ _ SS filt Lch hdomRA hfilt =>
+              obtain ⟨zx2, hzx2⟩ := exists_fresh (Lch ∪ {zy})
+              obtain ⟨hzx2L, hzx2y⟩ := Finset.notMem_union.mp hzx2
+              rw [Finset.notMem_singleton] at hzx2y
+              obtain ⟨ve', hev', hbD'⟩ := evalOpCall1_inv hdomOp hdomRA
+              obtain rfl := evalUnique' ((hloc hzye).mp hev') hev
+              have hSSDV : SS = DV := evalBuiltinUnique hbD' hbD
+              have hpred : (fun k ↦ k ∈ SS ∧ filt k = Value.tru)
+                  = (fun k ↦ k ∈ SS ∧ coerce cD k w) := by
+                funext k
+                by_cases hk : k ∈ SS
+                · simp only [hk, true_and]
+                  apply propext
+                  have hf3 := hfilt zx2 hzx2L k hk
+                  rw [hR3 zx2 zy] at hf3
+                  obtain ⟨c1, c2, hc1, hc2, heqb⟩ := evalOpCall2_inv heqOp hf3
+                  have hc2w : c2 = w := by
+                    simp only [evalVar'] at hc2
+                    rw [Finmap.lookup_insert_of_ne _ hzx2y.symm, Finmap.lookup_insert] at hc2
+                    exact (Option.some.inj hc2).symm
+                  subst c2
+                  have hcoeck : coerce cD k c1 := by
+                    obtain ⟨vv2, hvar2, hc⟩ := ihD.mp hc1
+                    simp only [evalVar', Finmap.lookup_insert, Option.some.injEq] at hvar2
+                    subst hvar2
+                    exact hc
+                  rcases evalBuiltin_eq_inv heqb with ⟨he1, hf1⟩ | ⟨hne1, hf1⟩
+                  · exact iff_of_true hf1 (he1 ▸ hcoeck)
+                  · rw [hf1]
+                    exact iff_of_false Value.fls_ne_tru
+                      (fun hcw ↦ hne1 (coerceUnique hcoeck hcw))
+                · simp only [hk, false_and]
+              rwa [hpred, hSSDV] at hcR
+        refine ⟨ve, hev, DV, SdV, hDchar, fun k hk ↦ ⟨imgD k, hcoeD k hk⟩, ?_, ?_, ?_⟩
+        · intro w
+          constructor
+          · intro hw
+            obtain ⟨k, hk, rfl⟩ := htoD w hw
+            exact ⟨k, hk, hcoeD k hk⟩
+          · rintro ⟨k, hk, hc⟩
+            obtain rfl := coerceUnique hc (hcoeD k hk)
+            exact hofD k hk
+        · exact fun w hw ↦ ⟨imgB w, hcoeR w hw⟩
+        · intro z
+          constructor
+          · intro hz
+            obtain ⟨w, hw, rfl⟩ := htoG z hz
+            exact ⟨w, hw, imgB w, hcoeR w hw, rfl⟩
+          · rintro ⟨w, hw, r', hcr, rfl⟩
+            obtain rfl := coerceUnique hcr (hcoeR w hw)
+            exact hofG w hw
+  · rintro ⟨v, hev, DD, Sd, hDchar, hcDtot, hSdchar, hcRtot, hgraph⟩
+    have hDcoe : ∀ k ∈ DD, coerce cD k (Classical.epsilon fun z ↦ coerce cD k z) :=
+      fun k hk ↦ Classical.epsilon_spec (hcDtot k hk)
+    refine Eval.fn (S := Sd)
+      (fun w ↦ Classical.epsilon fun r' ↦
+        coerce cR (fnApply v (Classical.epsilon fun k ↦ k ∈ DD ∧ coerce cD k w)) r')
+      e.freeVars ?hdomND ?himgBR ?htoG ?hofG
+    case hdomND =>
+      refine Eval.map' (S := DD) (fun z ↦ Classical.epsilon fun w ↦ coerce cD z w) ∅ ?_ ?_ ?_ ?_
+      · exact Eval.opCall_builtin hdomOp (.cons hev .nil) (EvalBuiltin.domain hDchar)
+      · intro zx _ w hw
+        rw [hR1 zx]
+        refine ihD.mpr ⟨w, evalVar'.mpr ?_, hDcoe w hw⟩
+        simp only [Finmap.lookup_insert]
+      · intro z hz
+        obtain ⟨k, hk, hc⟩ := (hSdchar z).mp hz
+        exact ⟨k, hk, coerceUnique hc (hDcoe k hk)⟩
+      · intro w hw
+        exact (hSdchar _).mpr ⟨w, hw, hDcoe w hw⟩
+    case himgBR =>
+      intro zy hzy w hw
+      rw [hR2 zy]
+      have hspec : ∃ k, k ∈ DD ∧ coerce cD k w := (hSdchar w).mp hw
+      have hε := Classical.epsilon_spec hspec
+      refine ihR.mpr
+        ⟨fnApply v (Classical.epsilon fun k ↦ k ∈ DD ∧ coerce cD k w), ?_, ?_⟩
+      · refine Eval.fnCall ((hloc hzy).mpr hev) ?_ ((hDchar _).mp hε.1)
+        have hfeq : (fun k ↦ k ∈ DD ∧ coerce cD k w)
+            = (fun k ↦ k ∈ DD ∧
+                (if coerce cD k w then Value.tru else Value.fls) = Value.tru) := by
+          funext k
+          by_cases hc : coerce cD k w <;> simp [hc, Value.fls_ne_tru]
+        rw [show (Classical.epsilon fun k ↦ k ∈ DD ∧ coerce cD k w)
+              = Classical.epsilon (fun k ↦ k ∈ DD ∧
+                  (if coerce cD k w then Value.tru else Value.fls) = Value.tru)
+            from congrArg Classical.epsilon hfeq]
+        refine Eval.choose (fun k ↦ if coerce cD k w then Value.tru else Value.fls) {zy} ?_ ?_
+        · exact Eval.opCall_builtin hdomOp (.cons ((hloc hzy).mpr hev) .nil) (EvalBuiltin.domain hDchar)
+        · intro zx hzx k hk
+          rw [Finset.notMem_singleton] at hzx
+          rw [hR3 zx zy]
+          have hcDx : Eval Ξ Ω ((M.insert zy w).insert zx k)
+              (cD.applyComputable (Expression.var dom (.free zx)))
+              (Classical.epsilon fun z ↦ coerce cD k z) := by
+            refine ihD.mpr ⟨k, evalVar'.mpr ?_, hDcoe k hk⟩
+            simp only [Finmap.lookup_insert]
+          have hvy : Eval Ξ Ω ((M.insert zy w).insert zx k) (Expression.var dom' (.free zy)) w := by
+            refine evalVar'.mpr ?_
+            show ((M.insert zy w).insert zx k).lookup zy = some w
+            rw [Finmap.lookup_insert_of_ne _ hzx.symm, Finmap.lookup_insert]
+          have heqb : EvalBuiltin .eq [Classical.epsilon fun z ↦ coerce cD k z, w]
+              (if coerce cD k w then Value.tru else Value.fls) := by
+            by_cases hc : coerce cD k w
+            · rw [coerceUnique (hDcoe k hk) hc, if_pos hc]
+              exact EvalBuiltin.eq_pos
+            · rw [if_neg hc]
+              exact EvalBuiltin.eq_neg fun h ↦ hc (h ▸ hDcoe k hk)
+          exact Eval.opCall_builtin heqOp (.cons hcDx (.cons hvy .nil)) heqb
+      · exact Classical.epsilon_spec (hcRtot w hw)
+    case htoG =>
+      intro z hz
+      obtain ⟨w, hw, r', hcr, rfl⟩ := (hgraph z).mp hz
+      exact ⟨w, hw, by rw [coerceUnique hcr (Classical.epsilon_spec (hcRtot w hw))]⟩
+    case hofG =>
+      intro w hw
+      exact (hgraph _).mpr ⟨w, hw, _, Classical.epsilon_spec (hcRtot w hw), rfl⟩
 
 /-- Applying a coercion to an expression denotes the coercion applied to that expression's value.
 Recurses on `c` through the equation compiler — `Coercion` is a nested inductive, so `induction`
-does not fire. Needs `hΞ : Ξ.WellScoped` and `Coercion.FreshFor c e.freeVars`: the `.seqToFun`/
-`.function` cases build a `.fn` whose body re-evaluates `e` under a binder the coercion introduces,
-and `evalLocal'` relates that back to `e`'s ambient value only when the binder is fresh. -/
+does not fire. Needs `hΞ : Ξ.WellScoped`: the `.seqToFun`/`.function` cases build a `.fn` whose body
+re-evaluates `e` under a binder the coercion introduces, and `evalLocal'` relates that back to
+`e`'s ambient value — the cofinite `Eval` rules open that binder at a name chosen fresh for `e`, so
+no `Coercion.FreshFor` hypothesis is needed. -/
 theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) :
     ∀ {c : Coercion} {M : Memory Value} {e : Expression Typ} {v' : Value},
-      Coercion.FreshFor c e.freeVars →
       (Eval Ξ Ω M (TypedTLAPlus.Coercion.applyComputable c e) v' ↔
         ∃ v, Eval Ξ Ω M e v ∧ coerce c v v')
-    := by
-  -- TODO(locally-nameless): `.seqToFun`/`.function`/`.set`/… arms build synthesized binders that
-  -- re-evaluate `e`; needs `openVar`/`liftBound` metatheory + `evalLocal'`. Deferred.
-  intro c M e v' _hfr
-  sorry
+  | .id, _, _, v' => by
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce]
+    iff_rintro h ⟨v, hv, rfl⟩
+    · exact ⟨v', h, rfl⟩
+    · exact hv
+  | .strToSeq, M, e, v' => by
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce]
+    iff_rintro hev ⟨v, hv, rfl⟩
+    · cases hev with
+      | opCall_builtin hop hargs hb =>
+        simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop
+        subst hop
+        cases hargs with
+        | cons he hnil => cases hb with | strToSeq => exact ⟨_, he, rfl⟩
+    · exact .opCall_builtin (op := .strToSeq) rfl (.cons hv .nil) .strToSeq
+  | .seqToFun τ i, M, e, v' => by
+    exact evalCoerce'_seqToFun (i := i) hΞ
+  | .tupleToSeq n τ hn, M, e, v' => by
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
+    have hne : List.range n ≠ [] := by
+      rw [← List.length_pos_iff, List.length_range]; omega
+    constructor
+    · intro hev
+      cases hev with
+      | seq hes =>
+        obtain ⟨r, hr⟩ := evalList_fnCallNat_ex hes hne
+        obtain ⟨hvs, hdoms⟩ := (evalList_fnCallNat hr).mp hes
+        exact ⟨r, hr, λ i hi ↦ hdoms i (List.mem_range.mpr hi), by rw [hvs]⟩
+    · rintro ⟨r, hr, hdoms, rfl⟩
+      exact .seq ((evalList_fnCallNat hr).mpr ⟨rfl, λ i hi ↦ hdoms i (List.mem_range.mp hi)⟩)
+  | .set x τ _ c, M, e, v' => by
+    have hob : ∀ zx, (c.applyComputable (Expression.var τ (.bound 0) @@ posOf e)).openVar zx
+        = c.applyComputable (Expression.var τ (.free zx) @@ posOf e) := by
+      intro zx
+      rw [openVar_applyComputable]
+      congr 1
+      simp only [Expression.openVar, Expression.mapVars, Expression.openVarLam, registerSource,
+        if_pos]
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
+    constructor
+    · intro hev
+      cases hev with
+      | @map' _ _ _ _ _ _ S _ img L hdom himg hto hof =>
+        obtain ⟨zx, hzx⟩ := exists_fresh L
+        replace himg : ∀ w ∈ S, coerce c w (img w) := by
+          intro w hw
+          have hi := himg zx hzx w hw
+          rw [hob zx] at hi
+          obtain ⟨vw, hvar, hc⟩ := (evalCoerce' hΞ).mp hi
+          simp only [evalVar', Finmap.lookup_insert, Option.some.injEq] at hvar
+          subst hvar
+          exact hc
+        refine ⟨S, hdom, λ w hw ↦ ⟨img w, himg w hw⟩, λ z ↦ ⟨λ hz ↦ ?_, λ hz ↦ ?_⟩⟩
+        · obtain ⟨w, hw, rfl⟩ := hto z hz
+          exact ⟨w, hw, himg w hw⟩
+        · obtain ⟨w, hw, hc⟩ := hz
+          obtain rfl := coerceUnique hc (himg w hw)
+          exact hof w hw
+    · rintro ⟨v, hv, htot, hext⟩
+      refine .map' (λ w ↦ Classical.epsilon (λ z ↦ coerce c w z)) ∅ hv (λ zx _ w hw ↦ ?_)
+        (λ z hz ↦ ?_) (λ w hw ↦ ?_)
+      · rw [hob zx]
+        refine (evalCoerce' hΞ).mpr ⟨w, evalVar'.mpr ?_, Classical.epsilon_spec (htot w hw)⟩
+        simp only [Finmap.lookup_insert]
+      · obtain ⟨w, hw, hc⟩ := (hext z).mp hz
+        exact ⟨w, hw, coerceUnique hc (Classical.epsilon_spec (htot w hw))⟩
+      · exact (hext _).mpr ⟨w, hw, Classical.epsilon_spec (htot w hw)⟩
+  | .tuple coes τs τs', M, e, v' => by
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
+    constructor
+    · intro h
+      cases h with
+      | @tuple _ _ vs hets hes =>
+        obtain ⟨hlen, hget⟩ := evalList_getElem.mp hes
+        simp only [List.length_map, List.length_attach, List.length_range] at hlen
+        have hcne : coes ≠ [] := by rintro rfl; simp at hets
+        have hproj : ∀ i (hi : i < coes.length),
+            Eval Ξ Ω M ((coes[i]).applyComputable
+              (Expression.fnCall e (.tuple τs) (Expression.nat (toString (i + 1))))) vs[i] := by
+          intro i hi
+          have hev := hget i
+            (by simp only [List.length_map, List.length_attach, List.length_range]; exact hi)
+            (hlen ▸ hi)
+          simpa only [List.getElem_map, List.getElem_attach, List.getElem_range] using hev
+        obtain ⟨r, hr⟩ : ∃ r, Eval Ξ Ω M e r := by
+          obtain ⟨w, hw, -⟩ :=
+            (evalCoerce' hΞ).mp (hproj 0 (List.length_pos_of_ne_nil hcne))
+          cases hw with | fnCall hf _ _ => exact ⟨_, hf⟩
+        refine ⟨r, hr, hcne, vs, rfl, hlen.symm, λ i hi₁ hi₂ ↦ ?_⟩
+        obtain ⟨w, hw, hc⟩ := (evalCoerce' hΞ).mp (hproj i hi₁)
+        cases hw with
+        | fnCall hf hk hdom =>
+          obtain rfl := evalUnique' hf hr
+          obtain rfl := evalUnique' hk (.nat (Nat.toNat?_repr (i + 1)))
+          exact ⟨hdom, hc⟩
+    · rintro ⟨v, hv, hcne, ws, hseq, hwslen, IH⟩
+      change v' = Value.ofSeq ws at hseq
+      subst hseq
+      refine .tuple ?_ (evalList_getElem.mpr ⟨?_, λ i h₁ h₂ ↦ ?_⟩)
+      · rw [← List.length_pos_iff]
+        simp only [List.length_map, List.length_attach, List.length_range]
+        exact List.length_pos_of_ne_nil hcne
+      · simp only [List.length_map, List.length_attach, List.length_range, hwslen]
+      · simp only [List.length_map, List.length_attach, List.length_range] at h₁
+        simp only [List.getElem_map, List.getElem_attach, List.getElem_range]
+        refine (evalCoerce' hΞ).mpr
+          ⟨fnApply v (Value.ofNat (i + 1)), ?_, (IH i h₁ (by omega)).2⟩
+        exact .fnCall hv (.nat (Nat.toNat?_repr (i + 1))) (IH i h₁ (by omega)).1
+  | .record fields, M, e, v' => by
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
+    constructor
+    · intro h
+      cases h with
+      | @record _ _ vs hfne hes =>
+        obtain ⟨hlen, hget⟩ := evalList_getElem.mp hes
+        simp only [List.length_map, List.length_attach] at hlen
+        have hfne' : fields ≠ [] := by rintro rfl; simp at hfne
+        have hproj : ∀ i (hi : i < fields.length),
+            Eval Ξ Ω M ((fields[i].2.1).applyComputable
+              (Expression.recordAccess e fields[i].1)) vs[i] := by
+          intro i hi
+          have hev := hget i
+            (by simp only [List.length_map, List.length_attach]; exact hi) (hlen ▸ hi)
+          simpa only [List.map_map, List.getElem_map, List.getElem_attach, Function.comp_apply]
+            using hev
+        obtain ⟨r, hr⟩ : ∃ r, Eval Ξ Ω M e r := by
+          have h0 : 0 < fields.length := List.length_pos_of_ne_nil hfne'
+          obtain ⟨w, hw, -⟩ := (evalCoerce' hΞ).mp (hproj 0 h0)
+          cases hw with | recordAccess hf _ => exact ⟨_, hf⟩
+        have hstep : ∀ i (hi : i < fields.length),
+            (∃ w', ZFSet.pair (Value.ofString fields[i].1) w' ∈ r) ∧
+              coerce fields[i].2.1 (fnApply r (Value.ofString fields[i].1)) vs[i] := by
+          intro i hi
+          obtain ⟨w, hw, hc⟩ := (evalCoerce' hΞ).mp (hproj i hi)
+          cases hw with
+          | recordAccess hf hdom => obtain rfl := evalUnique' hf hr; exact ⟨hdom, hc⟩
+        refine ⟨r, hr, hfne', λ nc hnc ↦ ?_, λ z ↦ ?_⟩
+        · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
+          obtain ⟨⟨w', hw'⟩, hc⟩ := hstep i hi
+          exact ⟨vs[i], w', hw', hc⟩
+        · rw [Value.ofRecord, Value.mem_recordGraph]
+          constructor
+          · rintro ⟨k, w, hmem, rfl⟩
+            rw [List.mem_iff_getElem] at hmem
+            obtain ⟨i, hizip, heq⟩ := hmem
+            have hi : i < fields.length := by
+              simpa only [List.length_zip, List.length_map, List.length_attach, hlen,
+                Nat.min_self] using hizip
+            simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
+              Function.comp_apply, Prod.mk.injEq] at heq
+            obtain ⟨rfl, rfl⟩ := heq
+            exact ⟨fields[i], List.getElem_mem hi, vs[i], (hstep i hi).2, rfl⟩
+          · rintro ⟨nc, hnc, w, hc, rfl⟩
+            obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
+            obtain rfl := coerceUnique hc (hstep i hi).2
+            refine ⟨fields[i].1, vs[i], ?_, rfl⟩
+            rw [List.mem_iff_getElem]
+            refine ⟨i, by
+              simp only [List.length_zip, List.length_map, List.length_attach, hlen, Nat.min_self]
+              omega, ?_⟩
+            simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
+              Function.comp_apply]
+    · rintro ⟨v, hv, hfne, hcf, hcv⟩
+      have hw : ∀ nc ∈ fields, ∃ w, coerce nc.2.1 (fnApply v (Value.ofString nc.1)) w := by
+        intro nc hnc; obtain ⟨w, _, _, hc⟩ := hcf nc hnc; exact ⟨w, hc⟩
+      set vs := fields.attach.map (λ x ↦ Classical.choose (hw x.1 x.2)) with hvs_def
+      have hvs_len : vs.length = fields.length := by
+        simp only [hvs_def, List.length_map, List.length_attach]
+      have hvs_get : ∀ i (hi : i < fields.length),
+          coerce fields[i].2.1 (fnApply v (Value.ofString fields[i].1)) (vs[i]'(hvs_len ▸ hi)) := by
+        intro i hi
+        have hpin : vs[i]'(hvs_len ▸ hi) = Classical.choose (hw fields[i] (List.getElem_mem hi)) := by
+          simp only [hvs_def, List.getElem_map, List.getElem_attach]
+        rw [hpin]
+        exact Classical.choose_spec (hw fields[i] (List.getElem_mem hi))
+      have hveq : v' = Value.ofRecord (((fields.attach.map
+          (λ x : {y // y ∈ fields} ↦ (x.1.2.2, x.1.1,
+            x.1.2.1.applyComputable (Expression.recordAccess e x.1.1)))).map (·.2.1)).zip vs) := by
+        refine ZFSet.ext (λ z ↦ ?_)
+        rw [hcv z, Value.ofRecord, Value.mem_recordGraph]
+        constructor
+        · rintro ⟨nc, hnc, w, hc, rfl⟩
+          obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
+          obtain rfl := coerceUnique hc (hvs_get i hi)
+          refine ⟨fields[i].1, vs[i], ?_, rfl⟩
+          rw [List.mem_iff_getElem]
+          refine ⟨i, by
+            simp only [List.length_zip, List.length_map, List.length_attach, hvs_len, Nat.min_self]
+            omega, ?_⟩
+          simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
+            Function.comp_apply]
+        · rintro ⟨k, w, hmem, rfl⟩
+          rw [List.mem_iff_getElem] at hmem
+          obtain ⟨i, hizip, heq⟩ := hmem
+          have hi : i < fields.length := by
+            simpa only [List.length_zip, List.length_map, List.length_attach, hvs_len,
+              Nat.min_self] using hizip
+          simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
+            Function.comp_apply, Prod.mk.injEq] at heq
+          obtain ⟨rfl, rfl⟩ := heq
+          exact ⟨fields[i], List.getElem_mem hi, vs[i], hvs_get i hi, rfl⟩
+      rw [hveq]
+      refine Eval.record ?_ (evalList_getElem.mpr ⟨?_, λ i h₁ h₂ ↦ ?_⟩)
+      · simp only [ne_eq, List.map_eq_nil_iff, List.attach_eq_nil_iff]; exact hfne
+      · simp only [List.map_map, List.length_map, List.length_attach, hvs_len]
+      · have hi : i < fields.length := by
+          simpa only [List.map_map, List.length_map, List.length_attach] using h₁
+        have hev : Eval Ξ Ω M ((fields[i].2.1).applyComputable
+            (Expression.recordAccess e fields[i].1)) (vs[i]'(hvs_len ▸ hi)) := by
+          refine (evalCoerce' hΞ).mpr
+            ⟨fnApply v (Value.ofString fields[i].1), ?_, hvs_get i hi⟩
+          obtain ⟨ww, ww', hmem, -⟩ := hcf fields[i] (List.getElem_mem hi)
+          exact Eval.recordAccess hv ⟨ww', hmem⟩
+        simpa only [List.map_map, List.getElem_map, List.getElem_attach, Function.comp_apply]
+          using hev
+  | .function x y dom rng dom' rng' cD cR, M, e, v' => by
+    exact evalCoerce'_function hΞ (evalCoerce' hΞ) (evalCoerce' hΞ)
+  | .comp c₁ c₂, M, e, v' => by
+    simp only [TypedTLAPlus.Coercion.applyComputable, coerce]
+    constructor
+    · intro h
+      obtain ⟨mid, hmid, hc₂⟩ := (evalCoerce' hΞ).mp h
+      obtain ⟨v, hv, hc₁⟩ := (evalCoerce' hΞ).mp hmid
+      exact ⟨v, hv, mid, hc₁, hc₂⟩
+    · rintro ⟨v, hv, mid, hc₁, hc₂⟩
+      exact (evalCoerce' hΞ).mpr ⟨mid, (evalCoerce' hΞ).mpr ⟨v, hv, hc₁⟩, hc₂⟩
+  termination_by c => sizeOf c
+  decreasing_by
+    1,2,9-14: decreasing_trivial
+    1-3: calc
+           _ < sizeOf coes := List.sizeOf_get _ _
+           _ < _ := by decreasing_trivial
+    all: exact sizeOf_record_field ‹_›
 
+private theorem evalSubst'_fwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String}
+    {e' : Expression Typ} (hΞ : Ξ.WellScoped) (hlc : e'.LC) :
+    ∀ {N : Memory Value} {e : Expression Typ} {v : Value}, Eval Ξ Ω N e v →
+      ∀ {N' : Memory Value},
+        (∀ y ∈ e.freeVars, y ≠ x → N.lookup y = N'.lookup y) →
+        (∀ w, N.lookup x = some w → Eval Ξ Ω N' e' w) →
+        Eval Ξ Ω N' (Expression.subst x e' e) v := by
+  have agreeStep : ∀ {N₁ N₂ : Memory Value} {z : String} {w : Value} {D B : Expression Typ},
+      (∀ y ∈ D.freeVars ∪ B.freeVars, y ≠ x → N₁.lookup y = N₂.lookup y) →
+      ∀ y ∈ (B.openVar z).freeVars, y ≠ x →
+        (N₁.insert z w).lookup y = (N₂.insert z w).lookup y := by
+    intro N₁ N₂ z w D B hag y hy hyx
+    by_cases hyz : y = z
+    · subst hyz; rw [Finmap.lookup_insert, Finmap.lookup_insert]
+    · rw [Finmap.lookup_insert_of_ne _ hyz, Finmap.lookup_insert_of_ne _ hyz]
+      exact hag y (Finset.mem_union_right _
+        (Expression.freeVars_openVar_erase (Finset.mem_erase.mpr ⟨hyz, hy⟩))) hyx
+  have xStep : ∀ {N₁ N₂ : Memory Value} {z : String} {w : Value},
+      z ≠ x → z ∉ e'.freeVars →
+      (∀ u, N₁.lookup x = some u → Eval Ξ Ω N₂ e' u) →
+      ∀ u, (N₁.insert z w).lookup x = some u → Eval Ξ Ω (N₂.insert z w) e' u := by
+    intro N₁ N₂ z w hzx hze hx u hu
+    rw [Finmap.lookup_insert_of_ne _ (Ne.symm hzx)] at hu
+    refine (evalLocal' hΞ (fun y hy ↦ ?_)).mp (hx u hu)
+    exact (Finmap.lookup_insert_of_ne N₂ (fun h : y = z ↦ hze (h ▸ hy))).symm
+  have freshParts : ∀ {z : String} {L : Finset String}, z ∉ L ∪ e'.freeVars ∪ {x} →
+      z ∉ L ∧ z ∉ e'.freeVars ∧ z ≠ x := by
+    intro z L hz
+    obtain ⟨hzLe, hzx⟩ := Finset.notMem_union.mp hz
+    obtain ⟨hzL, hze⟩ := Finset.notMem_union.mp hzLe
+    exact ⟨hzL, hze, Finset.notMem_singleton.mp hzx⟩
+  intro N e v hev
+  induction hev using Eval.rec
+    (motive_2 := fun N es vs _ ↦ ∀ {N' : Memory Value},
+      (∀ e ∈ es, ∀ y ∈ e.freeVars, y ≠ x → N.lookup y = N'.lookup y) →
+      (∀ w, N.lookup x = some w → Eval Ξ Ω N' e' w) →
+      EvalList Ξ Ω N' (es.map (Expression.subst x e')) vs)
+    (motive_3 := fun N p rs _ ↦ ∀ {N' : Memory Value},
+      (∀ e, Sum.inr e ∈ p → ∀ y ∈ e.freeVars, y ≠ x → N.lookup y = N'.lookup y) →
+      (∀ w, N.lookup x = some w → Eval Ξ Ω N' e' w) →
+      EvalPath Ξ Ω N' (p.map fun s ↦ s.map id (Expression.subst x e')) rs)
+  case nat hn => intro N' _ _; rw [Expression.subst_nat]; exact .nat hn
+  case str => intro N' _ _; rw [Expression.subst_str]; exact .str
+  case tru => intro N' _ _; rw [Expression.subst_true]; exact .tru
+  case fls => intro N' _ _; rw [Expression.subst_false]; exact .fls
+  case var_free _ _ name _ hb =>
+    intro N' hag hx
+    by_cases hnx : name = x
+    · subst hnx
+      rw [Expression.LC.subst_var_free_eq hlc]
+      exact hx _ hb
+    · rw [Expression.subst_var_free_ne hnx]
+      refine .var_free ?_
+      rw [← hag name (by rw [Expression.freeVars]; exact Finset.mem_singleton.mpr rfl) hnx]
+      exact hb
+  case var_op0 _ _ m name bodyv _ hΞ' hnb' hbody ihbody =>
+    intro N' _ hx
+    rw [Expression.subst_var_module]
+    have hclosed : bodyv.freeVars = ∅ := hΞ m name [] bodyv hΞ'
+    refine .var_op0 hΞ' hnb' ?_
+    rw [← Expression.subst_fresh (e' := e') bodyv (by rw [hclosed]; exact Finset.notMem_empty x)]
+    exact ihbody (fun y hy _ ↦ absurd hy (by rw [hclosed]; exact Finset.notMem_empty y)) hx
+  case var_const hΞ' hnb' hΩ' =>
+    intro N' _ _
+    rw [Expression.subst_var_module]
+    exact .var_const hΞ' hnb' hΩ'
+  case natSet hv =>
+    intro N' _ _
+    rw [Expression.subst_var_module]
+    exact .natSet hv
+  case intSet hv =>
+    intro N' _ _
+    rw [Expression.subst_var_module]
+    exact .intSet hv
+  case opCall_op _ _ m name params bodyv _ _ hΞ' hnb hlen hbody hargs ihbody =>
+    intro N' hag hx
+    rw [Expression.subst_opCall, Expression.subst_var_module]
+    have hclosed : bodyv.freeVars = ∅ := hΞ m name params bodyv hΞ'
+    have hfresh : x ∉ bodyv.freeVars := by rw [hclosed]; exact Finset.notMem_empty x
+    refine .opCall_op hΞ' hnb (by rw [List.length_map]; exact hlen) ?_ ?_
+    · rw [← subst_substParams hlc hfresh]
+      refine ihbody (fun y hy hyx ↦ ?_) hx
+      rcases substParams_freeVars hlen hy with h | ⟨a, ha, hya⟩
+      · exact (by rw [hclosed]; exact Finset.notMem_empty y : y ∉ bodyv.freeVars) h |>.elim
+      · exact hag y (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, ha, hya⟩)) hyx
+    · simpa using hargs
+  case opCall_builtin hop hargs hb ihargs =>
+    intro N' hag hx
+    rw [Expression.subst_opCall, subst_var_of_builtin hop]
+    refine .opCall_builtin hop ?_ hb
+    exact ihargs (fun a ha y hy hyx ↦
+      hag y (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, ha, hy⟩)) hyx) hx
+  case forall_true L hdom hall ihdom ihall =>
+    intro N' hag hx
+    rw [Expression.LC.subst_forall hlc]
+    rw [Expression.freeVars] at hag
+    refine .forall_true (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_
+    intro z hz w hw
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihall z hzL w hw (agreeStep hag) (xStep hzx hze hx)
+  case forall_false L hdom hw hbody ihdom ihbody =>
+    intro N' hag hx
+    rw [Expression.LC.subst_forall hlc]
+    rw [Expression.freeVars] at hag
+    refine .forall_false (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) hw ?_
+    intro z hz
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihbody z hzL (agreeStep hag) (xStep hzx hze hx)
+  case exists_true L hdom hw hbody ihdom ihbody =>
+    intro N' hag hx
+    rw [Expression.LC.subst_exists hlc]
+    rw [Expression.freeVars] at hag
+    refine .exists_true (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) hw ?_
+    intro z hz
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihbody z hzL (agreeStep hag) (xStep hzx hze hx)
+  case exists_false L hdom hall ihdom ihall =>
+    intro N' hag hx
+    rw [Expression.LC.subst_exists hlc]
+    rw [Expression.freeVars] at hag
+    refine .exists_false (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_
+    intro z hz w hw
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihall z hzL w hw (agreeStep hag) (xStep hzx hze hx)
+  case choose filt L hdom hfilt ihdom ihfilt =>
+    intro N' hag hx
+    rw [Expression.LC.subst_choose hlc]
+    rw [Expression.freeVars] at hag
+    refine .choose filt (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_
+    intro z hz w hw
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihfilt z hzL w hw (agreeStep hag) (xStep hzx hze hx)
+  case set hes hto hof ihes =>
+    intro N' hag hx
+    rw [Expression.subst_set]
+    exact .set (ihes (fun a ha y hy hyx ↦
+      hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hx) hto hof
+  case collect filt L hdom hfilt hto hof ihdom ihfilt =>
+    intro N' hag hx
+    rw [Expression.LC.subst_collect hlc]
+    rw [Expression.freeVars] at hag
+    refine .collect filt (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_ hto hof
+    intro y hy z hz
+    obtain ⟨hyL, hye, hyx⟩ := freshParts hy
+    rw [Expression.LC.subst_openVar hlc hyx]
+    exact ihfilt y hyL z hz (agreeStep hag) (xStep hyx hye hx)
+  case map' img L hdom himg hto hof ihdom ihimg =>
+    intro N' hag hx
+    rw [Expression.LC.subst_map' hlc]
+    rw [Expression.freeVars] at hag
+    refine .map' img (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_ hto hof
+    intro z hz w hw
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihimg z hzL w hw (agreeStep hag) (xStep hzx hze hx)
+  case fnCall hf hk hdom ihf ihk =>
+    intro N' hag hx
+    rw [Expression.subst_fnCall]
+    rw [Expression.freeVars] at hag
+    exact .fnCall (ihf (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx)
+      (ihk (fun y hy hyx ↦ hag y (Finset.mem_union_right _ hy) hyx) hx) hdom
+  case fn img L hdom himg hto hof ihdom ihimg =>
+    intro N' hag hx
+    rw [Expression.LC.subst_fn hlc]
+    rw [Expression.freeVars] at hag
+    refine .fn img (L ∪ e'.freeVars ∪ {x})
+      (ihdom (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_ hto hof
+    intro z hz w hw
+    obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+    rw [Expression.LC.subst_openVar hlc hzx]
+    exact ihimg z hzL w hw (agreeStep hag) (xStep hzx hze hx)
+  case record _ fs _ hfne hfs ihfs =>
+    intro N' hag hx
+    rw [Expression.subst_record]
+    have hnames : List.map (fun p : Typ × String × Expression Typ ↦ p.2.1)
+          (List.map (fun p ↦ (p.1, p.2.1, Expression.subst x e' p.2.2)) fs)
+        = List.map (·.2.1) fs := by simp [List.map_map, Function.comp_def]
+    rw [← hnames]
+    refine .record (fun h ↦ hfne (List.map_eq_nil_iff.mp h)) ?_
+    have key := ihfs (fun a ha y hy hyx ↦ by
+        obtain ⟨f, hf, rfl⟩ := List.mem_map.mp ha
+        exact hag y (Expression.mem_freeVars_record.mpr ⟨f, hf, hy⟩) hyx) hx
+    simpa [List.map_map, Function.comp_def] using key
+  case recordAccess he hdom ihe =>
+    intro N' hag hx
+    rw [Expression.subst_recordAccess]
+    rw [Expression.freeVars] at hag
+    exact .recordAccess (ihe hag hx) hdom
+  case tuple hets hes ihes =>
+    intro N' hag hx
+    rw [Expression.subst_tuple]
+    refine .tuple (fun h ↦ hets (List.map_eq_nil_iff.mp h)) ?_
+    have key := ihes (fun a ha y hy hyx ↦ by
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp ha
+        exact hag y (Expression.mem_freeVars_tuple.mpr ⟨p, hp, hy⟩) hyx) hx
+    simpa [List.map_map, Function.comp_def] using key
+  case seq hes ihes =>
+    intro N' hag hx
+    rw [Expression.subst_seq]
+    exact .seq (ihes (fun a ha y hy hyx ↦
+      hag y (Expression.mem_freeVars_seq.mpr ⟨a, ha, hy⟩) hyx) hx)
+  case «except» hf hpath hrhs hv ihf ihpath ihrhs =>
+    intro N' hag hx
+    rewrite [Expression.subst_except_single]
+    simp only [Expression.mem_freeVars_except_single] at hag
+    exact .«except» (ihf (fun y hy hyx ↦ hag y (.inl hy) hyx) hx)
+      (ihpath (fun ee hee y hy hyx ↦ hag y (.inr (.inl ⟨ee, hee, hy⟩)) hyx) hx)
+      (ihrhs (fun y hy hyx ↦ hag y (.inr (.inr hy)) hyx) hx) hv
+  case if_true hc ht ihc iht =>
+    intro N' hag hx
+    rw [Expression.subst_if]
+    rw [Expression.freeVars, Finset.union_assoc] at hag
+    exact .if_true (ihc (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx)
+      (iht (fun y hy hyx ↦ hag y (Finset.mem_union_right _ (Finset.mem_union_left _ hy)) hyx) hx)
+  case if_false hc he ihc ihe =>
+    intro N' hag hx
+    rw [Expression.subst_if]
+    rw [Expression.freeVars, Finset.union_assoc] at hag
+    exact .if_false (ihc (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx)
+      (ihe (fun y hy hyx ↦ hag y (Finset.mem_union_right _ (Finset.mem_union_right _ hy)) hyx) hx)
+  case case_hit _ _ _ _ i pp qq _ hi hbefore hp hq ihbefore ihp ihq =>
+    intro N' hag hx
+    rw [Expression.subst_case]
+    refine .case_hit (i := i) (by rw [List.getElem?_map, hi]; rfl)
+      (fun j hj p' q' hjeq ↦ ?_) ?_ ?_
+    · obtain ⟨⟨p₀, q₀⟩, hj₀, heq⟩ := by
+        have := hjeq; rw [List.getElem?_map] at this
+        exact Option.map_eq_some_iff.mp this
+      simp only [Prod.mk.injEq] at heq
+      obtain ⟨rfl, rfl⟩ := heq
+      exact ihbefore j hj p₀ q₀ hj₀ (fun y hy hyx ↦
+        hag y (Expression.mem_freeVars_case.mpr
+          (.inl ⟨(p₀, q₀), List.mem_of_getElem? hj₀, .inl hy⟩)) hyx) hx
+    · exact ihp (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr
+        (.inl ⟨(pp, qq), List.mem_of_getElem? hi, .inl hy⟩)) hyx) hx
+    · exact ihq (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr
+        (.inl ⟨(pp, qq), List.mem_of_getElem? hi, .inr hy⟩)) hyx) hx
+  case case_other hbefore hq ihbefore ihq =>
+    intro N' hag hx
+    rw [Expression.subst_case]
+    refine .case_other (fun j p' q' hjeq ↦ ?_) ?_
+    · obtain ⟨⟨p₀, q₀⟩, hj₀, heq⟩ := by
+        have := hjeq; rw [List.getElem?_map] at this
+        exact Option.map_eq_some_iff.mp this
+      simp only [Prod.mk.injEq] at heq
+      obtain ⟨rfl, rfl⟩ := heq
+      exact ihbefore j p₀ q₀ hj₀ (fun y hy hyx ↦
+        hag y (Expression.mem_freeVars_case.mpr
+          (.inl ⟨(p₀, q₀), List.mem_of_getElem? hj₀, .inl hy⟩)) hyx) hx
+    · exact ihq (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr (.inr ⟨_, rfl, hy⟩)) hyx) hx
+  case cons M ee vv es vs hev hevs ihHead hh hhs ihh ihhs =>
+    exact .cons (ihHead (fun y hy hyx ↦ ihh ee List.mem_cons_self y hy hyx) ihhs)
+      (hh (fun a ha y hy hyx ↦ ihh a (List.mem_cons_of_mem _ ha) y hy hyx) ihhs)
+  case inl M fld rest resolved hp ihRest hhs ihh ihhs =>
+    exact .inl (ihRest (fun ee' hee' y hy hyx ↦
+      ihh ee' (List.mem_cons_of_mem _ hee') y hy hyx) ihhs)
+  case inr M ee vv rest resolved hev hrest ihHead hh hhs ihh ihhs =>
+    exact .inr (ihHead (fun y hy hyx ↦ ihh ee List.mem_cons_self y hy hyx) ihhs)
+      (hh (fun ee' hee' y hy hyx ↦ ihh ee' (List.mem_cons_of_mem _ hee') y hy hyx) ihhs)
+  case nil => exact .nil
+  case nil => exact .nil
+
+/-- The `e = .var τ₀ o₀` arm of `evalSubst'_bwd`'s per-constructor `cases e`, when the derived
+constructor `ê` is not itself a `.var`: only `o₀ = .free x` is possible (the substitution splices
+`e'` in outright), closed by determinism against `hev'`. -/
+private theorem bwdVar {Ξ : OperatorEnv} {Ω : Model Value} {x : String} {e' : Expression Typ}
+    {v' : Value} (hlc : e'.LC) {N N' : Memory Value} {τ₀ : Typ} {o₀ : Origin}
+    {ê : Expression Typ} {v : Value} (hcur : Eval Ξ Ω N ê v)
+    (hsub : Expression.subst x e' (.var τ₀ o₀) = ê)
+    (hN'x : N'.lookup x = some v') (hev' : Eval Ξ Ω N e' v')
+    (hnotvar : ∀ τ o, ê ≠ .var τ o) :
+    Eval Ξ Ω N' (.var τ₀ o₀) v := by
+  cases o₀ with
+  | free n =>
+    by_cases hn : n = x
+    · subst hn
+      rw [Expression.LC.subst_var_free_eq hlc] at hsub
+      have hvv : v = v' := evalUnique' hcur (hsub ▸ hev')
+      subst hvv
+      exact .var_free hN'x
+    · rw [Expression.subst_var_free_ne hn] at hsub
+      absurd hsub.symm
+      exact hnotvar _ _
+  | «module» m nm =>
+    rw [Expression.subst_var_module] at hsub
+    absurd hsub.symm
+    exact hnotvar _ _
+  | bound i =>
+    rw [Expression.subst_var_bound] at hsub
+    absurd hsub.symm
+    exact hnotvar _ _
+  | intrinsic nm =>
+    rw [Expression.subst_var_intrinsic] at hsub
+    absurd hsub.symm
+    exact hnotvar _ _
+
+private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String}
+    {e' : Expression Typ} {v' : Value} (hΞ : Ξ.WellScoped) (hlc : e'.LC) :
+    ∀ {N : Memory Value} {ê : Expression Typ} {v : Value}, Eval Ξ Ω N ê v →
+      ∀ {e : Expression Typ} {N' : Memory Value}, Expression.subst x e' e = ê →
+        (∀ y ∈ e.freeVars, y ≠ x → N.lookup y = N'.lookup y) →
+        N'.lookup x = some v' →
+        Eval Ξ Ω N e' v' →
+        Eval Ξ Ω N' e v := by
+  have agreeStep : ∀ {N₁ N₂ : Memory Value} {z : String} {w : Value} {D B : Expression Typ},
+      (∀ y ∈ D.freeVars ∪ B.freeVars, y ≠ x → N₁.lookup y = N₂.lookup y) →
+      ∀ y ∈ (B.openVar z).freeVars, y ≠ x →
+        (N₁.insert z w).lookup y = (N₂.insert z w).lookup y := by
+    intro N₁ N₂ z w D B hag y hy hyx
+    by_cases hyz : y = z
+    · subst hyz; rw [Finmap.lookup_insert, Finmap.lookup_insert]
+    · rw [Finmap.lookup_insert_of_ne _ hyz, Finmap.lookup_insert_of_ne _ hyz]
+      exact hag y (Finset.mem_union_right _
+        (Expression.freeVars_openVar_erase (Finset.mem_erase.mpr ⟨hyz, hy⟩))) hyx
+  have evStep : ∀ {N₁ : Memory Value} {z : String} {w u : Value},
+      z ∉ e'.freeVars → Eval Ξ Ω N₁ e' u → Eval Ξ Ω (N₁.insert z w) e' u := by
+    intro N₁ z w u hze he
+    exact (evalLocal' hΞ fun y hy ↦
+      (Finmap.lookup_insert_of_ne N₁ (fun h : y = z ↦ hze (h ▸ hy))).symm).mp he
+  have xStep : ∀ {N₁ : Memory Value} {z : String} {w : Value},
+      z ≠ x → N₁.lookup x = some v' → (N₁.insert z w).lookup x = some v' := by
+    intro N₁ z w hzx hN'x; rw [Finmap.lookup_insert_of_ne _ (Ne.symm hzx)]; exact hN'x
+  have freshParts : ∀ {z : String} {L : Finset String}, z ∉ L ∪ e'.freeVars ∪ {x} →
+      z ∉ L ∧ z ∉ e'.freeVars ∧ z ≠ x := by
+    intro z L hz
+    obtain ⟨hzLe, hzx⟩ := Finset.notMem_union.mp hz
+    obtain ⟨hzL, hze⟩ := Finset.notMem_union.mp hzLe
+    exact ⟨hzL, hze, Finset.notMem_singleton.mp hzx⟩
+  intro N ê v hev
+  induction hev using Eval.rec
+    (motive_2 := fun N es vs _ ↦ ∀ {es₀ : List (Expression Typ)} {N' : Memory Value},
+      es₀.map (Expression.subst x e') = es →
+      (∀ e ∈ es₀, ∀ y ∈ e.freeVars, y ≠ x → N.lookup y = N'.lookup y) →
+      N'.lookup x = some v' → Eval Ξ Ω N e' v' → EvalList Ξ Ω N' es₀ vs)
+    (motive_3 := fun N p rs _ ↦ ∀ {p₀ : List (String ⊕ Expression Typ)} {N' : Memory Value},
+      (p₀.map fun s ↦ s.map id (Expression.subst x e')) = p →
+      (∀ e, Sum.inr e ∈ p₀ → ∀ y ∈ e.freeVars, y ≠ x → N.lookup y = N'.lookup y) →
+      N'.lookup x = some v' → Eval Ξ Ω N e' v' → EvalPath Ξ Ω N' p₀ rs)
+  -- literals
+  case nat hn =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | nat s' =>
+      rw [Expression.subst_nat] at hsub
+      obtain rfl := Expression.nat.inj hsub
+      exact .nat hn
+    | var τ₀ o₀ => exact bwdVar hlc (.nat hn) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case str =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | str s' => rw [Expression.subst_str] at hsub; obtain rfl := Expression.str.inj hsub; exact .str
+    | var τ₀ o₀ => exact bwdVar hlc .str hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case tru =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | true => rw [show Expression.subst x e' (Expression.true) = Expression.true from Expression.subst_true] at hsub; exact .tru
+    | var τ₀ o₀ => exact bwdVar hlc .tru hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case fls =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | false => rw [show Expression.subst x e' (Expression.false) = Expression.false from Expression.subst_false] at hsub; exact .fls
+    | var τ₀ o₀ => exact bwdVar hlc .fls hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  -- variables
+  case var_free _ _ name val hb =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | var τ₀ o₀ =>
+      cases o₀ with
+      | free n =>
+        by_cases hn : n = x
+        · subst hn
+          rw [Expression.LC.subst_var_free_eq hlc] at hsub
+          have hvv : val = v' := evalUnique' (.var_free hb) (hsub ▸ hev')
+          subst hvv
+          exact .var_free hN'x
+        · rw [Expression.subst_var_free_ne hn] at hsub
+          injection hsub with hτ ho; subst hτ; injection ho with hnm; subst hnm
+          refine .var_free ?_
+          rw [← hag n (by rw [Expression.freeVars]; exact Finset.mem_singleton.mpr rfl) hn]
+          exact hb
+      | «module» m nm => rw [Expression.subst_var_module] at hsub; simp at hsub
+      | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
+      | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case var_op0 _ _ m name bodyv val hΞ' hnb' hbody ihbody =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | var τ₀ o₀ =>
+      cases o₀ with
+      | free n =>
+        by_cases hn : n = x
+        · subst hn
+          rw [Expression.LC.subst_var_free_eq hlc] at hsub
+          have hvv : val = v' := evalUnique' (.var_op0 hΞ' hnb' hbody) (hsub ▸ hev')
+          subst hvv
+          exact .var_free hN'x
+        · rw [Expression.subst_var_free_ne hn] at hsub
+          simp at hsub
+      | «module» m₀ nm₀ =>
+        rw [Expression.subst_var_module] at hsub
+        injection hsub with hτv hom; subst hτv; injection hom with hm hn; subst m₀; subst nm₀
+        have hcl : bodyv.freeVars = ∅ := hΞ m name [] bodyv hΞ'
+        refine .var_op0 hΞ' hnb' ?_
+        exact ihbody (Expression.subst_fresh bodyv (by rw [hcl]; exact Finset.notMem_empty x))
+          (fun y hy _ ↦ absurd hy (by rw [hcl]; exact Finset.notMem_empty y)) hN'x hev'
+      | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
+      | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case var_const _ _ m name val hΞ' hnb' hΩ' =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | var τ₀ o₀ =>
+      cases o₀ with
+      | free n =>
+        by_cases hn : n = x
+        · subst hn
+          rw [Expression.LC.subst_var_free_eq hlc] at hsub
+          have hvv : val = v' := evalUnique' (.var_const hΞ' hnb' hΩ') (hsub ▸ hev')
+          subst hvv
+          exact .var_free hN'x
+        · rw [Expression.subst_var_free_ne hn] at hsub
+          simp at hsub
+      | «module» m₀ nm₀ =>
+        rw [Expression.subst_var_module] at hsub
+        injection hsub with hτv hom; subst hτv; injection hom with hm hn; subst m₀; subst nm₀
+        exact .var_const hΞ' hnb' hΩ'
+      | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
+      | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case natSet _ _ val hv =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | var τ₀ o₀ =>
+      cases o₀ with
+      | free n =>
+        by_cases hn : n = x
+        · subst hn
+          rw [Expression.LC.subst_var_free_eq hlc] at hsub
+          have hvv : val = v' := evalUnique' (.natSet hv) (hsub ▸ hev')
+          subst hvv
+          exact .var_free hN'x
+        · rw [Expression.subst_var_free_ne hn] at hsub
+          simp at hsub
+      | «module» m₀ nm₀ =>
+        rw [Expression.subst_var_module] at hsub
+        injection hsub with hτv hom; subst hτv; injection hom with hm hn; subst m₀; subst nm₀
+        exact .natSet hv
+      | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
+      | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case intSet _ _ val hv =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | var τ₀ o₀ =>
+      cases o₀ with
+      | free n =>
+        by_cases hn : n = x
+        · subst hn
+          rw [Expression.LC.subst_var_free_eq hlc] at hsub
+          have hvv : val = v' := evalUnique' (.intSet hv) (hsub ▸ hev')
+          subst hvv
+          exact .var_free hN'x
+        · rw [Expression.subst_var_free_ne hn] at hsub
+          simp at hsub
+      | «module» m₀ nm₀ =>
+        rw [Expression.subst_var_module] at hsub
+        injection hsub with hτv hom; subst hτv; injection hom with hm hn; subst m₀; subst nm₀
+        exact .intSet hv
+      | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
+      | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  -- operator / builtin call
+  case opCall_op _ _ m name params bodyv _ _ hΞ' hnb' hlen hbody hargs ihbody =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | opCall f₀ args₀ =>
+      rw [Expression.subst_opCall] at hsub
+      injection hsub with hf ha
+      cases f₀ with
+      | var τ₁ o₁ =>
+        cases o₁ with
+        | «module» m₁ n₁ =>
+          rw [Expression.subst_var_module] at hf
+          injection hf with _ hom; injection hom with hm hn; subst m₁; subst n₁
+          have hcl : bodyv.freeVars = ∅ := hΞ m name params bodyv hΞ'
+          have hfr : x ∉ bodyv.freeVars := by rw [hcl]; exact Finset.notMem_empty x
+          subst ha
+          refine .opCall_op hΞ' hnb' (by rw [List.length_map] at hlen; exact hlen) ?_
+            (fun h ↦ hargs (by rw [h, List.map_nil]))
+          refine ihbody (subst_substParams hlc hfr) (fun y hy hyx ↦ ?_) hN'x hev'
+          rcases substParams_freeVars (by rw [List.length_map] at hlen; exact hlen) hy with h | ⟨a, hain, hya⟩
+          · exact ((by rw [hcl]; exact Finset.notMem_empty y : y ∉ bodyv.freeVars) h).elim
+          · exact hag y (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, hain, hya⟩)) hyx
+        | free n₁ =>
+          by_cases hn : n₁ = x
+          · subst hn
+            rw [Expression.LC.subst_var_free_eq hlc] at hf
+            rw [hf] at hev'
+            exfalso
+            cases hev' with
+            | var_op0 hΞ2 _ _ =>
+              rw [hΞ'] at hΞ2
+              injection hΞ2 with hpb; injection hpb with hp _; subst hp
+              simp only [List.length_nil] at hlen
+              exact hargs (List.eq_nil_of_length_eq_zero hlen.symm)
+            | var_const hΞ2 _ _ => rw [hΞ'] at hΞ2; contradiction
+            | natSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb'
+            | intSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb'
+          · rw [Expression.subst_var_free_ne hn] at hf
+            injection hf with _ ho; simp at ho
+        | bound i =>
+          rw [Expression.subst_var_bound] at hf; injection hf with _ ho; simp at ho
+        | intrinsic n₁ =>
+          rw [Expression.subst_var_intrinsic] at hf; injection hf with _ ho; simp at ho
+      | _ => (first
+        | (rw [Expression.subst_eq_mapVars] at hf
+           simp only [Expression.mapVars, registerSource, reduceCtorEq] at hf)
+        | simp only [Expression.subst_case, reduceCtorEq] at hf)
+    | var τ₀ o₀ => exact bwdVar hlc (.opCall_op hΞ' hnb' hlen hbody hargs) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case opCall_builtin hop hargsL hb ihargs =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | opCall f₀ args₀ =>
+      rw [Expression.subst_opCall] at hsub
+      injection hsub with hf ha
+      cases f₀ with
+      | var τ₁ o₁ =>
+        cases o₁ with
+        | «module» m₁ n₁ =>
+          rw [Expression.subst_var_module] at hf
+          injection hf with hτ ho; subst hτ; subst ho; subst ha
+          exact .opCall_builtin hop
+            (ihargs rfl (fun a hain y hy hyx ↦
+              hag y (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, hain, hy⟩)) hyx) hN'x hev') hb
+        | intrinsic n₁ =>
+          rw [Expression.subst_var_intrinsic] at hf
+          injection hf with hτ ho; subst hτ; subst ho; subst ha
+          exact .opCall_builtin hop
+            (ihargs rfl (fun a hain y hy hyx ↦
+              hag y (Expression.mem_freeVars_opCall.mpr (.inr ⟨a, hain, hy⟩)) hyx) hN'x hev') hb
+        | free n₁ =>
+          by_cases hn : n₁ = x
+          · subst hn
+            rw [Expression.LC.subst_var_free_eq hlc] at hf
+            rw [hf] at hev'
+            exfalso
+            cases hev' with
+            | var_free hb' => simp [TypedTLAPlus.builtinOpOf?] at hop
+            | var_op0 _ hnb2 _ => rw [hop] at hnb2; contradiction
+            | var_const _ hnb2 _ => rw [hop] at hnb2; contradiction
+            | natSet _ =>
+              simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop; subst hop; nomatch hb
+            | intSet _ =>
+              simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop; subst hop; nomatch hb
+          · rw [Expression.subst_var_free_ne hn] at hf
+            injection hf with _ ho; subst ho
+            simp [TypedTLAPlus.builtinOpOf?] at hop
+        | bound i =>
+          rw [Expression.subst_var_bound] at hf
+          injection hf with _ ho; subst ho
+          simp [TypedTLAPlus.builtinOpOf?] at hop
+      | _ => (first
+        | (rw [Expression.subst_eq_mapVars] at hf
+           simp only [Expression.mapVars, registerSource, reduceCtorEq] at hf)
+        | simp only [Expression.subst_case, reduceCtorEq] at hf)
+    | var τ₀ o₀ => exact bwdVar hlc (.opCall_builtin hop hargsL hb) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  -- bounded quantifiers
+  case forall_true L hdom hall ihdom ihall =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «forall» x'' τ'' D₀ B₀ =>
+      rw [Expression.LC.subst_forall hlc] at hsub
+      injection hsub with _ hτ hD hB; subst hτ
+      rw [Expression.freeVars] at hag
+      refine .forall_true (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_
+      intro z hz w hw
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihall z hzL w hw ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.forall_true L hdom hall) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case forall_false L hdom hw hbody ihdom ihbody =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «forall» x'' τ'' D₀ B₀ =>
+      rw [Expression.LC.subst_forall hlc] at hsub
+      injection hsub with _ hτ hD hB; subst hτ
+      rw [Expression.freeVars] at hag
+      refine .forall_false (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') hw ?_
+      intro z hz
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihbody z hzL ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.forall_false L hdom hw hbody) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case exists_true L hdom hw hbody ihdom ihbody =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «exists» x'' τ'' D₀ B₀ =>
+      rw [Expression.LC.subst_exists hlc] at hsub
+      injection hsub with _ hτ hD hB; subst hτ
+      rw [Expression.freeVars] at hag
+      refine .exists_true (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') hw ?_
+      intro z hz
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihbody z hzL ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.exists_true L hdom hw hbody) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case exists_false L hdom hall ihdom ihall =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «exists» x'' τ'' D₀ B₀ =>
+      rw [Expression.LC.subst_exists hlc] at hsub
+      injection hsub with _ hτ hD hB; subst hτ
+      rw [Expression.freeVars] at hag
+      refine .exists_false (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_
+      intro z hz w hw
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihall z hzL w hw ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.exists_false L hdom hall) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case choose filt L hdom hfilt ihdom ihfilt =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «choose» x'' τ'' D₀ B₀ =>
+      rw [Expression.LC.subst_choose hlc] at hsub
+      injection hsub with _ hτ hD hB; subst hτ
+      rw [Expression.freeVars] at hag
+      refine .choose filt (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_
+      intro z hz w hw
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihfilt z hzL w hw ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.choose filt L hdom hfilt) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  -- set literal
+  case set hes hto hof ihes =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | set es₀ τ₀ =>
+      rw [Expression.subst_set] at hsub
+      injection hsub with hesq hτ; subst hτ
+      exact .set (ihes hesq (fun a ha y hy hyx ↦
+        hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hN'x hev') hto hof
+    | var τ₀ o₀ => exact bwdVar hlc (.set hes hto hof) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case collect filt L hdom hfilt hto hof ihdom ihfilt =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | collect x'' τ'' D₀ B₀ =>
+      rw [Expression.LC.subst_collect hlc] at hsub
+      injection hsub with _ hτ hD hB; subst hτ
+      rw [Expression.freeVars] at hag
+      refine .collect filt (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_ hto hof
+      intro y hy z hz
+      obtain ⟨hyL, hye, hyx⟩ := freshParts hy
+      refine ihfilt y hyL z hz ?_ (agreeStep hag) (xStep hyx hN'x) (evStep hye hev')
+      rw [← Expression.LC.subst_openVar hlc hyx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.collect filt L hdom hfilt hto hof) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case map' img L hdom himg hto hof ihdom ihimg =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | map' B₀ x'' ann'' cod'' D₀ =>
+      rw [Expression.LC.subst_map' hlc] at hsub
+      injection hsub with hB _ _ hcod hD
+      rw [Expression.freeVars] at hag
+      refine .map' img (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_ hto hof
+      intro z hz w hw
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihimg z hzL w hw ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.map' img L hdom himg hto hof) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case fnCall hf hk hdom ihf ihk =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | fnCall f₀ fnTyp₀ k₀ =>
+      rw [Expression.subst_fnCall] at hsub
+      injection hsub with hfe hfnty hk₀; subst hfnty
+      rw [Expression.freeVars] at hag
+      exact .fnCall
+        (ihf hfe (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev')
+        (ihk hk₀ (fun y hy hyx ↦ hag y (Finset.mem_union_right _ hy) hyx) hN'x hev') hdom
+    | var τ₀ o₀ => exact bwdVar hlc (.fnCall hf hk hdom) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case fn img L hdom himg hto hof ihdom ihimg =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | fn x'' ann'' cod'' D₀ B₀ =>
+      rw [Expression.LC.subst_fn hlc] at hsub
+      injection hsub with _ _ hcod hD hB
+      rw [Expression.freeVars] at hag
+      refine .fn img (L ∪ e'.freeVars ∪ {x})
+        (ihdom hD (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_ hto hof
+      intro z hz w hw
+      obtain ⟨hzL, hze, hzx⟩ := freshParts hz
+      refine ihimg z hzL w hw ?_ (agreeStep hag) (xStep hzx hN'x) (evStep hze hev')
+      rw [← Expression.LC.subst_openVar hlc hzx, hB]
+    | var τ₀ o₀ => exact bwdVar hlc (.fn img L hdom himg hto hof) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case record hfne hfs ihfs =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | record fs₀ =>
+      rw [Expression.subst_record] at hsub
+      injection hsub with hfsq
+      subst hfsq
+      have hnames : List.map (fun p : Typ × String × Expression Typ ↦ p.2.1)
+            (List.map (fun p ↦ (p.1, p.2.1, Expression.subst x e' p.2.2)) fs₀)
+          = List.map (·.2.1) fs₀ := by simp [List.map_map, Function.comp_def]
+      rw [hnames]
+      refine .record (fun h ↦ hfne (by rw [h, List.map_nil])) ?_
+      have key := ihfs (es₀ := fs₀.map (·.2.2))
+        (by simp [List.map_map, Function.comp_def])
+        (fun a ha y hy hyx ↦ by
+          obtain ⟨f, hfin, rfl⟩ := List.mem_map.mp ha
+          exact hag y (Expression.mem_freeVars_record.mpr ⟨f, hfin, hy⟩) hyx) hN'x hev'
+      simpa [List.map_map, Function.comp_def] using key
+    | var τ₀ o₀ => exact bwdVar hlc (.record hfne hfs) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case recordAccess he hdom ihe =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | recordAccess e₀ nm₀ =>
+      rw [Expression.subst_recordAccess] at hsub
+      injection hsub with hee hnm; subst hnm
+      rw [Expression.freeVars] at hag
+      exact .recordAccess (ihe hee hag hN'x hev') hdom
+    | var τ₀ o₀ => exact bwdVar hlc (.recordAccess he hdom) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case tuple hets hes ihes =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | tuple ets₀ =>
+      rw [Expression.subst_tuple] at hsub
+      injection hsub with hetsq
+      subst hetsq
+      refine .tuple (fun h ↦ hets (by rw [h, List.map_nil])) ?_
+      have key := ihes (es₀ := ets₀.map (·.2))
+        (by simp [List.map_map, Function.comp_def])
+        (fun a ha y hy hyx ↦ by
+          obtain ⟨p, hpin, rfl⟩ := List.mem_map.mp ha
+          exact hag y (Expression.mem_freeVars_tuple.mpr ⟨p, hpin, hy⟩) hyx) hN'x hev'
+      simpa [List.map_map, Function.comp_def] using key
+    | var τ₀ o₀ => exact bwdVar hlc (.tuple hets hes) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case seq hes ihes =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | seq es₀ τ₀ =>
+      rw [Expression.subst_seq] at hsub
+      injection hsub with hesq hτ; subst hτ
+      exact .seq (ihes hesq (fun a ha y hy hyx ↦
+        hag y (Expression.mem_freeVars_seq.mpr ⟨a, ha, hy⟩) hyx) hN'x hev')
+    | var τ₀ o₀ => exact bwdVar hlc (.seq hes) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case «except» hf hpath hrhs hv ihf ihpath ihrhs =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «except» f₀ τ₀ upds₀ =>
+      cases upds₀ with
+      | cons pu rest =>
+        cases rest with
+        | cons _ _ =>
+          rewrite [Expression.subst_eq_mapVars] at hsub
+          simp only [Expression.mapVars, registerSource] at hsub
+          injection hsub with _ _ hupds
+          simp at hupds
+        | nil =>
+          obtain ⟨path₀, rhs₀⟩ := pu
+          rw [Expression.subst_except_single] at hsub
+          injection hsub with hfe hτ hupds; subst hτ
+          injection hupds with hpu _
+          injection hpu with hpath₀ hrhs₀
+          simp only [Expression.mem_freeVars_except_single] at hag
+          refine .«except»
+            (ihf hfe (fun y hy hyx ↦ hag y (.inl hy) hyx) hN'x hev') ?_
+            (ihrhs hrhs₀ (fun y hy hyx ↦ hag y (.inr (.inr hy)) hyx) hN'x hev') hv
+          exact ihpath hpath₀
+            (fun ee hein y hy hyx ↦ hag y (.inr (.inl ⟨ee, hein, hy⟩)) hyx) hN'x hev'
+      | nil =>
+        rewrite [Expression.subst_eq_mapVars] at hsub
+        simp only [Expression.mapVars, registerSource] at hsub
+        injection hsub with _ _ hupds
+        simp at hupds
+    | var τ₀ o₀ => exact bwdVar hlc (.«except» hf hpath hrhs hv) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case if_true hc ht ihc iht =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «if» c₀ t₀ e₀ τ₀ =>
+      rw [Expression.subst_if] at hsub
+      injection hsub with hc₀ ht₀ he₀ hτ; subst hτ
+      rw [Expression.freeVars, Finset.union_assoc] at hag
+      exact .if_true (ihc hc₀ (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev')
+        (iht ht₀ (fun y hy hyx ↦ hag y (Finset.mem_union_right _ (Finset.mem_union_left _ hy)) hyx)
+          hN'x hev')
+    | var τ₀ o₀ => exact bwdVar hlc (.if_true hc ht) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case if_false hc he ihc ihe =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «if» c₀ t₀ e₀ τ₀ =>
+      rw [Expression.subst_if] at hsub
+      injection hsub with hc₀ ht₀ he₀ hτ; subst hτ
+      rw [Expression.freeVars, Finset.union_assoc] at hag
+      exact .if_false (ihc hc₀ (fun y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev')
+        (ihe he₀ (fun y hy hyx ↦ hag y (Finset.mem_union_right _ (Finset.mem_union_right _ hy)) hyx)
+          hN'x hev')
+    | var τ₀ o₀ => exact bwdVar hlc (.if_false hc he) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case case_hit _ bs _ _ i _ _ _ hi hbefore hp hq ihbefore ihp ihq =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «case» bs₀ other₀ τ₀ =>
+      rw [Expression.subst_case] at hsub
+      injection hsub with hbsq hotherq hτ; subst hτ
+      obtain ⟨⟨pp₀, qq₀⟩, hi₀, heqi⟩ :=
+        Option.map_eq_some_iff.mp (by rw [← hbsq, List.getElem?_map] at hi; exact hi)
+      simp only [Prod.mk.injEq] at heqi; obtain ⟨rfl, rfl⟩ := heqi
+      refine .case_hit (i := i) hi₀ (fun j hj p' q' hjeq ↦ ?_) ?_ ?_
+      · have hbj : bs[j]? = some (Expression.subst x e' p', Expression.subst x e' q') := by
+          rw [← hbsq, List.getElem?_map, hjeq]; rfl
+        exact ihbefore j hj _ _ hbj rfl
+          (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr
+            (.inl ⟨(p', q'), List.mem_of_getElem? hjeq, .inl hy⟩)) hyx) hN'x hev'
+      · exact ihp rfl (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr
+          (.inl ⟨(pp₀, qq₀), List.mem_of_getElem? hi₀, .inl hy⟩)) hyx) hN'x hev'
+      · exact ihq rfl (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr
+          (.inl ⟨(pp₀, qq₀), List.mem_of_getElem? hi₀, .inr hy⟩)) hyx) hN'x hev'
+    | var τ₀ o₀ => exact bwdVar hlc (.case_hit hi hbefore hp hq) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  case case_other _ bs _ _ _ hbefore hq ihbefore ihq =>
+    intro e N' hsub hag hN'x hev'
+    cases e with
+    | «case» bs₀ other₀ τ₀ =>
+      cases other₀ with
+      | none => rw [Expression.subst_case] at hsub; injection hsub with _ ho _; simp at ho
+      | some ee₀ =>
+        rw [Expression.subst_case] at hsub
+        injection hsub with hbsq hotherq hτ; subst hτ
+        rw [Option.map_some, Option.some.injEq] at hotherq
+        refine .case_other (fun j p' q' hjeq ↦ ?_) (ihq hotherq ?_ hN'x hev')
+        · have hbj : bs[j]? = some (Expression.subst x e' p', Expression.subst x e' q') := by
+            rw [← hbsq, List.getElem?_map, hjeq]; rfl
+          exact ihbefore j _ _ hbj rfl
+            (fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr
+              (.inl ⟨(p', q'), List.mem_of_getElem? hjeq, .inl hy⟩)) hyx) hN'x hev'
+        · exact fun y hy hyx ↦ hag y (Expression.mem_freeVars_case.mpr (.inr ⟨_, rfl, hy⟩)) hyx
+    | var τ₀ o₀ => exact bwdVar hlc (.case_other hbefore hq) hsub hN'x hev' (by simp)
+    | _ => (first
+      | (rw [Expression.subst_eq_mapVars] at hsub
+         simp only [Expression.mapVars, registerSource, reduceCtorEq] at hsub)
+      | simp only [Expression.subst_case, reduceCtorEq] at hsub)
+  -- EvalList / EvalPath companions
+  case nil es₀ _ hsub _ _ _ =>
+    obtain rfl := List.map_eq_nil_iff.mp hsub
+    exact .nil
+  case cons _ _ vv es vs _ _ ihHead ihTail es₀ _ hmap hag hN'x hev' =>
+    cases es₀ with
+    | nil => contradiction
+    | cons a rest =>
+      rw [List.map_cons] at hmap
+      injection hmap with ha hrest
+      exact .cons (ihHead ha (fun y hy hyx ↦ hag a List.mem_cons_self y hy hyx) hN'x hev')
+        (ihTail hrest (fun b hb y hy hyx ↦ hag b (List.mem_cons_of_mem _ hb) y hy hyx) hN'x hev')
+  case inl _ _ _ _ _ ih p₀ _ hmap hag hN'x hev' =>
+    cases p₀ with
+    | nil => contradiction
+    | cons s rest₀ =>
+      cases s with
+      | inl fld₀ =>
+        rw [List.map_cons] at hmap
+        injection hmap with hh hrest
+        simp only [Sum.map_inl, id_eq] at hh
+        injection hh with hfld; subst hfld
+        exact .inl (ih hrest (fun ee hein y hy hyx ↦
+          hag ee (List.mem_cons_of_mem _ hein) y hy hyx) hN'x hev')
+      | inr e₀ =>
+        rw [List.map_cons] at hmap
+        injection hmap with hs _
+        simp only [Sum.map_inl, Sum.map_inr, reduceCtorEq] at hs
+  case inr _ _ vv _ _ _ _ ihHead ihTail p₀ _ hmap hag hN'x hev' =>
+    cases p₀ with
+    | nil => contradiction
+    | cons s rest₀ =>
+      cases s with
+      | inl fld₀ =>
+        rw [List.map_cons] at hmap
+        injection hmap with hs _
+        simp only [Sum.map_inl, Sum.map_inr, reduceCtorEq] at hs
+      | inr e₀ =>
+        rw [List.map_cons] at hmap
+        injection hmap with hs hrestq
+        rw [show (Sum.map id (Expression.subst x e') (Sum.inr e₀)) = Sum.inr (Expression.subst x e' e₀)
+          from rfl] at hs
+        injection hs with he₀
+        exact .inr (ihHead he₀ (fun y hy hyx ↦ hag e₀ List.mem_cons_self y hy hyx) hN'x hev')
+          (ihTail hrestq (fun ee hein y hy hyx ↦
+            hag ee (List.mem_cons_of_mem _ hein) y hy hyx) hN'x hev')
+  case nil p₀ _ hmap _ _ _ =>
+    obtain rfl := List.map_eq_nil_iff.mp hmap
+    exact .nil
+  all_goals exact .nil
+
+/-- Substitution is evaluation-under-extended-memory read backwards. `.mp` (forward) is
+`evalSubst'_fwd`; `.mpr` (backward) is `evalSubst'_bwd`. Both need `Ξ.WellScoped` (operator bodies
+are `freeVars`-closed) and `e'.LC` (the spliced expression has no dangling de Bruijn index, so it
+survives being lifted under `e`'s binders). -/
 theorem evalSubst' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value} {x : String}
-    {e' e : Expression Typ} {v' v : Value} (he' : Eval Ξ Ω M e' v') :
+    {e' e : Expression Typ} {v' v : Value} (hΞ : Ξ.WellScoped) (hlc : e'.LC)
+    (he' : Eval Ξ Ω M e' v') :
     Eval Ξ Ω (M.insert x v') e v ↔ Eval Ξ Ω M (Expression.subst x e' e) v := by
-  sorry
+  constructor
+  · intro h
+    refine evalSubst'_fwd hΞ hlc h (fun y _ hy ↦ Finmap.lookup_insert_of_ne _ hy) ?_
+    intro w hw
+    rw [Finmap.lookup_insert] at hw
+    obtain rfl := Option.some.inj hw
+    exact he'
+  · intro h
+    refine evalSubst'_bwd hΞ hlc h rfl (fun y hy hyx ↦ (Finmap.lookup_insert_of_ne _ hyx).symm) ?_ he'
+    rw [Finmap.lookup_insert]
+
 
 /-- `ResolvesPath`, stated against the abstract `Eval` parameter, unfolds to `EvalPath`, the mutual
 companion `Eval`'s `except` constructor is stated with. The two inductives are the same shape; this
@@ -1013,7 +2853,7 @@ noncomputable instance : ExprSemantics Value where
   coerce := coerce
   evalUnique := evalUnique'
   evalVar := evalVar'
-  evalCoerce := fun hΞ hfr ↦ evalCoerce' hΞ hfr
+  evalCoerce := fun hΞ _ ↦ evalCoerce' hΞ
   evalLocal := evalLocal'
   evalSubst := evalSubst'
   evalExcept := evalExcept'

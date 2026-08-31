@@ -156,9 +156,14 @@ lean_lib Fugue.T2C where
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
 lean_lib Fugue.T2G where
   roots := #[`Computable2Guarded]
-/-- Compiler from Guarded PlusCal to Network PlusCal, including its refinement proof. -/
+/-- Compiler from Guarded PlusCal to Network PlusCal, including its refinement proof.
+
+`Guarded2Network.CorrectInstance` is a second root, not an import of `Guarded2Network`: it pins the
+refinement proof to the concrete `Value` semantics (`ZFSet`, via `zflean`), and `zflean` reserves
+`ε` as term notation — which would break every downstream driver module that binds `ε`. Kept off
+`Guarded2Network`'s import path so only this one proof-only module pays that cost. -/
 lean_lib Fugue.G2N where
-  roots := #[`Guarded2Network]
+  roots := #[`Guarded2Network, `Guarded2Network.CorrectInstance]
 /-- Compiler from Network PlusCal to the Join Calculus. -/
 lean_lib Fugue.N2JC where
   roots := #[`Network2JoinCalculus]

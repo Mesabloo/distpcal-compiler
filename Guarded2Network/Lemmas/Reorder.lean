@@ -91,24 +91,34 @@ theorem consumptions_all_assign
   obtain ⟨⟨r, e, pos⟩, -, rfl⟩ := hS
   exact ⟨r, e, rfl⟩
 
+/-- What `Expression.substRef r rhs` needs of its inputs to be sound: the right-hand side is
+locally closed, and so is every index expression of the reference (a compound `r` splices them into
+the synthesized `EXCEPT`). `ExprSemantics.evalSubstRef`'s two `Expression.LC` premises, bundled so
+the reorder lemmas thread one hypothesis. Independent of the guard, so it passes through
+`substGuardStmt`/`substGuards` untouched. -/
+def SubstLC (r : ComputableGuardedPlusCal.Ref) (rhs : ComputablePlusCal.Expression) : Prop :=
+  Expression.LC rhs ∧ ∀ eᵢ, Sum.inr eᵢ ∈ r.args → Expression.LC eᵢ
+
 /-- `ExprSemantics.evalSubstRef` at the shape the statement semantics writes reference paths in —
 `List.Forall₂ (EvalStep M)` rather than `ResolvesPath`, bridged by `EvalStep.resolvesPath_iff`. Every
 branch of the two reorder lemmas needs the transfer in this form, so the conversion happens once. -/
-theorem evalSubstRef {r : ComputableGuardedPlusCal.Ref}
+theorem evalSubstRef (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs e : ComputablePlusCal.Expression} {M M' : Memory V} {v w : V}
-    {rpath : List (PathStep V)} (hv : ExprSemantics.Eval Ξ Ω M rhs v) (hpath : Ref.EvalArgs Ξ Ω M r rpath)
+    {rpath : List (PathStep V)} (hlc : SubstLC r rhs)
+    (hv : ExprSemantics.Eval Ξ Ω M rhs v) (hpath : Ref.EvalArgs Ξ Ω M r rpath)
     (hupd : ComputableTLAPlus.Memory.update M r.name rpath v = some M') :
     ExprSemantics.Eval Ξ Ω M' e w ↔ ExprSemantics.Eval Ξ Ω M (Expression.substRef r rhs e) w :=
-  ExprSemantics.evalSubstRef hv (EvalStep.resolvesPath_iff.mp hpath) hupd
+  ExprSemantics.evalSubstRef hΞ hlc.1 hlc.2 hv (EvalStep.resolvesPath_iff.mp hpath) hupd
 
 /-- The same transfer for a guard that has no value at all: an assignment cannot make an expression
 start or stop aborting, once the substitution has been applied to it. -/
-theorem abortsSubstRef {r : ComputableGuardedPlusCal.Ref}
+theorem abortsSubstRef (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs e : ComputablePlusCal.Expression} {M M' : Memory V} {v : V}
-    {rpath : List (PathStep V)} (hv : ExprSemantics.Eval Ξ Ω M rhs v) (hpath : Ref.EvalArgs Ξ Ω M r rpath)
+    {rpath : List (PathStep V)} (hlc : SubstLC r rhs)
+    (hv : ExprSemantics.Eval Ξ Ω M rhs v) (hpath : Ref.EvalArgs Ξ Ω M r rpath)
     (hupd : ComputableTLAPlus.Memory.update M r.name rpath v = some M') :
     ExprSemantics.Aborts Ξ Ω M' e ↔ ExprSemantics.Aborts Ξ Ω M (Expression.substRef r rhs e) :=
-  ExprSemantics.aborts_congr λ _ ↦ evalSubstRef hv hpath hupd
+  ExprSemantics.aborts_congr λ _ ↦ evalSubstRef hΞ hlc hv hpath hupd
 
 /-! ## Freshness
 
@@ -252,7 +262,7 @@ names to the same two values in opposite orders, so the memories they reach are 
 insertion order stops being observable (`ComputableTLAPlus.Memory`). -/
 theorem reorder_assign_guard (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : GuardFresh r rhs S) :
+    (hlc : SubstLC r rhs) (fresh : GuardFresh r rhs S) :
     NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing Ξ Ω S =
       NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₂
@@ -274,7 +284,7 @@ theorem reorder_assign_guard (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal
       subst hF
       refine ⟨⟨(M.insert x u), F, .none⟩, 1, 1, ?_, ?_, rfl⟩
       · refine NetworkPlusCal.Statement.reducing.with.iff.mpr
-          ⟨M, F, w, u, (evalSubstRef hv hpath hupd).mp hw, ?_, hbv, rfl, rfl, rfl⟩
+          ⟨M, F, w, u, (evalSubstRef hΞ hlc hv hpath hupd).mp hw, ?_, hbv, rfl, rfl, rfl⟩
         exact (Memory.lookup_update_ne hupd hne).symm.trans hxnone
       · exact NetworkPlusCal.Statement.reducing.assign.intro
           ⟨M.insert x u, F, M'.insert x u, v, rpath, (eval_insert_of_fresh hΞ hrhs).mpr hv,
@@ -296,7 +306,7 @@ theorem reorder_assign_guard (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal
       · exact NetworkPlusCal.Statement.reducing.assign.intro
           ⟨M, F, M', v, rpath, hv', hpath', hupd', rfl, rfl, rfl⟩
       · refine NetworkPlusCal.Statement.reducing.with.iff.mpr
-          ⟨M', F, w, u, (evalSubstRef hv' hpath' hupd').mpr hw, ?_, hbv, rfl, rfl, rfl⟩
+          ⟨M', F, w, u, (evalSubstRef hΞ hlc hv' hpath' hupd').mpr hw, ?_, hbv, rfl, rfl, rfl⟩
         exact (Memory.lookup_update_ne hupd' hne).trans hxnone
   | await e =>
     rw [substGuardStmt_await]
@@ -312,7 +322,7 @@ theorem reorder_assign_guard (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal
       subst hF
       refine ⟨⟨M, F, .none⟩, 1, 1, ?_, ?_, rfl⟩
       · exact NetworkPlusCal.Statement.reducing.await.intro
-          ⟨M, F, rfl, rfl, (evalSubstRef hv hpath hupd).mp htru, rfl⟩
+          ⟨M, F, rfl, rfl, (evalSubstRef hΞ hlc hv hpath hupd).mp htru, rfl⟩
       · exact NetworkPlusCal.Statement.reducing.assign.intro
           ⟨M, F, M', v, rpath, hv, hpath, hupd, rfl, rfl, rfl⟩
     · obtain ⟨M, F, rfl, rfl, htru, rfl⟩ :=
@@ -327,7 +337,7 @@ theorem reorder_assign_guard (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal
       · exact NetworkPlusCal.Statement.reducing.assign.intro
           ⟨M, F, M', v, rpath, hv, hpath, hupd, rfl, rfl, rfl⟩
       · exact NetworkPlusCal.Statement.reducing.await.intro
-          ⟨M', F, rfl, rfl, (evalSubstRef hv hpath hupd).mpr htru, rfl⟩
+          ⟨M', F, rfl, rfl, (evalSubstRef hΞ hlc hv hpath hupd).mpr htru, rfl⟩
 
 /-- **Iterated.** The pass never substitutes one assignment: `substGuards` folds *every*
 consumption assignment accumulated so far into the guard, and emits them, in list order, after it. So
@@ -340,7 +350,7 @@ at once. -/
 theorem reorder_assigns_guard (hΞ : Ξ.WellScoped)
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    (hlc : ∀ a ∈ A, SubstLC a.1 a.2.1) (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
     NetworkPlusCal.Statement.listReducing (V := V) Ξ Ω (consumptions A) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing Ξ Ω S =
       NetworkPlusCal.Statement.reducing Ξ Ω (substGuards A S) ∘ᵣ₂
@@ -351,8 +361,10 @@ theorem reorder_assigns_guard (hΞ : Ξ.WellScoped)
       Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
   | cons a A IH =>
     rw [consumptions_cons, NetworkPlusCal.Statement.listReducing_cons,
-      ← Relation.lcomp₂.assoc, IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb),
-      Relation.lcomp₂.assoc, reorder_assign_guard hΞ (fresh a List.mem_cons_self).substGuards,
+      ← Relation.lcomp₂.assoc,
+      IH (λ b hb ↦ hlc b (List.mem_cons_of_mem _ hb)) (λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)),
+      Relation.lcomp₂.assoc,
+      reorder_assign_guard hΞ (hlc a List.mem_cons_self) (fresh a List.mem_cons_self).substGuards,
       ← Relation.lcomp₂.assoc, substGuards_cons]
 
 /-- An `await` binds nothing, so nothing can clash with it. `GuardFresh`'s whole content is about a
@@ -368,12 +380,12 @@ separate name only because `reorder_assigns_guard'` below still calls it that; n
 sweep across every call site in this phase. -/
 theorem reorder_assign_guard' (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : GuardFresh r rhs S) :
+    (hlc : SubstLC r rhs) (fresh : GuardFresh r rhs S) :
     NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing Ξ Ω S =
       NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) :=
-  reorder_assign_guard hΞ fresh
+  reorder_assign_guard hΞ hlc fresh
 
 /-- `reorder_assigns_guard` in the flat encoding. The list induction is redone rather than
 transported: the unprimed-to-primed bridge is stated for a *composition of two statements*, and a
@@ -384,7 +396,7 @@ in. -/
 theorem reorder_assigns_guard' (hΞ : Ξ.WellScoped)
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    (hlc : ∀ a ∈ A, SubstLC a.1 a.2.1) (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
     NetworkPlusCal.Statement.listReducing (V := V) Ξ Ω (consumptions A) ∘ᵣ₂
         NetworkPlusCal.Statement.reducing Ξ Ω S =
       NetworkPlusCal.Statement.reducing Ξ Ω (substGuards A S) ∘ᵣ₂
@@ -395,8 +407,10 @@ theorem reorder_assigns_guard' (hΞ : Ξ.WellScoped)
       Relation.lcomp₂.left_id_eq, Relation.lcomp₂.right_id_eq]
   | cons a A IH =>
     rw [consumptions_cons, NetworkPlusCal.Statement.listReducing_cons,
-      ← Relation.lcomp₂.assoc, IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb),
-      Relation.lcomp₂.assoc, reorder_assign_guard' hΞ (fresh a List.mem_cons_self).substGuards,
+      ← Relation.lcomp₂.assoc,
+      IH (λ b hb ↦ hlc b (List.mem_cons_of_mem _ hb)) (λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)),
+      Relation.lcomp₂.assoc,
+      reorder_assign_guard' hΞ (hlc a List.mem_cons_self) (fresh a List.mem_cons_self).substGuards,
       ← Relation.lcomp₂.assoc, substGuards_cons]
 
 /-- **Aborting.** The same commutation for the runs that fail — and here only an inclusion. Every
@@ -411,7 +425,7 @@ third case). A target abort *in the assignment* becomes an immediate source abor
 no way to change whether the assignment fails. -/
 theorem reorder_assign_guard_abort (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : GuardFresh r rhs S) :
+    (hlc : SubstLC r rhs) (fresh : GuardFresh r rhs S) :
     NetworkPlusCal.Statement.aborting Ξ Ω (substGuardStmt r rhs S) ∪
         NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₁
           NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ≤
@@ -431,8 +445,8 @@ theorem reorder_assign_guard_abort (hΞ : Ξ.WellScoped) {r : ComputableGuardedP
           ⟨M, F, M', v, rpath, hv, hpath, hupd, rfl, rfl, rfl⟩, ?_, (one_mul 1).symm⟩
         refine NetworkPlusCal.Statement.aborting.with.iff.mpr ⟨M', F, rfl, rfl, ?_⟩
         rcases hd with hab | ⟨w, hw, hbound, hset⟩
-        · exact .inl ((abortsSubstRef hv hpath hupd).mpr hab)
-        · exact .inr ⟨w, (evalSubstRef hv hpath hupd).mpr hw, hbound, hset⟩
+        · exact .inl ((abortsSubstRef hΞ hlc hv hpath hupd).mpr hab)
+        · exact .inr ⟨w, (evalSubstRef hΞ hlc hv hpath hupd).mpr hw, hbound, hset⟩
     · obtain ⟨M, F, w, u, -, -, -, rfl, rfl, rfl⟩ :=
         NetworkPlusCal.Statement.reducing.with.iff.mp hred
       rw [one_mul]
@@ -448,8 +462,8 @@ theorem reorder_assign_guard_abort (hΞ : Ξ.WellScoped) {r : ComputableGuardedP
           ⟨M, F, M', v, rpath, hv, hpath, hupd, rfl, rfl, rfl⟩, ?_, (one_mul 1).symm⟩
         refine NetworkPlusCal.Statement.aborting.await.iff.mpr ⟨M', F, rfl, rfl, ?_⟩
         rcases hd with hab | ⟨w, hw, hbool⟩
-        · exact .inl ((abortsSubstRef hv hpath hupd).mpr hab)
-        · exact .inr ⟨w, (evalSubstRef hv hpath hupd).mpr hw, hbool⟩
+        · exact .inl ((abortsSubstRef hΞ hlc hv hpath hupd).mpr hab)
+        · exact .inr ⟨w, (evalSubstRef hΞ hlc hv hpath hupd).mpr hw, hbool⟩
     · obtain ⟨M, F, rfl, rfl, -, rfl⟩ := NetworkPlusCal.Statement.reducing.await.elim hred
       rw [one_mul]
       exact .inl habort
@@ -458,14 +472,14 @@ theorem reorder_assign_guard_abort (hΞ : Ξ.WellScoped) {r : ComputableGuardedP
 `reorder_assign_guard'` for why the name survives unrenamed. -/
 theorem reorder_assign_guard_abort' (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : GuardFresh r rhs S) :
+    (hlc : SubstLC r rhs) (fresh : GuardFresh r rhs S) :
     NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (substGuardStmt r rhs S) ∪
         NetworkPlusCal.Statement.reducing Ξ Ω (substGuardStmt r rhs S) ∘ᵣ₁
           NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ≤
       NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ∪
         NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₁
           NetworkPlusCal.Statement.aborting Ξ Ω S :=
-  reorder_assign_guard_abort hΞ fresh
+  reorder_assign_guard_abort hΞ hlc fresh
 
 /-- **The whole accumulator past one source-written guard, for the runs that fail.**
 `reorder_assigns_guard'`'s aborting twin, and an inclusion for the same reason the one-assignment
@@ -477,7 +491,7 @@ saying it once is what keeps the two orderings' bookkeeping out of this proof. -
 theorem reorder_assigns_guard_abort' (hΞ : Ξ.WellScoped)
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    (hlc : ∀ a ∈ A, SubstLC a.1 a.2.1) (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
     NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (substGuards A S) ∪
         NetworkPlusCal.Statement.reducing Ξ Ω (substGuards A S) ∘ᵣ₁
           NetworkPlusCal.Statement.listAborting Ξ Ω (consumptions A) ≤
@@ -493,18 +507,21 @@ theorem reorder_assigns_guard_abort' (hΞ : Ξ.WellScoped)
     rw [consumptions_cons, substGuards_cons, NetworkPlusCal.Statement.listAborting_cons,
       NetworkPlusCal.Statement.listReducing_cons, Relation.lcomp₁.union_lcomp₂]
     refine Relation.lcomp₁.commute_step
-      (reorder_assign_guard' hΞ (fresh a List.mem_cons_self).substGuards).symm
-      (reorder_assign_guard_abort' hΞ (fresh a List.mem_cons_self).substGuards) le_rfl ?_
-    exact IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)
+      (reorder_assign_guard' hΞ (hlc a List.mem_cons_self)
+        (fresh a List.mem_cons_self).substGuards).symm
+      (reorder_assign_guard_abort' hΞ (hlc a List.mem_cons_self)
+        (fresh a List.mem_cons_self).substGuards) le_rfl ?_
+    exact IH (λ b hb ↦ hlc b (List.mem_cons_of_mem _ hb))
+      (λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb))
 
 /-- **One consumption pair past a source-written guard, for the runs that *block*.**
 `reorder_assign_guard_abort`'s blocking twin. Blocking is terminal — the guard never reaches the
 assignment — so the only input is the substituted guard blocking, and it becomes either the
 assignment aborting (it could not run) or the assignment running and the plain guard blocking after
 (`assign_aborts_or_steps` — the substitution *is* the assignment). -/
-theorem reorder_assign_guard_block {r : ComputableGuardedPlusCal.Ref}
+theorem reorder_assign_guard_block (hΞ : Ξ.WellScoped) {r : ComputableGuardedPlusCal.Ref}
     {rhs : ComputablePlusCal.Expression} {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : GuardFresh r rhs S) :
+    (hlc : SubstLC r rhs) (fresh : GuardFresh r rhs S) :
     NetworkPlusCal.Statement.blocking Ξ Ω (substGuardStmt r rhs S) ≤
       NetworkPlusCal.Statement.aborting (V := V) Ξ Ω (.assign r rhs) ∪
         NetworkPlusCal.Statement.reducing (V := V) Ξ Ω (.assign r rhs) ∘ᵣ₁
@@ -518,7 +535,7 @@ theorem reorder_assign_guard_block {r : ComputableGuardedPlusCal.Ref}
     · exact .inl hab
     · exact .inr ⟨⟨M', F, .none⟩, 1, 1, NetworkPlusCal.Statement.reducing.assign.intro
         ⟨M, F, M', w, rpath, hw, hpath, hupd, rfl, rfl, rfl⟩,
-        ⟨M', F, v, (evalSubstRef hw hpath hupd).mpr hv, rfl, rfl, hbound⟩, (one_mul 1).symm⟩
+        ⟨M', F, v, (evalSubstRef hΞ hlc hw hpath hupd).mpr hv, rfl, rfl, hbound⟩, (one_mul 1).symm⟩
   | await e =>
     rw [substGuardStmt_await]
     rintro ⟨σ, ε⟩ ⟨M, F, v, hbool, hne, hv, rfl, rfl⟩
@@ -527,15 +544,15 @@ theorem reorder_assign_guard_block {r : ComputableGuardedPlusCal.Ref}
     · exact .inl hab
     · exact .inr ⟨⟨M', F, .none⟩, 1, 1, NetworkPlusCal.Statement.reducing.assign.intro
         ⟨M, F, M', w, rpath, hw, hpath, hupd, rfl, rfl, rfl⟩,
-        ⟨M', F, v, hbool, hne, (evalSubstRef hw hpath hupd).mpr hv, rfl, rfl⟩, (one_mul 1).symm⟩
+        ⟨M', F, v, hbool, hne, (evalSubstRef hΞ hlc hw hpath hupd).mpr hv, rfl, rfl⟩, (one_mul 1).symm⟩
 
 /-- **The whole accumulator past one source-written guard, for the runs that block.**
 `reorder_assigns_guard_abort'`'s blocking twin — the accumulated pairs either abort somewhere or run
 in full and leave the plain guard blocking. -/
-theorem reorder_assigns_guard_block
+theorem reorder_assigns_guard_block (hΞ : Ξ.WellScoped)
     {A : List (ComputableGuardedPlusCal.Ref × ComputablePlusCal.Expression × SourceSpan)}
     {S : ComputableNetworkPlusCal.Statement true false}
-    (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
+    (hlc : ∀ a ∈ A, SubstLC a.1 a.2.1) (fresh : ∀ a ∈ A, GuardFresh a.1 a.2.1 S) :
     NetworkPlusCal.Statement.blocking (V := V) Ξ Ω (substGuards A S) ≤
       NetworkPlusCal.Statement.listAborting (V := V) Ξ Ω (consumptions A) ∪
         NetworkPlusCal.Statement.listReducing Ξ Ω (consumptions A) ∘ᵣ₁
@@ -547,9 +564,11 @@ theorem reorder_assigns_guard_block
   | cons a A IH =>
     rw [consumptions_cons, substGuards_cons, NetworkPlusCal.Statement.listAborting_cons,
       NetworkPlusCal.Statement.listReducing_cons, Relation.lcomp₁.union_lcomp₂]
-    refine le_trans (reorder_assign_guard_block (fresh a List.mem_cons_self).substGuards) ?_
+    refine le_trans (reorder_assign_guard_block hΞ (hlc a List.mem_cons_self)
+      (fresh a List.mem_cons_self).substGuards) ?_
     exact Set.union_subset_union le_rfl
-      (Relation.lcomp₁.mono le_rfl (IH λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb)))
+      (Relation.lcomp₁.mono le_rfl (IH (λ b hb ↦ hlc b (List.mem_cons_of_mem _ hb))
+        (λ b hb ↦ fresh b (List.mem_cons_of_mem _ hb))))
 
 /-- **The consumption assignments are total.** From any state, the whole list either reduces to some
 state or aborts — an `assign` has no third outcome (`assign_aborts_or_steps`), and the fifo map is

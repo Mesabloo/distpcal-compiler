@@ -123,6 +123,13 @@ structure GuardedPlusCal.PreconditionReceives (c₀ : ComputableGuardedPlusCal.R
   /-- No `receive`'s target is a name its own channel is indexed by. -/
   target_not_in_channel : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
     GuardedPlusCal.Statement.receive c r coe ∈ stmts → r.name ∉ GuardedPlusCal.Ref.freeVars c
+  /-- Every index expression of a `receive`'s target reference is locally closed. Elaboration
+  resolves every binder, so a source reference's path carries no dangling de Bruijn index; the
+  consumption assignment `Guarded2Network` synthesizes for the `receive` substitutes the target
+  through later guards, and that substitution is sound only on locally-closed operands. -/
+  target_lc : ∀ (c r : ComputableGuardedPlusCal.Ref) coe,
+    GuardedPlusCal.Statement.receive c r coe ∈ stmts →
+      ∀ eᵢ, Sum.inr eᵢ ∈ r.args → ComputableTLAPlus.Expression.LC eᵢ
 
 /-- `Br`'s own precondition (if any) is well-scoped against `inScope` and receives only from `c₀` —
 the action block binds nothing, so there's nothing further to check there (same reasoning as
