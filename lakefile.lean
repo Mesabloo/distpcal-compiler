@@ -204,7 +204,6 @@ Lake only discovers a package's modules through a library's globs: an executable
 by recursively building its *local imports*, and an import only counts as local if some library
 already claims it. Without this, `lake build test` fails with "object file … of module
 Tests.Report does not exist". -/
-@[default_target]
 lean_lib Fugue.Tests where
   roots := #[`Tests]
 

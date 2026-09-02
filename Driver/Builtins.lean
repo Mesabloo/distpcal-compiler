@@ -132,6 +132,24 @@ private def bagsDeclarations : List Decl :=
     .operator (.operator [.function (.var "a") .int] .int) "BagCardinality" [("B", 0)] intZero,
     .operator (.operator [.var "a", .function (.var "a") .int] .int) "CopiesIn" [("e", 0), ("B", 0)] intZero ]
 
+/-- `FunAsSeq(f) == FunAsSeq(f)` and the like: a self-referential body for a `Fugue` downcast
+whose meaning is a runtime primitive plus an `EvalBuiltin` rule, with no TLA⁺ expression behind
+it. Only the name and type of a builtin declaration are ever read (`Decl.bindings`); the body
+exists so the reachability walk has a registered span, and a self-reference resolves against the
+walk's own memo the second time it is reached, so the walk terminates. -/
+private def selfRef (τ : TypedTLAPlus.Typ) (name : String) (params : List TypedTLAPlus.Typ) :
+    TypedTLAPlus.Expression TypedTLAPlus.Typ :=
+  let n := params.length
+  .opCall (.var τ (.module "Fugue" name) @@ pos)
+    ((List.range n).zip params |>.map λ (i, ρ) ↦ .var ρ (.bound (n - 1 - i)) @@ pos) @@ pos
+
+private def funAsSeqType : TypedTLAPlus.Typ :=
+  .operator [.function .int (.var "a")] (.seq (.var "a"))
+private def mkSeqType : TypedTLAPlus.Typ :=
+  .operator [.int, .operator [.int] (.var "a")] (.seq (.var "a"))
+private def setAsFunType : TypedTLAPlus.Typ :=
+  .operator [.set (.tuple [.var "a", .var "b"])] (.function (.var "a") (.var "b"))
+
 /-- `Fugue`'s operators — this compiler's own module, not a real TLA⁺ standard one, so there is no
 upstream source to mirror.
 
@@ -140,13 +158,26 @@ upstream source to mirror.
 over addresses depends on it), while the type checker treats `Address` as an opaque atomic type
 with equality only. `\prec` is the seam: a specification that wants to talk about that order
 `EXTENDS Fugue` and writes `a \prec b`, and code generation compiles it to `comm.AddressOrd.Lt`.
+Its TLA⁺-side meaning is `TRUE` — the order is deliberately unspecified (`runtime/comm/address.go`),
+so no stronger TLA⁺ definition would be sound for every implementation, and a specification may
+assume nothing about `\prec` beyond its type.
 
-Its TLA⁺-side meaning is `TRUE` — the same `trueBody` every other predicate builtin gets, and here
-it is the definition rather than a placeholder: the order is deliberately unspecified
-(`runtime/comm/address.go`), so no stronger TLA⁺ definition would be sound for every
-implementation. A specification may therefore not assume anything about `\prec` beyond its type. -/
+`FunAsSeq : (Int -> a) => Seq(a)` reads a function back as the sequence it encodes — the direction
+subtyping's `Seq(τ) <: Int → τ` axiom cannot give. Partial: defined only when `DOMAIN f = 1 .. n`
+for some `n`, and the generated program aborts otherwise. `SetAsFun : Set(<<a,b>>) => (a -> b)`
+reads a set of pairs as a function, aborting when two pairs share a first component. Both are
+Apalache operators; a call to either raises `-Wunsafe`. `MkSeq : (Int, (Int -> a)) => Seq(a)` is
+the total sequence constructor `[i ∈ 1 .. N ↦ F(i)]` — safe, no warning. The three downcasts have
+self-referential bodies: no TLA⁺ expression stands behind them, only a runtime primitive and (for
+`FunAsSeq`) an `EvalBuiltin` rule. -/
 private def fugueDeclarations : List Decl :=
-  [ .operator (.operator [.address, .address] .bool) "\\prec" [("x", 0), ("y", 0)] trueBody ]
+  [ .operator (.operator [.address, .address] .bool) "\\prec" [("x", 0), ("y", 0)] trueBody,
+    .operator funAsSeqType "FunAsSeq" [("f", 0)]
+      (selfRef funAsSeqType "FunAsSeq" [.function .int (.var "a")]),
+    .operator mkSeqType "MkSeq" [("N", 0), ("F", 1)]
+      (selfRef mkSeqType "MkSeq" [.int, .operator [.int] (.var "a")]),
+    .operator setAsFunType "SetAsFun" [("S", 0)]
+      (selfRef setAsFunType "SetAsFun" [.set (.tuple [.var "a", .var "b"])]) ]
 
 /-- The table itself (doc above). `«extends»` mirrors each real module's own top-of-file
 dependency list (`EXTENDS`/`LOCAL INSTANCE` alike — `LOCAL` only means "not re-exported" in real

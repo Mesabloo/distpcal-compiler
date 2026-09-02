@@ -1,0 +1,6 @@
+{
+  "reaches": "go",
+  "goBuild": true,
+  "warnings": [{ "code": "W0008" }],
+  "suppressible": ["unsafe"]
+}

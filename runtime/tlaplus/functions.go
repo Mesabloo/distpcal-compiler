@@ -97,6 +97,33 @@ func MkRecFn[T, U any](o Ord[T], dom Set[T], gen func(f LazyFunction[T, U], x T)
 // Domain compiles DOMAIN f.
 func Domain[T, U any](f LazyFunction[T, U]) Set[T] { return f.dom }
 
+// SetAsFun compiles Fugue!SetAsFun(s), reading a set of pairs as the function
+// whose graph it is.
+//
+// The pair type <<a, b>> compiles to an anonymous struct the runtime cannot
+// project on its own, so the two projections arrive as callbacks, the way
+// SetMap's mapping function does. Apalache leaves the result unspecified when a
+// first component repeats with conflicting second components; the compiled form
+// panics instead, and -Wunsafe warns at every call site.
+func SetAsFun[P, K, V any](ok Ord[K], s Set[P], fst func(P) K, snd func(P) V) LazyFunction[K, V] {
+	dom := make(Set[K], 0, len(s))
+	for _, p := range s {
+		dom = append(dom, fst(p))
+	}
+	dom = normalize(ok, dom)
+	if len(dom) != len(s) {
+		panic("SetAsFun of a set of pairs whose first components are not unique")
+	}
+	return FnConstructor(ok, dom, func(x K) V {
+		for _, p := range s {
+			if ok.Eq(fst(p), x) {
+				return snd(p)
+			}
+		}
+		panic("SetAsFun applied outside its domain")
+	})
+}
+
 // FnOrd is the dictionary for LazyFunction, and is a placeholder: both
 // operations panic.
 //

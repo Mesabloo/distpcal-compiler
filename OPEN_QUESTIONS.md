@@ -405,39 +405,12 @@ span. `Common/Errors.lean`'s renderer no longer panics on such a line — it deg
 quoted line — so the symptom is a bad-looking diagnostic, not a crash. Which constants these are
 was not tracked down.
 
-### 9.26 Should casts between representations be writable, including unsafe downcasts?
-`StrToSeq` is an intrinsic no source text can name (`PLAN.md`, type-system section): the `Str <:
-Seq(Int)` coercion is the only thing that builds it. Proposed instead: make casts part of the
-surface, both the safe ones subtyping already performs and Apalache-style *unsafe* downcasts
-(`FunAsSeq(fn, len)`, a function read back as a sequence — the direction `<:` cannot give).
-
-For the safe direction the gain is narrower than it looks. The coercion already fires in any
-*checking* position, with no cast written: `\* @type: Int; N == Len("abc")` and `\* @type: Seq(Int);
-S == "abc"` are both accepted today. What fails is *synthesis*: `"abc"[2]` is rejected with E0031
-(`Str` is not a function, tuple, or sequence type), because a `fnCall`'s head is inferred with no
-expected type to drive the axioms. There is currently no way to write that expression at all —
-the usual escape, an annotated `LET`-bound intermediate, needs a `LET`/`IN` parser rule this
-project does not have (§9.2). So the case for a *safe* cast rests entirely on synthesis positions,
-and the alternative fix is in the checker, not the surface: try `tryAxioms` when a `fnCall`'s head
-synthesizes a `Str`, adding no vocabulary.
-
-The unsafe direction is genuinely new expressiveness and genuinely new risk. `FunAsSeq` is partial
-— undefined unless `DOMAIN fn = 1..len` — so it compiles to a runtime check that panics. The
-runtime already panics for `Head(<<>>)` and an out-of-range index, so this is not a new *category*
-of undefinedness, but it is a new way for a specification a model checker accepts to abort as a
-program, which is the artifact this compiler produces.
-
-Where such operators would be declared is part of the question: not `Sequences`, which real TLA⁺
-exports none of them from — a project-owned builtin module (Apalache declares its own in
-`Apalache.tla`) that `Driver/Builtins.lean` would carry like any other. If `StrToSeq` were
-re-exported there, the intrinsic spelling and the module spelling must not both survive as separate
-code paths; pick one. Note also that a user-written cast is an ordinary builtin operator call, not
-a `Coercion`, so none of it is covered by §9.17's obligation.
-
-Machinery is cheap — a `builtinModules` entry, a `BuiltinOp` constructor, a `compileBuiltinCall`
-arm, a runtime function, no checker changes — so cost is not the deciding factor. Open: whether
-unsafe casts belong in a language whose output is a program rather than a model, which casts the
-set would contain, and whether the safe half should be a cast at all rather than a checker fix.
+### 9.32 `@type` parser needs parens around a unary operator's own parameter
+`\* @type: (Int) => Int;` parses; `\* @type: Int => Int;` fails at `E0005`. `Parser_/Annotations
+.lean`'s `parseType'` only accepts an operator type's argument list when it is parenthesised, so a
+one-argument operator type needs a paren pair a human would leave off. `((Int) => Int, Int) => Int`
+already parses (§9.23), so nested operator types work — this is only the bare unary case. Make the
+argument-list rule accept a single unparenthesised argument type, keeping the parenthesised form.
 
 ### 9.27 `multicast`'s denotational semantics — no enumeration primitive, no prior-art shape
 Item 7 §9.5 (thesis phase 10, P3): `Core/{Guarded,Network}PlusCal/Semantics/Denotational.lean`'s
@@ -463,28 +436,6 @@ instead grow an actual enumeration field (bigger surface, but avoids `Nodup`-as-
 "this is really a set" and the resulting order-nondeterminism in `reducing`'s outcome set).
 Blocks P3, and P6/D4 (whose generic action-statement lemma quantifies over every action
 constructor, `multicast` included) until resolved.
-
-### 9.28 Why `partialProd`/`ωProduct` rather than Mathlib's `∏` notation?
-Owner's question, item 7, raised while writing the stuttering divergence law.
-
-`Extra/Rel.lean` define `Monoid.partialProd (e : ℕ → ε) : ℕ → ε` by hand (`0 ↦ 1`,
-`n+1 ↦ partialProd e n * e n`), plus `partialProd_zero`/`_succ`/`_succ'`/`_add`/`_eq_one`/
-`_eq_of_ones`. Mathlib's `∏ i ∈ Finset.range n, e i` is the same thing on a `CommMonoid`, with a
-large existing API (`Finset.prod_range_succ`, `prod_range_add`, `prod_eq_one`, …).
-
-Two candidate reasons, neither checked:
-- **Non-commutativity.** The traces here are `Stream'.Seq α` under concatenation, a `Monoid` and
-  *not* commutative. `Finset.prod` want `CommMonoid`; the ordered product over `range n` is
-  `List.prod ((List.range n).map e)` instead, whose API is thinner. Whether that is enough
-  reason to hand-roll is exactly the question.
-- **`ωProduct` has no Mathlib counterpart** regardless — an infinite product of `Seq`s is a
-  corecursive concatenation, characterized here by `get?` (`ωFun`). So *something* bespoke is
-  needed at the ω level, and `partialProd` may have been written to match it rather than on its
-  own merits.
-
-Resolving it means checking whether `List.prod ∘ List.map e ∘ List.range` carries the five
-`partialProd` facts for free, and whether `Extra/Seq.lean`'s `get?_partialProd_of_le` /
-`get?_ωProduct` survive the change. Cosmetic if so; not blocking anything.
 
 ### 9.29 Nothing checks that block labels are unique within a process
 Found during item 7, §D8, building `CodeLabelRefines` from `ProcessRefines`.

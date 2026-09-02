@@ -47,8 +47,9 @@ inductive BuiltinOp : Type
   -- `Bags`.
   | isABag | bagToSet | setToBag | bagIn | emptyBag | bagAdd | bagSub | bagUnion | bagLeq
   | subBag | bagOfAll | bagCardinality | copiesIn
-  -- `Fugue` — this compiler's own module, no real TLA⁺ counterpart.
-  | addressPrec
+  -- `Fugue` — this compiler's own module, no real TLA⁺ counterpart. `funAsSeq`/`setAsFun` are the
+  -- Apalache-style unsafe representation downcasts; `mkSeq` the total sequence constructor.
+  | addressPrec | funAsSeq | mkSeq | setAsFun
   deriving Repr, Inhabited, BEq, DecidableEq
 
 /-- The name↔operator table itself, one arm per `BuiltinOp` constructor (exhaustiveness-checked
@@ -91,6 +92,7 @@ def builtinOpOf? : Origin → Option BuiltinOp
     | _ => none
   | .module "Fugue" name => match name with
     | "\\prec" => some .addressPrec
+    | "FunAsSeq" => some .funAsSeq | "MkSeq" => some .mkSeq | "SetAsFun" => some .setAsFun
     | _ => none
   | .free _ | .bound _ | .module _ _ => none
 

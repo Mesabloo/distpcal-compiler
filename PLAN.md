@@ -943,7 +943,24 @@ deviation (polymorphism instantiation, below):
   address comparison. Its TLA⁺-side definition is `x \prec y == TRUE`, and that is the
   definition rather than a placeholder: the order is deliberately unspecified, so nothing
   stronger would be sound for every implementation, and a specification may assume nothing about
-  `\prec` beyond its type. Each
+  `\prec` beyond its type.
+  `Fugue` also carries the **representation downcasts** — the Apalache operators whose direction
+  `<:` cannot give (`Elaborator/Subtyping.lean`'s axioms are all narrow→wide). `FunAsSeq : (Int ->
+  a) => Seq(a)` reads a function back as a sequence, `SetAsFun : Set(<<a,b>>) => (a -> b)` a set of
+  pairs back as a function, `MkSeq : (Int, (Int -> a)) => Seq(a)` the total constructor `[i ∈ 1..N
+  ↦ F(i)]`. `FunAsSeq`/`SetAsFun` are **partial** — `FunAsSeq` needs `DOMAIN f = 1..n`, `SetAsFun`
+  a functional pair set — and their compiled forms abort when the precondition fails, the same
+  failure mode as `Head(<<>>)`. Both raise `W0008` (`-Wunsafe`, off with `-Wno-unsafe`), emitted at
+  the reference by `Elaborator/Expressions.lean`'s `inferExpr` `.var` case; `MkSeq` is total and
+  raises nothing. `FunAsSeq` is the identity on a value that already is a sequence, so its
+  `EvalBuiltin` rule is `funAsSeq (hf : IsSeqVal f) : EvalBuiltin .funAsSeq [f] f`; `MkSeq` and
+  `SetAsFun` get no rule (their second-order / pair-set-restructuring shapes have none), matching
+  the `Bags` family. `Network2Go` compiles `FunAsSeq`/`SetAsFun` to `tlaplus.FunAsSeq`/`SetAsFun`
+  (the latter handed both tuple projections as callbacks, since `<<a,b>>` is an anonymous struct);
+  `MkSeq` is `E0061` at `go` until a way to pass an operator argument exists (§9.10). The safe
+  direction is **not** a cast: `StrToSeq` stays a coercion-only intrinsic, and `"abc"[2]`-style
+  synthesis-position failures stay a known limitation (needs `LET`/`IN`, §9.2), not new surface.
+  Each
   declaration only needs a name/type binding (`Decl.bindings`) — bodies never re-examined,
   since standard-library operators get replaced by backend-native implementations at
   code-generation time. A top-level `operator`/`function` definition — any arity,

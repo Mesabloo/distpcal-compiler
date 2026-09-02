@@ -118,6 +118,26 @@ func Append[T any](s Seq[T], e T) Seq[T] {
 	return append(slices.Clone(s), e)
 }
 
+// FunAsSeq compiles Fugue!FunAsSeq(f), reading a function back as the sequence
+// it encodes.
+//
+// A TLA+ sequence is a function whose domain is 1..n, so when f already has that
+// shape the two are the same value and this only materializes the lazy graph
+// into a slice. TLA+ leaves FunAsSeq undefined for any other domain; the
+// compiled form panics there rather than inventing a value, and -Wunsafe warns
+// at every call site.
+func FunAsSeq[T any](f LazyFunction[Int, T]) Seq[T] {
+	dom := Domain(f)
+	out := make(Seq[T], len(dom)+1)
+	for i := 1; i <= len(dom); i++ {
+		if !IntOrd.Eq(dom[i-1], MkInt(i)) {
+			panic("FunAsSeq of a function whose domain is not 1..n")
+		}
+		out[i] = FnApply(IntOrd, f, MkInt(i))
+	}
+	return out
+}
+
 // SeqEq reports whether two sequences are equal: same length, equal elements,
 // in the same order.
 // The comparison starts at index 1: the unused slot is never observed, so two

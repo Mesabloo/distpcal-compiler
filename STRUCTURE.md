@@ -222,7 +222,7 @@ Go, not Lean — the library generated code links against. Every package is a su
 - `naturals.go` — `IntRange`.
 - `print.go` — what PlusCal's `print` compiles to.
 - `helpers_test.go`, `int_test.go`, `int_big_test.go`, `functions_test.go`, `naturals_test.go`,
-  `records_test.go`, `sequences_test.go`, `sets_test.go`, `str_test.go` — their tests.
+  `records_test.go`, `sequences_test.go`, `sets_test.go`, `str_test.go`, `downcasts_test.go` — their tests.
 
 ## `persistent/`
 Go, not Lean — data structures the runtime needs. Root `go.mod` covers this directory and

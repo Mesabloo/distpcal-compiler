@@ -304,6 +304,11 @@ inductive EvalBuiltin : BuiltinOp → List Value → Value → Prop
       EvalBuiltin .append [Value.ofSeq vs, x] (Value.ofSeq (vs ++ [x]))
   -- strings are already their code-point sequence, so `StrToSeq` is the identity
   | strToSeq {v : Value} : EvalBuiltin .strToSeq [v] v
+  -- `FunAsSeq(f)` reads a function back as a sequence. A sequence value *is* a function over an
+  -- index interval `1 .. n`, so when `f` already has that shape the cast is the identity; there is
+  -- no rule for any other `f`, which is the partiality Apalache leaves to the user. `MkSeq` and
+  -- `SetAsFun` have no rule at all — like the `Bags` family, a call to either denotes nothing.
+  | funAsSeq {f : Value} (hf : Value.IsSeqVal f) : EvalBuiltin .funAsSeq [f] f
 
 /-! ## Expression evaluation -/
 

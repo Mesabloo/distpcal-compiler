@@ -467,6 +467,31 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   -- type checker does not have, taken from the same dictionary `Ord.lean` hands every other
   -- address-comparing operation.
   | "Fugue", "\\prec", [x, y] => return tlaBool (.call (.field (commVar "AddressOrd") "Lt") [x, y])
+  -- The Apalache-style unsafe downcasts. `FunAsSeq` materializes the lazy function into a slice,
+  -- panicking unless its domain is `1 .. n`; `SetAsFun` builds a lazy function from the pair set,
+  -- panicking on a first component that repeats. Both raise `-Wunsafe` at type checking.
+  | "Fugue", "FunAsSeq", [f] => return tlaplusCall "FunAsSeq" [f]
+  | "Fugue", "SetAsFun", [s] => do
+    -- The pair type `<<a, b>>` compiles to an anonymous struct only the building site can name, so
+    -- the runtime cannot project a pair on its own — it is handed the two projections as callbacks,
+    -- the way `SetMap` is handed its mapping function.
+    let some (a, b) := (match τ with
+      | .operator [.set (.tuple [a, b])] _ => some (a, b)
+      | _ => none)
+      | throw (.internalInvariantViolated pos "'SetAsFun' does not have its declared type")
+    let pairτ ← compileTyp (.tuple [a, b])
+    let aτ ← compileTyp a
+    let bτ ← compileTyp b
+    let p := goIdent (← freshName "p")
+    let fst : ComputableGo.Expression :=
+      .funcLit [(p, pairτ)] [aτ] [.return [.field (.var p) (projName 1)]]
+    let snd : ComputableGo.Expression :=
+      .funcLit [(p, pairτ)] [bτ] [.return [.field (.var p) (projName 2)]]
+    return tlaplusCall "SetAsFun" [← ordDict a, s, fst, snd]
+  | "Fugue", "MkSeq", _ =>
+    throw (.unsupported pos "MkSeq"
+      "its second argument is an operator, and passing an operator as an argument needs LAMBDA, \
+       which this compiler does not have")
   | _, _, [] => compileBuiltinVar pos mod name τ
   | _, _, _ => wrongArity pos s!"{mod}!{name}" args.length
 

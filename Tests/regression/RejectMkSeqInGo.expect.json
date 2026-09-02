@@ -1,0 +1,5 @@
+{
+  "outcome": "reject",
+  "failsAt": "go",
+  "errorCode": "E0061"
+}

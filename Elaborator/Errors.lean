@@ -133,17 +133,30 @@ instance : CompilerDiagnostic TCError String where
 inductive TCWarning : Type
   /-- Escape hatch: an arbitrary message at a position, standing in for a real named variant. -/
   | todo (pos : SourceSpan) (msg : String)
+  /-- A call to an unsafe representation downcast — `Fugue!FunAsSeq` or `Fugue!SetAsFun` — whose
+  compiled form aborts at runtime when its precondition (a `1..n` domain, a functional pair set)
+  does not hold. `op` is the operator's name. -/
+  | unsafeCast (pos : SourceSpan) (op : String)
   deriving Repr, Inhabited, BEq
 
 /-- The `-W<name>`/`-Wno-<name>` name a given warning is filtered under. -/
 def TCWarning.name : TCWarning → String
   | .todo .. => "todo"
+  | .unsafeCast .. => "unsafe"
 
 instance : CompilerDiagnostic TCWarning String where
   isError := false
-  code | .todo .. => Diagnostics.typeCheckTodoWarning.code
+  code
+    | .todo .. => Diagnostics.typeCheckTodoWarning.code
+    | .unsafeCast .. => Diagnostics.unsafeCast.code
   name := TCWarning.name
-  posOf | .todo pos _ => pos
-  msgOf | .todo _ msg => msg
+  posOf
+    | .todo pos _ => pos
+    | .unsafeCast pos _ => pos
+  msgOf
+    | .todo _ msg => msg
+    | .unsafeCast _ op =>
+      s!"`{op}` is an unsafe cast: the generated program aborts if the value does not have the \
+         shape the cast assumes. Suppress with `-Wno-unsafe`."
 
 end

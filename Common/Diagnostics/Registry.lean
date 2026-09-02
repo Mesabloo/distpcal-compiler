@@ -369,6 +369,11 @@ def unusedMailbox : Entry :=
   { code := w 7, stage := .wellFormedness, warningName := "unused-mailbox",
     summary := "A process declares a @mailbox but never receives, so the declaration is dropped." }
 
+/-- A call to an unsafe representation downcast (`Fugue!FunAsSeq`, `Fugue!SetAsFun`). -/
+def unsafeCast : Entry :=
+  { code := w 8, stage := .typeCheck, warningName := "unsafe",
+    summary := "A call to an unsafe cast whose compiled form aborts at runtime if its precondition fails." }
+
 /-- Every registered diagnostic, in code order. `fugue explain --list` prints this; the regression
 runner's coverage report walks it to find codes no fixture exercises. -/
 def entries : List Entry :=
@@ -391,7 +396,7 @@ def entries : List Entry :=
     goInternalInvariant, goUnsupported,
     moduleNameMismatch,
     fairIgnored, unusedAnnotation, duplicateParameterAnnotation, typeCheckTodoWarning,
-    partialMulticastAnnotation, extendsAlgorithm, unusedMailbox ]
+    partialMulticastAnnotation, extendsAlgorithm, unusedMailbox, unsafeCast ]
 
 -- No two entries may share a number: the whole point of a code is that it identifies exactly one
 -- diagnostic. Checked here, at build time, rather than trusted.

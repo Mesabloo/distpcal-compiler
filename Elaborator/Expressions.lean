@@ -214,10 +214,13 @@ mutual
     | .var x, pos => do
       match (← readThe Context).lookup x with
       | none => throw (.unboundVariable pos x)
-      | some (τ, origin, true) => do
-        let τ' ← specializeType τ
+      | some (τ, origin, isScheme) => do
+        -- `Fugue!FunAsSeq`/`Fugue!SetAsFun` compile to a partial runtime operation — flag every
+        -- reference (`-Wunsafe`, `-Wno-unsafe` to silence).
+        if let .module "Fugue" op := origin then
+          if op == "FunAsSeq" || op == "SetAsFun" then warn (.unsafeCast pos op)
+        let τ' ← if isScheme then specializeType τ else pure τ
         return (τ', .var τ' origin @@ pos)
-      | some (τ, origin, false) => return (τ, .var τ origin @@ pos)
     /-
       ────────────── [Number]
        Γ ⊢ n ⇑ Int
