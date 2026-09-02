@@ -443,11 +443,12 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   match mod, name, args with
   | "Naturals", "+", [x, y] => return tlaplusCall "Add" [x, y]
   | "Naturals", "-", [x, y] => return tlaplusCall "Sub" [x, y]
-  | "Naturals", "-.", [x] => return tlaplusCall "Neg" [x]
   | "Naturals", "*", [x, y] => return tlaplusCall "Mul" [x, y]
   | "Naturals", "\\div", [x, y] => return tlaplusCall "Div" [x, y]
   | "Naturals", "%", [x, y] => return tlaplusCall "Mod" [x, y]
   | "Naturals", "^", [x, y] => return tlaplusCall "Pow" [x, y]
+  -- Unary minus is `Integers`, not `Naturals` — `Naturals` has no negatives.
+  | "Integers", "-.", [x] => return tlaplusCall "Neg" [x]
   | "Naturals", "<", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Lt") [x, y])
   | "Naturals", ">", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Gt") [x, y])
   | "Naturals", "=<", [x, y] => return tlaBool (.call (.field (tlaplusVar "IntOrd") "Le") [x, y])
@@ -467,6 +468,9 @@ partial def compileBuiltinCall (pos : SourceSpan) (mod name : String) (τ : Typ)
   -- type checker does not have, taken from the same dictionary `Ord.lean` hands every other
   -- address-comparing operation.
   | "Fugue", "\\prec", [x, y] => return tlaBool (.call (.field (commVar "AddressOrd") "Lt") [x, y])
+  | "Fugue", "\\preceq", [x, y] => return tlaBool (.call (.field (commVar "AddressOrd") "Le") [x, y])
+  | "Fugue", "\\succ", [x, y] => return tlaBool (.call (.field (commVar "AddressOrd") "Gt") [x, y])
+  | "Fugue", "\\succeq", [x, y] => return tlaBool (.call (.field (commVar "AddressOrd") "Ge") [x, y])
   -- The Apalache-style unsafe downcasts. `FunAsSeq` materializes the lazy function into a slice,
   -- panicking unless its domain is `1 .. n`; `SetAsFun` builds a lazy function from the pair set,
   -- panicking on a first component that repeats. Both raise `-Wunsafe` at type checking.

@@ -659,9 +659,10 @@ namespace SurfaceTLAPlus.Parser
         | ⟨_, _⟩ => unreachable!
 
     private def parsePrefixOperator : TLAPlusParser PrefixOperator := do
-      let ⟨pos, .prefix op⟩ ← withBacktracking <| tokenFilter λ | ⟨_, .prefix _⟩ => true | _ => false
-        | unreachable!
-      return op @@ pos
+      match ← withBacktracking <| tokenFilter λ | ⟨_, .prefix _⟩ | ⟨_, .infix .«-»⟩ => true | _ => false with
+        | ⟨pos, .prefix op⟩ => return op @@ pos
+        | ⟨pos, .infix .«-»⟩ => return .«-» @@ pos
+        | ⟨_, _⟩ => unreachable!
 
     private def parsePostfixOperator : TLAPlusParser PostfixOperator := do
       let ⟨pos, .postfix op⟩ ← withBacktracking <| tokenFilter λ | ⟨_, .postfix _⟩ => true | _ => false
@@ -674,6 +675,7 @@ namespace SurfaceTLAPlus.Parser
       | «infix» (_ : InfixOperator)
       | atom (_ : Expression (List CommentAnnotation))
       | index (_ : Bool × List (Expression (List CommentAnnotation)))
+      deriving Repr
 
     section ShuntingYardAlgorithm
       class HasPrecedence (α : Type) where

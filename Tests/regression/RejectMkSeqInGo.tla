@@ -4,7 +4,7 @@
 \* it raises no -Wunsafe -- but its second argument is an operator, and passing an operator as an
 \* argument has no Go counterpart without LAMBDA (OPEN_QUESTIONS 9.10), so the backend rejects it.
 
-EXTENDS Fugue, Naturals
+EXTENDS Fugue
 
 CONSTANTS
     \* @type: Address;

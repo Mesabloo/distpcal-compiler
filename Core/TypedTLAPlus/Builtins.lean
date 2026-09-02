@@ -37,19 +37,20 @@ inductive BuiltinOp : Type
   -- `builtinOpOf?` sees every builtin an elaborated term can contain, not just the writable ones.
   | strToSeq
   -- `Naturals` (`Driver/Builtins.lean`).
-  | plus | minus | unaryMinus | times | intDiv | mod | pow | lt | gt | leq | geq | dotdot | natSet
+  | plus | minus | times | intDiv | mod | pow | lt | gt | leq | geq | dotdot | natSet
   -- `Sequences`.
   | len | head | tail | append
-  -- `Integers`.
-  | intSet
+  -- `Integers` — `Int` and unary minus, as in real TLA⁺ (`Naturals` has no negatives).
+  | intSet | unaryMinus
   -- `FiniteSets`.
   | isFiniteSet | cardinality
   -- `Bags`.
   | isABag | bagToSet | setToBag | bagIn | emptyBag | bagAdd | bagSub | bagUnion | bagLeq
   | subBag | bagOfAll | bagCardinality | copiesIn
-  -- `Fugue` — this compiler's own module, no real TLA⁺ counterpart. `funAsSeq`/`setAsFun` are the
-  -- Apalache-style unsafe representation downcasts; `mkSeq` the total sequence constructor.
-  | addressPrec | funAsSeq | mkSeq | setAsFun
+  -- `Fugue` — this compiler's own module, no real TLA⁺ counterpart. The four `address*` are the
+  -- order on `Address`; `funAsSeq`/`setAsFun` the Apalache-style unsafe representation downcasts;
+  -- `mkSeq` the total sequence constructor.
+  | addressPrec | addressPreceq | addressSucc | addressSucceq | funAsSeq | mkSeq | setAsFun
   deriving Repr, Inhabited, BEq, DecidableEq
 
 /-- The name↔operator table itself, one arm per `BuiltinOp` constructor (exhaustiveness-checked
@@ -69,7 +70,7 @@ def builtinOpOf? : Origin → Option BuiltinOp
     | "StrToSeq" => some .strToSeq
     | _ => none
   | .module "Naturals" name => match name with
-    | "+" => some .plus | "-" => some .minus | "-." => some .unaryMinus | "*" => some .times
+    | "+" => some .plus | "-" => some .minus | "*" => some .times
     | "\\div" => some .intDiv | "%" => some .mod | "^" => some .pow
     | "<" => some .lt | ">" => some .gt | "=<" => some .leq | ">=" => some .geq
     | ".." => some .dotdot | "Nat" => some .natSet
@@ -78,7 +79,7 @@ def builtinOpOf? : Origin → Option BuiltinOp
     | "Len" => some .len | "Head" => some .head | "Tail" => some .tail | "Append" => some .append
     | _ => none
   | .module "Integers" name => match name with
-    | "Int" => some .intSet
+    | "Int" => some .intSet | "-." => some .unaryMinus
     | _ => none
   | .module "FiniteSets" name => match name with
     | "IsFiniteSet" => some .isFiniteSet | "Cardinality" => some .cardinality
@@ -91,7 +92,8 @@ def builtinOpOf? : Origin → Option BuiltinOp
     | "BagCardinality" => some .bagCardinality | "CopiesIn" => some .copiesIn
     | _ => none
   | .module "Fugue" name => match name with
-    | "\\prec" => some .addressPrec
+    | "\\prec" => some .addressPrec | "\\preceq" => some .addressPreceq
+    | "\\succ" => some .addressSucc | "\\succeq" => some .addressSucceq
     | "FunAsSeq" => some .funAsSeq | "MkSeq" => some .mkSeq | "SetAsFun" => some .setAsFun
     | _ => none
   | .free _ | .bound _ | .module _ _ => none

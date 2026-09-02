@@ -233,7 +233,8 @@ theorem isSeq_ofSeq (vs : List Value) : IsSeq (Value.ofSeq vs) vs := isSeq_iff_o
 /-- `EvalBuiltin op args v` — the builtin `op`, applied to already-evaluated arguments `args`,
 denotes `v`. Strict in argument kinds: an arm exists only for the shapes the operator is defined
 on. Covers the operators reachable from a computable algorithm. The `Bags` family,
-`Cardinality`/`IsFiniteSet`, and `\prec` have no arm — a call to one of them denotes nothing.
+`Cardinality`/`IsFiniteSet`, the `Address` order (`\prec`/`\preceq`/`\succ`/`\succeq`), `MkSeq` and
+`SetAsFun` have no arm — a call to one of them denotes nothing.
 
 Set-valued results are given by a `ZFSet`/`zflean` term wherever one exists (`∪`/`∩`/`\` for the
 set combinators, `f.Dom` for `DOMAIN`), and by a closed-form `Value` builder otherwise

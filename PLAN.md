@@ -310,9 +310,10 @@ Two independent halves:
     `Desugarer/TLAPlus.lean`'s `{Prefix,Infix,Postfix}Operator.canonicalName`. Unary minus
     gets its own canonical spelling, `"-."`, distinct from binary minus's `"-"` — same
     disambiguating trick "Specifying Systems" itself uses. Surface syntax unchanged (`-x`
-    parses exactly as always); only the internal `Γ`-lookup-facing name changed.
-    `Elaborator/Declarations.lean`'s `builtinContext` carries both: `"-" : (Int, Int) ⇒
-    Int` (binary), `"-." : (Int) ⇒ Int` (unary), no collision.
+    parses exactly as always); only the internal `Γ`-lookup-facing name changed. The two are
+    separate builtin-module declarations with no collision: `"-" : (Int, Int) ⇒ Int` in
+    `Naturals`, `"-." : (Int) ⇒ Int` in `Integers` (where real TLA⁺ puts unary minus, `Naturals`
+    having no negatives).
   - Every quantifier-like binder (`\A`/`\E`/`\AA`/`\EE`/`CHOOSE`/set-map/set-filter/
     function literals) binds exactly one variable over at most one domain — confirmed
     against the thesis's own formal typing rules (Figures 3.1.2/3.1.3/3.1.5/3.1.6), every
@@ -754,8 +755,12 @@ deviation (polymorphism instantiation, below):
   fixed.
 - **Discipline:** bidirectional (checking `Γ ⊢ e ⇐ τ` / synthesis `Γ ⊢ e ⇒ τ`), rank-1
   polymorphism only (type variables collected into a prenex `∀`, no first-class schemes).
-  Annotations required only at binders the algorithm can't otherwise pin down (thesis
-  §3.1.1). `RECURSIVE` operator declarations out of scope (§2, §8).
+  Within an expression, annotations are required only at binders the algorithm can't otherwise
+  pin down (thesis §3.1.1). **Every top-level `operator`/`function` *definition* carries a
+  mandatory `@type`, though** — `Elaborator/Declarations.lean`'s `[Operator/Function definition]`
+  rules are checking-only against it (thesis Fig. 3.1.9, whose conclusion puts the type in the
+  syntax), so `X == 0` is rejected without one even though its body would synthesize (§9.34).
+  `RECURSIVE` operator declarations out of scope (§2, §8).
 - **Polymorphism instantiation — do not implement the thesis's `Specialize` rule as
   written.** Instead (per the local `Checker/Typechecker/` code — `Convertibility.lean`,
   `Rules.lean`, read before implementing): generate one fresh metavariable `?n` per bound
@@ -891,9 +896,9 @@ deviation (polymorphism instantiation, below):
   (`Elaborator/Declarations.lean`) carries only the ~14 genuinely `EXTENDS`-independent
   intrinsics (`=`, `/=`, `/\`, `\/`, `=>`, `<=>`, `\neg`, `\in`, `\notin`, `\subseteq`,
   `\cup`, `\cap`, `\`, `DOMAIN`, plus the temporal ones, §9.11). Everything else —
-  `+`/`-`/`-.`/`*`/`\div`/`%`/`^`/`..`/comparisons/`Nat` (`Naturals`), `Len`/`Head`/`Tail`/`Append`
-  (`Sequences`), and populated entries for `Bags`/`FiniteSets`/`Integers` — lives as real
-  declarations in `Driver/Modules.lean`'s `builtinModules["Naturals"]` etc.
+  `+`/`-`/`*`/`\div`/`%`/`^`/`..`/comparisons/`Nat` (`Naturals`), `Int`/`-.` (`Integers`),
+  `Len`/`Head`/`Tail`/`Append` (`Sequences`), and populated entries for `Bags`/`FiniteSets` —
+  lives as real declarations in `Driver/Modules.lean`'s `builtinModules["Naturals"]` etc.
   (`naturalsDeclarations`/`sequencesDeclarations`/`bagsDeclarations`/
   `finiteSetsDeclarations`/`integersDeclarations`, cross-checked against the real
   standard-module sources); a module only sees `+`/`Len`/… via an actual
@@ -933,17 +938,17 @@ deviation (polymorphism instantiation, below):
   `LOCAL INSTANCE` included, not just plain `EXTENDS`. A `LOCAL`-declared helper (e.g.
   `Bags`'s `Sum`) stays excluded from the exported declaration list. `RealTime`/`Reals`
   deliberately excluded (out of scope); `TLC` deliberately stays an empty stub. One entry,
-  **`Fugue`, has no real counterpart** — this compiler's own module, `«extends» := []`, holding
-  `\prec : Address × Address → Bool`. It exists because the two ends of the pipeline disagree
-  about `Address`: the type checker treats it as an atomic type with equality only, while the
-  generated Go requires an order on it (`runtime/comm/address.go`'s `Address` interface carries
-  `Lt`, and sorted address sets, address-keyed functions, and `CHOOSE` over addresses all depend
-  on it). A specification that needs to talk about that order `EXTENDS Fugue`; `Network2Go`
-  compiles `\prec` to `comm.AddressOrd.Lt`, the same dictionary `Ord.lean` hands every other
-  address comparison. Its TLA⁺-side definition is `x \prec y == TRUE`, and that is the
-  definition rather than a placeholder: the order is deliberately unspecified, so nothing
-  stronger would be sound for every implementation, and a specification may assume nothing about
-  `\prec` beyond its type.
+  **`Fugue`, has no real counterpart** — this compiler's own module, `«extends» := ["Naturals"]`
+  (a downcast's `1..n` domain is unwritable otherwise, so `EXTENDS Fugue` alone suffices), holding
+  `\prec`/`\preceq`/`\succ`/`\succeq : Address × Address → Bool`. It exists because the two ends of
+  the pipeline disagree about `Address`: the type checker treats it as an atomic type with equality
+  only, while the generated Go requires an order on it (`runtime/comm/address.go`'s `Address`
+  interface carries `Lt`, and sorted address sets, address-keyed functions, and `CHOOSE` over
+  addresses all depend on it). A specification that needs to talk about that order `EXTENDS Fugue`;
+  `Network2Go` compiles the four to `comm.AddressOrd`'s `Lt`/`Le`/`Gt`/`Ge`, the same dictionary
+  `Ord.lean` hands every other address comparison. They have no TLA⁺-side definition — the order is
+  deliberately unspecified, so no TLA⁺ definition would be sound for every implementation, and a
+  specification may assume nothing about them beyond their type.
   `Fugue` also carries the **representation downcasts** — the Apalache operators whose direction
   `<:` cannot give (`Elaborator/Subtyping.lean`'s axioms are all narrow→wide). `FunAsSeq : (Int ->
   a) => Seq(a)` reads a function back as a sequence, `SetAsFun : Set(<<a,b>>) => (a -> b)` a set of
@@ -963,7 +968,10 @@ deviation (polymorphism instantiation, below):
   Each
   declaration only needs a name/type binding (`Decl.bindings`) — bodies never re-examined,
   since standard-library operators get replaced by backend-native implementations at
-  code-generation time. A top-level `operator`/`function` definition — any arity,
+  code-generation time. Every builtin body is therefore self-referential (`Op(x) == Op(x)`,
+  `Op == Op` at arity 0), `Fugue` included; the reachability walk records the `(module, name)`
+  pair and its memo stops the one-step self-recursion (§9.33 proposes cutting that recursion at
+  the source). A top-level `operator`/`function` definition — any arity,
   `builtinContext`'s entries included — is always a **let-generalized scheme**
   (`Elaborator/Monad.lean`'s `Binding` carries a `Typ` plus `isScheme : Bool`); freshened
   on every `Γ`-reference (`Elaborator/TypeUtils.lean`'s `specializeType`), not just on

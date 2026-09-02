@@ -3,8 +3,10 @@
 \* set of pairs as the function whose graph it is -- undefined (via Apalache) when two pairs
 \* share a first component, so the generated program aborts there. Every use raises W0008
 \* (`-Wunsafe`); `-Wno-unsafe` silences it.
+\*
+\* `EXTENDS Fugue` alone: the `1..1` range comes from `Naturals`, which `Fugue` extends.
 
-EXTENDS Fugue, Naturals
+EXTENDS Fugue
 
 CONSTANTS
     \* @type: Address;

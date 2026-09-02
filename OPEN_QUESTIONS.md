@@ -412,7 +412,36 @@ one-argument operator type needs a paren pair a human would leave off. `((Int) =
 already parses (§9.23), so nested operator types work — this is only the bare unary case. Make the
 argument-list rule accept a single unparenthesised argument type, keeping the parenthesised form.
 
-### 9.27 `multicast`'s denotational semantics — no enumeration primitive, no prior-art shape
+### 9.33 Reachability walk recurses into builtin-module definition bodies
+`WellFormedness/Reachability.lean`'s `walkReachable`, on a `.var _ (.module m name)` that resolves
+to an `operator`/`function`, recurses into its body — including when `m` is a builtin module
+(`Naturals`, `Sequences`, `Fugue`, …). Every such body is now self-referential (`Op(x) == Op(x)`,
+`Driver/Builtins.lean`), so the walk takes one wasted step per builtin reference and then stops on
+its memo (or on `resolveInModule`'s `currentModule == targetModule` branch resolving `name` against
+the *caller's* `ownDecls`, where it is absent). Backends replace every builtin call regardless of
+its body (`PLAN.md` §5.3), so the recursion re-reaches nothing.
+
+Fix: when the resolved declaration's module is in `builtinModules`, record the `(module, name)`
+pair and stop — never walk the body. Both consumers already want exactly that: `Typed2Computable`
+drops every closure entry whose origin hits `builtinOpOf?`, and `Restrictions.lean`'s transitive
+temporal/action check keys on the builtin origin directly. Check the elaborator's own use of the
+walk for the same recursion, and confirm against §9.13's two already-unreachable checks that
+nothing reachable becomes unreachable.
+
+### 9.34 No type synthesis for an unannotated operator/function definition
+`Elaborator/Declarations.lean`'s `[Operator definition]`/`[Function definition]` cases open with
+`requireAnnotation`, so `X == 0` (or `Y == 0 - 0`, `Op(x) == x + 1`) is rejected with `E0027`
+without ever looking at the body — no attempt to synthesize `X : Int` from `0 ⇒ Int`. This matches
+thesis Fig. 3.1.9, whose rule conclusions carry the type in the syntax (`f(x⃗) ⦂ (τ⃗)⇒τ ≜ e`) and
+check the body against it; §3.1.4 explicitly notes the non-recursive case *could* be inferred and
+requires the annotation anyway, for uniformity with the recursive case (where inferring `f`'s type
+needs `f`'s type).
+
+Open: whether to add a synthesis path for the unannotated, non-`RECURSIVE` case — `inferExpr body`
+(already implemented, used everywhere else), bind `f` at the synthesized type, keep
+`requireAnnotation` only when the body is in checking-only position or `f` is recursive. Cheap
+given the bidirectional machinery; a deliberate step past the thesis. `CONSTANT`/`VARIABLE`
+annotations stay mandatory regardless — they have no body to synthesize from.
 Item 7 §9.5 (thesis phase 10, P3): `Core/{Guarded,Network}PlusCal/Semantics/Denotational.lean`'s
 `Statement.reducing`/`.aborting` still have `multicast = ∅` (four sites, `TODO(item 7)`). Prior
 art left the same case `sorry` in both — no existing shape to port.
