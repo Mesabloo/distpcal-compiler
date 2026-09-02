@@ -114,68 +114,89 @@ package Fugue where
 /-- The generated `Version.lean`. A `lean_lib` of its own for two reasons: `Fugue.lean` can only
 import a module some library claims (see `Fugue.Tests` below), and scoping it here means a version
 bump rebuilds this module and the CLI rather than everything sharing a library with it. -/
+@[default_target]
 lean_lib Fugue.Version where
   srcDir := versionSrcDir
   roots := #[`Version]
 
 /-- A custom prelude with various tactics and additional imports. -/
+@[default_target]
 lean_lib CustomPrelude
 /-- Extra definitions and theorems on common data structures. -/
 lean_lib Extra
 /-- Terminal progress bars. -/
+@[default_target]
 lean_lib ProgressBar
 /-- A library for compiler verification through denotational semantics. -/
+@[default_target]
 lean_lib VerifiedCompiler
 
 /-- Simple theories for various stuff (positions, diagnostics, etc.). -/
+@[default_target]
 lean_lib Fugue.Common where
   roots := #[`Common]
 /-- Definitions of ASTs and semantics for our intermediate languages, along with useful lemmas. -/
+@[default_target]
 lean_lib Fugue.Core where
   roots := #[`Core]
 /-- The parser for TLA+ modules and Distributed PlusCal algorithms. -/
+@[default_target]
 lean_lib Fugue.Parser where
   roots := #[`Parser_]
 /-- Surface-to-Core desugaring (TLA+ expressions and PlusCal statements). -/
+@[default_target]
 lean_lib Fugue.Desugarer where
   roots := #[`Desugarer]
 /-- Well-labelledness, variable well-scopedness, and no-bare-temporal-op checks over Core ASTs. -/
+@[default_target]
 lean_lib Fugue.WF where
   roots := #[`WellFormedness]
 /-- The bidirectional type checker, Core to Typed. -/
+@[default_target]
 lean_lib Fugue.Elaborator where
   roots := #[`Elaborator]
 /-- Recursive `EXTENDS` module resolution — not type-checking rules, but the driver-level
 orchestration around invoking them. -/
+@[default_target]
 lean_lib Fugue.Driver where
   roots := #[`Driver]
 /-- Translate the checked module into its computable (`ComputableTLAPlus`/`ComputablePlusCal`)
 fragment. -/
+@[default_target]
 lean_lib Fugue.T2C where
   roots := #[`Typed2Computable]
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
+@[default_target]
 lean_lib Fugue.T2G where
   roots := #[`Computable2Guarded]
 /-- Compiler from Guarded PlusCal to Network PlusCal, including its refinement proof.
 
-`Guarded2Network.CorrectInstance` is a second root, not an import of `Guarded2Network`: it pins the
-refinement proof to the concrete `Value` semantics (`ZFSet`, via `zflean`), and `zflean` reserves
-`ε` as term notation — which would break every downstream driver module that binds `ε`. Kept off
-`Guarded2Network`'s import path so only this one proof-only module pays that cost. -/
+`Guarded2Network` privately imports `Guarded2Network.CorrectInstance` (the refinement proof pinned
+to the concrete `Value` semantics, `ZFSet` via `zflean`), so every consumer of this pass builds and
+checks that proof. The import is private because `zflean` reserves `ε` as term notation, which would
+otherwise shadow the `ε` type variables in `Driver` and the later passes. -/
+@[default_target]
 lean_lib Fugue.G2N where
-  roots := #[`Guarded2Network, `Guarded2Network.CorrectInstance]
+  roots := #[`Guarded2Network]
 /-- Compiler from Network PlusCal to the Join Calculus. -/
 lean_lib Fugue.N2JC where
   roots := #[`Network2JoinCalculus]
 /-- Compiler from Network PlusCal to Go, including lock inference. -/
+@[default_target]
 lean_lib Fugue.N2Go where
   roots := #[`Network2Go]
 
-@[default_target]
+/-- Linker flags for a `release` build of `fugue`: strip local symbols and dead code, spelled for
+the host platform's linker (`ld64` on macOS, GNU `ld` elsewhere). Empty on Windows. -/
+def releaseLinkArgs : Array String :=
+  if System.Platform.isOSX then #["-Wl,-x,-dead_strip"]
+  else if System.Platform.isWindows then #[]
+  else #["-Wl,--strip-all"]
+
 lean_exe fugue where
   root := `Fugue
   moreLinkArgs := match buildType with
-    | .release => #["-Wl,-x,-dead_strip"]
+    | .release => releaseLinkArgs
     | _ => #[]
 
 /-- The regression suite's modules. A `lean_lib` and not just the `lean_exe` root below because
@@ -183,6 +204,7 @@ Lake only discovers a package's modules through a library's globs: an executable
 by recursively building its *local imports*, and an import only counts as local if some library
 already claims it. Without this, `lake build test` fails with "object file … of module
 Tests.Report does not exist". -/
+@[default_target]
 lean_lib Fugue.Tests where
   roots := #[`Tests]
 
@@ -191,3 +213,8 @@ through the compiler, in-process. -/
 @[test_driver]
 lean_exe test where
   root := `Tests.Main
+
+/-- Print `fugueVersion` to stdout and nothing else. Consumed by CI release tagging. -/
+script «get-version» do
+  IO.println s!"{fugueVersion}"
+  return 0

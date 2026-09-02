@@ -5,3 +5,12 @@ reference/
 .fugue/
 .caveman.json
 .mcp.json
+
+# local `act` runs of .github/workflows/ci.yml
+/stage/
+/fugue-*.tar.gz
+/fugue-*.zip
+/_docs/
+/docbuild/
+/lakefile.toml
+/lakefile.lean.bak

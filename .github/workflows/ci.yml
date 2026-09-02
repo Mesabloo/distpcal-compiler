@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Go (for goBuild regression fixtures)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build (release) and test
+        uses: leanprover/lean-action@c544e89643240c6b398f14a431bcdc6309e36b3e # v1.4.0
+        with:
+          auto-config: false
+          build: true
+          test: true
+          lint: false
+          mk_all-check: false
+          use-mathlib-cache: true
+          # No GitHub Actions cache service under `act` (env.ACT=true); skip it locally.
+          use-github-cache: ${{ env.ACT != 'true' }}
+          # `fugue` is no longer a default target (the libraries are, for doc-gen4), so name it.
+          # NO_CHECK_DOC turns off the `linter.missingDocs` warning (see lakefile.lean).
+          build-args: 'fugue -KBUILD_TYPE=release -KNO_CHECK_DOC'
+          test-args: '-KNO_CHECK_DOC'
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "version=$(lake script run get-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Strip binary
+        shell: bash
+        run: |
+          set -eux
+          case "${{ runner.os }}" in
+            Linux)
+              strip --strip-all --strip-unneeded .lake/build/bin/fugue ;;
+            macOS)
+              strip -x .lake/build/bin/fugue
+              codesign -f -s - .lake/build/bin/fugue ;;
+            Windows)
+              strip --strip-all .lake/build/bin/fugue.exe ;;
+          esac
+
+      - name: Stage archive contents
+        id: stage
+        shell: bash
+        run: |
+          set -eux
+          os=$(printf '%s' "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          arch=$(printf '%s' "${{ runner.arch }}" | tr '[:upper:]' '[:lower:]')
+          name="fugue-${os}-${arch}"
+          dir="stage/${name}"
+          mkdir -p "$dir"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp .lake/build/bin/fugue.exe "$dir/"
+            bin="fugue.exe"
+          else
+            cp .lake/build/bin/fugue "$dir/"
+            bin="fugue"
+          fi
+          cat > "$dir/README.md" <<EOF
+          # fugue ${{ steps.version.outputs.version }} — ${os}-${arch}
+
+          A verified compiler from Distributed PlusCal / TLA+ to Go.
+
+          ## Install
+
+          1. Move \`${bin}\` to a directory on your \`PATH\` (e.g. \`~/.local/bin\`,
+             \`/usr/local/bin\`).
+          2. Run \`fugue --help\` to confirm it works.
+
+          Source and issues: https://github.com/mesabloo/fugue
+          EOF
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Pack archive (tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tar -C stage -czf "${{ steps.stage.outputs.name }}.tar.gz" "${{ steps.stage.outputs.name }}"
+
+      - name: Pack archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "stage/${{ steps.stage.outputs.name }}" -DestinationPath "${{ steps.stage.outputs.name }}.zip"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.name }}
+          path: |
+            ${{ steps.stage.outputs.name }}.tar.gz
+            ${{ steps.stage.outputs.name }}.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release and upload archives
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: v${{ needs.build.outputs.version }}
+          commit: ${{ github.sha }}
+          artifacts: dist/*
+          skipIfReleaseExists: true
+          makeLatest: true
+          artifactErrorsFailBuild: true
+          body: "Prebuilt `fugue` binaries. See `README.md` in each archive for install steps."
+
+  docs:
+    name: Build and deploy documentation
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      # A bare `act` checkout has no git remote, so doc-gen4's `srcUri` step fails looking for one.
+      # Fall back to file:// source links locally; a real GitHub run has a remote and gets blob URLs.
+      - name: Use file:// source links (act only)
+        if: ${{ env.ACT == 'true' }}
+        run: echo "DOCGEN_SRC=file" >> "$GITHUB_ENV"
+
+      - name: Set up Lake
+        uses: leanprover/lean-action@c544e89643240c6b398f14a431bcdc6309e36b3e # v1.4.0
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          mk_all-check: false
+          use-mathlib-cache: false
+          use-github-cache: ${{ env.ACT != 'true' }}
+
+      # doc-gen4 / docgen-action read lakefile.toml; this project ships lakefile.lean.
+      # `translate-config` errors if a lakefile.toml already exists — non-fatal, docgen-action
+      # reports clearly if the toml is genuinely missing.
+      - name: Translate lakefile.lean to lakefile.toml
+        continue-on-error: true
+        run: lake translate-config toml
+
+      - name: Build API docs (doc-gen4) and deploy to Pages
+        uses: leanprover-community/docgen-action@56023ee2a4b3630c1071825be5bafdb43f540bbd # main
+        with:
+          api-docs: true
+          build-page: false
+          # Keep generated HTML out of the tracked `docs/` tree (diagnostic pages live there).
+          homepage: _docs
+          # `act` sets ACT=true — build the docs locally, never publish from a local run.
+          deploy: ${{ env.ACT != 'true' }}
+
+      - name: Upload built docs (local act runs only)
+        if: ${{ env.ACT == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-docs
+          path: _docs/docs
+          if-no-files-found: error

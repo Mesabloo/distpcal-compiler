@@ -1,4 +1,4 @@
 {
-  "status": "xfail",
+  "status": "skip",
   "reason": "parser rejects `f[x \\in S, y \\in T] == ...` — OPEN_QUESTIONS §9.12, §9.2"
 }

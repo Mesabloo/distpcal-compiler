@@ -126,8 +126,8 @@ def summaryLine (style : ReportStyle) (reports : List FixtureReport) : String ×
     [s!"{tally reports .pass} passed", s!"{failed} failed", s!"{tally reports .xfail} xfailed",
      s!"{tally reports .skip} skipped"]
     ++ (if timedOut == 0 then [] else [s!"{timedOut} timed out"])
-  let hasFailed := failed == 0
-  let color : Color := if hasFailed then .Green else .Red
+  let hasFailed := failed != 0
+  let color : Color := if hasFailed then .Red else .Green
   ⟨styleIf style.colored .Bold (colorizeIf style.colored color (String.intercalate ", " parts)), hasFailed⟩
 
 end
