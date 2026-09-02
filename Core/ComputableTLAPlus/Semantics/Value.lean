@@ -12,9 +12,9 @@ public import ZFLean
   TLA⁺ is untyped set theory, so a value — a number, a string, a set, a function, a tuple, a
   record — is always a set. This development represents that directly: `Value` is mathlib's
   `ZFSet`, set membership is `ZFSet`'s own `∈`, and the encodings below place each syntactic kind
-  of literal into that one universe. Integers use `vtrelat/zflean`'s sign-tagged-pair encoding
-  (`ZFSet.ofInt`), the booleans use its `zftrue`/`zffalse`, and functions, tuples, records and
-  sequences are ordinary sets of ordered pairs.
+  of literal into that one universe. Integers land in `vtrelat/zflean`'s `ZFSet.Int` (via the
+  `ZFInt ≃+* ℤ` equivalence and `ZFInt.into`), the booleans use its `zftrue`/`zffalse`, and
+  functions, tuples, records and sequences are ordinary sets of ordered pairs.
 
   Distinct kinds of value are not kept provably disjoint: `FALSE` and the empty set share an
   encoding, a string and the tuple of its code points share an encoding, and so on. TLA⁺ leaves
@@ -35,10 +35,12 @@ abbrev Value : Type 1 := ZFSet
 
 namespace Value
 
-/-- The integer `z`, as the corresponding element of `zflean`'s `ZFSet.Int` encoding. Routed
-through `ZFInt.into` (rather than `ZFSet.ofInt`) because that map's injectivity is a public lemma,
-whereas `ZFSet.ofInt`'s body is not exposed. -/
-noncomputable def ofInt (z : ℤ) : Value := (ZFSet.ZFInt.into (z : ZFSet.ZFInt)).val
+/-- The integer `z`, as the corresponding element of `zflean`'s `ZFSet.Int` encoding. `z` crosses
+into the quotient integers `ZFInt` along the canonical ring equivalence `ZFInt ≃+* ℤ`
+(`ZFInt.equivInt`), then into `ZFSet.Int` along `ZFInt.into`. Both legs are injective with public
+injectivity lemmas, so `ofInt` is too (`ofInt_inj`). -/
+noncomputable def ofInt (z : ℤ) : Value :=
+  (ZFSet.ZFInt.into (ZFSet.ZFInt.equivInt.symm z)).val
 
 /-- The natural number `n`, as the integer `n`. TLA⁺ has one numeric type; `Nat` is a subset of
 `Int`, not a separate encoding. -/
@@ -96,13 +98,10 @@ instance : Inhabited Value := ⟨(∅ : ZFSet)⟩
   cases a <;> cases b <;>
     simp [ofBool, tru_ne_fls, tru_ne_fls.symm]
 
-/-- The integer encoding is injective. -/
+/-- The integer encoding is injective — both legs of `ofInt` are. -/
 @[simp] theorem ofInt_inj {a b : ℤ} : ofInt a = ofInt b ↔ a = b := by
   refine ⟨λ h ↦ ?_, λ h ↦ h ▸ rfl⟩
-  have hcast : ((a : ZFSet.ZFInt)) = ((b : ZFSet.ZFInt)) :=
-    ZFSet.ZFInt.into.injective (Subtype.ext h)
-  have := congrArg ZFSet.ZFInt.equivInt hcast
-  rwa [ZFSet.ZFInt.equivInt_intCast, ZFSet.ZFInt.equivInt_intCast] at this
+  exact ZFSet.ZFInt.equivInt.symm.injective (ZFSet.ZFInt.into.injective (Subtype.ext h))
 
 /-- The natural-number encoding is injective. -/
 @[simp] theorem ofNat_inj {m n : ℕ} : ofNat m = ofNat n ↔ m = n := by
@@ -114,6 +113,22 @@ instance : Inhabited Value := ⟨(∅ : ZFSet)⟩
   induction vs with
   | nil => simp [ZFSet.notMem_empty]
   | cons v vs ih => simp [List.foldr, ZFSet.mem_insert_iff, ih, List.mem_cons]
+
+/-- The integer interval `a .. b` — what TLA⁺'s `..` denotes. Empty when `b < a`. Given as an
+explicit finite-set literal over the enumerated integers so that it is a closed-form function of
+its bounds, not merely a set characterised up to extensionality. -/
+noncomputable def intRange (a b : ℤ) : Value :=
+  ofFinSet ((List.range (b + 1 - a).toNat).map (λ i : ℕ ↦ ofInt (a + i)))
+
+/-- `a .. b` holds exactly the integers from `a` to `b` inclusive. -/
+@[simp] theorem mem_intRange {z : Value} {a b : ℤ} :
+    z ∈ intRange a b ↔ ∃ k : ℤ, a ≤ k ∧ k ≤ b ∧ z = ofInt k := by
+  simp only [intRange, mem_ofFinSet, List.mem_map, List.mem_range]
+  constructor
+  · rintro ⟨i, hi, rfl⟩
+    exact ⟨a + i, by omega, by omega, rfl⟩
+  · rintro ⟨k, hka, hkb, rfl⟩
+    exact ⟨(k - a).toNat, by omega, by rw [ofInt_inj]; omega⟩
 
 /-- The pairs of a `seqGraphFrom`: one per list position, keyed by its index. -/
 theorem mem_seqGraphFrom {z : Value} {start : ℕ} {vs : List Value} :
@@ -161,6 +176,46 @@ theorem ofSeq_inj {vs ws : List Value} : ofSeq vs = ofSeq ws ↔ vs = ws := by
     omega
   exact List.ext_getElem (Nat.le_antisymm (hle vs ws h) (hle ws vs h.symm))
     (λ i h1 _ ↦ (key vs ws h i h1).2)
+
+/-- A sequence/tuple value is a partial function: `{1 ↦ v₁, …, n ↦ vₙ}` over the interval `1 .. n`
+into its own elements. This is the `IsPFunc` witness `fnApply`/`ZFSet.fapply` needs to read a
+sequence at an index. -/
+theorem ofSeq_isPFunc (vs : List Value) :
+    (ofSeq vs).IsPFunc (intRange 1 vs.length) (ofFinSet vs) := by
+  refine ⟨λ z hz ↦ ?_, λ x y hxy z hxz ↦ ?_⟩
+  · obtain ⟨i, hi, rfl⟩ := mem_ofSeq.mp hz
+    refine ZFSet.pair_mem_prod.mpr ⟨?_, mem_ofFinSet.mpr (List.getElem_mem hi)⟩
+    rw [mem_intRange]
+    exact ⟨(i : ℤ) + 1, by omega, by omega, by rw [ofNat, Nat.cast_add, Nat.cast_one]⟩
+  · obtain ⟨i, hi, hei⟩ := mem_ofSeq.mp hxy
+    obtain ⟨j, hj, hej⟩ := mem_ofSeq.mp hxz
+    rw [ZFSet.pair_inj] at hei hej
+    obtain ⟨hxi, rfl⟩ := hei
+    obtain ⟨hxj, rfl⟩ := hej
+    rw [hxi, ofNat_inj] at hxj
+    obtain rfl : i = j := by omega
+    rfl
+
+/-- The TLA⁺ cartesian product `A \X B`: every pair `<<a, b>>` with `a ∈ A` and `b ∈ B`. Carved
+by `ZFSet.sep` out of the powerset that bounds the two-element tuple encodings, so it is a
+closed-form function of `A` and `B`, not a set fixed only up to extensionality. -/
+noncomputable def cartesian (A B : Value) : Value :=
+  ZFSet.sep (λ z ↦ ∃ a ∈ A, ∃ b ∈ B, z = ofTuple [a, b])
+    (ofFinSet [ofNat 1, ofNat 2] |>.prod (A ∪ B)).powerset
+
+/-- `A \X B` holds exactly the pairs `<<a, b>>` with `a ∈ A` and `b ∈ B`. -/
+@[simp] theorem mem_cartesian {z A B : Value} :
+    z ∈ cartesian A B ↔ ∃ a ∈ A, ∃ b ∈ B, z = ofTuple [a, b] := by
+  rw [cartesian, ZFSet.mem_sep, and_iff_right_iff_imp]
+  rintro ⟨a, ha, b, hb, rfl⟩
+  rw [ZFSet.mem_powerset]
+  intro w hw
+  simp only [ofTuple, mem_ofSeq] at hw
+  obtain ⟨i, hi, rfl⟩ := hw
+  rw [ZFSet.pair_mem_prod, mem_ofFinSet, ZFSet.mem_union]
+  match i, hi with
+  | 0, _ => exact ⟨by simp, .inl ha⟩
+  | 1, _ => exact ⟨by simp, .inr hb⟩
 
 /-- The pairs of a `recordGraph`: one per field, keyed by the string encoding of its name. -/
 theorem mem_recordGraph {z : Value} {fs : List (String × Value)} :

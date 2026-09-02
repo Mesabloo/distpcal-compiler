@@ -51,38 +51,123 @@ def IsSet (v : Value) : Prop := ¬ IsBool v ∧ ¬ IsInt v
 /-- `s` is exactly the canonical sequence value whose elements, in order, are `vs`. -/
 def IsSeq (s : Value) (vs : List Value) : Prop := s = Value.ofSeq vs
 
-/-- Function application on a value: the unique `w` paired with `k`, or a junk value when `f` is not
-a function or `k` is outside its domain. `Classical.epsilon`, so it is total and deterministic; the
-out-of-domain case is imprecise rather than aborting, which the type checker covers. -/
-noncomputable def fnApply (f k : Value) : Value :=
-  Classical.epsilon (λ w ↦ ZFSet.pair k w ∈ f)
+/-- Function application on a value: `zflean`'s `ZFSet.fapply` (`@ᶻ`), which for a partial function
+`f` returns the unique `w` with `⟨k, w⟩ ∈ f`. It is genuinely partial — an `IsPFunc` witness and a
+domain-membership proof are its inputs — so, unlike a `Classical.epsilon` stand-in, every use site
+must have those facts in hand. -/
+noncomputable def fnApply {f A B : Value} (hf : f.IsPFunc A B) (k : Value)
+    (hk : k ∈ f.Dom hf.1) : Value :=
+  (ZFSet.fapply f hf ⟨k, hk⟩).val
 
-/-- `f` with the key `k` rebound to `w`: drop the pair already at `k`, add `(k, w)`. -/
+/-- `fnApply` lands where `zflean` says it does: paired with `k` in `f`. -/
+theorem fnApply_spec {f A B : Value} (hf : f.IsPFunc A B) {k : Value} (hk : k ∈ f.Dom hf.1) :
+    ZFSet.pair k (fnApply hf k hk) ∈ f :=
+  ZFSet.fapply.def hf hk
+
+/-- `fnApply` is pinned by any pair of `f` at `k` — `f` is single-valued. -/
+theorem fnApply_eq {f A B : Value} (hf : f.IsPFunc A B) {k w : Value} (hk : k ∈ f.Dom hf.1)
+    (hw : ZFSet.pair k w ∈ f) : fnApply hf k hk = w :=
+  hf.2 k _ (fnApply_spec hf hk) w hw
+
+/-- `fnApply` does not depend on which `IsPFunc` witness it is taken with. -/
+theorem fnApply_congr {f A₁ B₁ A₂ B₂ : Value} (h₁ : f.IsPFunc A₁ B₁) (h₂ : f.IsPFunc A₂ B₂)
+    {k : Value} (hk₁ : k ∈ f.Dom h₁.1) (hk₂ : k ∈ f.Dom h₂.1) :
+    fnApply h₁ k hk₁ = fnApply h₂ k hk₂ :=
+  fnApply_eq h₁ hk₁ (fnApply_spec h₂ hk₂)
+
+/-- The set-theoretic read `⋂₀ f[{k}]` — the value `zflean`'s `fapply` reduces to
+(`fapply_eq_Image_singleton`), left total (junk `∅` off-domain) so it can drive `updatePath`'s
+descent, where the recursion has no `IsPFunc` witness to offer. `fnRead_eq_fnApply` proves it
+agrees with `fnApply` wherever both are defined. -/
+noncomputable def fnRead (f k : Value) : Value :=
+  ZFSet.sInter (ZFSet.sep (λ w ↦ ZFSet.pair k w ∈ f) (ZFSet.sUnion (ZFSet.sUnion f)))
+
+/-- The second coordinate of any pair of `f` is reachable through `⋃₀ ⋃₀ f` — `fnRead`'s bound. -/
+private theorem snd_mem_sUsU {f k w : Value} (h : ZFSet.pair k w ∈ f) :
+    w ∈ ZFSet.sUnion (ZFSet.sUnion f) := by
+  have h1 : ({k, w} : ZFSet) ∈ ZFSet.pair k w := by
+    rw [ZFSet.pair, ZFSet.mem_insert_iff]; right; rw [ZFSet.mem_singleton]
+  exact ZFSet.mem_sUnion.mpr ⟨{k, w}, ZFSet.mem_sUnion.mpr ⟨_, h, h1⟩, by
+    rw [ZFSet.mem_insert_iff, ZFSet.mem_singleton]; right; rfl⟩
+
+/-- `fnRead` agrees with `zflean`'s `fapply` on a partial function at a domain point: both name the
+unique image of `k`. -/
+theorem fnRead_eq_fnApply {f A B : Value} (hf : f.IsPFunc A B) {k : Value}
+    (hk : k ∈ f.Dom hf.1) : fnRead f k = fnApply hf k hk := by
+  have hspec := fnApply_spec hf hk
+  have hsep : ZFSet.sep (λ w ↦ ZFSet.pair k w ∈ f) (ZFSet.sUnion (ZFSet.sUnion f))
+      = {fnApply hf k hk} := by
+    apply ZFSet.ext; intro w
+    rw [ZFSet.mem_sep, ZFSet.mem_singleton]
+    refine ⟨λ h ↦ (fnApply_eq hf hk h.2).symm, ?_⟩
+    rintro rfl
+    exact ⟨snd_mem_sUsU hspec, hspec⟩
+  simp only [fnRead, hsep, ZFSet.sInter_singleton]
+
+/-- `f` with the key `k` rebound to `w`: drop every pair keyed at `k`, add `⟨k, w⟩`. Uses
+`zflean`'s first projection `ZFSet.π₁` rather than reading the old value out first, so it is the
+correct override for any `f` with no functionhood precondition. -/
 noncomputable def fnUpdate (f k w : Value) : Value :=
-  insert (ZFSet.pair k w) (f \ {ZFSet.pair k (fnApply f k)})
+  insert (ZFSet.pair k w) (ZFSet.sep (λ p ↦ p.π₁ ≠ k) f)
 
 /-- `updatePath old path v` — `old` with the position named by `path` overwritten by `v`, `none`
 when a `.inr` index does not resolve. `path = []` overwrites outright. -/
 noncomputable def updatePath : Value → List (PathStep Value) → Value → Option Value
   | _, [], v => some v
   | old, .inl fld :: rest, v =>
-    (updatePath (fnApply old (Value.ofString fld)) rest v).map (fnUpdate old (Value.ofString fld))
+    (updatePath (fnRead old (Value.ofString fld)) rest v).map (fnUpdate old (Value.ofString fld))
   | old, .inr k :: rest, v =>
-    (updatePath (fnApply old k) rest v).map (fnUpdate old k)
+    (updatePath (fnRead old k) rest v).map (fnUpdate old k)
 
 /-- Append to a sequence value: succeeds exactly when `s` is a sequence, extending its element
 list on the right. -/
 noncomputable def seqAppend (s v : Value) : Option Value := by
   classical exact if h : ∃ vs, s = Value.ofSeq vs then some (Value.ofSeq (h.choose ++ [v])) else none
 
+/-! ### `DOMAIN` support
+
+`zflean`'s `ZFSet.Dom` — the domain of a partial function — needs the ambient `A × B` the function
+lives in. `EvalBuiltin.domain` supplies it as an `IsPFunc` witness; these three lemmas bridge that
+form to the graph-level `∃ w, ⟨z, w⟩ ∈ f` characterisation the coercion proofs speak in. -/
+
+/-- `f.Dom` holds exactly the keys of `f`'s graph, for `f` a partial function. -/
+theorem mem_dom_iff {f A B : Value} (hf : f.IsPFunc A B) {z : Value} :
+    z ∈ f.Dom hf.1 ↔ ∃ w, ZFSet.pair z w ∈ f := by
+  rw [ZFSet.mem_sep]
+  refine ⟨λ h ↦ h.2.imp λ w hw ↦ hw.2, λ ⟨w, hw⟩ ↦ ?_⟩
+  obtain ⟨hzA, hwB⟩ := ZFSet.pair_mem_prod.mp (hf.1 hw)
+  exact ⟨hzA, w, hwB, hw⟩
+
+/-- `f.Dom` does not depend on which ambient `A × B` witness it is taken with. -/
+theorem dom_eq_dom {f A₁ B₁ A₂ B₂ : Value} (h₁ : f ⊆ A₁.prod B₁) (h₂ : f ⊆ A₂.prod B₂) :
+    f.Dom h₁ = f.Dom h₂ := by
+  refine ZFSet.ext λ z ↦ ?_
+  simp only [ZFSet.Dom, ZFSet.mem_sep]
+  constructor
+  · rintro ⟨-, y, -, hp⟩
+    obtain ⟨hz, hy⟩ := ZFSet.pair_mem_prod.mp (h₂ hp)
+    exact ⟨hz, y, hy, hp⟩
+  · rintro ⟨-, y, -, hp⟩
+    obtain ⟨hz, hy⟩ := ZFSet.pair_mem_prod.mp (h₁ hp)
+    exact ⟨hz, y, hy, hp⟩
+
+/-- A partial function is still one over its own domain. -/
+theorem isPFunc_restrict_dom {f A B : Value} (hf : f.IsPFunc A B) :
+    f.IsPFunc (f.Dom hf.1) B := by
+  refine ⟨λ z hz ↦ ?_, hf.2⟩
+  obtain ⟨a, ha, b, hb, rfl⟩ := ZFSet.mem_prod.mp (hf.1 hz)
+  exact ZFSet.pair_mem_prod.mpr ⟨(mem_dom_iff hf).mpr ⟨b, hz⟩, hb⟩
+
 /-! ## Builtin operator evaluation -/
 
 /-- `EvalBuiltin op args v` — the builtin `op`, applied to already-evaluated arguments `args`,
 denotes `v`. Strict in argument kinds: an arm exists only for the shapes the operator is defined
 on. Covers the operators reachable from a computable algorithm. The `Bags` family,
-`Cardinality`/`IsFiniteSet`, and `\prec` have no arm — a call to one of them denotes nothing. -/
--- TODO: I left a few notes for some constructor. To me, it feels like you are not making use of anything that `ZFLean`
--- gives us, although we don't necessarily need much here.
+`Cardinality`/`IsFiniteSet`, and `\prec` have no arm — a call to one of them denotes nothing.
+
+Set-valued results are given by a `ZFSet`/`zflean` term wherever one exists (`∪`/`∩`/`\` for the
+set combinators, `f.Dom` for `DOMAIN`), and by a closed-form `Value` builder otherwise
+(`Value.intRange` for `..`). No arm characterises its result only by an existence law. -/
 inductive EvalBuiltin : BuiltinOp → List Value → Value → Prop
   -- equality
   | eq_pos {a : Value} : EvalBuiltin .eq [a, a] Value.tru
@@ -115,15 +200,10 @@ inductive EvalBuiltin : BuiltinOp → List Value → Value → Prop
   | cup {A B : Value} : EvalBuiltin .cup [A, B] (A ∪ B)
   | cap {A B : Value} : EvalBuiltin .cap [A, B] (A ∩ B)
   | setMinus {A B : Value} : EvalBuiltin .setMinus [A, B] (A \ B)
-  | cartesianProduct {A B v : Value}
-      (hv : ∀ z, z ∈ v ↔ ∃ a ∈ A, ∃ b ∈ B, z = Value.ofSeq [a, b]) :
-      -- TODO: why `ofSeq` and not `ofTuple`? This would be less obscure.
-      EvalBuiltin .cartesianProduct [A, B] v
-  | domain {f v : Value} (hv : ∀ z, z ∈ v ↔ ∃ w, ZFSet.pair z w ∈ f) :
-      -- TODO: why not state `hv` as `∀ z, z ∈ v ↔ z ∈ f.Dom`, other than the fact that it requires an additional `f.IsPFunc` hypothesis which is
-      -- perfectly reasonable?
-      -- Another way would be to directly specialize `v := f.Dom` rather than using `hv`.
-      EvalBuiltin .domain [f] v
+  | cartesianProduct {A B : Value} :
+      EvalBuiltin .cartesianProduct [A, B] (Value.cartesian A B)
+  | domain {f A B : Value} (hf : f.IsPFunc A B) :
+      EvalBuiltin .domain [f] (f.Dom hf.1)
   -- integer arithmetic
   | plus {x y : ℤ} : EvalBuiltin .plus [Value.ofInt x, Value.ofInt y] (Value.ofInt (x + y))
   | minus {x y : ℤ} : EvalBuiltin .minus [Value.ofInt x, Value.ofInt y] (Value.ofInt (x - y))
@@ -140,10 +220,8 @@ inductive EvalBuiltin : BuiltinOp → List Value → Value → Prop
   | leq_neg {x y : ℤ} (h : ¬ x ≤ y) : EvalBuiltin .leq [Value.ofInt x, Value.ofInt y] Value.fls
   | geq_pos {x y : ℤ} (h : y ≤ x) : EvalBuiltin .geq [Value.ofInt x, Value.ofInt y] Value.tru
   | geq_neg {x y : ℤ} (h : ¬ y ≤ x) : EvalBuiltin .geq [Value.ofInt x, Value.ofInt y] Value.fls
-  | range {a b : ℤ} {v : Value}
-      (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, a ≤ k ∧ k ≤ b ∧ z = Value.ofInt k) :
-      -- TODO: Same comment as for `domain`
-      EvalBuiltin .range [Value.ofInt a, Value.ofInt b] v
+  | dotdot {a b : ℤ} :
+      EvalBuiltin .dotdot [Value.ofInt a, Value.ofInt b] (Value.intRange a b)
   -- `Naturals`'s `Nat` and `Integers`'s `Int` are not here: they are never *called* (`Nat()` is not
   -- a term), only referenced by bare name, so they are `Eval` rules on the `.var` node directly
   -- (`Eval.natSet`/`Eval.intSet`), not builtin operators.
@@ -293,17 +371,15 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
       (hes : EvalList Ξ Ω M es vs)
       (hto : ∀ z ∈ v, z ∈ vs) (hof : ∀ z ∈ vs, z ∈ v) :
       Eval Ξ Ω M (.set es τ) v
-  -- set filter. `filt z` is what `pred` denotes at `z`; membership is `filt z = TRUE`. Keeping
-  -- the predicate's value (rather than the proposition "pred holds") is what keeps `Eval` out of a
-  -- negative position.
-  | collect {M : Memory Value} {x : String} {τ : Typ} {dom pred : Expression Typ} {S v : Value}
+  -- set filter `{x ∈ S : pred}`. `filt z` is what `pred` denotes at `z`; the result is
+  -- `ZFSet.sep` at the predicate `filt z = TRUE`. Carrying the predicate's *value* (rather than
+  -- the proposition "pred holds") keeps `Eval` out of a negative position, and `ZFSet.sep` gives
+  -- the result outright, as a function of `S` and `filt`.
+  | collect {M : Memory Value} {x : String} {τ : Typ} {dom pred : Expression Typ} {S : Value}
       (filt : Value → Value) (L : Finset String)
       (hdom : Eval Ξ Ω M dom S)
-      (hfilt : ∀ y, y ∉ L → ∀ z, z ∈ S → Eval Ξ Ω (M.insert y z) (pred.openVar y) (filt z))
-      (hto : ∀ z ∈ v, z ∈ S ∧ filt z = Value.tru)
-      (hof : ∀ z ∈ S, filt z = Value.tru → z ∈ v) :
-    -- TODO: why not use `ZFSet.sep`? Are you afraid of indexed inductives?
-      Eval Ξ Ω M (.collect x τ dom pred) v
+      (hfilt : ∀ y, y ∉ L → ∀ z, z ∈ S → Eval Ξ Ω (M.insert y z) (pred.openVar y) (filt z)) :
+      Eval Ξ Ω M (.collect x τ dom pred) (ZFSet.sep (λ z ↦ filt z = Value.tru) S)
   -- set image. `img` names the mapped value at each point, keeping `Eval` out of an existential.
   | map' {M : Memory Value} {body : Expression Typ} {x : String} {ann cod : Typ}
       {dom : Expression Typ} {S v : Value} (img : Value → Value) (L : Finset String)
@@ -312,12 +388,13 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
       (hto : ∀ z ∈ v, ∃ w ∈ S, z = img w)
       (hof : ∀ w ∈ S, img w ∈ v) :
       Eval Ξ Ω M (.map' body x ann cod dom) v
-  -- function application (deterministic via `fnApply`). `hdom` — the argument is in the function's
-  -- domain: applying a function outside its domain is undefined, so no derivation exists there.
+  -- function application, via `zflean`'s `ZFSet.fapply`. `hpf`/`hkdom` — the head denotes a partial
+  -- function and the argument is in its domain: applying outside the domain is undefined, so no
+  -- derivation exists there. Which `A × B` the `IsPFunc` witness names is immaterial (`fnApply_congr`).
   | fnCall {M : Memory Value} {f : Expression Typ} {fnTyp : Typ} {arg : Expression Typ}
-      {r k : Value} (hf : Eval Ξ Ω M f r) (hk : Eval Ξ Ω M arg k)
-      (hdom : ∃ w, ZFSet.pair k w ∈ r) :
-      Eval Ξ Ω M (.fnCall f fnTyp arg) (fnApply r k)
+      {r k A B : Value} (hf : Eval Ξ Ω M f r) (hk : Eval Ξ Ω M arg k)
+      (hpf : r.IsPFunc A B) (hkdom : k ∈ r.Dom hpf.1) :
+      Eval Ξ Ω M (.fnCall f fnTyp arg) (fnApply hpf k hkdom)
   -- function literal (existence law: the graph is characterised, not built)
   | fn {M : Memory Value} {x : String} {ann cod : Typ} {dom body : Expression Typ} {S G : Value}
       (img : Value → Value) (L : Finset String)
@@ -332,17 +409,16 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
   | record {M : Memory Value} {fs : List (Typ × String × Expression Typ)} {vs : List Value}
       (hfne : fs ≠ []) (hfs : EvalList Ξ Ω M (fs.map (·.2.2)) vs) :
       Eval Ξ Ω M (.record fs) (Value.ofRecord ((fs.map (·.2.1)).zip vs))
-  -- record field access (deterministic via `fnApply`). `hdom` — the field is present, same reason
+  -- record field access, via `ZFSet.fapply`. `hpf`/`hkdom` — the field is present, same reason
   -- as `fnCall`.
-  | recordAccess {M : Memory Value} {e : Expression Typ} {name : String} {r : Value}
+  | recordAccess {M : Memory Value} {e : Expression Typ} {name : String} {r A B : Value}
       (he : Eval Ξ Ω M e r)
-      (hdom : ∃ w, ZFSet.pair (Value.ofString name) w ∈ r) :
-      Eval Ξ Ω M (.recordAccess e name) (fnApply r (Value.ofString name))
+      (hpf : r.IsPFunc A B) (hkdom : Value.ofString name ∈ r.Dom hpf.1) :
+      Eval Ξ Ω M (.recordAccess e name) (fnApply hpf (Value.ofString name) hkdom)
   -- tuple literal
   | tuple {M : Memory Value} {ets : List (Typ × Expression Typ)} {vs : List Value}
       (hets : ets ≠ []) (hes : EvalList Ξ Ω M (ets.map (·.2)) vs) :
-      -- TODO: `ofTuple` not `ofSeq`
-      Eval Ξ Ω M (.tuple ets) (Value.ofSeq vs)
+      Eval Ξ Ω M (.tuple ets) (Value.ofTuple vs)
   -- sequence literal
   | seq {M : Memory Value} {es : List (Expression Typ)} {τ : Typ} {vs : List Value}
       (hes : EvalList Ξ Ω M es vs) :
@@ -361,8 +437,10 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
   | if_false {M : Memory Value} {c t e : Expression Typ} {τ : Typ} {v : Value}
       (hc : Eval Ξ Ω M c Value.fls) (he : Eval Ξ Ω M e v) :
       Eval Ξ Ω M (.if c t e τ) v
-  -- case, first matching guard wins
-  -- TODO: that comment is wrong: any matching guard wins, not necessarily the first one
+  -- `CASE`. TLA⁺ leaves the value unspecified when several guards hold at once; this evaluator
+  -- pins it down to the *earliest* true guard — `hbefore` demands every earlier guard denote
+  -- `FALSE` (not merely fail to denote `TRUE`) — so `Eval` stays a function. A deterministic
+  -- refinement of the source rule, same shape as the compiler's other underspecification choices.
   | case_hit {M : Memory Value} {bs : List (Expression Typ × Expression Typ)}
       {other : Option (Expression Typ)} {τ : Typ} {i : ℕ} {p q : Expression Typ} {v : Value}
       (hi : bs[i]? = some (p, q))
@@ -405,48 +483,59 @@ the built expression's actual effect on `v` — either type-changing work (`set`
 `function` remapping element types) or a re-view whose result only coincides with `v` when `v` has
 the right shape (`tupleToSeq`: `v` must have entries at keys `1..n`; the built `<<v[1], …, v[n]>>`
 denotes something else otherwise, and `Eval.fnCall`'s domain premise makes it denote nothing when
-an entry is missing). Every `fnApply v k` a case names carries a paired `∃ w, ⟨k, w⟩ ∈ v` alongside
-it — the same domain fact `Eval.fnCall` demands, so `evalCoerce` can rebuild the derivation
-backwards. -/
--- TODO: this should be an indexed inductive.......
+an entry is missing). A case that reads `v` at a key `k` names the read value existentially with a
+paired `⟨k, vk⟩ ∈ v`, and (`tupleToSeq`/`tuple`/`record`/`function`) an `∃ A B, v.IsPFunc A B`
+witness — the two facts `Eval.fnCall`/`recordAccess` demand, so `evalCoerce` can rebuild the
+derivation backwards.
+
+A recursion on `c`, not an indexed inductive: `evalCoerce'` and `coerceUnique` both recurse on the
+`Coercion` structure and `simp only [coerce]` to expose each arm's `∃`/`∀`/`↔` body for
+`iff_rintro`; an inductive would replace every such unfold with a bespoke inversion lemma. The
+termination obligation it saves is one `calc` (the `.tuple` arm) plus `sizeOf_record_field`. -/
 def coerce : Coercion → Value → Value → Prop
   | .id, v, v' => v' = v
   | .strToSeq, v, v' => v' = v
   | .seqToFun _ _, v, v' => (∃ vs, IsSeq v vs) ∧ v' = v
   | .tupleToSeq n _ _, v, v' =>
-    (∀ i, i < n → ∃ w, ZFSet.pair (Value.ofNat (i + 1)) w ∈ v) ∧
-      v' = Value.ofSeq ((List.range n).map (λ i ↦ fnApply v (Value.ofNat (i + 1))))
+    (∃ A B, v.IsPFunc A B) ∧
+    ∃ ws : List Value, ws.length = n ∧
+      (∀ i vk, ws[i]? = some vk → ZFSet.pair (Value.ofNat (i + 1)) vk ∈ v) ∧
+      v' = Value.ofSeq ws
   | .set _ _ _ c, v, v' =>
     (∀ w ∈ v, ∃ z, coerce c w z) ∧ (∀ z, z ∈ v' ↔ ∃ w ∈ v, coerce c w z)
   | .tuple coes _ _, v, v' =>
-    coes ≠ [] ∧
+    coes ≠ [] ∧ (∃ A B, v.IsPFunc A B) ∧
     ∃ ws : List Value, IsSeq v' ws ∧ ws.length = coes.length ∧
       ∀ i : ℕ, ∀ (_ : i < coes.length) (_ : i < ws.length),
-        (∃ w, ZFSet.pair (Value.ofNat (i + 1)) w ∈ v) ∧
-        coerce coes[i] (fnApply v (Value.ofNat (i + 1))) ws[i]
+        ∃ vk, ZFSet.pair (Value.ofNat (i + 1)) vk ∈ v ∧ coerce coes[i] vk ws[i]
   | .record fields, v, v' =>
-    fields ≠ [] ∧
-    (∀ nc ∈ fields, ∃ w w', ZFSet.pair (Value.ofString nc.1) w' ∈ v ∧ coerce nc.2.1 (fnApply v (Value.ofString nc.1)) w) ∧
-    (∀ z, z ∈ v' ↔ ∃ nc, ∃ _h : nc ∈ fields, ∃ w,
-      coerce nc.2.1 (fnApply v (Value.ofString nc.1)) w ∧ z = ZFSet.pair (Value.ofString nc.1) w)
+    fields ≠ [] ∧ (∃ A B, v.IsPFunc A B) ∧
+    (∀ nc ∈ fields, ∃ vk w, ZFSet.pair (Value.ofString nc.1) vk ∈ v ∧ coerce nc.2.1 vk w) ∧
+    (∀ z, z ∈ v' ↔ ∃ nc, ∃ _h : nc ∈ fields, ∃ vk w,
+      ZFSet.pair (Value.ofString nc.1) vk ∈ v ∧ coerce nc.2.1 vk w ∧
+      z = ZFSet.pair (Value.ofString nc.1) w)
   | .function _ _ _ _ _ _ cDom cRng, v, v' =>
     -- `D` is `v`'s domain, `Sd` the coerced domain (`cDom`'s image over `D`); both are named as
     -- sets because `applyComputable` builds a `DOMAIN`/`.map'` that must evaluate to one, and the
-    -- untyped value universe has no domain operator to recover them after the fact. `v'`'s value at
-    -- a coerced key `w` is `cRng` applied to `v` at *some* preimage of `w` — `applyComputable`
-    -- recovers one with `CHOOSE`, matched here by `Classical.epsilon` over the same predicate. Both
-    -- totality conjuncts follow `applyComputable`'s `.map'`/`.fn`, which demand every point of the
-    -- *built* domain evaluate: `cDom` at every point of `D`, and `cRng` at the recovered preimage
-    -- of every point of `Sd` — never at an arbitrary point of `v`.
-    ∃ D Sd : Value,
+    -- untyped value universe has no domain operator to recover them after the fact. `v.IsPFunc D Rng`
+    -- records that `v` really is a partial function into `D × Rng` — `Eval.opCall_builtin`'s
+    -- `EvalBuiltin.domain` demands exactly that witness, and `D` then coincides with `v.Dom`. `v'`'s
+    -- value at a coerced key `w` is `cRng` applied to `v` at *some* preimage of `w` —
+    -- `applyComputable` recovers one with `CHOOSE`, matched here by `Classical.epsilon` over the same
+    -- predicate. Both totality conjuncts follow `applyComputable`'s `.map'`/`.fn`, which demand every
+    -- point of the *built* domain evaluate: `cDom` at every point of `D`, and `cRng` at the recovered
+    -- preimage of every point of `Sd` — never at an arbitrary point of `v`.
+    ∃ D Sd Rng : Value,
+      v.IsPFunc D Rng ∧
       (∀ z, z ∈ D ↔ ∃ w, ZFSet.pair z w ∈ v) ∧
       (∀ k ∈ D, ∃ w, coerce cDom k w) ∧
       (∀ w, w ∈ Sd ↔ ∃ k ∈ D, coerce cDom k w) ∧
-      (∀ w ∈ Sd, ∃ r',
-        coerce cRng (fnApply v (Classical.epsilon λ k ↦ k ∈ D ∧ coerce cDom k w)) r') ∧
-      ∀ z, z ∈ v' ↔ ∃ w ∈ Sd, ∃ r',
-        coerce cRng (fnApply v (Classical.epsilon λ k ↦ k ∈ D ∧ coerce cDom k w)) r' ∧
-        z = ZFSet.pair w r'
+      (∀ w ∈ Sd, ∃ vk r',
+        ZFSet.pair (Classical.epsilon λ k ↦ k ∈ D ∧ coerce cDom k w) vk ∈ v ∧
+        coerce cRng vk r') ∧
+      ∀ z, z ∈ v' ↔ ∃ w ∈ Sd, ∃ vk r',
+        ZFSet.pair (Classical.epsilon λ k ↦ k ∈ D ∧ coerce cDom k w) vk ∈ v ∧
+        coerce cRng vk r' ∧ z = ZFSet.pair w r'
   | .comp c₁ c₂, v, v' => ∃ mid, coerce c₁ v mid ∧ coerce c₂ mid v'
 termination_by c => sizeOf c
 decreasing_by
@@ -560,6 +649,7 @@ theorem evalBuiltinUnique {op : BuiltinOp} {args : List Value} {v w : Value}
       | rfl
       | (exfalso; omega)
       | contradiction
+      | (subst hA; exact dom_eq_dom _ _)
       | (rw [ZFSet.ext_iff]; simp_all)
       | (obtain ⟨rfl, rfl⟩ := hA; first | rfl | contradiction | simp_all)
 
@@ -572,21 +662,30 @@ theorem evalBuiltin_len_inv {a b : Value} (h : EvalBuiltin .len [a] b) :
   | len => obtain ⟨rfl, -⟩ := List.cons.injEq .. |>.mp hA; exact ⟨_, rfl, rfl⟩
 
 /-- `..` builds an integer interval — inversion. -/
-theorem evalBuiltin_range_inv {a b s : Value} (h : EvalBuiltin .range [a, b] s) :
+theorem evalBuiltin_dotdot_inv {a b s : Value} (h : EvalBuiltin .dotdot [a, b] s) :
     ∃ x y : ℤ, a = Value.ofInt x ∧ b = Value.ofInt y ∧
       ∀ z, z ∈ s ↔ ∃ k : ℤ, x ≤ k ∧ k ≤ y ∧ z = Value.ofInt k := by
   generalize hA : [a, b] = A at h
   cases h with
-  | range hv =>
+  | dotdot =>
     obtain ⟨rfl, rfl, -⟩ := by simpa only [List.cons.injEq, and_true] using hA
-    exact ⟨_, _, rfl, rfl, hv⟩
+    exact ⟨_, _, rfl, rfl, λ _ ↦ Value.mem_intRange⟩
 
 /-- `DOMAIN` denotes the set of keys of a function value — inversion. -/
 theorem evalBuiltin_domain_inv {f s : Value} (h : EvalBuiltin .domain [f] s) :
     ∀ z, z ∈ s ↔ ∃ w, ZFSet.pair z w ∈ f := by
   generalize hA : [f] = A at h
   cases h with
-  | domain hv => obtain ⟨rfl, -⟩ := List.cons.injEq .. |>.mp hA; exact hv
+  | domain hf => obtain ⟨rfl, -⟩ := List.cons.injEq .. |>.mp hA; exact λ _ ↦ mem_dom_iff hf
+
+/-- `DOMAIN` denotes a set over which its argument is still a partial function — inversion. -/
+theorem evalBuiltin_domain_isPFunc {f s : Value} (h : EvalBuiltin .domain [f] s) :
+    ∃ B : Value, f.IsPFunc s B := by
+  generalize hA : [f] = A at h
+  cases h with
+  | domain hf =>
+    obtain ⟨rfl, -⟩ := List.cons.injEq .. |>.mp hA
+    exact ⟨_, isPFunc_restrict_dom hf⟩
 
 /-- `=` on values denotes `TRUE` on equal arguments, `FALSE` otherwise — inversion. -/
 theorem evalBuiltin_eq_inv {a b c : Value} (h : EvalBuiltin .eq [a, b] c) :
@@ -745,17 +844,16 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     | set hes' hto' hof' =>
       obtain rfl := ihes _ hes'
       exact ZFSet.ext λ z ↦ ⟨λ hz ↦ hof' z (hto z hz), λ hz ↦ hof z (hto' z hz)⟩
-  | collect filt L hdom hfilt hto hof ihdom ihfilt =>
+  | collect filt L hdom hfilt ihdom ihfilt =>
     intro w h₂; cases h₂ with
-    | collect filt' L' hdom' hfilt' hto' hof' =>
+    | collect filt' L' hdom' hfilt' =>
       obtain rfl := ihdom hdom'
       obtain ⟨y, hy⟩ := exists_fresh (L ∪ L')
       obtain ⟨hyL, hyL'⟩ := Finset.notMem_union.mp hy
-      refine ZFSet.ext λ z ↦ ⟨λ hz ↦ ?_, λ hz ↦ ?_⟩
-      · obtain ⟨hzS, hfz⟩ := hto z hz
-        exact hof' z hzS ((ihfilt y hyL z hzS (hfilt' y hyL' z hzS)).symm.trans hfz)
-      · obtain ⟨hzS, hfz⟩ := hto' z hz
-        exact hof z hzS ((ihfilt y hyL z hzS (hfilt' y hyL' z hzS)).trans hfz)
+      refine ZFSet.ext λ z ↦ ?_
+      rw [ZFSet.mem_sep, ZFSet.mem_sep]
+      refine and_congr_right λ hzS ↦ ?_
+      rw [ihfilt y hyL z hzS (hfilt' y hyL' z hzS)]
   | map' img L hdom himg hto hof ihdom ihimg =>
     intro w h₂; cases h₂ with
     | map' img' L' hdom' himg' hto' hof' =>
@@ -769,9 +867,12 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
       · obtain ⟨u, huS, rfl⟩ := hto' z hz
         rw [← (ihimg y hyL u huS (himg' y hyL' u huS) : img u = img' u)]
         exact hof u huS
-  | fnCall hf hk hdom ihf ihk =>
+  | fnCall hf hk hpf hkdom ihf ihk =>
     intro w h₂; cases h₂ with
-    | fnCall hf' hk' _ => rw [(ihf hf' : _ = _), (ihk hk' : _ = _)]
+    | fnCall hf' hk' hpf' hkdom' =>
+      obtain rfl := ihf hf'
+      obtain rfl := ihk hk'
+      exact fnApply_congr hpf hpf' hkdom hkdom'
   | fn img L hdom himg hto hof ihdom ihimg =>
     intro w h₂; cases h₂ with
     | fn img' L' hdom' himg' hto' hof' =>
@@ -787,8 +888,11 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
         exact hof u huS
   | record _ hfs ihfs =>
     intro w h₂; cases h₂ with | record _ hfs' => rw [ihfs _ hfs']
-  | recordAccess he hdom ihe =>
-    intro w h₂; cases h₂ with | recordAccess he' _ => rw [(ihe he' : _ = _)]
+  | recordAccess he hpf hkdom ihe =>
+    intro w h₂; cases h₂ with
+    | recordAccess he' hpf' hkdom' =>
+      obtain rfl := ihe he'
+      exact fnApply_congr hpf hpf' hkdom hkdom'
   | tuple _ hes ihes =>
     intro w h₂; cases h₂ with | tuple _ hes' => rw [ihes _ hes']
   | seq hes ihes =>
@@ -866,22 +970,27 @@ theorem coerceUnique : ∀ {c : Coercion} {v v₁' v₂' : Value},
   | .strToSeq, _, _, _, h₁, h₂ => by simp only [coerce] at h₁ h₂; exact h₁.trans h₂.symm
   | .seqToFun _ _, _, _, _, h₁, h₂ => by simp only [coerce] at h₁ h₂; exact h₁.2.trans h₂.2.symm
   | .tupleToSeq _ _ _, _, _, _, h₁, h₂ => by
-    simp only [coerce] at h₁ h₂; exact h₁.2.trans h₂.2.symm
+    simp only [coerce] at h₁ h₂
+    obtain ⟨⟨A, B, hpf⟩, ws₁, hlen₁, hmem₁, rfl⟩ := h₁
+    obtain ⟨-, ws₂, hlen₂, hmem₂, rfl⟩ := h₂
+    refine congrArg Value.ofSeq (List.ext_getElem (by omega) λ i hi₁ hi₂ ↦ ?_)
+    exact hpf.2 _ _ (hmem₁ i _ (List.getElem?_eq_getElem hi₁)) _
+      (hmem₂ i _ (List.getElem?_eq_getElem hi₂))
   | .set _ _ _ _, _, _, _, h₁, h₂ => by
     simp only [coerce] at h₁ h₂; exact ZFSet.ext λ z ↦ (h₁.2 z).trans (h₂.2 z).symm
   | .record _, _, _, _, h₁, h₂ => by
-    simp only [coerce] at h₁ h₂; exact ZFSet.ext λ z ↦ (h₁.2.2 z).trans (h₂.2.2 z).symm
+    simp only [coerce] at h₁ h₂; exact ZFSet.ext λ z ↦ (h₁.2.2.2 z).trans (h₂.2.2.2 z).symm
   | .function _ _ _ _ _ _ _ _, _, _, _, h₁, h₂ => by
     simp only [coerce] at h₁ h₂
-    obtain ⟨D₁, Sd₁, hD₁, -, hSd₁, -, hg₁⟩ := h₁
-    obtain ⟨D₂, Sd₂, hD₂, -, hSd₂, -, hg₂⟩ := h₂
+    obtain ⟨D₁, Sd₁, -, -, hD₁, -, hSd₁, -, hg₁⟩ := h₁
+    obtain ⟨D₂, Sd₂, -, -, hD₂, -, hSd₂, -, hg₂⟩ := h₂
     obtain rfl : D₁ = D₂ := ZFSet.ext λ z ↦ (hD₁ z).trans (hD₂ z).symm
     obtain rfl : Sd₁ = Sd₂ := ZFSet.ext λ w ↦ (hSd₁ w).trans (hSd₂ w).symm
     exact ZFSet.ext λ z ↦ (hg₁ z).trans (hg₂ z).symm
   | .tuple coes _ _, _, _, _, h₁, h₂ => by
     simp only [coerce] at h₁ h₂
-    obtain ⟨_, ws₁, hseq₁, hlen₁, hcoe₁⟩ := h₁
-    obtain ⟨_, ws₂, hseq₂, hlen₂, hcoe₂⟩ := h₂
+    obtain ⟨-, ⟨A, B, hpf⟩, ws₁, hseq₁, hlen₁, hcoe₁⟩ := h₁
+    obtain ⟨-, -, ws₂, hseq₂, hlen₂, hcoe₂⟩ := h₂
     change _ = Value.ofSeq ws₁ at hseq₁
     change _ = Value.ofSeq ws₂ at hseq₂
     rw [hseq₁, hseq₂]
@@ -889,7 +998,10 @@ theorem coerceUnique : ∀ {c : Coercion} {v v₁' v₂' : Value},
     refine congrArg Value.ofSeq (List.ext_getElem hlleq (λ i hi₁ hi₂ ↦ ?_))
     have hic₁ : i < coes.length := hlen₁ ▸ hi₁
     have hic₂ : i < coes.length := hlen₂ ▸ hi₂
-    exact coerceUnique (hcoe₁ i hic₁ hi₁).2 (hcoe₂ i hic₂ hi₂).2
+    obtain ⟨vk₁, hvk₁, hc₁⟩ := hcoe₁ i hic₁ hi₁
+    obtain ⟨vk₂, hvk₂, hc₂⟩ := hcoe₂ i hic₂ hi₂
+    obtain rfl : vk₁ = vk₂ := hpf.2 _ _ hvk₁ _ hvk₂
+    exact coerceUnique hc₁ hc₂
   | .comp _ _, _, _, _, h₁, h₂ => by
     simp only [coerce] at h₁ h₂
     obtain ⟨mid₁, hm₁a, hm₁b⟩ := h₁
@@ -905,51 +1017,65 @@ decreasing_by
 
 /-- The `EvalList` behind `.tupleToSeq`'s discharged `.seq`: a list of index projections
 `e[i+1]`, one per `i ∈ L`. Every element re-evaluates the shared `e`, pinned to one `r` by
-`evalUnique'`; the `.nat` literal parses back (`Nat.toNat?_repr`); each projection carries its
-`fnCall` domain premise. -/
+`evalUnique'`; the `.nat` literal parses back (`Nat.toNat?_repr`). The result list is characterised
+by its graph — `⟨i+1, vsᵢ⟩ ∈ r` — with `hpf` (`r` a partial function) doing the `fnApply` work. -/
 theorem evalList_fnCallNat {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
-    {e : Expression Typ} {fnTyp : Typ} {r : Value} (hr : Eval Ξ Ω M e r) :
+    {e : Expression Typ} {fnTyp : Typ} {r A B : Value} (hr : Eval Ξ Ω M e r)
+    (hpf : r.IsPFunc A B) :
     ∀ {L : List ℕ} {vs : List Value},
       EvalList Ξ Ω M (L.map (λ i ↦ Expression.fnCall e fnTyp (.nat (toString (i + 1))))) vs ↔
-        vs = L.map (λ i ↦ fnApply r (Value.ofNat (i + 1))) ∧
-        ∀ i ∈ L, ∃ w, ZFSet.pair (Value.ofNat (i + 1)) w ∈ r := by
+        vs.length = L.length ∧
+        ∀ (idx i : ℕ) (vk : Value), L[idx]? = some i → vs[idx]? = some vk →
+          ZFSet.pair (Value.ofNat (i + 1)) vk ∈ r := by
   intro L
   induction L with
   | nil =>
     intro vs
-    iff_rintro h ⟨rfl, _⟩
-    · cases h; exact ⟨rfl, by simp⟩
-    · exact .nil
+    constructor
+    · intro h; cases h; exact ⟨rfl, by simp⟩
+    · rintro ⟨hlen, -⟩; rw [List.length_eq_zero_iff.mp hlen]; exact .nil
   | cons i is ih =>
     intro vs
-    iff_rintro h ⟨rfl, hdoms⟩
-    · cases h with
+    constructor
+    · intro h
+      cases h with
       | cons hhd htl =>
         cases hhd with
-        | fnCall hf hk hdom =>
+        | fnCall hf hk hpf' hkdom =>
           obtain rfl := evalUnique' hf hr
           obtain rfl := evalUnique' hk (.nat (Nat.toNat?_repr (i + 1)))
-          obtain ⟨htail, hdomtail⟩ := ih.mp htl
-          refine ⟨?_, ?_⟩
-          · rw [List.map_cons, htail]
-          · intro j hj
-            rcases List.mem_cons.mp hj with rfl | hj
-            · exact hdom
-            · exact hdomtail j hj
-    · rw [List.map_cons]
-      refine .cons (.fnCall hr (.nat (Nat.toNat?_repr _)) (hdoms i (List.mem_cons_self ..))) ?_
-      exact ih.mpr ⟨rfl, λ j hj ↦ hdoms j (List.mem_cons_of_mem _ hj)⟩
+          obtain ⟨htaillen, htailmem⟩ := ih.mp htl
+          refine ⟨by simp [htaillen], ?_⟩
+          intro idx j vk hLj hvsj
+          match idx, hLj, hvsj with
+          | 0, hLj, hvsj =>
+            simp only [List.getElem?_cons_zero, Option.some.injEq] at hLj hvsj
+            subst hLj; subst hvsj
+            exact fnApply_spec hpf' hkdom
+          | idx + 1, hLj, hvsj =>
+            simp only [List.getElem?_cons_succ] at hLj hvsj
+            exact htailmem idx j vk hLj hvsj
+    · rintro ⟨hlen, hmem⟩
+      match vs, hlen, hmem with
+      | v0 :: vs', hlen, hmem =>
+        have hhd : ZFSet.pair (Value.ofNat (i + 1)) v0 ∈ r := hmem 0 i v0 (by simp) (by simp)
+        have hkdom : Value.ofNat (i + 1) ∈ r.Dom hpf.1 := (mem_dom_iff hpf).mpr ⟨_, hhd⟩
+        refine .cons ?_ (ih.mpr ⟨by simpa using hlen, λ idx j vk hLj hvsj ↦
+          hmem (idx + 1) j vk (by simpa using hLj) (by simpa using hvsj)⟩)
+        rw [← fnApply_eq hpf hkdom hhd]
+        exact .fnCall hr (.nat (Nat.toNat?_repr _)) hpf hkdom
 
-/-- One index projection of a non-empty `.tupleToSeq` list is enough to pin down `e`'s value. -/
+/-- One index projection of a non-empty `.tupleToSeq` list is enough to pin down `e`'s value and a
+partial-function witness for it. -/
 theorem evalList_fnCallNat_ex {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     {e : Expression Typ} {fnTyp : Typ} {L : List ℕ} {vs : List Value}
     (h : EvalList Ξ Ω M (L.map (λ j ↦ Expression.fnCall e fnTyp (.nat (toString (j + 1))))) vs)
-    (hne : L ≠ []) : ∃ r, Eval Ξ Ω M e r := by
+    (hne : L ≠ []) : ∃ r A B, Eval Ξ Ω M e r ∧ r.IsPFunc A B := by
   match L, h with
   | [], _ => contradiction
   | _ :: _, h =>
     cases h with
-    | cons hhd _ => cases hhd with | fnCall hf _ _ => exact ⟨_, hf⟩
+    | cons hhd _ => cases hhd with | fnCall hf _ hpf _ => exact ⟨_, _, _, hf, hpf⟩
 
 /-- `EvalList` is `List.Forall₂` of `Eval` — the companion inductive undoes what the kernel's
 positivity check forced apart in `Eval`'s definition. Stated post hoc, where nesting is fine. -/
@@ -1066,21 +1192,21 @@ theorem evalLocal' {Ξ : OperatorEnv} {Ω : Model Value} {M₁ M₂ : Memory Val
     | set _ hto hof ihes =>
       intro N₂ hag
       exact .set (ihes (λ e he z hz ↦ hag z (Expression.mem_freeVars_set.mpr ⟨e, he, hz⟩))) hto hof
-    | collect filt L _ _ hto hof ihdom ihfilt =>
+    | collect filt L _ _ ihdom ihfilt =>
       intro N₂ hag
       rw [Expression.freeVars] at hag
       exact .collect filt L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
-        (λ y hy z hz ↦ ihfilt y hy z hz (bind hag)) hto hof
+        (λ y hy z hz ↦ ihfilt y hy z hz (bind hag))
     | map' img L _ _ hto hof ihdom ihimg =>
       intro N₂ hag
       rw [Expression.freeVars] at hag
       exact .map' img L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
         (λ z hz w hw ↦ ihimg z hz w hw (bind hag)) hto hof
-    | fnCall _ _ hdom ihf ihk =>
+    | fnCall _ _ hpf hkdom ihf ihk =>
       intro N₂ hag
       rw [Expression.freeVars] at hag
       exact .fnCall (ihf (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
-        (ihk (λ z hz ↦ hag z (Finset.mem_union_right _ hz))) hdom
+        (ihk (λ z hz ↦ hag z (Finset.mem_union_right _ hz))) hpf hkdom
     | fn img L _ _ hto hof ihdom ihbody =>
       intro N₂ hag
       rw [Expression.freeVars] at hag
@@ -1091,10 +1217,10 @@ theorem evalLocal' {Ξ : OperatorEnv} {Ω : Model Value} {M₁ M₂ : Memory Val
       refine .record hfne (ihfs (λ e he z hz ↦ ?_))
       obtain ⟨f, hf, rfl⟩ := List.mem_map.mp he
       exact hag z (Expression.mem_freeVars_record.mpr ⟨f, hf, hz⟩)
-    | recordAccess _ hdom ihe =>
+    | recordAccess _ hpf hkdom ihe =>
       intro N₂ hag
       rw [Expression.freeVars] at hag
-      exact .recordAccess (ihe hag) hdom
+      exact .recordAccess (ihe hag) hpf hkdom
     | tuple hets _ ihes =>
       intro N₂ hag
       refine .tuple hets (ihes (λ e he z hz ↦ ?_))
@@ -1146,19 +1272,10 @@ theorem evalLocal' {Ξ : OperatorEnv} {Ω : Model Value} {M₁ M₂ : Memory Val
   exact ⟨λ hev ↦ key hev h, λ hev ↦ key hev (λ x hx ↦ (h x hx).symm)⟩
 
 /-- Application of a sequence value at a valid index: the value stored at that position. -/
-theorem fnApply_ofSeq {vs : List Value} {j : ℕ} (hj : j < vs.length) :
-    fnApply (Value.ofSeq vs) (Value.ofNat (j + 1)) = vs[j] := by
-  have hmem : ZFSet.pair (Value.ofNat (j + 1)) vs[j] ∈ Value.ofSeq vs :=
-    Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩
-  have hspec : ZFSet.pair (Value.ofNat (j + 1))
-      (fnApply (Value.ofSeq vs) (Value.ofNat (j + 1))) ∈ Value.ofSeq vs :=
-    Classical.epsilon_spec (p := λ w ↦ ZFSet.pair (Value.ofNat (j + 1)) w ∈ Value.ofSeq vs)
-      ⟨vs[j], hmem⟩
-  obtain ⟨j', hj', heq⟩ := Value.mem_ofSeq.mp hspec
-  rw [ZFSet.pair_inj] at heq
-  obtain ⟨h1, h2⟩ := heq
-  obtain rfl : j = j' := by have := Value.ofNat_inj.mp h1; omega
-  exact h2
+theorem fnApply_ofSeq {vs : List Value} {A B : Value} (hf : (Value.ofSeq vs).IsPFunc A B)
+    {j : ℕ} (hj : j < vs.length) (hk : Value.ofNat (j + 1) ∈ (Value.ofSeq vs).Dom hf.1) :
+    fnApply hf (Value.ofNat (j + 1)) hk = vs[j] :=
+  fnApply_eq hf hk (Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩)
 
 /-- The `.seqToFun` case of `evalCoerce'`, standalone: it does not recurse on a sub-coercion, only
 re-evaluates `e` under the binder the coercion introduces. The cofinite `Eval.fn` rule opens that
@@ -1228,44 +1345,45 @@ theorem evalCoerce'_seqToFun {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
                   | @nat _ _ nn hn1 =>
                     obtain rfl : nn = 1 := Option.some.inj (hn1.symm.trans (Nat.toNat?_repr 1))
                     obtain ⟨vs, rfl, rfl⟩ := evalBuiltin_len_inv hb2
-                    obtain ⟨x, y, hx, hy, hSraw⟩ := evalBuiltin_range_inv hb
+                    obtain ⟨x, y, hx, hy, hSraw⟩ := evalBuiltin_dotdot_inv hb
                     rw [Value.ofNat, Value.ofInt_inj, Nat.cast_one] at hx
                     rw [Value.ofNat, Value.ofInt_inj] at hy
                     subst hx; subst hy
                     exact ⟨vs, hee, λ w ↦ (hSraw w).trans (hidx (n := vs.length))⟩
       refine ⟨Value.ofSeq vs, he, ⟨vs, rfl⟩, ?_⟩
-      have himg' : ∀ w ∈ S, img w = fnApply (Value.ofSeq vs) w := by
-        intro w hw
-        obtain ⟨j, hj, rfl⟩ := (hSmem w).mp hw
+      have hpfS := Value.ofSeq_isPFunc vs
+      have himg' : ∀ w ∈ S, ∀ (j : ℕ) (hj : j < vs.length), w = Value.ofNat (j + 1) →
+          img w = vs[j] := by
+        rintro w hw j hj rfl
         have hb := himg _ hw
-        generalize hg : img (Value.ofNat (j + 1)) = iw at hb
+        generalize hg : img (Value.ofNat (j + 1)) = iw at hb ⊢
         cases hb with
-        | fnCall hf hk _ =>
+        | fnCall hf hk hpf hkdom =>
           cases hk with
           | var_free hb' =>
             rw [Finmap.lookup_insert, Option.some.injEq] at hb'
             subst hb'
-            rw [evalUnique' ((hloc hze).mp hf) he]
+            obtain rfl := evalUnique' ((hloc hze).mp hf) he
+            exact fnApply_eq hpf hkdom (Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩)
       refine ZFSet.ext λ w ↦ ⟨λ hw ↦ ?_, λ hw ↦ ?_⟩
       · obtain ⟨u, hu, rfl⟩ := hto w hw
         obtain ⟨j, hj, rfl⟩ := (hSmem u).mp hu
-        rw [himg' _ hu, fnApply_ofSeq hj]
+        rw [himg' _ hu j hj rfl]
         exact Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩
       · obtain ⟨j, hj, rfl⟩ := Value.mem_ofSeq.mp hw
         have huS : Value.ofNat (j + 1) ∈ S := (hSmem _).mpr ⟨j, hj, rfl⟩
         have := hof _ huS
-        rwa [himg' _ huS, fnApply_ofSeq hj] at this
-  · set S : Value := Value.ofFinSet ((List.range vs.length).map λ j ↦ Value.ofNat (j + 1))
-      with hSdef
+        rwa [himg' _ huS j hj rfl] at this
+  · set S : Value := Value.intRange 1 (vs.length : ℤ) with hSdef
     have hSmem : ∀ w, w ∈ S ↔ ∃ j : ℕ, j < vs.length ∧ w = Value.ofNat (j + 1) := by
       intro w
-      simp only [hSdef, Value.mem_ofFinSet, List.mem_map, List.mem_range]
-      exact ⟨λ ⟨j, hj, h⟩ ↦ ⟨j, hj, h.symm⟩, λ ⟨j, hj, h⟩ ↦ ⟨j, hj, h.symm⟩⟩
-    have hrng : EvalBuiltin .range [Value.ofNat 1, Value.ofNat vs.length] S := by
-      have h : EvalBuiltin .range [Value.ofInt 1, Value.ofInt (vs.length : ℤ)] S :=
-        .range λ w ↦ (hSmem w).trans (hidx (n := vs.length)).symm
-      simpa only [Value.ofNat, Nat.cast_one] using h
-    have hrangeOp : TypedTLAPlus.builtinOpOf? (.module "Naturals" "..") = some .range := by
+      rw [hSdef, Value.mem_intRange]
+      exact hidx (n := vs.length)
+    have hrng : EvalBuiltin .dotdot [Value.ofNat 1, Value.ofNat vs.length] S := by
+      have h : EvalBuiltin .dotdot [Value.ofInt 1, Value.ofInt (vs.length : ℤ)]
+          (Value.intRange 1 (vs.length : ℤ)) := .dotdot
+      simpa only [Value.ofNat, Nat.cast_one, hSdef] using h
+    have hrangeOp : TypedTLAPlus.builtinOpOf? (.module "Naturals" "..") = some .dotdot := by
       simp [TypedTLAPlus.builtinOpOf?]
     have hlenOp : TypedTLAPlus.builtinOpOf? (.module "Sequences" "Len") = some .len := by
       simp [TypedTLAPlus.builtinOpOf?]
@@ -1278,19 +1396,25 @@ theorem evalCoerce'_seqToFun {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
       .opCall_builtin hrangeOp
         (.cons (.nat (Nat.toNat?_repr 1))
           (.cons (.opCall_builtin hlenOp (.cons he .nil) .len) .nil)) hrng
-    refine .fn (λ w ↦ fnApply (Value.ofSeq vs) w) e.freeVars hdomDeriv ?_ ?_ ?_
+    have hpfS := Value.ofSeq_isPFunc vs
+    have hkdomS : ∀ j : ℕ, j < vs.length →
+        Value.ofNat (j + 1) ∈ (Value.ofSeq vs).Dom hpfS.1 :=
+      λ j hj ↦ (mem_dom_iff hpfS).mpr ⟨vs[j], Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩⟩
+    refine .fn (λ w ↦ fnRead (Value.ofSeq vs) w) e.freeVars hdomDeriv ?_ ?_ ?_
     · intro z hz w hw
       rw [hob z]
       obtain ⟨j, hj, rfl⟩ := (hSmem w).mp hw
-      exact .fnCall ((hloc hz).mpr he) (.var_free (Finmap.lookup_insert _))
-        ⟨vs[j], Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩⟩
+      rw [fnRead_eq_fnApply hpfS (hkdomS j hj)]
+      exact .fnCall ((hloc hz).mpr he) (.var_free (Finmap.lookup_insert _)) hpfS (hkdomS j hj)
     · intro w hw
       obtain ⟨j, hj, rfl⟩ := Value.mem_ofSeq.mp hw
       refine ⟨Value.ofNat (j + 1), (hSmem _).mpr ⟨j, hj, rfl⟩, ?_⟩
-      rw [fnApply_ofSeq hj]
+      rw [fnRead_eq_fnApply hpfS (hkdomS j hj),
+        fnApply_eq hpfS (hkdomS j hj) (Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩)]
     · intro w hw
       obtain ⟨j, hj, rfl⟩ := (hSmem w).mp hw
-      rw [fnApply_ofSeq hj]
+      rw [fnRead_eq_fnApply hpfS (hkdomS j hj),
+        fnApply_eq hpfS (hkdomS j hj) (Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩)]
       exact Value.mem_ofSeq.mpr ⟨j, hj, rfl⟩
 
 /-- The `.function` case of `evalCoerce'`, standalone. `ihD`/`ihR` are `evalCoerce'` at the strictly
@@ -1370,7 +1494,7 @@ theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
     rewrite [ComputableTLAPlus.openVar_applyComputable_aux cD zx (Expression.var dom (.bound 0)) 0]
     simp only [Expression.mapVars, Expression.openVarLam, registerSource, reduceIte, Nat.reduceLT]
   simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
-  iff_rintro h ⟨v, hev, DD, Sd, hDchar, hcDtot, hSdchar, hcRtot, hgraph⟩
+  iff_rintro h ⟨v, hev, DD, Sd, Rng, hpf, hDchar, hcDtot, hSdchar, hcRtot, hgraph⟩
   · cases h with
     | @fn _ _ _ _ _ _ SdV _ imgB Lfn hdomND himgBR htoG hofG =>
       obtain ⟨zy, hzy⟩ := exists_fresh (Lfn ∪ e.freeVars)
@@ -1380,6 +1504,7 @@ theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
         obtain ⟨zx, hzx⟩ := exists_fresh Lmap
         obtain ⟨ve, hev, hbD⟩ := evalOpCall1_inv hdomOp hdomDE
         have hDchar : ∀ z, z ∈ DV ↔ ∃ w, ZFSet.pair z w ∈ ve := evalBuiltin_domain_inv hbD
+        obtain ⟨RngV, hpfV⟩ := evalBuiltin_domain_isPFunc hbD
         have hcoeD : ∀ k ∈ DV, coerce cD k (imgD k) := by
           intro k hk
           have hd := himgD zx hzx k hk
@@ -1388,14 +1513,15 @@ theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
           simp only [evalVar', Finmap.lookup_insert, Option.some.injEq] at hvar
           subst hvar
           exact hc
-        have hcoeR : ∀ w ∈ SdV,
-            coerce cR (fnApply ve (Classical.epsilon λ k ↦ k ∈ DV ∧ coerce cD k w)) (imgB w) := by
+        have hcoeR : ∀ w ∈ SdV, ∃ vk,
+            ZFSet.pair (Classical.epsilon λ k ↦ k ∈ DV ∧ coerce cD k w) vk ∈ ve ∧
+            coerce cR vk (imgB w) := by
           intro w hw
           have hbr := himgBR zy hzyL w hw
           rw [hR2 zy] at hbr
           obtain ⟨vv, hcall, hcR⟩ := ihR.mp hbr
           cases hcall with
-          | fnCall hf hka _ =>
+          | fnCall hf hka hpfR hkdomR =>
             obtain rfl := evalUnique' ((hloc hzye).mp hf) hev
             cases hka with
             | @choose _ _ _ _ _ SS filt Lch hdomRA hfilt =>
@@ -1406,7 +1532,8 @@ theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
               obtain rfl := evalUnique' ((hloc hzye).mp hev') hev
               have hSSDV : SS = DV := evalBuiltinUnique hbD' hbD
               have hpred : (λ k ↦ k ∈ SS ∧ filt k = Value.tru)
-                  = (λ k ↦ k ∈ SS ∧ coerce cD k w) := by
+                  = (λ k ↦ k ∈ DV ∧ coerce cD k w) := by
+                rw [← hSSDV]
                 funext k
                 by_cases hk : k ∈ SS
                 · simp only [hk, true_and]
@@ -1430,30 +1557,50 @@ theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
                     exact iff_of_false Value.fls_ne_tru
                       (λ hcw ↦ hne1 (coerceUnique hcoeck hcw))
                 · simp only [hk, false_and]
-              rwa [hpred, hSSDV] at hcR
-        refine ⟨ve, hev, DV, SdV, hDchar, λ k hk ↦ ⟨imgD k, hcoeD k hk⟩, ?_, ?_, ?_⟩
+              set vkv := fnApply hpfR
+                (Classical.epsilon λ k ↦ k ∈ SS ∧ filt k = Value.tru) hkdomR with hvkv_def
+              have hs := fnApply_spec hpfR hkdomR
+              rw [← hvkv_def] at hs
+              rw [congrArg Classical.epsilon hpred] at hs
+              exact ⟨vkv, hs, hcR⟩
+        refine ⟨ve, hev, DV, SdV, RngV, hpfV, hDchar, λ k hk ↦ ⟨imgD k, hcoeD k hk⟩, ?_, ?_, ?_⟩
         · intro w
           iff_rintro hw ⟨k, hk, hc⟩
           · obtain ⟨k, hk, rfl⟩ := htoD w hw
             exact ⟨k, hk, hcoeD k hk⟩
           · obtain rfl := coerceUnique hc (hcoeD k hk)
             exact hofD k hk
-        · exact λ w hw ↦ ⟨imgB w, hcoeR w hw⟩
+        · intro w hw
+          obtain ⟨vk, hp, hc⟩ := hcoeR w hw
+          exact ⟨vk, imgB w, hp, hc⟩
         · intro z
-          iff_rintro hz ⟨w, hw, r', hcr, rfl⟩
+          iff_rintro hz ⟨w, hw, vk, r', hp, hc, rfl⟩
           · obtain ⟨w, hw, rfl⟩ := htoG z hz
-            exact ⟨w, hw, imgB w, hcoeR w hw, rfl⟩
-          · obtain rfl := coerceUnique hcr (hcoeR w hw)
+            obtain ⟨vk, hp, hc⟩ := hcoeR w hw
+            exact ⟨w, hw, vk, imgB w, hp, hc, rfl⟩
+          · obtain ⟨vk', hp', hc'⟩ := hcoeR w hw
+            obtain rfl : vk = vk' := hpfV.2 _ _ hp _ hp'
+            obtain rfl : r' = imgB w := coerceUnique hc hc'
             exact hofG w hw
-  · have hDcoe : ∀ k ∈ DD, coerce cD k (Classical.epsilon λ z ↦ coerce cD k z) :=
+  · have hDDdom : DD = v.Dom hpf.1 :=
+      ZFSet.ext λ z ↦ (hDchar z).trans (mem_dom_iff hpf).symm
+    have hdomB : EvalBuiltin .domain [v] DD := by
+      rw [hDDdom]; exact EvalBuiltin.domain hpf
+    have hDcoe : ∀ k ∈ DD, coerce cD k (Classical.epsilon λ z ↦ coerce cD k z) :=
       λ k hk ↦ Classical.epsilon_spec (hcDtot k hk)
-    refine Eval.fn (S := Sd)
-      (λ w ↦ Classical.epsilon λ r' ↦
-        coerce cR (fnApply v (Classical.epsilon λ k ↦ k ∈ DD ∧ coerce cD k w)) r')
-      e.freeVars ?hdomND ?himgBR ?htoG ?hofG
+    set eps : Value → Value := λ w ↦ Classical.epsilon (λ k ↦ k ∈ DD ∧ coerce cD k w)
+      with heps_def
+    set img : Value → Value := λ w ↦ Classical.epsilon
+      (λ r' ↦ ∃ vk, ZFSet.pair (eps w) vk ∈ v ∧ coerce cR vk r') with himg_def
+    have himgspec : ∀ w ∈ Sd, ∃ vk, ZFSet.pair (eps w) vk ∈ v ∧ coerce cR vk (img w) := by
+      intro w hw
+      obtain ⟨vk, r', hpair, hc⟩ := hcRtot w hw
+      exact Classical.epsilon_spec
+        (p := λ r' ↦ ∃ vk, ZFSet.pair (eps w) vk ∈ v ∧ coerce cR vk r') ⟨r', vk, hpair, hc⟩
+    refine Eval.fn (S := Sd) img e.freeVars ?hdomND ?himgBR ?htoG ?hofG
     case hdomND =>
       refine Eval.map' (S := DD) (λ z ↦ Classical.epsilon λ w ↦ coerce cD z w) ∅ ?_ ?_ ?_ ?_
-      · exact Eval.opCall_builtin hdomOp (.cons hev .nil) (EvalBuiltin.domain hDchar)
+      · exact Eval.opCall_builtin hdomOp (.cons hev .nil) hdomB
       · intro zx _ w hw
         rw [hR1 zx]
         refine ihD.mpr ⟨w, evalVar'.mpr ?_, hDcoe w hw⟩
@@ -1466,50 +1613,52 @@ theorem evalCoerce'_function {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
     case himgBR =>
       intro zy hzy w hw
       rw [hR2 zy]
-      have hspec : ∃ k, k ∈ DD ∧ coerce cD k w := (hSdchar w).mp hw
-      have hε := Classical.epsilon_spec hspec
-      refine ihR.mpr
-        ⟨fnApply v (Classical.epsilon λ k ↦ k ∈ DD ∧ coerce cD k w), ?_, ?_⟩
-      · refine Eval.fnCall ((hloc hzy).mpr hev) ?_ ((hDchar _).mp hε.1)
-        have hfeq : (λ k ↦ k ∈ DD ∧ coerce cD k w)
-            = (λ k ↦ k ∈ DD ∧
-                (if coerce cD k w then Value.tru else Value.fls) = Value.tru) := by
-          funext k
-          by_cases hc : coerce cD k w <;> simp [hc, Value.fls_ne_tru]
-        rw [show (Classical.epsilon λ k ↦ k ∈ DD ∧ coerce cD k w)
-              = Classical.epsilon (λ k ↦ k ∈ DD ∧
-                  (if coerce cD k w then Value.tru else Value.fls) = Value.tru)
-            from congrArg Classical.epsilon hfeq]
-        refine Eval.choose (λ k ↦ if coerce cD k w then Value.tru else Value.fls) {zy} ?_ ?_
-        · exact Eval.opCall_builtin hdomOp (.cons ((hloc hzy).mpr hev) .nil) (EvalBuiltin.domain hDchar)
-        · intro zx hzx k hk
-          rw [Finset.notMem_singleton] at hzx
-          rw [hR3 zx zy]
-          have hcDx : Eval Ξ Ω ((M.insert zy w).insert zx k)
-              (cD.applyComputable (Expression.var dom (.free zx)))
-              (Classical.epsilon λ z ↦ coerce cD k z) := by
-            refine ihD.mpr ⟨k, evalVar'.mpr ?_, hDcoe k hk⟩
-            simp only [Finmap.lookup_insert]
-          have hvy : Eval Ξ Ω ((M.insert zy w).insert zx k) (Expression.var dom' (.free zy)) w := by
-            refine evalVar'.mpr ?_
-            show ((M.insert zy w).insert zx k).lookup zy = some w
-            rw [Finmap.lookup_insert_of_ne _ hzx.symm, Finmap.lookup_insert]
-          have heqb : EvalBuiltin .eq [Classical.epsilon λ z ↦ coerce cD k z, w]
-              (if coerce cD k w then Value.tru else Value.fls) := by
-            by_cases hc : coerce cD k w
-            · rw [coerceUnique (hDcoe k hk) hc, if_pos hc]
-              exact EvalBuiltin.eq_pos
-            · rw [if_neg hc]
-              exact EvalBuiltin.eq_neg λ h ↦ hc (h ▸ hDcoe k hk)
-          exact Eval.opCall_builtin heqOp (.cons hcDx (.cons hvy .nil)) heqb
-      · exact Classical.epsilon_spec (hcRtot w hw)
+      obtain ⟨vk, hpair, hc⟩ := himgspec w hw
+      have hkdomV : eps w ∈ v.Dom hpf.1 := (mem_dom_iff hpf).mpr ⟨vk, hpair⟩
+      refine ihR.mpr ⟨vk, ?_, hc⟩
+      rw [← fnApply_eq hpf hkdomV hpair]
+      refine Eval.fnCall ((hloc hzy).mpr hev) ?_ hpf hkdomV
+      have hfeq : (λ k ↦ k ∈ DD ∧ coerce cD k w)
+          = (λ k ↦ k ∈ DD ∧
+              (if coerce cD k w then Value.tru else Value.fls) = Value.tru) := by
+        funext k
+        by_cases hc : coerce cD k w <;> simp [hc, Value.fls_ne_tru]
+      rw [show eps w = Classical.epsilon (λ k ↦ k ∈ DD ∧
+                (if coerce cD k w then Value.tru else Value.fls) = Value.tru)
+          from congrArg Classical.epsilon hfeq]
+      refine Eval.choose (λ k ↦ if coerce cD k w then Value.tru else Value.fls) {zy} ?_ ?_
+      · exact Eval.opCall_builtin hdomOp (.cons ((hloc hzy).mpr hev) .nil) hdomB
+      · intro zx hzx k hk
+        rw [Finset.notMem_singleton] at hzx
+        rw [hR3 zx zy]
+        have hcDx : Eval Ξ Ω ((M.insert zy w).insert zx k)
+            (cD.applyComputable (Expression.var dom (.free zx)))
+            (Classical.epsilon λ z ↦ coerce cD k z) := by
+          refine ihD.mpr ⟨k, evalVar'.mpr ?_, hDcoe k hk⟩
+          simp only [Finmap.lookup_insert]
+        have hvy : Eval Ξ Ω ((M.insert zy w).insert zx k) (Expression.var dom' (.free zy)) w := by
+          refine evalVar'.mpr ?_
+          show ((M.insert zy w).insert zx k).lookup zy = some w
+          rw [Finmap.lookup_insert_of_ne _ hzx.symm, Finmap.lookup_insert]
+        have heqb : EvalBuiltin .eq [Classical.epsilon λ z ↦ coerce cD k z, w]
+            (if coerce cD k w then Value.tru else Value.fls) := by
+          by_cases hc : coerce cD k w
+          · rw [coerceUnique (hDcoe k hk) hc, if_pos hc]
+            exact EvalBuiltin.eq_pos
+          · rw [if_neg hc]
+            exact EvalBuiltin.eq_neg λ h ↦ hc (h ▸ hDcoe k hk)
+        exact Eval.opCall_builtin heqOp (.cons hcDx (.cons hvy .nil)) heqb
     case htoG =>
       intro z hz
-      obtain ⟨w, hw, r', hcr, rfl⟩ := (hgraph z).mp hz
-      exact ⟨w, hw, by rw [coerceUnique hcr (Classical.epsilon_spec (hcRtot w hw))]⟩
+      obtain ⟨w, hw, vk, r', hpair, hc, rfl⟩ := (hgraph z).mp hz
+      obtain ⟨vk', hpair', hc'⟩ := himgspec w hw
+      obtain rfl : vk = vk' := hpf.2 _ _ hpair _ hpair'
+      obtain rfl : r' = img w := coerceUnique hc hc'
+      exact ⟨w, hw, rfl⟩
     case hofG =>
       intro w hw
-      exact (hgraph _).mpr ⟨w, hw, _, Classical.epsilon_spec (hcRtot w hw), rfl⟩
+      obtain ⟨vk, hpair, hc⟩ := himgspec w hw
+      exact (hgraph _).mpr ⟨w, hw, vk, img w, hpair, hc, rfl⟩
 
 /-- Applying a coercion to an expression denotes the coercion applied to that expression's value.
 Recurses on `c` through the equation compiler — `Coercion` is a nested inductive, so `induction`
@@ -1542,13 +1691,28 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
     simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
     have hne : List.range n ≠ [] := by
       rw [← List.length_pos_iff, List.length_range]; omega
-    iff_rintro hev ⟨r, hr, hdoms, rfl⟩
+    have hrange : ∀ {idx i : ℕ}, (List.range n)[idx]? = some i → i = idx ∧ idx < n := by
+      intro idx i h
+      rw [List.getElem?_eq_some_iff] at h
+      obtain ⟨hlt, rfl⟩ := h
+      rw [List.length_range] at hlt
+      exact ⟨List.getElem_range _, hlt⟩
+    iff_rintro hev ⟨v, hv, ⟨A, B, hpf⟩, ws, hwslen, hwsmem, rfl⟩
     · cases hev with
       | seq hes =>
-        obtain ⟨r, hr⟩ := evalList_fnCallNat_ex hes hne
-        obtain ⟨hvs, hdoms⟩ := (evalList_fnCallNat hr).mp hes
-        exact ⟨r, hr, λ i hi ↦ hdoms i (List.mem_range.mpr hi), by rw [hvs]⟩
-    · exact .seq ((evalList_fnCallNat hr).mpr ⟨rfl, λ i hi ↦ hdoms i (List.mem_range.mp hi)⟩)
+        obtain ⟨r, A, B, hr, hpf⟩ := evalList_fnCallNat_ex hes hne
+        obtain ⟨hvslen, hvsmem⟩ := (evalList_fnCallNat hr hpf).mp hes
+        rw [List.length_range] at hvslen
+        refine ⟨r, hr, ⟨A, B, hpf⟩, _, hvslen, ?_, rfl⟩
+        intro idx vk hvsj
+        obtain ⟨hlt, -⟩ := List.getElem?_eq_some_iff.mp hvsj
+        have hidx : idx < n := by omega
+        exact hvsmem idx idx vk (by rw [List.getElem?_eq_getElem (by simpa using hidx),
+          List.getElem_range]) hvsj
+    · refine .seq ((evalList_fnCallNat hv hpf).mpr
+        ⟨by rw [List.length_range]; exact hwslen, λ idx i vk hLj hvsj ↦ ?_⟩)
+      obtain ⟨rfl, -⟩ := hrange hLj
+      exact hwsmem i vk hvsj
   | .set x τ _ c, M, e, v' => by
     have hob : ∀ zx, (c.applyComputable (Expression.var τ (.bound 0) @@ posOf e)).openVar zx
         = c.applyComputable (Expression.var τ (.free zx) @@ posOf e) := by
@@ -1586,7 +1750,7 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
       · exact (hext _).mpr ⟨w, hw, Classical.epsilon_spec (htot w hw)⟩
   | .tuple coes τs τs', M, e, v' => by
     simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
-    iff_rintro h ⟨v, hv, hcne, ws, hseq, hwslen, IH⟩
+    iff_rintro h ⟨v, hv, hcne, ⟨A, B, hpf⟩, ws, hseq, hwslen, IH⟩
     · cases h with
       | @tuple _ _ vs hets hes =>
         obtain ⟨hlen, hget⟩ := evalList_getElem.mp hes
@@ -1600,17 +1764,17 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
             (by simp only [List.length_map, List.length_attach, List.length_range]; exact hi)
             (hlen ▸ hi)
           simpa only [List.getElem_map, List.getElem_attach, List.getElem_range] using hev
-        obtain ⟨r, hr⟩ : ∃ r, Eval Ξ Ω M e r := by
+        obtain ⟨r, A, B, hr, hpf⟩ : ∃ r A B, Eval Ξ Ω M e r ∧ r.IsPFunc A B := by
           obtain ⟨w, hw, -⟩ :=
             (evalCoerce' hΞ).mp (hproj 0 (List.length_pos_of_ne_nil hcne))
-          cases hw with | fnCall hf _ _ => exact ⟨_, hf⟩
-        refine ⟨r, hr, hcne, vs, rfl, hlen.symm, λ i hi₁ hi₂ ↦ ?_⟩
+          cases hw with | fnCall hf _ hpf _ => exact ⟨_, _, _, hf, hpf⟩
+        refine ⟨r, hr, hcne, ⟨A, B, hpf⟩, vs, rfl, hlen.symm, λ i hi₁ hi₂ ↦ ?_⟩
         obtain ⟨w, hw, hc⟩ := (evalCoerce' hΞ).mp (hproj i hi₁)
         cases hw with
-        | fnCall hf hk hdom =>
+        | fnCall hf hk hpf' hkdom =>
           obtain rfl := evalUnique' hf hr
           obtain rfl := evalUnique' hk (.nat (Nat.toNat?_repr (i + 1)))
-          exact ⟨hdom, hc⟩
+          exact ⟨_, fnApply_spec hpf' hkdom, hc⟩
     · change v' = Value.ofSeq ws at hseq
       subst hseq
       refine .tuple ?_ (evalList_getElem.mpr ⟨?_, λ i h₁ h₂ ↦ ?_⟩)
@@ -1620,12 +1784,14 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
       · simp only [List.length_map, List.length_attach, List.length_range, hwslen]
       · simp only [List.length_map, List.length_attach, List.length_range] at h₁
         simp only [List.getElem_map, List.getElem_attach, List.getElem_range]
-        refine (evalCoerce' hΞ).mpr
-          ⟨fnApply v (Value.ofNat (i + 1)), ?_, (IH i h₁ (by omega)).2⟩
-        exact .fnCall hv (.nat (Nat.toNat?_repr (i + 1))) (IH i h₁ (by omega)).1
+        obtain ⟨vk, hvk, hc⟩ := IH i h₁ (by omega)
+        have hkdom : Value.ofNat (i + 1) ∈ v.Dom hpf.1 := (mem_dom_iff hpf).mpr ⟨_, hvk⟩
+        refine (evalCoerce' hΞ).mpr ⟨vk, ?_, hc⟩
+        rw [← fnApply_eq hpf hkdom hvk]
+        exact .fnCall hv (.nat (Nat.toNat?_repr (i + 1))) hpf hkdom
   | .record fields, M, e, v' => by
     simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
-    iff_rintro h ⟨v, hv, hfne, hcf, hcv⟩
+    iff_rintro h ⟨v, hv, hfne, ⟨A, B, hpf⟩, hcf, hcv⟩
     · cases h with
       | @record _ _ vs hfne hes =>
         obtain ⟨hlen, hget⟩ := evalList_getElem.mp hes
@@ -1639,23 +1805,25 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
             (by simp only [List.length_map, List.length_attach]; exact hi) (hlen ▸ hi)
           simpa only [List.map_map, List.getElem_map, List.getElem_attach, Function.comp_apply]
             using hev
-        obtain ⟨r, hr⟩ : ∃ r, Eval Ξ Ω M e r := by
+        obtain ⟨r, A, B, hr, hpf⟩ : ∃ r A B, Eval Ξ Ω M e r ∧ r.IsPFunc A B := by
           have h0 : 0 < fields.length := List.length_pos_of_ne_nil hfne'
           obtain ⟨w, hw, -⟩ := (evalCoerce' hΞ).mp (hproj 0 h0)
-          cases hw with | recordAccess hf _ => exact ⟨_, hf⟩
+          cases hw with | recordAccess hf hpf _ => exact ⟨_, _, _, hf, hpf⟩
         have hstep : ∀ i (hi : i < fields.length),
-            (∃ w', ZFSet.pair (Value.ofString fields[i].1) w' ∈ r) ∧
-              coerce fields[i].2.1 (fnApply r (Value.ofString fields[i].1)) vs[i] := by
+            ∃ vk, ZFSet.pair (Value.ofString fields[i].1) vk ∈ r ∧
+              coerce fields[i].2.1 vk vs[i] := by
           intro i hi
           obtain ⟨w, hw, hc⟩ := (evalCoerce' hΞ).mp (hproj i hi)
           cases hw with
-          | recordAccess hf hdom => obtain rfl := evalUnique' hf hr; exact ⟨hdom, hc⟩
-        refine ⟨r, hr, hfne', λ nc hnc ↦ ?_, λ z ↦ ?_⟩
+          | recordAccess hf hpf' hkdom =>
+            obtain rfl := evalUnique' hf hr
+            exact ⟨_, fnApply_spec hpf' hkdom, hc⟩
+        refine ⟨r, hr, hfne', ⟨A, B, hpf⟩, λ nc hnc ↦ ?_, λ z ↦ ?_⟩
         · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
-          obtain ⟨⟨w', hw'⟩, hc⟩ := hstep i hi
-          exact ⟨vs[i], w', hw', hc⟩
+          obtain ⟨vk, hvk, hc⟩ := hstep i hi
+          exact ⟨vk, vs[i], hvk, hc⟩
         · rw [Value.ofRecord, Value.mem_recordGraph]
-          iff_rintro ⟨k, w, hmem, rfl⟩ ⟨nc, hnc, w, hc, rfl⟩
+          iff_rintro ⟨k, w, hmem, rfl⟩ ⟨nc, hnc, vk, w, hvk, hc, rfl⟩
           · rw [List.mem_iff_getElem] at hmem
             obtain ⟨i, hizip, heq⟩ := hmem
             have hi : i < fields.length := by
@@ -1664,9 +1832,12 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
             simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
               Function.comp_apply, Prod.mk.injEq] at heq
             obtain ⟨rfl, rfl⟩ := heq
-            exact ⟨fields[i], List.getElem_mem hi, vs[i], (hstep i hi).2, rfl⟩
+            obtain ⟨vk, hvk, hc⟩ := hstep i hi
+            exact ⟨fields[i], List.getElem_mem hi, vk, vs[i], hvk, hc, rfl⟩
           · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
-            obtain rfl := coerceUnique hc (hstep i hi).2
+            obtain ⟨vk', hvk', hc'⟩ := hstep i hi
+            obtain rfl : vk = vk' := hpf.2 _ _ hvk _ hvk'
+            obtain rfl := coerceUnique hc hc'
             refine ⟨fields[i].1, vs[i], ?_, rfl⟩
             rw [List.mem_iff_getElem]
             refine ⟨i, by
@@ -1674,56 +1845,57 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
               omega, ?_⟩
             simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
               Function.comp_apply]
-    · have hw : ∀ nc ∈ fields, ∃ w, coerce nc.2.1 (fnApply v (Value.ofString nc.1)) w := by
-        intro nc hnc; obtain ⟨w, _, _, hc⟩ := hcf nc hnc; exact ⟨w, hc⟩
-      set vs := fields.attach.map (λ x ↦ Classical.choose (hw x.1 x.2)) with hvs_def
+    · have hfield : ∀ (i : ℕ) (hi : i < fields.length),
+          ∃ vk w, ZFSet.pair (Value.ofString fields[i].1) vk ∈ v ∧ coerce fields[i].2.1 vk w :=
+        λ i hi ↦ hcf fields[i] (List.getElem_mem hi)
+      choose! rd cv hrd hcv' using hfield
+      set vs := (List.range fields.length).map cv with hvs_def
       have hvs_len : vs.length = fields.length := by
-        simp only [hvs_def, List.length_map, List.length_attach]
-      have hvs_get : ∀ i (hi : i < fields.length),
-          coerce fields[i].2.1 (fnApply v (Value.ofString fields[i].1)) (vs[i]'(hvs_len ▸ hi)) := by
-        intro i hi
-        have hpin : vs[i]'(hvs_len ▸ hi) = Classical.choose (hw fields[i] (List.getElem_mem hi)) := by
-          simp only [hvs_def, List.getElem_map, List.getElem_attach]
-        rw [hpin]
-        exact Classical.choose_spec (hw fields[i] (List.getElem_mem hi))
+        simp only [hvs_def, List.length_map, List.length_range]
+      have hvs_get : ∀ i (hi : i < fields.length), vs[i]'(hvs_len ▸ hi) = cv i := by
+        intro i hi; simp only [hvs_def, List.getElem_map, List.getElem_range]
+      have hnames :
+          ((fields.attach.map (λ x : {y // y ∈ fields} ↦ (x.1.2.2, x.1.1,
+            x.1.2.1.applyComputable (Expression.recordAccess e x.1.1)))).map (·.2.1))
+            = fields.map (·.1) := by
+        simp only [List.map_map, Function.comp_def, List.attach_map_val]
       have hveq : v' = Value.ofRecord (((fields.attach.map
           (λ x : {y // y ∈ fields} ↦ (x.1.2.2, x.1.1,
             x.1.2.1.applyComputable (Expression.recordAccess e x.1.1)))).map (·.2.1)).zip vs) := by
+        rw [hnames]
         refine ZFSet.ext (λ z ↦ ?_)
         rw [hcv z, Value.ofRecord, Value.mem_recordGraph]
-        iff_rintro ⟨nc, hnc, w, hc, rfl⟩ ⟨k, w, hmem, rfl⟩
-        · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
-          obtain rfl := coerceUnique hc (hvs_get i hi)
-          refine ⟨fields[i].1, vs[i], ?_, rfl⟩
+        constructor
+        · rintro ⟨nc, hnc, vk, w, hvk, hc, rfl⟩
+          obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hnc
+          obtain rfl : vk = rd i := hpf.2 _ _ hvk _ (hrd i hi)
+          obtain rfl : w = cv i := coerceUnique hc (hcv' i hi)
+          refine ⟨fields[i].1, cv i, ?_, rfl⟩
           rw [List.mem_iff_getElem]
-          refine ⟨i, by
-            simp only [List.length_zip, List.length_map, List.length_attach, hvs_len, Nat.min_self]
-            omega, ?_⟩
-          simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
-            Function.comp_apply]
-        · rw [List.mem_iff_getElem] at hmem
+          exact ⟨i, by simp only [List.length_zip, List.length_map, hvs_len, Nat.min_self]; omega,
+            by simp only [List.getElem_zip, List.getElem_map, hvs_get i hi]⟩
+        · rintro ⟨k, w, hmem, rfl⟩
+          rw [List.mem_iff_getElem] at hmem
           obtain ⟨i, hizip, heq⟩ := hmem
           have hi : i < fields.length := by
-            simpa only [List.length_zip, List.length_map, List.length_attach, hvs_len,
-              Nat.min_self] using hizip
-          simp only [List.getElem_zip, List.map_map, List.getElem_map, List.getElem_attach,
-            Function.comp_apply, Prod.mk.injEq] at heq
+            simp only [List.length_zip, List.length_map, hvs_len, Nat.min_self] at hizip; omega
+          simp only [List.getElem_zip, List.getElem_map, hvs_get i hi, Prod.mk.injEq] at heq
           obtain ⟨rfl, rfl⟩ := heq
-          exact ⟨fields[i], List.getElem_mem hi, vs[i], hvs_get i hi, rfl⟩
+          exact ⟨fields[i], List.getElem_mem hi, rd i, cv i, hrd i hi, hcv' i hi, rfl⟩
       rw [hveq]
       refine Eval.record ?_ (evalList_getElem.mpr ⟨?_, λ i h₁ h₂ ↦ ?_⟩)
       · simp only [ne_eq, List.map_eq_nil_iff, List.attach_eq_nil_iff]; exact hfne
       · simp only [List.map_map, List.length_map, List.length_attach, hvs_len]
       · have hi : i < fields.length := by
           simpa only [List.map_map, List.length_map, List.length_attach] using h₁
+        have hkdom : Value.ofString fields[i].1 ∈ v.Dom hpf.1 := (mem_dom_iff hpf).mpr ⟨_, hrd i hi⟩
         have hev : Eval Ξ Ω M ((fields[i].2.1).applyComputable
-            (Expression.recordAccess e fields[i].1)) (vs[i]'(hvs_len ▸ hi)) := by
-          refine (evalCoerce' hΞ).mpr
-            ⟨fnApply v (Value.ofString fields[i].1), ?_, hvs_get i hi⟩
-          obtain ⟨ww, ww', hmem, -⟩ := hcf fields[i] (List.getElem_mem hi)
-          exact Eval.recordAccess hv ⟨ww', hmem⟩
-        simpa only [List.map_map, List.getElem_map, List.getElem_attach, Function.comp_apply]
-          using hev
+            (Expression.recordAccess e fields[i].1)) (cv i) := by
+          refine (evalCoerce' hΞ).mpr ⟨rd i, ?_, hcv' i hi⟩
+          rw [← fnApply_eq hpf hkdom (hrd i hi)]
+          exact Eval.recordAccess hv hpf hkdom
+        simpa only [List.map_map, List.getElem_map, List.getElem_attach, Function.comp_apply,
+          hvs_get i hi] using hev
   | .function x y dom rng dom' rng' cD cR, M, e, v' => by
     exact evalCoerce'_function hΞ (evalCoerce' hΞ) (evalCoerce' hΞ)
   | .comp c₁ c₂, M, e, v' => by
@@ -1900,12 +2072,12 @@ private theorem evalSubst'_fwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
     rw [Expression.subst_set]
     exact .set (ihes (λ a ha y hy hyx ↦
       hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hx) hto hof
-  | collect filt L hdom hfilt hto hof ihdom ihfilt =>
+  | collect filt L hdom hfilt ihdom ihfilt =>
     intro N' hag hx
     rw [Expression.LC.subst_collect hlc]
     rw [Expression.freeVars] at hag
     refine .collect filt (L ∪ e'.freeVars ∪ {x})
-      (ihdom (λ y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_ hto hof
+      (ihdom (λ y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx) ?_
     intro y hy z hz
     obtain ⟨hyL, hye, hyx⟩ := freshParts hy
     rw [Expression.LC.subst_openVar hlc hyx]
@@ -1920,12 +2092,12 @@ private theorem evalSubst'_fwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
     obtain ⟨hzL, hze, hzx⟩ := freshParts hz
     rw [Expression.LC.subst_openVar hlc hzx]
     exact ihimg z hzL w hw (agreeStep hag) (xStep hzx hze hx)
-  | fnCall hf hk hdom ihf ihk =>
+  | fnCall hf hk hpf hkdom ihf ihk =>
     intro N' hag hx
     rw [Expression.subst_fnCall]
     rw [Expression.freeVars] at hag
     exact .fnCall (ihf (λ y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hx)
-      (ihk (λ y hy hyx ↦ hag y (Finset.mem_union_right _ hy) hyx) hx) hdom
+      (ihk (λ y hy hyx ↦ hag y (Finset.mem_union_right _ hy) hyx) hx) hpf hkdom
   | fn img L hdom himg hto hof ihdom ihimg =>
     intro N' hag hx
     rw [Expression.LC.subst_fn hlc]
@@ -1948,11 +2120,11 @@ private theorem evalSubst'_fwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
         obtain ⟨f, hf, rfl⟩ := List.mem_map.mp ha
         exact hag y (Expression.mem_freeVars_record.mpr ⟨f, hf, hy⟩) hyx) hx
     simpa [List.map_map, Function.comp_def] using key
-  | recordAccess he hdom ihe =>
+  | recordAccess he hpf hkdom ihe =>
     intro N' hag hx
     rw [Expression.subst_recordAccess]
     rw [Expression.freeVars] at hag
-    exact .recordAccess (ihe hag hx) hdom
+    exact .recordAccess (ihe hag hx) hpf hkdom
   | tuple hets hes ihes =>
     intro N' hag hx
     rw [Expression.subst_tuple]
@@ -2417,7 +2589,7 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
         hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hN'x hev') hto hof
     | var τ₀ o₀ => exact bwdVar hlc (.set hes hto hof) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
-  | collect filt L hdom hfilt hto hof ihdom ihfilt =>
+  | collect filt L hdom hfilt ihdom ihfilt =>
     intro e N' hsub hag hN'x hev'
     cases e with
     | collect x'' τ'' D₀ B₀ =>
@@ -2425,12 +2597,12 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       injection hsub with _ hτ hD hB; subst hτ
       rw [Expression.freeVars] at hag
       refine .collect filt (L ∪ e'.freeVars ∪ {x})
-        (ihdom hD (λ y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_ hto hof
+        (ihdom hD (λ y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev') ?_
       intro y hy z hz
       obtain ⟨hyL, hye, hyx⟩ := freshParts hy
       refine ihfilt y hyL z hz ?_ (agreeStep hag) (xStep hyx hN'x) (evStep hye hev')
       rw [← Expression.LC.subst_openVar hlc hyx, hB]
-    | var τ₀ o₀ => exact bwdVar hlc (.collect filt L hdom hfilt hto hof) hsub hN'x hev' (by simp)
+    | var τ₀ o₀ => exact bwdVar hlc (.collect filt L hdom hfilt) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
   | map' img L hdom himg hto hof ihdom ihimg =>
     intro e N' hsub hag hN'x hev'
@@ -2447,7 +2619,7 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       rw [← Expression.LC.subst_openVar hlc hzx, hB]
     | var τ₀ o₀ => exact bwdVar hlc (.map' img L hdom himg hto hof) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
-  | fnCall hf hk hdom ihf ihk =>
+  | fnCall hf hk hpf hkdom ihf ihk =>
     intro e N' hsub hag hN'x hev'
     cases e with
     | fnCall f₀ fnTyp₀ k₀ =>
@@ -2456,8 +2628,8 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       rw [Expression.freeVars] at hag
       exact .fnCall
         (ihf hfe (λ y hy hyx ↦ hag y (Finset.mem_union_left _ hy) hyx) hN'x hev')
-        (ihk hk₀ (λ y hy hyx ↦ hag y (Finset.mem_union_right _ hy) hyx) hN'x hev') hdom
-    | var τ₀ o₀ => exact bwdVar hlc (.fnCall hf hk hdom) hsub hN'x hev' (by simp)
+        (ihk hk₀ (λ y hy hyx ↦ hag y (Finset.mem_union_right _ hy) hyx) hN'x hev') hpf hkdom
+    | var τ₀ o₀ => exact bwdVar hlc (.fnCall hf hk hpf hkdom) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
   | fn img L hdom himg hto hof ihdom ihimg =>
     intro e N' hsub hag hN'x hev'
@@ -2494,15 +2666,15 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       simpa [List.map_map, Function.comp_def] using key
     | var τ₀ o₀ => exact bwdVar hlc (.record hfne hfs) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
-  | recordAccess he hdom ihe =>
+  | recordAccess he hpf hkdom ihe =>
     intro e N' hsub hag hN'x hev'
     cases e with
     | recordAccess e₀ nm₀ =>
       rw [Expression.subst_recordAccess] at hsub
       injection hsub with hee hnm; subst hnm
       rw [Expression.freeVars] at hag
-      exact .recordAccess (ihe hee hag hN'x hev') hdom
-    | var τ₀ o₀ => exact bwdVar hlc (.recordAccess he hdom) hsub hN'x hev' (by simp)
+      exact .recordAccess (ihe hee hag hN'x hev') hpf hkdom
+    | var τ₀ o₀ => exact bwdVar hlc (.recordAccess he hpf hkdom) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
   | tuple hets hes ihes =>
     intro e N' hsub hag hN'x hev'

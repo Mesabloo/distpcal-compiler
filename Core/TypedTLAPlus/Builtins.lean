@@ -37,7 +37,7 @@ inductive BuiltinOp : Type
   -- `builtinOpOf?` sees every builtin an elaborated term can contain, not just the writable ones.
   | strToSeq
   -- `Naturals` (`Driver/Builtins.lean`).
-  | plus | minus | unaryMinus | times | intDiv | mod | pow | lt | gt | leq | geq | range | natSet
+  | plus | minus | unaryMinus | times | intDiv | mod | pow | lt | gt | leq | geq | dotdot | natSet
   -- `Sequences`.
   | len | head | tail | append
   -- `Integers`.
@@ -71,7 +71,7 @@ def builtinOpOf? : Origin → Option BuiltinOp
     | "+" => some .plus | "-" => some .minus | "-." => some .unaryMinus | "*" => some .times
     | "\\div" => some .intDiv | "%" => some .mod | "^" => some .pow
     | "<" => some .lt | ">" => some .gt | "=<" => some .leq | ">=" => some .geq
-    | ".." => some .range | "Nat" => some .natSet
+    | ".." => some .dotdot | "Nat" => some .natSet
     | _ => none
   | .module "Sequences" name => match name with
     | "Len" => some .len | "Head" => some .head | "Tail" => some .tail | "Append" => some .append
@@ -97,14 +97,14 @@ def builtinOpOf? : Origin → Option BuiltinOp
 /-- `builtinOpOf?` picks out `Nat` only at `Naturals!Nat`. -/
 theorem builtinOpOf?_eq_natSet {o : Origin} :
     builtinOpOf? o = some .natSet ↔ o = .module "Naturals" "Nat" := by
-  refine ⟨fun h ↦ ?_, fun h ↦ h ▸ rfl⟩
+  refine ⟨λ h ↦ ?_, λ h ↦ h ▸ rfl⟩
   simp only [builtinOpOf?] at h
   split at h <;> first | (split at h <;> simp_all) | simp_all
 
 /-- `builtinOpOf?` picks out `Int` only at `Integers!Int`. -/
 theorem builtinOpOf?_eq_intSet {o : Origin} :
     builtinOpOf? o = some .intSet ↔ o = .module "Integers" "Int" := by
-  refine ⟨fun h ↦ ?_, fun h ↦ h ▸ rfl⟩
+  refine ⟨λ h ↦ ?_, λ h ↦ h ▸ rfl⟩
   simp only [builtinOpOf?] at h
   split at h <;> first | (split at h <;> simp_all) | simp_all
 
