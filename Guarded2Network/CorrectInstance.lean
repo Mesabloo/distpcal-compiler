@@ -95,7 +95,7 @@ theorem eval_lenGt' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
   · refine ⟨Value.fls, .opCall_builtin builtinOpOf?_gt (.cons hLen (.cons hNat .nil)) ?_,
       .inr rfl, iff_of_false Value.tru_ne_fls.symm hlt⟩
     exact EvalBuiltin.gt_neg (x := (vs.length : ℤ)) (y := (n : ℤ))
-      (fun hc ↦ hlt (Int.ofNat_lt.mp hc))
+      (λ hc ↦ hlt (Int.ofNat_lt.mp hc))
 
 /-- `<<>>` evaluates to the empty sequence, and only that. -/
 theorem eval_seq_nil_iff' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value} {τ : Typ}
@@ -119,7 +119,7 @@ operational `ExprSemantics Value` instance (whose `evalVar`/`evalSubst` fields a
 statement holds for every operator environment and model. -/
 theorem correct'' {Ξ : OperatorEnv} {Ω : Model Value} :
     Compiler.Correct compile
-      (fun s : SourceProgram Value Ξ Ω ↦ GuardedPlusCal.Algorithm.init Ξ Ω s.algo)
+      (λ s : SourceProgram Value Ξ Ω ↦ GuardedPlusCal.Algorithm.init Ξ Ω s.algo)
       (NetworkPlusCal.Algorithm.init Ξ Ω) :=
   correct'
 

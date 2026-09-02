@@ -123,14 +123,12 @@ theorem mem_seqGraphFrom {z : Value} {start : ℕ} {vs : List Value} :
   | nil => simp [seqGraphFrom, ZFSet.notMem_empty]
   | cons v vs ih =>
     rw [seqGraphFrom, ZFSet.mem_insert_iff, ih]
-    constructor
-    · rintro (rfl | ⟨i, hi, rfl⟩)
-      · exact ⟨0, by simp, by simp⟩
-      · refine ⟨i + 1, by simpa using hi, ?_⟩
-        have h : start + 1 + i = start + (i + 1) := by omega
-        rw [h, List.getElem_cons_succ]
-    · rintro ⟨i, hi, rfl⟩
-      cases i with
+    iff_rintro (rfl | ⟨i, hi, rfl⟩) ⟨i, hi, rfl⟩
+    · exact ⟨0, by simp, by simp⟩
+    · refine ⟨i + 1, by simpa using hi, ?_⟩
+      have h : start + 1 + i = start + (i + 1) := by omega
+      rw [h, List.getElem_cons_succ]
+    · cases i with
       | zero => exact Or.inl (by simp)
       | succ k =>
         refine Or.inr ⟨k, by simpa using hi, ?_⟩
@@ -172,12 +170,10 @@ theorem mem_recordGraph {z : Value} {fs : List (String × Value)} :
   | cons f fs ih =>
     obtain ⟨k, v⟩ := f
     rw [recordGraph, ZFSet.mem_insert_iff, ih]
-    constructor
-    · rintro (rfl | ⟨k', v', hmem, rfl⟩)
-      · exact ⟨k, v, by simp, rfl⟩
-      · exact ⟨k', v', by simp [hmem], rfl⟩
-    · rintro ⟨k', v', hmem, rfl⟩
-      rw [List.mem_cons] at hmem
+    iff_rintro (rfl | ⟨k', v', hmem, rfl⟩) ⟨k', v', hmem, rfl⟩
+    · exact ⟨k, v, by simp, rfl⟩
+    · exact ⟨k', v', by simp [hmem], rfl⟩
+    · rw [List.mem_cons] at hmem
       rcases hmem with heq | hmem
       · obtain ⟨rfl, rfl⟩ := Prod.mk.injEq .. |>.mp heq
         exact Or.inl rfl

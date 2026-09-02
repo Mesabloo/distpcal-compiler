@@ -157,7 +157,7 @@ theorem freeVars_applyComputable_subset {c : TypedTLAPlus.Coercion} {e : Express
     intro hz
     simp only [range, mem_freeVars_fn, mem_freeVars_fnCall, Expression.mem_freeVars_opCall,
       freeVars_var_module, freeVars_var_bound, Finset.notMem_empty, false_or, or_false,
-      List.mem_cons, List.mem_singleton, List.not_mem_nil, Finset.mem_union] at hz
+      List.mem_cons, List.not_mem_nil] at hz
     grind [Expression.freeVars_liftBound_subset, freeVars_nat, Expression.mem_freeVars_opCall,
       freeVars_var_module]
   | case4 => next e' pos n τ hn =>
@@ -213,12 +213,12 @@ theorem freeVars_applyComputable_subset {c : TypedTLAPlus.Coercion} {e : Express
           simp
         · absurd ha
           simp
-  | case9 => next e' c₁ c₂ ih₁ ih₂ => exact fun hz ↦ ih₁ (ih₂ hz)
+  | case9 => next e' c₁ c₂ ih₁ ih₂ => exact λ hz ↦ ih₁ (ih₂ hz)
 
 /-- The `⊆` reading of `freeVars_applyComputable_subset`. -/
 theorem freeVars_applyComputable_subset' {c : TypedTLAPlus.Coercion} {e : Expression Typ} :
     (TypedTLAPlus.Coercion.applyComputable c e).freeVars ⊆ e.freeVars :=
-  fun _ hz ↦ freeVars_applyComputable_subset hz
+  λ _ hz ↦ freeVars_applyComputable_subset hz
 
 /-! ## `Coercion.applyComputable` and `openVar`
 

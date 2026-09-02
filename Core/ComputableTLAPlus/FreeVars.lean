@@ -42,23 +42,21 @@ private theorem mem_foldl_union {z : String} :
   | [], _ => by simp
   | hd :: tl, s => by
     rw [List.foldl_cons, mem_foldl_union, Finset.mem_union]
-    constructor
-    · rintro ((hs | hhd) | ⟨t, ht, hz⟩)
-      · exact .inl hs
-      · exact .inr ⟨hd, List.mem_cons_self, hhd⟩
-      · exact .inr ⟨t, List.mem_cons_of_mem _ ht, hz⟩
-    · rintro (hs | ⟨t, ht, hz⟩)
-      · exact .inl (.inl hs)
-      · rcases List.mem_cons.mp ht with rfl | ht
-        · exact .inl (.inr hz)
-        · exact .inr ⟨t, ht, hz⟩
+    iff_rintro ((hs | hhd) | ⟨t, ht, hz⟩) (hs | ⟨t, ht, hz⟩)
+    · exact .inl hs
+    · exact .inr ⟨hd, List.mem_cons_self, hhd⟩
+    · exact .inr ⟨t, List.mem_cons_of_mem _ ht, hz⟩
+    · exact .inl (.inl hs)
+    · rcases List.mem_cons.mp ht with rfl | ht
+      · exact .inl (.inr hz)
+      · exact .inr ⟨t, ht, hz⟩
 
 private theorem mem_foldl_union_attach {α} {z : String} {l : List α}
     {g : {x // x ∈ l} → Finset String} :
     z ∈ (l.attach.map g).foldl (· ∪ ·) ∅ ↔ ∃ x, z ∈ g x := by
   simp only [mem_foldl_union, Finset.notMem_empty, false_or, List.mem_map, List.mem_attach,
     true_and]
-  exact ⟨fun ⟨_, ⟨a, rfl⟩, hz⟩ ↦ ⟨a, hz⟩, fun ⟨a, hz⟩ ↦ ⟨g a, ⟨a, rfl⟩, hz⟩⟩
+  exact ⟨λ ⟨_, ⟨a, rfl⟩, hz⟩ ↦ ⟨a, hz⟩, λ ⟨a, hz⟩ ↦ ⟨g a, ⟨a, rfl⟩, hz⟩⟩
 
 namespace Expression
 
@@ -161,8 +159,8 @@ theorem freeVars_mapVars_subset {f : Nat → α → Origin → SourceSpan → Ex
           have hga' : Expression.mapVars f k' e'' = e' := Sum.inr.inj hga
           subst hga'
           exact (ihpath path v hpv e'' hsp hze').imp
-            (fun h ↦ .inr ⟨(path, v), hpv, .inl ⟨e'', hsp, h⟩⟩) id
-      · exact (ihv path v hpv hv).imp (fun h ↦ .inr ⟨(path, v), hpv, .inr h⟩) id
+            (λ h ↦ .inr ⟨(path, v), hpv, .inl ⟨e'', hsp, h⟩⟩) id
+      · exact (ihv path v hpv hv).imp (λ h ↦ .inr ⟨(path, v), hpv, .inr h⟩) id
   | _ =>
     intro z hz
     simp only [Expression.freeVars, Finset.mem_union, mem_foldl_union, Finset.notMem_empty,
@@ -174,17 +172,18 @@ theorem freeVars_liftBound_subset {d : Nat} {e : Expression α} :
     (e.liftBound d).freeVars ⊆ e.freeVars := by
   intro z hz
   have := freeVars_mapVars_subset (S := (∅ : Finset String))
-    (fun k τ o pos w hw ↦ by
+    (λ k τ o pos w hw ↦ by
       cases o <;> simp_all [Expression.freeVars, Expression.liftBoundLam]) 0 e hz
   simpa using this
 
+set_option linter.unnecessarySimpa false in
 /-- `openVar` turns the removed binder's index into the free name `x`, and moves no other name in
 or out. -/
 theorem freeVars_openVar_subset {x : String} {e : Expression α} :
     (e.openVar x).freeVars ⊆ insert x e.freeVars := by
   intro z hz
   have := freeVars_mapVars_subset (S := ({x} : Finset String))
-    (fun k τ o pos w hw ↦ by
+    (λ k τ o pos w hw ↦ by
       cases o with
       | bound i =>
         refine .inr ?_
@@ -204,16 +203,17 @@ theorem freeVars_openVar_erase {x : String} {e : Expression α} :
   · exact (hzx h).elim
   · exact h
 
+set_option linter.unnecessarySimpa false in
 /-- A name free after instantiating the outermost binders is free in the body or in one of the
 instantiated arguments. -/
 theorem freeVars_instantiate {args : List (Expression α)} {body : Expression α} {z : String}
     (hz : z ∈ (body.instantiate args).freeVars) :
     z ∈ body.freeVars ∨ ∃ a ∈ args, z ∈ a.freeVars := by
   have hS : ∀ w, w ∈ ((args.map Expression.freeVars).foldl (· ∪ ·) ∅ : Finset String) ↔
-      ∃ a ∈ args, w ∈ a.freeVars := fun w ↦ by
+      ∃ a ∈ args, w ∈ a.freeVars := λ w ↦ by
     rw [mem_foldl_union]; simp [List.mem_map]
   rcases freeVars_mapVars_subset (S := (args.map Expression.freeVars).foldl (· ∪ ·) ∅)
-    (fun k τ o pos w hw ↦ by
+    (λ k τ o pos w hw ↦ by
       cases o with
       | bound i =>
         simp only [Expression.instLam] at hw
@@ -231,7 +231,7 @@ theorem freeVars_instantiate {args : List (Expression α)} {body : Expression α
 /-- `l.attach.map f = l` once each element maps back to itself. -/
 private theorem attach_map_id_of {β : Type} {l : List β} {f : {x // x ∈ l} → β}
     (h : ∀ a : {x // x ∈ l}, f a = a.1) : l.attach.map f = l :=
-  (List.map_congr_left fun a _ ↦ h a).trans (List.attach_map_subtype_val l)
+  (List.map_congr_left λ a _ ↦ h a).trans (List.attach_map_subtype_val l)
 
 set_option maxHeartbeats 1000000 in
 /-- `subst` of a name not free in the target is the identity. -/
@@ -256,7 +256,7 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [registerSource]
     congr 1
     · exact ihg hg
-    · exact attach_map_id_of fun a ↦ ihes a.1 a.2 (hes' a.1 a.2)
+    · exact attach_map_id_of λ a ↦ ihes a.1 a.2 (hes' a.1 a.2)
   | case3 k' xh ann dom body pos ihd ihb =>
     intro h
     rewrite [Expression.freeVars, Finset.notMem_union] at h
@@ -275,7 +275,7 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [not_exists, not_and] at h
     simp only [registerSource]
     congr 1
-    exact attach_map_id_of fun a ↦ ihes a.1 a.2 (h a.1 a.2)
+    exact attach_map_id_of λ a ↦ ihes a.1 a.2 (h a.1 a.2)
   | case7 k' xh ann dom body pos ihd ihb =>
     intro h
     rewrite [Expression.freeVars, Finset.notMem_union] at h
@@ -298,7 +298,7 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [not_exists, not_and] at h
     simp only [registerSource]
     congr 1
-    refine attach_map_id_of fun a ↦ ?_
+    refine attach_map_id_of λ a ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact congr_arg₂ Prod.mk rfl (congr_arg₂ Prod.mk rfl (ihfs ann nm v hm (h _ hm)))
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
@@ -309,11 +309,11 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [registerSource]
     congr 1
     · exact ih3 hg
-    · refine attach_map_id_of fun a ↦ ?_
+    · refine attach_map_id_of λ a ↦ ?_
       obtain ⟨⟨path, v⟩, hpv⟩ := a
       obtain ⟨hpath, hv⟩ := hu _ hpv
       refine congr_arg₂ Prod.mk ?_ (ih1 path v hpv hv)
-      refine attach_map_id_of fun s ↦ ?_
+      refine attach_map_id_of λ s ↦ ?_
       obtain ⟨s, hsp⟩ := s
       cases s with
       | inl fld => rfl
@@ -328,7 +328,7 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [not_exists, not_and] at h
     simp only [registerSource]
     congr 1
-    refine attach_map_id_of fun a ↦ ?_
+    refine attach_map_id_of λ a ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact congr_arg₂ Prod.mk rfl (ihes t v hm (h _ hm))
   | case15 k' es τ pos ihes =>
@@ -337,7 +337,7 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [not_exists, not_and] at h
     simp only [registerSource]
     congr 1
-    exact attach_map_id_of fun a ↦ ihes a.1 a.2 (h a.1 a.2)
+    exact attach_map_id_of λ a ↦ ihes a.1 a.2 (h a.1 a.2)
   | case16 k' e₁ e₂ e₃ τ pos ih₁ ih₂ ih₃ =>
     intro h
     rewrite [Expression.freeVars, Finset.notMem_union, Finset.notMem_union] at h
@@ -349,7 +349,7 @@ theorem subst_fresh {x : String} {e' : Expression α} :
     simp only [not_exists, not_and, not_or] at hb ho
     simp only [registerSource]
     congr 1
-    · refine attach_map_id_of fun a ↦ ?_
+    · refine attach_map_id_of λ a ↦ ?_
       obtain ⟨⟨p, q⟩, hpq⟩ := a
       obtain ⟨hp, hq⟩ := hb _ hpq
       exact congr_arg₂ Prod.mk (ih3 p q hpq hp) (ih2 p q hpq hq)
@@ -371,7 +371,7 @@ theorem subst_instantiate {x : String} {e' : Expression α}
   refine Eq.trans (Expression.mapVars_comm (g := Expression.substLam x e')
     (gf := Expression.instLam (args.map (Expression.subst x e')))
     (f := Expression.instLam args) (fg := Expression.substLam x e')
-    (fun k' τ o pos ↦ ?_) 0 body) ?_
+    (λ k' τ o pos ↦ ?_) 0 body) ?_
   · cases o with
     | bound i =>
       simp only [Expression.instLam, Expression.substLam, Expression.mapVars, List.length_map]

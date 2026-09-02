@@ -140,10 +140,10 @@ def _absurd(code, raw):
             yield i, l.strip()
 
 
-@rule("fun x => ", "write `λ x ↦` — `pp.unicode.fun` is on")
+@rule("fun keyword", "write `λ x ↦` — `pp.unicode.fun` is on")
 def _lambda(code, raw):
     for i, l in enumerate(code):
-        if re.search(r'\bfun\b[^=]*=>', l):
+        if re.search(r'\bfun\b.*?(?:=>|↦)', l):
             yield i, l.strip()
 
 

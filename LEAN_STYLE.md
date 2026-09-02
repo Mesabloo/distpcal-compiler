@@ -51,6 +51,30 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `on_goal 3 => tac`, and ranges/unions on top of that — `1,3-5,9-12: tac`. Works in `conv` too.
   Use it; the stdlib spellings are longer and cover less. Needs `meta import CustomPrelude` — add
   the import rather than fall back to `all_goals`.
+
+  **`all:` / `all_goals` over a *single* remaining goal is a `·` bullet.** The selector reads as
+  "every branch" and there is only one; a reader stops to look for the others. One goal, one bullet.
+- **`induction` / `fun_induction` carry their cases in `with | name => …`, never as bare `case name
+  =>` blocks after the tactic.** `with` is checked for exhaustiveness — a constructor you forgot is
+  an error at the `induction`, not a goal that silently survives to the end of the proof. The bare
+  `case` form invites the two things that follow it here: a trailing `all_goals …` mopping up the
+  cases nobody wrote out (which then also fires on nothing and warns), and `case` names in an order
+  that no longer matches the inductive. `induction h using T.rec (motive_2 := …)` keeps its motive
+  arguments, then `with` and the `| …` arms. If a batch of structurally identical cases really does
+  share one script, `| c₁ | c₂ | c₃ => tac` groups their names — still inside `with`, still
+  exhaustive-checked.
+
+  Exception: `fun_induction`'s `| _ => …` wildcard arm is fine — it is part of the `with` block and
+  Lean still checks the rest are covered. A wildcard is also the only way to reach the *second* of
+  two like-named alternatives a mutual recursor produces (`Eval.rec` has `EvalList.nil` and
+  `EvalPath.nil`, both spelled `nil`): the first `| nil => …` takes one, `| _ => …` the other.
+
+  **`| @c a b … =>` when the case body needs a constructor's implicit argument by name.** Bare `| c
+  h =>` binds only `c`'s explicit args; `case c _ _ name _ h` used to bind the implicits positionally
+  too, and `| @c _ _ name _ h =>` is how that reads under `with`. Reach for it rather than following
+  the alt with a `next` that renames the same binders — `| c h => next _ _ name _ => …` is the shape
+  the `@` is there to delete. A plain `next x => tac` on a *wildcard* `| _ =>` arm, to name the one
+  inaccessible its body inverts, stays fine.
 - **No `by assumption` as a term argument.** Write `‹_›`, or `‹T›` when the type is short enough to
   read. `f (by assumption)` opens a tactic block to do what a term already says, and hides which
   hypothesis is meant. `VerifiedCompiler/Denotational/Tactics.lean:69`,
@@ -75,6 +99,12 @@ Citations illustrate the rule; this file is not a list of things to fix.
   up: a tactic taking a *single* tactic argument (`mvcgen … with`) whose argument is really a
   sequence — `Guarded2Network/Lemmas/AtomicBranch.lean:174`. Ungrouped, the sequence silently
   truncates to its first tactic and the rest applies to whatever goal happens to be first.
+
+  **No parentheses around a `first` whose branch is a `cases`/`rcases`/`match` arm.** `| pat =>
+  first` on one line, then its `| alt` branches indented under it — the `first` alternatives sit
+  one column in from the arm's `|`, so indentation already says which `|` is whose. The wrapping
+  `( … )` adds nothing. A multi-tactic *alternative* inside that `first` still groups — `{ … }` per
+  the rule above, since it is meant to close the goal.
 - **No `rw [show … by …]`.** Inline `show`-by-tactic inside a rewrite hide a real proof step in a
   rewrite argument. State it as a `have` and rewrite with that.
   `Extra/Seq.lean:125` — `have hm : m = 0 := by omega`, then `rwa [hm] at h`

@@ -186,8 +186,8 @@ private theorem doubleAttach_collapse {β : Type} {l : List β} (f : {x // x ∈
     (hgf : ∀ (a : {x // x ∈ l}) (hm : f a ∈ l.attach.map f), g ⟨f a, hm⟩ = a.1) :
     (l.attach.map f).attach.map g = l := by
   simp only [List.map_attach_eq_pmap, List.pmap_pmap]
-  rw [List.pmap_congr_left (q := fun _ ↦ True) (H₂ := fun _ _ ↦ trivial)
-        (g := fun a _ ↦ (a.1 : β)) l.attach (fun a _ _ _ ↦ hgf a _)]
+  rw [List.pmap_congr_left (q := λ _ ↦ True) (H₂ := λ _ _ ↦ trivial)
+        (g := λ a _ ↦ (a.1 : β)) l.attach (λ a _ _ _ ↦ hgf a _)]
   simp [List.pmap_eq_map]
 
 /-- Congruence for the doubly-attached maps that `mapVars`' list arms produce when composed with
@@ -229,7 +229,7 @@ theorem Expression.mapVars_mapVars_id {α} {g h : Nat → α → Origin → Sour
     simp only [Expression.mapVars, registerSource, List.map_attach_eq_pmap, List.pmap_eq_map,
       List.map_map, Function.comp_def]
     congr 1
-    refine (List.map_congr_left (g := id) fun a ha ↦ ?_).trans (List.map_id _)
+    refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _)
     obtain ⟨ann, nm, v⟩ := a
     simp only [id_eq, Prod.mk.injEq, true_and]
     exact ih1 ann nm v ha
@@ -237,7 +237,7 @@ theorem Expression.mapVars_mapVars_id {α} {g h : Nat → α → Origin → Sour
     simp only [Expression.mapVars, registerSource, List.map_attach_eq_pmap, List.pmap_eq_map,
       List.map_map, Function.comp_def]
     congr 1
-    refine (List.map_congr_left (g := id) fun a ha ↦ ?_).trans (List.map_id _)
+    refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _)
     obtain ⟨t, v⟩ := a
     simp only [id_eq, Prod.mk.injEq, true_and]
     exact ih1 t v ha
@@ -260,14 +260,14 @@ theorem Expression.mapVars_mapVars_id {α} {g h : Nat → α → Origin → Sour
       simp only [Expression.mapVars, registerSource, List.map_attach_eq_pmap, List.pmap_eq_map,
         List.map_map, Function.comp_def]
       congr 1
-      refine (List.map_congr_left (g := id) fun a ha ↦ ?_).trans (List.map_id _)
+      refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _)
       obtain ⟨p, q⟩ := a
       exact Prod.ext (ih3 p q ha) (ih2 p q ha)
     | some e' =>
       simp only [Expression.mapVars, registerSource, List.map_attach_eq_pmap, List.pmap_eq_map,
         List.map_map, Function.comp_def]
       congr 1
-      · refine (List.map_congr_left (g := id) fun a ha ↦ ?_).trans (List.map_id _)
+      · refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _)
         obtain ⟨p, q⟩ := a
         exact Prod.ext (ih3 p q ha) (ih2 p q ha)
       · exact congrArg some (by simpa using ih1)
@@ -279,7 +279,7 @@ theorem Expression.mapVars_mapVars_id {α} {g h : Nat → α → Origin → Sour
         first
           | rfl
           | assumption
-          | (refine (List.map_congr_left (g := id) fun a ha ↦ ?_).trans (List.map_id _)
+          | (refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _)
              exact by simp_all))
 
 set_option maxHeartbeats 1000000 in
@@ -303,34 +303,34 @@ theorem Expression.mapVars_shift_comm {α}
   | case2 k' g_ es pos ihg ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact doubleAttach_map_congr fun a _ _ ↦ ihes _ a.2
+    exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case6 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact doubleAttach_map_congr fun a _ _ ↦ ihes _ a.2
+    exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case15 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact doubleAttach_map_congr fun a _ _ ↦ ihes _ a.2
+    exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case11 k' fs pos ihfs =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine doubleAttach_map_congr fun a _ _ ↦ ?_
+    refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact Prod.ext rfl (Prod.ext rfl (ihfs ann nm v hm))
   | case14 k' es pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine doubleAttach_map_congr fun a _ _ ↦ ?_
+    refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact Prod.ext rfl (ihes t v hm)
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine doubleAttach_map_congr fun a _ _ ↦ ?_
+    refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨path, v⟩, hpv⟩ := a
     refine Prod.ext ?_ (ih1 path v hpv)
-    refine doubleAttach_map_congr fun s _ _ ↦ ?_
+    refine doubleAttach_map_congr λ s _ _ ↦ ?_
     obtain ⟨s, hsp⟩ := s
     cases s with
     | inl fld => rfl
@@ -340,13 +340,13 @@ theorem Expression.mapVars_shift_comm {α}
     | none =>
       simp only [Expression.mapVars, registerSource]
       congr 1
-      refine doubleAttach_map_congr fun a _ _ ↦ ?_
+      refine doubleAttach_map_congr λ a _ _ ↦ ?_
       obtain ⟨⟨p, q⟩, hpq⟩ := a
       exact Prod.ext (ih3 p q hpq) (ih2 p q hpq)
     | some e' =>
       simp only [Expression.mapVars, registerSource]
       congr 1
-      · refine doubleAttach_map_congr fun a _ _ ↦ ?_
+      · refine doubleAttach_map_congr λ a _ _ ↦ ?_
         obtain ⟨⟨p, q⟩, hpq⟩ := a
         exact Prod.ext (ih3 p q hpq) (ih2 p q hpq)
       · exact congrArg some ih1
@@ -371,34 +371,34 @@ theorem Expression.mapVars_comm {α}
   | case2 k' g_ es pos ihg ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact doubleAttach_map_congr fun a _ _ ↦ ihes _ a.2
+    exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case6 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact doubleAttach_map_congr fun a _ _ ↦ ihes _ a.2
+    exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case15 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact doubleAttach_map_congr fun a _ _ ↦ ihes _ a.2
+    exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case11 k' fs pos ihfs =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine doubleAttach_map_congr fun a _ _ ↦ ?_
+    refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact Prod.ext rfl (Prod.ext rfl (ihfs ann nm v hm))
   | case14 k' es pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine doubleAttach_map_congr fun a _ _ ↦ ?_
+    refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact Prod.ext rfl (ihes t v hm)
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine doubleAttach_map_congr fun a _ _ ↦ ?_
+    refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨path, v⟩, hpv⟩ := a
     refine Prod.ext ?_ (ih1 path v hpv)
-    refine doubleAttach_map_congr fun s _ _ ↦ ?_
+    refine doubleAttach_map_congr λ s _ _ ↦ ?_
     obtain ⟨s, hsp⟩ := s
     cases s with
     | inl fld => rfl
@@ -408,13 +408,13 @@ theorem Expression.mapVars_comm {α}
     | none =>
       simp only [Expression.mapVars, registerSource]
       congr 1
-      refine doubleAttach_map_congr fun a _ _ ↦ ?_
+      refine doubleAttach_map_congr λ a _ _ ↦ ?_
       obtain ⟨⟨p, q⟩, hpq⟩ := a
       exact Prod.ext (ih3 p q hpq) (ih2 p q hpq)
     | some e' =>
       simp only [Expression.mapVars, registerSource]
       congr 1
-      · refine doubleAttach_map_congr fun a _ _ ↦ ?_
+      · refine doubleAttach_map_congr λ a _ _ ↦ ?_
         obtain ⟨⟨p, q⟩, hpq⟩ := a
         exact Prod.ext (ih3 p q hpq) (ih2 p q hpq)
       · exact congrArg some ih1
@@ -433,7 +433,7 @@ theorem Expression.openVar_liftBound_one_comm {α} (name : String) (n : Nat) (e 
     Expression.mapVars_shift_comm (g := Expression.openVarLam name)
       (gf := Expression.liftBoundLam 1) (f := Expression.liftBoundLam 1)
       (fg := Expression.openVarLam name) n
-      (fun j τ o pos ↦ by
+      (λ j τ o pos ↦ by
         cases o with
         | bound i =>
           simp only [Expression.liftBoundLam, Expression.openVarLam]
@@ -451,7 +451,7 @@ with `name` is the identity: the lift moves every index past the cutoff, so `ope
 nothing bound at depth 0 to rename and shifts everything back down. No freshness needed. -/
 theorem Expression.openVar_liftBound_one {α} (name : String) (e : Expression α) :
     (e.liftBound 1).openVar name = e := by
-  refine Expression.mapVars_mapVars_id (fun k τ o pos ↦ ?_) 0 e
+  refine Expression.mapVars_mapVars_id (λ k τ o pos ↦ ?_) 0 e
   cases o with
   | bound i =>
     simp only [Expression.liftBoundLam]
@@ -529,7 +529,7 @@ def Expression.LC {α} (e : Expression α) : Prop :=
 /-- A locally-closed term is fixed by `liftBound` at any amount. -/
 theorem Expression.LC.liftBound_eq {α} {e : Expression α} (h : e.LC) (k : Nat) :
     e.liftBound k = e := by
-  refine h (Expression.liftBoundLam k) 0 (fun d τ i pos hi ↦ ?_) (fun d τ o pos ho ↦ ?_)
+  refine h (Expression.liftBoundLam k) 0 (λ d τ i pos hi ↦ ?_) (λ d τ o pos ho ↦ ?_)
   · simp only [Expression.liftBoundLam, if_neg (by omega : ¬ d ≤ i)]
   · cases o <;> simp_all [Expression.liftBoundLam]
 
@@ -538,14 +538,14 @@ outermost `.bound` for it to rename. -/
 theorem Expression.LC.mapVars_openVarLam_eq {α} {e : Expression α} (h : e.LC) (name : String)
     (k : Nat) :
     Expression.mapVars (Expression.openVarLam name) k e = e := by
-  refine h (Expression.openVarLam name) k (fun d τ i pos hi ↦ ?_) (fun d τ o pos ho ↦ ?_)
+  refine h (Expression.openVarLam name) k (λ d τ i pos hi ↦ ?_) (λ d τ o pos ho ↦ ?_)
   · simp only [Expression.openVarLam, if_neg (by omega : ¬ i = d), if_neg (by omega : ¬ d < i)]
   · cases o <;> simp_all [Expression.openVarLam]
 
 /-- From `l.attach.map f = l`, every element maps to itself. -/
 private theorem attach_map_eq_self_of {β : Type} {l : List β} {f : {x // x ∈ l} → β}
     (h : l.attach.map f = l) : ∀ a : {x // x ∈ l}, f a = a.1 :=
-  fun a ↦ List.map_inj_left.mp (h.trans (List.attach_map_subtype_val l).symm) a (List.mem_attach l a)
+  λ a ↦ List.map_inj_left.mp (h.trans (List.attach_map_subtype_val l).symm) a (List.mem_attach l a)
 
 set_option maxHeartbeats 1000000 in
 /-- The converse of `LC.mapVars_openVarLam_eq`: a term an `openVar` traversal fixes has no dangling
@@ -571,16 +571,16 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
       · injection (Expression.var.inj h).2 with heq; omega
       · refine h1 (base + k') τ i pos ?_
         omega
-    | free n => exact h2 (base + k') τ _ pos (fun _ hi ↦ nomatch hi)
-    | «module» m n => exact h2 (base + k') τ _ pos (fun _ hi ↦ nomatch hi)
-    | intrinsic n => exact h2 (base + k') τ _ pos (fun _ hi ↦ nomatch hi)
+    | free n => exact h2 (base + k') τ _ pos (λ _ hi ↦ nomatch hi)
+    | «module» m n => exact h2 (base + k') τ _ pos (λ _ hi ↦ nomatch hi)
+    | intrinsic n => exact h2 (base + k') τ _ pos (λ _ hi ↦ nomatch hi)
   | case2 k' g_ es pos ihg ihes =>
     intro h base
     simp only [Expression.mapVars, registerSource] at h ⊢
     injection h with hg hes
     rw [ihg hg base]
     congr 1
-    exact Eq.trans (List.map_congr_left fun a _ ↦ ihes a.1 a.2 (attach_map_eq_self_of hes a) base)
+    exact Eq.trans (List.map_congr_left λ a _ ↦ ihes a.1 a.2 (attach_map_eq_self_of hes a) base)
       (List.attach_map_subtype_val es)
   | case3 k' xh ann dom body pos ihd ihb =>
     intro h base
@@ -605,7 +605,7 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     simp only [Expression.mapVars, registerSource] at h ⊢
     injection h with hes
     congr 1
-    exact Eq.trans (List.map_congr_left fun a _ ↦ ihes a.1 a.2 (attach_map_eq_self_of hes a) base)
+    exact Eq.trans (List.map_congr_left λ a _ ↦ ihes a.1 a.2 (attach_map_eq_self_of hes a) base)
       (List.attach_map_subtype_val es)
   | case7 k' xh ann dom body pos ihd ihb =>
     intro h base
@@ -635,7 +635,7 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     simp only [Expression.mapVars, registerSource] at h ⊢
     injection h with hfs
     congr 1
-    refine Eq.trans (List.map_congr_left fun a _ ↦ ?_) (List.attach_map_subtype_val fs)
+    refine Eq.trans (List.map_congr_left λ a _ ↦ ?_) (List.attach_map_subtype_val fs)
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     have hfix := attach_map_eq_self_of hfs ⟨(ann, nm, v), hm⟩
     simp only [Prod.mk.injEq] at hfix
@@ -646,12 +646,12 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     injection h with hg _ hu
     rw [ih3 hg base]
     congr 1
-    refine Eq.trans (List.map_congr_left fun a _ ↦ ?_) (List.attach_map_subtype_val upds)
+    refine Eq.trans (List.map_congr_left λ a _ ↦ ?_) (List.attach_map_subtype_val upds)
     obtain ⟨⟨path, v⟩, hpv⟩ := a
     have hpair := attach_map_eq_self_of hu ⟨(path, v), hpv⟩
     simp only [Prod.mk.injEq] at hpair
     refine congr_arg₂ Prod.mk ?_ (ih1 path v hpv hpair.2 base)
-    refine Eq.trans (List.map_congr_left fun s _ ↦ ?_) (List.attach_map_subtype_val path)
+    refine Eq.trans (List.map_congr_left λ s _ ↦ ?_) (List.attach_map_subtype_val path)
     obtain ⟨s, hsp⟩ := s
     have hs := attach_map_eq_self_of hpair.1 ⟨s, hsp⟩
     cases s with
@@ -669,7 +669,7 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     simp only [Expression.mapVars, registerSource] at h ⊢
     injection h with hes
     congr 1
-    refine Eq.trans (List.map_congr_left fun a _ ↦ ?_) (List.attach_map_subtype_val es)
+    refine Eq.trans (List.map_congr_left λ a _ ↦ ?_) (List.attach_map_subtype_val es)
     obtain ⟨⟨t, v⟩, hm⟩ := a
     have hthis := attach_map_eq_self_of hes ⟨(t, v), hm⟩
     simp only [Prod.mk.injEq] at hthis
@@ -679,7 +679,7 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     simp only [Expression.mapVars, registerSource] at h ⊢
     injection h with hes
     congr 1
-    exact Eq.trans (List.map_congr_left fun a _ ↦ ihes a.1 a.2 (attach_map_eq_self_of hes a) base)
+    exact Eq.trans (List.map_congr_left λ a _ ↦ ihes a.1 a.2 (attach_map_eq_self_of hes a) base)
       (List.attach_map_subtype_val es)
   | case16 k' e₁ e₂ e₃ τ pos ih₁ ih₂ ih₃ =>
     intro h base
@@ -688,13 +688,13 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     rw [ih₁ h₁ base, ih₂ h₂ base, ih₃ h₃ base]
   | case17 k' bs other τ pos ih3 ih2 ih1 =>
     intro h base
-    have hBs : ∀ (H : bs.attach.map (fun a ↦
+    have hBs : ∀ (H : bs.attach.map (λ a ↦
         (Expression.mapVars (Expression.openVarLam name) k' a.1.1,
          Expression.mapVars (Expression.openVarLam name) k' a.1.2)) = bs),
-        bs.attach.map (fun a ↦ (Expression.mapVars g (base + k') a.1.1,
+        bs.attach.map (λ a ↦ (Expression.mapVars g (base + k') a.1.1,
           Expression.mapVars g (base + k') a.1.2)) = bs := by
       intro H
-      refine Eq.trans (List.map_congr_left fun a _ ↦ ?_) (List.attach_map_subtype_val bs)
+      refine Eq.trans (List.map_congr_left λ a _ ↦ ?_) (List.attach_map_subtype_val bs)
       obtain ⟨⟨p, q⟩, hpq⟩ := a
       have hpq2 := attach_map_eq_self_of H ⟨(p, q), hpq⟩
       simp only [Prod.mk.injEq] at hpq2
@@ -705,7 +705,7 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
       injection h with hbs _
       rw [hBs hbs]
     | some e'' =>
-      simp only [Expression.mapVars, registerSource, Option.map_some] at h ⊢
+      simp only [Expression.mapVars, registerSource] at h ⊢
       injection h with hbs hother
       rw [Option.some.injEq] at hother
       rw [hBs hbs, ih1 hother base]
@@ -717,7 +717,7 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
 /-- The converse of `LC.mapVars_openVarLam_eq`: `openVar` fixing a term certifies it locally closed. -/
 theorem Expression.LC.of_openVar_eq {α} {name : String} {e : Expression α}
     (h : Expression.openVar name e = e) : e.LC :=
-  fun g base c1 c2 ↦ by
+  λ g base c1 c2 ↦ by
     have := Expression.LC.of_openVar_eq_aux g c1 c2 0 e h base
     simpa using this
 
@@ -729,7 +729,7 @@ theorem Expression.subst_openVar_comm {α} {x : String} {e' : Expression α} {z 
     Expression.mapVars (Expression.openVarLam z) k (Expression.mapVars (Expression.substLam x e') k body)
       = Expression.mapVars (Expression.substLam x e') k
           (Expression.mapVars (Expression.openVarLam z) k body) := by
-  refine Expression.mapVars_comm (fun k' τ o pos ↦ ?_) k body
+  refine Expression.mapVars_comm (λ k' τ o pos ↦ ?_) k body
   cases o with
   | free n =>
     simp only [Expression.substLam]
@@ -784,33 +784,33 @@ theorem Expression.mapVars_succ_base {α}
   | case2 k' g_ es pos ihg ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact List.map_congr_left fun a _ ↦ ihes a.1 a.2
+    exact List.map_congr_left λ a _ ↦ ihes a.1 a.2
   | case6 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact List.map_congr_left fun a _ ↦ ihes a.1 a.2
+    exact List.map_congr_left λ a _ ↦ ihes a.1 a.2
   | case15 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    exact List.map_congr_left fun a _ ↦ ihes a.1 a.2
+    exact List.map_congr_left λ a _ ↦ ihes a.1 a.2
   | case11 k' fs pos ihfs =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine List.map_congr_left fun a _ ↦ ?_
+    refine List.map_congr_left λ a _ ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact Prod.ext rfl (Prod.ext rfl (ihfs ann nm v hm))
   | case14 k' es pos ihes =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine List.map_congr_left fun a _ ↦ ?_
+    refine List.map_congr_left λ a _ ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact Prod.ext rfl (ihes t v hm)
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
     congr 1
-    refine List.map_congr_left fun a _ ↦ ?_
+    refine List.map_congr_left λ a _ ↦ ?_
     obtain ⟨⟨path, v⟩, hpv⟩ := a
-    refine Prod.ext (List.map_congr_left fun s _ ↦ ?_) (ih1 path v hpv)
+    refine Prod.ext (List.map_congr_left λ s _ ↦ ?_) (ih1 path v hpv)
     obtain ⟨s, hsp⟩ := s
     cases s with
     | inl fld => rfl
@@ -820,13 +820,13 @@ theorem Expression.mapVars_succ_base {α}
     | none =>
       simp only [Expression.mapVars, registerSource]
       congr 1
-      refine List.map_congr_left fun a _ ↦ ?_
+      refine List.map_congr_left λ a _ ↦ ?_
       obtain ⟨⟨p, q⟩, hpq⟩ := a
       exact Prod.ext (ih3 p q hpq) (ih2 p q hpq)
     | some e' =>
       simp only [Expression.mapVars, registerSource]
       congr 1
-      · refine List.map_congr_left fun a _ ↦ ?_
+      · refine List.map_congr_left λ a _ ↦ ?_
         obtain ⟨⟨p, q⟩, hpq⟩ := a
         exact Prod.ext (ih3 p q hpq) (ih2 p q hpq)
       · exact congrArg some ih1
@@ -847,8 +847,8 @@ theorem Expression.mapVars_base_irrel {α}
 theorem Expression.LC.mapVars_liftBoundLam_eq {α} {e : Expression α} (h : e.LC) (d k : Nat) :
     Expression.mapVars (Expression.liftBoundLam d) k e = e :=
   h (Expression.liftBoundLam d) k
-    (fun d' τ i pos hi ↦ by simp only [Expression.liftBoundLam, if_neg (by omega : ¬ d' ≤ i)])
-    (fun d' τ o pos ho ↦ by cases o <;> simp_all [Expression.liftBoundLam])
+    (λ d' τ i pos hi ↦ by simp only [Expression.liftBoundLam, if_neg (by omega : ¬ d' ≤ i)])
+    (λ d' τ o pos ho ↦ by cases o <;> simp_all [Expression.liftBoundLam])
 
 /-- A locally-closed term is fixed by an `instantiate` traversal at any base depth: it has no free
 `.bound` for `instLam` to replace. -/
@@ -856,8 +856,8 @@ theorem Expression.LC.mapVars_instLam_eq {α} {e : Expression α} (h : e.LC)
     (args : List (Expression α)) (k : Nat) :
     Expression.mapVars (Expression.instLam args) k e = e :=
   h (Expression.instLam args) k
-    (fun d' τ i pos hi ↦ by simp only [Expression.instLam, if_pos hi])
-    (fun d' τ o pos ho ↦ by cases o <;> simp_all [Expression.instLam])
+    (λ d' τ i pos hi ↦ by simp only [Expression.instLam, if_pos hi])
+    (λ d' τ o pos ho ↦ by cases o <;> simp_all [Expression.instLam])
 
 /-- For a locally-closed substituend, `substLam` ignores the depth it runs at, so `subst` reads off
 a `mapVars` of `substLam` at any base depth. -/
@@ -865,7 +865,7 @@ theorem Expression.LC.mapVars_substLam_eq {α} {x : String} {e' : Expression α}
     (hlc : e'.LC) (k : Nat) (t : Expression α) :
     Expression.mapVars (Expression.substLam x e') k t = Expression.subst x e' t := by
   rw [Expression.subst_eq_mapVars]
-  refine Expression.mapVars_base_irrel (fun d τ o pos ↦ ?_) k t
+  refine Expression.mapVars_base_irrel (λ d τ o pos ↦ ?_) k t
   cases o with
   | free n =>
     by_cases hn : n = x
@@ -967,7 +967,7 @@ theorem Expression.subst_seq {es : List (Expression α)} {τ : α} :
 
 theorem Expression.subst_tuple {es : List (α × Expression α)} :
     Expression.subst x e' (Expression.tuple es)
-      = Expression.tuple (es.map fun p ↦ (p.1, Expression.subst x e' p.2)) := by
+      = Expression.tuple (es.map λ p ↦ (p.1, Expression.subst x e' p.2)) := by
   rewrite [Expression.subst_eq_mapVars]
   simp only [Expression.mapVars, registerSource,
     List.map_attach_eq_pmap, List.pmap_eq_map]
@@ -975,7 +975,7 @@ theorem Expression.subst_tuple {es : List (α × Expression α)} :
 
 theorem Expression.subst_record {fs : List (α × String × Expression α)} :
     Expression.subst x e' (Expression.record fs)
-      = Expression.record (fs.map fun p ↦ (p.1, p.2.1, Expression.subst x e' p.2.2)) := by
+      = Expression.record (fs.map λ p ↦ (p.1, p.2.1, Expression.subst x e' p.2.2)) := by
   rewrite [Expression.subst_eq_mapVars]
   simp only [Expression.mapVars, registerSource,
     List.map_attach_eq_pmap, List.pmap_eq_map]
@@ -1027,26 +1027,26 @@ theorem Expression.LC.subst_fn {x' : String} {ann cod : α} {dom body : Expressi
 private theorem attach_map_of {β γ : Type} {l : List β} {f : {x // x ∈ l} → γ} {g : β → γ}
     (h : ∀ a : {x // x ∈ l}, f a = g a.1) : l.attach.map f = l.map g := by
   rw [← List.attach_map_val (f := g)]
-  exact List.map_congr_left fun a _ ↦ h a
+  exact List.map_congr_left λ a _ ↦ h a
 
 theorem Expression.subst_except_single {f : Expression α} {τ : α}
     {path : List (String ⊕ Expression α)} {rhs : Expression α} :
     Expression.subst x e' (Expression.except f τ [(path, rhs)])
       = Expression.except (Expression.subst x e' f) τ
-          [(path.map fun s ↦ s.map id (Expression.subst x e'), Expression.subst x e' rhs)] := by
+          [(path.map λ s ↦ s.map id (Expression.subst x e'), Expression.subst x e' rhs)] := by
   rewrite [Expression.subst_eq_mapVars]
   simp only [Expression.mapVars, registerSource, List.attach_cons, List.attach_nil,
     List.map_cons, List.map_nil]
   refine congrArg (Expression.except _ τ) (congrArg (· :: [])
-    (Prod.ext (attach_map_of (g := fun s : String ⊕ Expression α ↦ s.map id (Expression.subst x e'))
-      fun a ↦ ?_) rfl))
+    (Prod.ext (attach_map_of (g := λ s : String ⊕ Expression α ↦ s.map id (Expression.subst x e'))
+      λ a ↦ ?_) rfl))
   obtain ⟨s, hs⟩ := a
   cases s <;> rfl
 
 theorem Expression.subst_case {bs : List (Expression α × Expression α)}
     {other : Option (Expression α)} {τ : α} :
     Expression.subst x e' (Expression.case bs other τ)
-      = Expression.case (bs.map fun p ↦ (Expression.subst x e' p.1, Expression.subst x e' p.2))
+      = Expression.case (bs.map λ p ↦ (Expression.subst x e' p.1, Expression.subst x e' p.2))
           (other.map (Expression.subst x e')) τ := by
   rcases other with _ | o <;>
     simp only [Expression.subst, Expression.mapVars, registerSource, List.map_attach_eq_pmap,
@@ -1080,7 +1080,7 @@ theorem Expression.subst_liftBound_comm {α} {x : String} {e' t : Expression α}
     Expression.subst x e' (t.liftBound k) = (Expression.subst x e' t).liftBound k := by
   rw [Expression.subst_eq_mapVars, Expression.subst_eq_mapVars, Expression.liftBound,
     Expression.liftBound]
-  refine Expression.mapVars_comm (fun k' τ o pos ↦ ?_) 0 t
+  refine Expression.mapVars_comm (λ k' τ o pos ↦ ?_) 0 t
   cases o with
   | free n =>
     by_cases hn : n = x
@@ -1098,7 +1098,7 @@ theorem Expression.subst_liftBound_comm {α} {x : String} {e' t : Expression α}
 /-- A `.var` at a non-`.bound` origin is locally closed. -/
 theorem Expression.LC.varClosed {α} {τ : α} {o : Origin} (ho : ∀ i, o ≠ .bound i) :
     (Expression.var τ o).LC :=
-  fun g base _ h2 ↦ by simpa only [Expression.mapVars] using h2 base τ o _ ho
+  λ g base _ h2 ↦ by simpa only [Expression.mapVars] using h2 base τ o _ ho
 
 /-- An `.opCall` of locally-closed parts is locally closed. -/
 theorem Expression.LC.opCall {α} {g : Expression α} {es : List (Expression α)}
@@ -1107,7 +1107,7 @@ theorem Expression.LC.opCall {α} {g : Expression α} {es : List (Expression α)
   simp only [Expression.mapVars, registerSource]
   congr 1
   · exact hg f base h1 h2
-  · exact Eq.trans (List.map_congr_left fun a _ ↦ hes a.1 a.2 f base h1 h2)
+  · exact Eq.trans (List.map_congr_left λ a _ ↦ hes a.1 a.2 f base h1 h2)
       (List.attach_map_subtype_val es)
 
 /-- A one-entry `except` of locally-closed parts is locally closed. -/
@@ -1120,7 +1120,7 @@ theorem Expression.LC.except_single {α} {g : Expression α} {τ : α}
   congr 1
   · exact hg f base h1 h2
   · refine congrArg (· :: []) (Prod.ext ?_ (hrhs f base h1 h2))
-    exact Eq.trans (List.map_congr_left fun s hs ↦ by
+    exact Eq.trans (List.map_congr_left λ s hs ↦ by
         obtain ⟨s, hsp⟩ := s
         cases s with
         | inl fld => rfl

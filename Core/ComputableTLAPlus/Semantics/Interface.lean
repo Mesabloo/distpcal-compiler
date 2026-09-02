@@ -111,17 +111,17 @@ theorem _root_.TypedTLAPlus.Coercion.FreshFor.mono :
   | .strToSeq, _, _, _, _ => by simp [TypedTLAPlus.Coercion.FreshFor]
   | .tupleToSeq _ _ _, _, _, _, _ => by simp [TypedTLAPlus.Coercion.FreshFor]
   | .seqToFun _ _, _, _, h, hsub => by
-      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢; exact fun hi ↦ h (hsub hi)
+      simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢; exact λ hi ↦ h (hsub hi)
   | .set _ _ _ _, _, _, h, _ => by simpa only [TypedTLAPlus.Coercion.FreshFor] using h
   | .tuple coes _ _, _, _, h, hsub => by
       simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
-      exact fun c hc ↦ (h c hc).mono hsub
+      exact λ c hc ↦ (h c hc).mono hsub
   | .record fields, _, _, h, hsub => by
       simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
-      exact fun f hf ↦ (h f hf).mono hsub
+      exact λ f hf ↦ (h f hf).mono hsub
   | .function _ _ _ _ _ _ _ _, _, _, h, hsub => by
       simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
-      exact ⟨fun hy ↦ h.1 (Finset.insert_subset_insert _ hsub hy), h.2.1,
+      exact ⟨λ hy ↦ h.1 (Finset.insert_subset_insert _ hsub hy), h.2.1,
         h.2.2.mono (Finset.insert_subset_insert _ hsub)⟩
   | .comp _ _, _, _, h, hsub => by
       simp only [TypedTLAPlus.Coercion.FreshFor] at h ⊢
@@ -448,7 +448,7 @@ theorem ExprSemantics.evalSubstRef {V : Type u} [ExprSemantics V] {Ξ : Operator
     exact ExprSemantics.evalSubst hΞ hrhsLC hrhs
   · rw [Expression.substRef_of_args_ne_nil hargs]
     refine ExprSemantics.evalSubst hΞ
-      (Expression.LC.except_single (Expression.LC.varClosed (fun i h ↦ nomatch h)) hargsLC hrhsLC)
+      (Expression.LC.except_single (Expression.LC.varClosed (λ i h ↦ nomatch h)) hargsLC hrhsLC)
       ?_
     exact (ExprSemantics.evalExcept (ExprSemantics.evalVar.mpr hold) hpath hrhs).mpr hnew
 
