@@ -4,6 +4,11 @@ public import Guarded2Network.Errors
 public import Guarded2Network.PlusCal
 public import Guarded2Network.Lemmas
 
+-- Private, not `public import`: this wires the concrete-`Value` refinement instance into the build
+-- of every consumer of this pass without re-exporting `zflean`'s `ε` term notation, which would
+-- shadow the `ε` type variables in `Driver` and the later passes.
+import Guarded2Network.CorrectInstance
+
 public section
 
 /-!

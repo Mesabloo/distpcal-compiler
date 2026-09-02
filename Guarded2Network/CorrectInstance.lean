@@ -55,11 +55,12 @@ theorem eval_head_iff' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     Eval Ξ Ω M (Guarded2Network.head τ e) v ↔
       ∃ s vs, Eval Ξ Ω M e s ∧ IsSeq s (v :: vs) := by
   rw [Guarded2Network.head]
-  iff_rintro h ⟨s, vs, hes, rfl⟩
+  iff_rintro h ⟨s, vs, hes, hseq⟩
   · obtain ⟨a, hea, hb⟩ := evalOpCall1_inv builtinOpOf?_head h
     obtain ⟨vs, rfl⟩ := evalBuiltin_head_inv hb
-    exact ⟨_, vs, hea, rfl⟩
-  · exact .opCall_builtin builtinOpOf?_head (.cons hes .nil) .head
+    exact ⟨_, vs, hea, isSeq_ofSeq _⟩
+  · obtain rfl := isSeq_iff_ofSeq.mp hseq
+    exact .opCall_builtin builtinOpOf?_head (.cons hes .nil) .head
 
 /-- `Tail(e)` evaluates exactly to the sequence of everything but the first element. -/
 theorem eval_tail_iff' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
@@ -67,11 +68,13 @@ theorem eval_tail_iff' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     Eval Ξ Ω M (Guarded2Network.tail τ e) t ↔
       ∃ s v vs, Eval Ξ Ω M e s ∧ IsSeq s (v :: vs) ∧ IsSeq t vs := by
   rw [Guarded2Network.tail]
-  iff_rintro h ⟨s, v, vs, hes, rfl, rfl⟩
+  iff_rintro h ⟨s, v, vs, hes, hseq, htseq⟩
   · obtain ⟨a, hea, hb⟩ := evalOpCall1_inv builtinOpOf?_tail h
     obtain ⟨v, vs, rfl, rfl⟩ := evalBuiltin_tail_inv hb
-    exact ⟨_, v, vs, hea, rfl, rfl⟩
-  · exact .opCall_builtin builtinOpOf?_tail (.cons hes .nil) .tail
+    exact ⟨_, v, vs, hea, isSeq_ofSeq _, isSeq_ofSeq _⟩
+  · obtain rfl := isSeq_iff_ofSeq.mp hseq
+    obtain rfl := isSeq_iff_ofSeq.mp htseq
+    exact .opCall_builtin builtinOpOf?_tail (.cons hes .nil) .tail
 
 /-- `Len(e) > n` evaluates to a boolean whenever `e` is a sequence, `TRUE` exactly when that
 sequence is longer than `n`. -/
@@ -80,7 +83,7 @@ theorem eval_lenGt' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     (hes : Eval Ξ Ω M e s) (hseq : IsSeq s vs) :
     ∃ b, Eval Ξ Ω M (Guarded2Network.lenGt τ e n) b ∧ IsBool b ∧
       (b = Value.tru ↔ n < vs.length) := by
-  obtain rfl := hseq
+  obtain rfl := isSeq_iff_ofSeq.mp hseq
   rw [Guarded2Network.lenGt]
   have hLen : Eval Ξ Ω M
       (Expression.opCall (.var (.operator [.seq τ] .int) (.module "Sequences" "Len")) [e])
@@ -101,10 +104,11 @@ theorem eval_lenGt' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
 theorem eval_seq_nil_iff' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value} {τ : Typ}
     {s : Value} :
     Eval Ξ Ω M (.seq [] τ) s ↔ IsSeq s [] := by
-  iff_rintro h rfl
+  iff_rintro h hseq
   · cases h with
-    | seq hes => cases hes; rfl
-  · exact .seq .nil
+    | seq hes => cases hes; exact isSeq_ofSeq []
+  · obtain rfl := isSeq_iff_ofSeq.mp hseq
+    exact .seq .nil
 
 /-- The operational evaluator satisfies `Guarded2Network`'s sequence-expression laws. -/
 noncomputable instance instSeqBuiltinsValue : SeqBuiltins Value where

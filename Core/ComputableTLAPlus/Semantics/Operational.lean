@@ -40,16 +40,13 @@ open TypedTLAPlus (BuiltinOp Coercion)
 /-- The value is one of the two booleans. -/
 def IsBool (v : Value) : Prop := v = Value.tru ∨ v = Value.fls
 
-/-- The value is an integer encoding. -/
-def IsInt (v : Value) : Prop := ∃ z : ℤ, v = Value.ofInt z
+/-- The value is an integer: a member of `Integers`'s `Int`. -/
+def IsInt (v : Value) : Prop := v ∈ ZFSet.Int
 
 /-- The value denotes a set, as opposed to a scalar. Under the untagged encoding every value is a
 `ZFSet`, so this excludes only the scalar kinds by hand; a non-set `with x ∈ e` aborting is what it
 is for. -/
 def IsSet (v : Value) : Prop := ¬ IsBool v ∧ ¬ IsInt v
-
-/-- `s` is exactly the canonical sequence value whose elements, in order, are `vs`. -/
-def IsSeq (s : Value) (vs : List Value) : Prop := s = Value.ofSeq vs
 
 /-- Function application on a value: `zflean`'s `ZFSet.fapply` (`@ᶻ`), which for a partial function
 `f` returns the unique `w` with `⟨k, w⟩ ∈ f`. It is genuinely partial — an `IsPFunc` witness and a
@@ -119,10 +116,11 @@ noncomputable def updatePath : Value → List (PathStep Value) → Value → Opt
   | old, .inr k :: rest, v =>
     (updatePath (fnRead old k) rest v).map (fnUpdate old k)
 
+open Classical in
 /-- Append to a sequence value: succeeds exactly when `s` is a sequence, extending its element
 list on the right. -/
-noncomputable def seqAppend (s v : Value) : Option Value := by
-  classical exact if h : ∃ vs, s = Value.ofSeq vs then some (Value.ofSeq (h.choose ++ [v])) else none
+noncomputable def seqAppend (s v : Value) : Option Value :=
+  if h : ∃ vs, s = Value.ofSeq vs then some (Value.ofSeq (h.choose ++ [v])) else none
 
 /-! ### `DOMAIN` support
 
@@ -157,6 +155,78 @@ theorem isPFunc_restrict_dom {f A B : Value} (hf : f.IsPFunc A B) :
   refine ⟨λ z hz ↦ ?_, hf.2⟩
   obtain ⟨a, ha, b, hb, rfl⟩ := ZFSet.mem_prod.mp (hf.1 hz)
   exact ZFSet.pair_mem_prod.mpr ⟨(mem_dom_iff hf).mpr ⟨b, hz⟩, hb⟩
+
+/-! ### Sequence values
+
+A sequence value is a total function over an index interval `1 .. n` (`Value.IsSeqVal`); its
+element list is read back index by index. `IsSeq s vs` — the `ExprSemantics.isSeq` field — pairs
+that predicate with the read-back list. `isSeq_iff_ofSeq` connects it to the `Value.ofSeq` builder
+every sequence-valued rule produces. -/
+
+/-- `fnRead` on a partial function returns the value paired with the key. -/
+theorem fnRead_eq {f A B k w : Value} (hf : f.IsPFunc A B) (hw : ZFSet.pair k w ∈ f) :
+    fnRead f k = w := by
+  have hk : k ∈ f.Dom hf.1 := (mem_dom_iff hf).mpr ⟨w, hw⟩
+  rw [fnRead_eq_fnApply hf hk, fnApply_eq hf hk hw]
+
+/-- The element list of a sequence value: its entries at `1 .. Len s`, in order. Junk off
+sequence values. -/
+noncomputable def seqElems (s : Value) : List Value :=
+  (List.range (Value.lenOf s)).map (λ i ↦ fnRead s (Value.ofNat (i + 1)))
+
+/-- `s` is the sequence value whose elements, in order, are `vs`: a total function over `1 .. n`
+whose read-back list is `vs`. -/
+def IsSeq (s : Value) (vs : List Value) : Prop := Value.IsSeqVal s ∧ seqElems s = vs
+
+/-- Reading `ofSeq vs` at index `i + 1` gives `vs[i]`. -/
+theorem fnRead_ofSeq {vs : List Value} {i : ℕ} (hi : i < vs.length) :
+    fnRead (Value.ofSeq vs) (Value.ofNat (i + 1)) = vs[i] :=
+  fnRead_eq (Value.ofSeq_isPFunc vs) (Value.mem_ofSeq.mpr ⟨i, hi, rfl⟩)
+
+/-- The read-back list of `ofSeq vs` is `vs`. -/
+theorem seqElems_ofSeq (vs : List Value) : seqElems (Value.ofSeq vs) = vs := by
+  rw [seqElems, Value.lenOf_ofSeq]
+  refine List.ext_getElem (by simp) (λ i h₁ h₂ ↦ ?_)
+  rw [List.getElem_map, List.getElem_range]
+  exact fnRead_ofSeq (by simpa using h₂)
+
+/-- A sequence value is exactly an `ofSeq`. -/
+theorem isSeqVal_iff_ofSeq {s : Value} : Value.IsSeqVal s ↔ ∃ vs, s = Value.ofSeq vs := by
+  refine ⟨λ h ↦ ?_, λ ⟨vs, hvs⟩ ↦ hvs ▸ Value.isSeqVal_ofSeq vs⟩
+  obtain ⟨n, A, hf⟩ := h
+  have hpf := ZFSet.is_func_is_pfunc hf
+  refine ⟨(List.range n).map (λ i ↦ fnRead s (Value.ofNat (i + 1))), ZFSet.ext λ z ↦ ?_⟩
+  simp only [Value.mem_ofSeq, List.length_map, List.length_range, List.getElem_map,
+    List.getElem_range]
+  constructor
+  · intro hz
+    obtain ⟨a, ha, b, -, rfl⟩ := ZFSet.mem_prod.mp (hf.1 hz)
+    obtain ⟨k, hk1, hk2, rfl⟩ := Value.mem_intRange.mp ha
+    obtain ⟨i, rfl⟩ : ∃ i : ℕ, k = (i : ℤ) + 1 := ⟨k.toNat - 1, by omega⟩
+    have hcast : Value.ofInt ((i : ℤ) + 1) = Value.ofNat (i + 1) := by
+      rw [Value.ofNat, Nat.cast_add, Nat.cast_one]
+    rw [hcast] at hz ⊢
+    refine ⟨i, by omega, ?_⟩
+    rw [fnRead_eq hpf hz]
+  · rintro ⟨i, hi, rfl⟩
+    have ha : Value.ofNat (i + 1) ∈ Value.intRange 1 (n : ℤ) := by
+      rw [Value.mem_intRange]
+      exact ⟨(i : ℤ) + 1, by omega, by omega, by rw [Value.ofNat, Nat.cast_add, Nat.cast_one]⟩
+    obtain ⟨w, hw, -⟩ := hf.2 _ ha
+    rw [fnRead_eq hpf hw]
+    exact hw
+
+/-- `IsSeq s vs` holds exactly when `s` is the `Value.ofSeq` of `vs` — the bridge to every
+sequence-valued rule, which produces `ofSeq` directly. -/
+theorem isSeq_iff_ofSeq {s : Value} {vs : List Value} : IsSeq s vs ↔ s = Value.ofSeq vs := by
+  iff_rintro ⟨hval, hels⟩ rfl
+  · obtain ⟨ws, rfl⟩ := isSeqVal_iff_ofSeq.mp hval
+    rw [seqElems_ofSeq] at hels
+    rw [hels]
+  · exact ⟨Value.isSeqVal_ofSeq vs, seqElems_ofSeq vs⟩
+
+/-- `ofSeq vs` is the sequence value of `vs`. -/
+theorem isSeq_ofSeq (vs : List Value) : IsSeq (Value.ofSeq vs) vs := isSeq_iff_ofSeq.mpr rfl
 
 /-! ## Builtin operator evaluation -/
 
@@ -306,12 +376,10 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
   -- `Nat` / `Int`: bare references to `Naturals`'s and `Integers`'s integer-set families. They are
   -- never *called* (`Nat()` is not a term), so they resolve at the `.var` node directly, by name —
   -- never through `Ξ` (`var_op0`/`var_const` exclude them via `hnb`).
-  | natSet {M : Memory Value} {τ : Typ} {v : Value}
-      (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, 0 ≤ k ∧ z = Value.ofInt k) :
-      Eval Ξ Ω M (.var τ (.module "Naturals" "Nat")) v
-  | intSet {M : Memory Value} {τ : Typ} {v : Value}
-      (hv : ∀ z, z ∈ v ↔ ∃ k : ℤ, z = Value.ofInt k) :
-      Eval Ξ Ω M (.var τ (.module "Integers" "Int")) v
+  | natSet {M : Memory Value} {τ : Typ} :
+      Eval Ξ Ω M (.var τ (.module "Naturals" "Nat")) Value.natSet
+  | intSet {M : Memory Value} {τ : Typ} :
+      Eval Ξ Ω M (.var τ (.module "Integers" "Int")) ZFSet.Int
   -- operator application: user operator, by substitution. `hnb` gates this rule to names the
   -- builtin table does not know: a builtin-module operator (`Naturals`'s `+`/`..`, `Sequences`'s
   -- `Len`, …) is resolved by `opCall_builtin` regardless of `Ξ`, so `Ξ` and `opCall_op` carry
@@ -367,10 +435,9 @@ inductive Eval (Ξ : OperatorEnv) (Ω : Model Value) : Memory Value → Expressi
       Eval Ξ Ω M (.choose x τ dom pred)
         (Classical.epsilon (λ w ↦ w ∈ S ∧ filt w = Value.tru))
   -- set literal
-  | set {M : Memory Value} {es : List (Expression Typ)} {τ : Typ} {vs : List Value} {v : Value}
-      (hes : EvalList Ξ Ω M es vs)
-      (hto : ∀ z ∈ v, z ∈ vs) (hof : ∀ z ∈ vs, z ∈ v) :
-      Eval Ξ Ω M (.set es τ) v
+  | set {M : Memory Value} {es : List (Expression Typ)} {τ : Typ} {vs : List Value}
+      (hes : EvalList Ξ Ω M es vs) :
+      Eval Ξ Ω M (.set es τ) (Value.ofFinSet vs)
   -- set filter `{x ∈ S : pred}`. `filt z` is what `pred` denotes at `z`; the result is
   -- `ZFSet.sep` at the predicate `filt z = TRUE`. Carrying the predicate's *value* (rather than
   -- the proposition "pred holds") keeps `Eval` out of a negative position, and `ZFSet.sep` gives
@@ -563,21 +630,22 @@ theorem updatePath_nil' {old v : Value} : updatePath old [] v = some v := rfl
 
 theorem isSeq_inj' {s : Value} {vs ws : List Value} (h : IsSeq s vs) (h' : IsSeq s ws) :
     vs = ws :=
-  Value.ofSeq_inj.mp (h ▸ h')
+  Value.ofSeq_inj.mp ((isSeq_iff_ofSeq.mp h).symm.trans (isSeq_iff_ofSeq.mp h'))
 
 theorem isSeq_tail' {s v : Value} {vs : List Value} (_ : IsSeq s (v :: vs)) :
     ∃ t, IsSeq t vs :=
-  ⟨Value.ofSeq vs, rfl⟩
+  ⟨Value.ofSeq vs, isSeq_ofSeq vs⟩
 
 theorem eval_seq_nil' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value} {τ : Typ} :
     ∃ s, Eval Ξ Ω M (.seq [] τ) s ∧ IsSeq s [] :=
-  ⟨Value.ofSeq [], .seq EvalList.nil, rfl⟩
+  ⟨Value.ofSeq [], .seq EvalList.nil, isSeq_ofSeq []⟩
 
 theorem seqAppend_isSeq' {s v : Value} {vs : List Value} (h : IsSeq s vs) :
     ∃ s', seqAppend s v = some s' ∧ IsSeq s' (vs ++ [v]) := by
-  have hex : ∃ ws, s = Value.ofSeq ws := ⟨vs, h⟩
-  have hchoose : hex.choose = vs := Value.ofSeq_inj.mp (hex.choose_spec ▸ h)
-  refine ⟨Value.ofSeq (vs ++ [v]), ?_, rfl⟩
+  obtain rfl := isSeq_iff_ofSeq.mp h
+  have hex : ∃ ws, Value.ofSeq vs = Value.ofSeq ws := ⟨vs, rfl⟩
+  have hchoose : hex.choose = vs := (Value.ofSeq_inj.mp hex.choose_spec).symm
+  refine ⟨Value.ofSeq (vs ++ [v]), ?_, isSeq_ofSeq _⟩
   unfold seqAppend
   rw [dif_pos hex, hchoose]
 
@@ -590,8 +658,8 @@ theorem evalVar' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
       | .intrinsic _ => False
       | .module m name =>
         match TypedTLAPlus.builtinOpOf? (.module m name) with
-        | some .natSet => ∀ z, z ∈ v ↔ ∃ k : ℤ, 0 ≤ k ∧ z = Value.ofInt k
-        | some .intSet => ∀ z, z ∈ v ↔ ∃ k : ℤ, z = Value.ofInt k
+        | some .natSet => v = Value.natSet
+        | some .intSet => v = ZFSet.Int
         | some _ => False
         | none =>
           match Ξ m name with
@@ -603,8 +671,8 @@ theorem evalVar' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
     | var_free hb => exact hb
     | var_op0 hΞ hnb hb => simp only [hnb, hΞ]; exact hb
     | var_const hΞ hnb hΩ => simp only [hnb, hΞ]; exact hΩ
-    | natSet hv => simpa only [TypedTLAPlus.builtinOpOf?] using hv
-    | intSet hv => simpa only [TypedTLAPlus.builtinOpOf?] using hv
+    | natSet => simp only [TypedTLAPlus.builtinOpOf?]
+    | intSet => simp only [TypedTLAPlus.builtinOpOf?]
   · cases o with
     | bound => exact h.elim
     | free name => exact .var_free h
@@ -618,11 +686,13 @@ theorem evalVar' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
         | natSet =>
           have hmn := TypedTLAPlus.builtinOpOf?_eq_natSet.mp hb
           injection hmn with hm hn; subst hm; subst hn
-          exact .natSet h
+          subst h
+          exact .natSet
         | intSet =>
           have hmn := TypedTLAPlus.builtinOpOf?_eq_intSet.mp hb
           injection hmn with hm hn; subst hm; subst hn
-          exact .intSet h
+          subst h
+          exact .intSet
         | _ => exact h.elim
       | none =>
         rw [hb] at h
@@ -758,24 +828,24 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
       subst hΞ'
       exact ihbdy hbdy'
     | var_const hΞ' hnb' hΩ' => rw [hΞ] at hΞ'; contradiction
-    | natSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
-    | intSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
+    | natSet => simp [TypedTLAPlus.builtinOpOf?] at hnb
+    | intSet => simp [TypedTLAPlus.builtinOpOf?] at hnb
   | var_const hΞ hnb hΩ =>
     intro w h₂; cases h₂ with
     | var_op0 hΞ' hnb' hbdy' => rw [hΞ] at hΞ'; contradiction
     | var_const hΞ' hnb' hΩ' => rw [hΩ] at hΩ'; exact Option.some.inj hΩ'
-    | natSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
-    | intSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb
-  | natSet hv =>
+    | natSet => simp [TypedTLAPlus.builtinOpOf?] at hnb
+    | intSet => simp [TypedTLAPlus.builtinOpOf?] at hnb
+  | natSet =>
     intro w h₂
     have hw := evalVar'.mp h₂
     simp only [TypedTLAPlus.builtinOpOf?] at hw
-    exact ZFSet.ext λ z ↦ (hv z).trans (hw z).symm
-  | intSet hv =>
+    exact hw.symm
+  | intSet =>
     intro w h₂
     have hw := evalVar'.mp h₂
     simp only [TypedTLAPlus.builtinOpOf?] at hw
-    exact ZFSet.ext λ z ↦ (hv z).trans (hw z).symm
+    exact hw.symm
   | opCall_op hΞ hnb hlen hbdy hargs ihbdy =>
     intro w h₂; cases h₂ with
     | opCall_op hΞ' hnb' hlen' hbdy' hargs' =>
@@ -839,11 +909,9 @@ theorem evalUnique' {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory Value}
       obtain ⟨hzL, hzL'⟩ := Finset.notMem_union.mp hz
       refine congrArg Classical.epsilon (funext λ u ↦ propext (and_congr_right λ hu ↦ ?_))
       rw [ihfilt z hzL u hu (hfilt' z hzL' u hu)]
-  | set hes hto hof ihes =>
+  | set hes ihes =>
     intro w h₂; cases h₂ with
-    | set hes' hto' hof' =>
-      obtain rfl := ihes _ hes'
-      exact ZFSet.ext λ z ↦ ⟨λ hz ↦ hof' z (hto z hz), λ hz ↦ hof z (hto' z hz)⟩
+    | set hes' => rw [ihes _ hes']
   | collect filt L hdom hfilt ihdom ihfilt =>
     intro w h₂; cases h₂ with
     | collect filt' L' hdom' hfilt' =>
@@ -991,9 +1059,8 @@ theorem coerceUnique : ∀ {c : Coercion} {v v₁' v₂' : Value},
     simp only [coerce] at h₁ h₂
     obtain ⟨-, ⟨A, B, hpf⟩, ws₁, hseq₁, hlen₁, hcoe₁⟩ := h₁
     obtain ⟨-, -, ws₂, hseq₂, hlen₂, hcoe₂⟩ := h₂
-    change _ = Value.ofSeq ws₁ at hseq₁
-    change _ = Value.ofSeq ws₂ at hseq₂
-    rw [hseq₁, hseq₂]
+    obtain rfl := isSeq_iff_ofSeq.mp hseq₁
+    obtain rfl := isSeq_iff_ofSeq.mp hseq₂
     have hlleq : ws₁.length = ws₂.length := by omega
     refine congrArg Value.ofSeq (List.ext_getElem hlleq (λ i hi₁ hi₂ ↦ ?_))
     have hic₁ : i < coes.length := hlen₁ ▸ hi₁
@@ -1152,8 +1219,8 @@ theorem evalLocal' {Ξ : OperatorEnv} {Ω : Model Value} {M₁ M₂ : Memory Val
       intro N₂ _
       exact .var_op0 hΞ' hnb' (ih (λ z hz ↦ by simp [hΞ _ _ _ _ hΞ'] at hz))
     | var_const hΞ' hnb' hΩ' => exact λ _ ↦ .var_const hΞ' hnb' hΩ'
-    | natSet hv => exact λ _ ↦ .natSet hv
-    | intSet hv => exact λ _ ↦ .intSet hv
+    | natSet => exact λ _ ↦ .natSet
+    | intSet => exact λ _ ↦ .intSet
     | opCall_op hΞ' hnb hlen _ hargs ih =>
       intro N₂ hag
       refine .opCall_op hΞ' hnb hlen (ih (λ z hz ↦ ?_)) hargs
@@ -1189,9 +1256,9 @@ theorem evalLocal' {Ξ : OperatorEnv} {Ω : Model Value} {M₁ M₂ : Memory Val
       rw [Expression.freeVars] at hag
       exact .choose filt L (ihdom (λ z hz ↦ hag z (Finset.mem_union_left _ hz)))
         (λ z hz w hw ↦ ihfilt z hz w hw (bind hag))
-    | set _ hto hof ihes =>
+    | set _ ihes =>
       intro N₂ hag
-      exact .set (ihes (λ e he z hz ↦ hag z (Expression.mem_freeVars_set.mpr ⟨e, he, hz⟩))) hto hof
+      exact .set (ihes (λ e he z hz ↦ hag z (Expression.mem_freeVars_set.mpr ⟨e, he, hz⟩)))
     | collect filt L _ _ ihdom ihfilt =>
       intro N₂ hag
       rw [Expression.freeVars] at hag
@@ -1315,7 +1382,7 @@ theorem evalCoerce'_seqToFun {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
       · omega
       · rw [Value.ofNat, Value.ofInt_inj]; omega
   simp only [TypedTLAPlus.Coercion.applyComputable, coerce, registerSource]
-  iff_rintro h ⟨v, he, ⟨vs, rfl⟩, rfl⟩
+  iff_rintro h ⟨v, he, ⟨vs, hseq⟩, rfl⟩
   · cases h with
     | @fn _ _ _ _ _ _ S G img L hdom himg hto hof =>
       obtain ⟨z, hz⟩ := exists_fresh (L ∪ e.freeVars)
@@ -1350,7 +1417,7 @@ theorem evalCoerce'_seqToFun {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
                     rw [Value.ofNat, Value.ofInt_inj] at hy
                     subst hx; subst hy
                     exact ⟨vs, hee, λ w ↦ (hSraw w).trans (hidx (n := vs.length))⟩
-      refine ⟨Value.ofSeq vs, he, ⟨vs, rfl⟩, ?_⟩
+      refine ⟨Value.ofSeq vs, he, ⟨vs, isSeq_ofSeq vs⟩, ?_⟩
       have hpfS := Value.ofSeq_isPFunc vs
       have himg' : ∀ w ∈ S, ∀ (j : ℕ) (hj : j < vs.length), w = Value.ofNat (j + 1) →
           img w = vs[j] := by
@@ -1374,7 +1441,8 @@ theorem evalCoerce'_seqToFun {Ξ : OperatorEnv} {Ω : Model Value} {M : Memory V
         have huS : Value.ofNat (j + 1) ∈ S := (hSmem _).mpr ⟨j, hj, rfl⟩
         have := hof _ huS
         rwa [himg' _ huS j hj rfl] at this
-  · set S : Value := Value.intRange 1 (vs.length : ℤ) with hSdef
+  · obtain rfl := isSeq_iff_ofSeq.mp hseq
+    set S : Value := Value.intRange 1 (vs.length : ℤ) with hSdef
     have hSmem : ∀ w, w ∈ S ↔ ∃ j : ℕ, j < vs.length ∧ w = Value.ofNat (j + 1) := by
       intro w
       rw [hSdef, Value.mem_intRange]
@@ -1768,15 +1836,14 @@ theorem evalCoerce' {Ξ : OperatorEnv} {Ω : Model Value} (hΞ : Ξ.WellScoped) 
           obtain ⟨w, hw, -⟩ :=
             (evalCoerce' hΞ).mp (hproj 0 (List.length_pos_of_ne_nil hcne))
           cases hw with | fnCall hf _ hpf _ => exact ⟨_, _, _, hf, hpf⟩
-        refine ⟨r, hr, hcne, ⟨A, B, hpf⟩, vs, rfl, hlen.symm, λ i hi₁ hi₂ ↦ ?_⟩
+        refine ⟨r, hr, hcne, ⟨A, B, hpf⟩, vs, isSeq_ofSeq vs, hlen.symm, λ i hi₁ hi₂ ↦ ?_⟩
         obtain ⟨w, hw, hc⟩ := (evalCoerce' hΞ).mp (hproj i hi₁)
         cases hw with
         | fnCall hf hk hpf' hkdom =>
           obtain rfl := evalUnique' hf hr
           obtain rfl := evalUnique' hk (.nat (Nat.toNat?_repr (i + 1)))
           exact ⟨_, fnApply_spec hpf' hkdom, hc⟩
-    · change v' = Value.ofSeq ws at hseq
-      subst hseq
+    · obtain rfl := isSeq_iff_ofSeq.mp hseq
       refine .tuple ?_ (evalList_getElem.mpr ⟨?_, λ i h₁ h₂ ↦ ?_⟩)
       · rw [← List.length_pos_iff]
         simp only [List.length_map, List.length_attach, List.length_range]
@@ -1991,14 +2058,14 @@ private theorem evalSubst'_fwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
     intro N' _ _
     rw [Expression.subst_var_module]
     exact .var_const hΞ' hnb' hΩ'
-  | natSet hv =>
+  | natSet =>
     intro N' _ _
     rw [Expression.subst_var_module]
-    exact .natSet hv
-  | intSet hv =>
+    exact .natSet
+  | intSet =>
     intro N' _ _
     rw [Expression.subst_var_module]
-    exact .intSet hv
+    exact .intSet
   | @opCall_op _ _ m name params bodyv _ _ hΞ' hnb hlen hbody hargs ihbody =>
     intro N' hag hx
     rw [Expression.subst_opCall, Expression.subst_var_module]
@@ -2067,11 +2134,11 @@ private theorem evalSubst'_fwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
     obtain ⟨hzL, hze, hzx⟩ := freshParts hz
     rw [Expression.LC.subst_openVar hlc hzx]
     exact ihfilt z hzL w hw (agreeStep hag) (xStep hzx hze hx)
-  | set hes hto hof ihes =>
+  | set _ ihes =>
     intro N' hag hx
     rw [Expression.subst_set]
     exact .set (ihes (λ a ha y hy hyx ↦
-      hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hx) hto hof
+      hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hx)
   | collect filt L hdom hfilt ihdom ihfilt =>
     intro N' hag hx
     rw [Expression.LC.subst_collect hlc]
@@ -2369,7 +2436,7 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
       | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
     | _ => subst_ctor_mismatch hsub
-  | @natSet _ _ val hv =>
+  | natSet =>
     intro e N' hsub hag hN'x hev'
     cases e with
     | var τ₀ o₀ =>
@@ -2378,7 +2445,7 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
         by_cases hn : n = x
         · subst hn
           rw [Expression.LC.subst_var_free_eq hlc] at hsub
-          have hvv : val = v' := evalUnique' (.natSet hv) (hsub ▸ hev')
+          have hvv : Value.natSet = v' := evalUnique' .natSet (hsub ▸ hev')
           subst hvv
           exact .var_free hN'x
         · rw [Expression.subst_var_free_ne hn] at hsub
@@ -2386,11 +2453,11 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       | «module» m₀ nm₀ =>
         rw [Expression.subst_var_module] at hsub
         injection hsub with hτv hom; subst hτv; injection hom with hm hn; subst m₀; subst nm₀
-        exact .natSet hv
+        exact .natSet
       | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
       | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
     | _ => subst_ctor_mismatch hsub
-  | @intSet _ _ val hv =>
+  | intSet =>
     intro e N' hsub hag hN'x hev'
     cases e with
     | var τ₀ o₀ =>
@@ -2399,7 +2466,7 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
         by_cases hn : n = x
         · subst hn
           rw [Expression.LC.subst_var_free_eq hlc] at hsub
-          have hvv : val = v' := evalUnique' (.intSet hv) (hsub ▸ hev')
+          have hvv : ZFSet.Int = v' := evalUnique' .intSet (hsub ▸ hev')
           subst hvv
           exact .var_free hN'x
         · rw [Expression.subst_var_free_ne hn] at hsub
@@ -2407,7 +2474,7 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
       | «module» m₀ nm₀ =>
         rw [Expression.subst_var_module] at hsub
         injection hsub with hτv hom; subst hτv; injection hom with hm hn; subst m₀; subst nm₀
-        exact .intSet hv
+        exact .intSet
       | bound i => rw [Expression.subst_var_bound] at hsub; simp at hsub
       | intrinsic nm => rw [Expression.subst_var_intrinsic] at hsub; simp at hsub
     | _ => subst_ctor_mismatch hsub
@@ -2446,8 +2513,8 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
               simp only [List.length_nil] at hlen
               exact hargs (List.eq_nil_of_length_eq_zero hlen.symm)
             | var_const hΞ2 _ _ => rw [hΞ'] at hΞ2; contradiction
-            | natSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb'
-            | intSet _ => simp [TypedTLAPlus.builtinOpOf?] at hnb'
+            | natSet => simp [TypedTLAPlus.builtinOpOf?] at hnb'
+            | intSet => simp [TypedTLAPlus.builtinOpOf?] at hnb'
           · rw [Expression.subst_var_free_ne hn] at hf
             injection hf with _ ho; simp at ho
         | bound i =>
@@ -2488,9 +2555,9 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
             | var_free hb' => simp [TypedTLAPlus.builtinOpOf?] at hop
             | var_op0 _ hnb2 _ => rw [hop] at hnb2; contradiction
             | var_const _ hnb2 _ => rw [hop] at hnb2; contradiction
-            | natSet _ =>
+            | natSet =>
               simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop; subst hop; nomatch hb
-            | intSet _ =>
+            | intSet =>
               simp only [TypedTLAPlus.builtinOpOf?, Option.some.injEq] at hop; subst hop; nomatch hb
           · rw [Expression.subst_var_free_ne hn] at hf
             injection hf with _ ho; subst ho
@@ -2579,15 +2646,15 @@ private theorem evalSubst'_bwd {Ξ : OperatorEnv} {Ω : Model Value} {x : String
     | var τ₀ o₀ => exact bwdVar hlc (.choose filt L hdom hfilt) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
   -- set literal
-  | set hes hto hof ihes =>
+  | set hes ihes =>
     intro e N' hsub hag hN'x hev'
     cases e with
     | set es₀ τ₀ =>
       rw [Expression.subst_set] at hsub
       injection hsub with hesq hτ; subst hτ
       exact .set (ihes hesq (λ a ha y hy hyx ↦
-        hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hN'x hev') hto hof
-    | var τ₀ o₀ => exact bwdVar hlc (.set hes hto hof) hsub hN'x hev' (by simp)
+        hag y (Expression.mem_freeVars_set.mpr ⟨a, ha, hy⟩) hyx) hN'x hev')
+    | var τ₀ o₀ => exact bwdVar hlc (.set hes) hsub hN'x hev' (by simp)
     | _ => subst_ctor_mismatch hsub
   | collect filt L hdom hfilt ihdom ihfilt =>
     intro e N' hsub hag hN'x hev'

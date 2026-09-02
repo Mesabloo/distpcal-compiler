@@ -114,6 +114,20 @@ instance : Inhabited Value := ⟨(∅ : ZFSet)⟩
   | nil => simp [ZFSet.notMem_empty]
   | cons v vs ih => simp [List.foldr, ZFSet.mem_insert_iff, ih, List.mem_cons]
 
+/-- Every integer encoding is a member of `zflean`'s `ZFSet.Int`. -/
+theorem ofInt_mem_int {k : ℤ} : ofInt k ∈ ZFSet.Int :=
+  (ZFSet.ZFInt.into (ZFSet.ZFInt.equivInt.symm k)).property
+
+/-- TLA⁺'s `Nat`: the non-negative integers, `{i ∈ Int : i ≥ 0}`. -/
+noncomputable def natSet : Value :=
+  ZFSet.sep (λ z ↦ ∃ k : ℤ, 0 ≤ k ∧ z = ofInt k) ZFSet.Int
+
+/-- `Nat` holds exactly the non-negative integer encodings. -/
+@[simp] theorem mem_natSet {z : Value} : z ∈ natSet ↔ ∃ k : ℤ, 0 ≤ k ∧ z = ofInt k := by
+  rw [natSet, ZFSet.mem_sep, and_iff_right_iff_imp]
+  rintro ⟨k, -, rfl⟩
+  exact ofInt_mem_int
+
 /-- The integer interval `a .. b` — what TLA⁺'s `..` denotes. Empty when `b < a`. Given as an
 explicit finite-set literal over the enumerated integers so that it is a closed-form function of
 its bounds, not merely a set characterised up to extensionality. -/
@@ -195,6 +209,61 @@ theorem ofSeq_isPFunc (vs : List Value) :
     rw [hxi, ofNat_inj] at hxj
     obtain rfl : i = j := by omega
     rfl
+
+/-- A sequence/tuple value is a total function from the interval `1 .. n` — the `IsFunc`
+strengthening of `ofSeq_isPFunc`, adding that every index in range has an entry. -/
+theorem ofSeq_isFunc (vs : List Value) :
+    (intRange 1 vs.length).IsFunc (ofFinSet vs) (ofSeq vs) := by
+  refine ⟨(ofSeq_isPFunc vs).1, λ z hz ↦ ?_⟩
+  obtain ⟨k, hk1, hk2, rfl⟩ := mem_intRange.mp hz
+  obtain ⟨j, rfl⟩ : ∃ j : ℕ, k = (j : ℤ) + 1 := ⟨k.toNat - 1, by omega⟩
+  have hj : j < vs.length := by omega
+  have hcast : ofInt ((j : ℤ) + 1) = ofNat (j + 1) := by rw [ofNat, Nat.cast_add, Nat.cast_one]
+  have hmem : ZFSet.pair (ofInt ((j : ℤ) + 1)) vs[j] ∈ ofSeq vs := by
+    rw [hcast]; exact mem_ofSeq.mpr ⟨j, hj, rfl⟩
+  exact ⟨vs[j], hmem, λ y hy ↦ ((ofSeq_isPFunc vs).2 _ _ hmem _ hy).symm⟩
+
+/-- `s` is a sequence value: a total function over some interval `1 .. n`. TLA⁺'s
+`s ∈ Seq(S)` with the codomain left to `∃`. -/
+def IsSeqVal (s : Value) : Prop := ∃ (n : ℕ) (A : Value), (intRange 1 n).IsFunc A s
+
+/-- The length of a sequence value: the `n` for which its domain is `1 .. n`. TLA⁺'s
+`Len(s) == CHOOSE n ∈ Nat : DOMAIN s = 1 .. n`. Junk off sequence values. -/
+noncomputable def lenOf (s : Value) : ℕ :=
+  Classical.epsilon (λ n ↦ ∃ A : Value, (intRange 1 n).IsFunc A s)
+
+/-- `ofSeq vs` is a sequence value. -/
+theorem isSeqVal_ofSeq (vs : List Value) : IsSeqVal (ofSeq vs) :=
+  ⟨vs.length, _, ofSeq_isFunc vs⟩
+
+/-- Distinct lengths give distinct index intervals over `ℕ`. -/
+theorem intRange_one_inj {m n : ℕ} (h : intRange 1 (m : ℤ) = intRange 1 (n : ℤ)) : m = n := by
+  have key : ∀ a b : ℕ, intRange 1 (a : ℤ) = intRange 1 (b : ℤ) → a ≤ b := by
+    intro a b hab
+    rcases Nat.eq_zero_or_pos a with rfl | ha
+    · omega
+    · have hmem : ofInt (a : ℤ) ∈ intRange 1 (b : ℤ) := by
+        rw [← hab]; exact mem_intRange.mpr ⟨a, by omega, le_refl _, rfl⟩
+      obtain ⟨k, -, hk2, hk⟩ := mem_intRange.mp hmem
+      rw [ofInt_inj] at hk; omega
+  exact Nat.le_antisymm (key m n h) (key n m h.symm)
+
+/-- Two index intervals over which the same value is a total function have the same length: the
+value's own set of first coordinates pins the interval. -/
+theorem isFunc_intRange_length_inj {s A B : Value} {m n : ℕ}
+    (hm : (intRange 1 (m : ℤ)).IsFunc A s) (hn : (intRange 1 (n : ℤ)).IsFunc B s) : m = n := by
+  refine intRange_one_inj (ZFSet.ext λ z ↦ ⟨λ hz ↦ ?_, λ hz ↦ ?_⟩)
+  · obtain ⟨w, hw, -⟩ := hm.2 z hz
+    exact (ZFSet.pair_mem_prod.mp (hn.1 hw)).1
+  · obtain ⟨w, hw, -⟩ := hn.2 z hz
+    exact (ZFSet.pair_mem_prod.mp (hm.1 hw)).1
+
+/-- `lenOf (ofSeq vs)` is `vs.length`. -/
+theorem lenOf_ofSeq (vs : List Value) : lenOf (ofSeq vs) = vs.length := by
+  have hp : ∃ n : ℕ, ∃ A : Value, (intRange 1 (n : ℤ)).IsFunc A (ofSeq vs) :=
+    ⟨vs.length, _, ofSeq_isFunc vs⟩
+  obtain ⟨A, hA⟩ := Classical.epsilon_spec hp
+  exact isFunc_intRange_length_inj hA (ofSeq_isFunc vs)
 
 /-- The TLA⁺ cartesian product `A \X B`: every pair `<<a, b>>` with `a ∈ A` and `b ∈ B`. Carved
 by `ZFSet.sep` out of the powerset that bounds the two-element tuple encodings, so it is a

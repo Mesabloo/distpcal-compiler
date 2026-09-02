@@ -521,3 +521,18 @@ new one is actually reachable from the driver before adding a fixture.
 ### 9.30 Parser fails before module header
 In TLA+, any text that occurs before the module header, and after the module footer, is gibberish to be 
 ignored. Currently, the parser may fail in unexpected ways (e.g. a comment before the header).
+
+### 9.31 `CorrectInstance` private-import workaround
+`Guarded2Network.lean` imports `Guarded2Network.CorrectInstance` privately (bare `import`) so plain
+`lake build` builds and checks the concrete-`Value` refinement proof (`correct''`,
+`assert_no_sorry`). Must be private: `zflean`'s `ZFLean/Basic.lean:172` `notation " ε "` is global,
+and a `public import` re-exports it into `Driver/Pipeline.lean` (`runStage {ε}`) and later passes,
+where `ε` is a type variable.
+
+Cost: a private import is not re-exported, so downstream code doing `import Guarded2Network` cannot
+reach `correct''` — using it needs a direct `import Guarded2Network.CorrectInstance`, which
+re-triggers the clash. Blocks further development on top of the correctness theorem.
+
+`zflean` makes the `ε` notation scoped in its `v4.33.0` release. The lockfile pins
+`zflean @ v{Lean.versionString}`, so this arrives with the toolchain bump to Lean 4.33. Revisit
+then: `public import Guarded2Network.CorrectInstance` and drop the workaround.
