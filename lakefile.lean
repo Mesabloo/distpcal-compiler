@@ -16,9 +16,10 @@ require "vtrelat" / "zflean" @ git s!"v{Lean.versionString}"
 ------ Options
 
 /--
-  Whether to emit warnings for definitions lacking documentation.
+  Whether to emit `linter.missingDocs` warnings during the build. Off by default — missing-docs
+  is a style concern, run on demand (`lake lint`, or this flag). Pass `-KCHECK_DOC -R` to enable.
 -/
-def warnOnMissingDocs : Bool := (get_config? NO_CHECK_DOC).isNone
+def warnOnMissingDocs : Bool := (get_config? CHECK_DOC).isSome
 
 /--
   The current build type, determined from the CLI `-K` option `BUILD_TYPE`.

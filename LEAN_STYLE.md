@@ -345,8 +345,8 @@ Set in `lakefile.lean`, not negotiable per-file:
   `lakefile.lean:35`
 - **`pp.unicode.fun` on — write `λ x ↦ y`, never `fun x => y`.** `lakefile.lean:36`. Holds in
   metaprogramming too, where the surrounding code is Lean's own: `CustomPrelude.lean:139`
-- **`linter.missingDocs` on by default.** Toggleable for fast iteration; not left off when module
-  "done". `lakefile.lean:31`
+- **`linter.missingDocs` off by default.** Missing-docs is style, not a build gate. Run the pass
+  on demand — `lake lint` (`docBlame`), or `lake build -KCHECK_DOC -R`. `lakefile.lean:21`
 - **Adopt prior-art idioms:** `Located α` with `match_source`/`@@` pair, `Bifunctor`/`Bitraversable`
   on every two-parameter AST, type-level encoding of structural invariants where cheap.
 - **Pass naming `<Source>2<Target>`**, matching `lean_lib` shorthand in `lakefile.lean`.

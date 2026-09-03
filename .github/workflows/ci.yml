@@ -41,9 +41,9 @@ jobs:
           # No GitHub Actions cache service under `act` (env.ACT=true); skip it locally.
           use-github-cache: ${{ env.ACT != 'true' }}
           # `fugue` is no longer a default target (the libraries are, for doc-gen4), so name it.
-          # NO_CHECK_DOC turns off the `linter.missingDocs` warning (see lakefile.lean).
-          build-args: 'fugue -KBUILD_TYPE=release -KNO_CHECK_DOC'
-          test-args: '-KNO_CHECK_DOC'
+          # `linter.missingDocs` is off by default now (see lakefile.lean); no flag needed.
+          build-args: 'fugue -KBUILD_TYPE=release'
+          test-args: ''
 
       - name: Read version
         id: version
@@ -188,6 +188,7 @@ jobs:
           homepage: _docs
           # `act` sets ACT=true — build the docs locally, never publish from a local run.
           deploy: ${{ env.ACT != 'true' }}
+          build-args: '-KCHECK_DOC -R'
 
       - name: Upload built docs (local act runs only)
         if: ${{ env.ACT == 'true' }}
