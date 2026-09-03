@@ -61,11 +61,10 @@ theorem FIFOs.size_insert_tail {V : Type u} [ExprSemantics V] {F : FIFOs V} {k :
     intro k' hk'
     rw [Finmap.lookup_insert_of_ne _ (Finset.ne_of_mem_erase hk')]
   unfold FIFOs.size
-  rw [hkeys,
+  simp only [hkeys,
     ← Finset.add_sum_erase _ _ (Finmap.mem_keys.mpr hmem),
-    ← Finset.add_sum_erase _ _ (Finmap.mem_keys.mpr hmem),
-    Finset.sum_congr rfl hoff, Finmap.lookup_insert, h]
-  simp only [Option.getD_some, List.length_cons]
+    Finset.sum_congr rfl hoff, Finmap.lookup_insert, h,
+    Option.getD_some, List.length_cons]
   omega
 
 /-! # Path resolution is deterministic

@@ -11,7 +11,7 @@ move.
 - `Computable2Guarded.lean`, `Guarded2Network.lean`, `Network2Go.lean`, `Typed2Computable.lean` —
   pass entry points, each re-exporting its directory.
 - `VerifiedCompiler.lean` — proof-infrastructure library root.
-- `CustomPrelude.lean` — project-wide prelude imports, notations and tactics.
+- `CustomPrelude.lean` — project-wide prelude imports, notations, tactics, and the style linters.
 - `lakefile.lean` — build configuration, one `lean_lib` per pass, and the compiler's version.
 - `lean-toolchain`, `lake-manifest.json` — toolchain pin and dependency lockfile.
 - `fugue.sh` — dev-mode CLI wrapper.
@@ -20,6 +20,25 @@ move.
   string into compiled code.
 - `LEAN_STYLE.md` — canonical Lean rules: proof style, conventions, tactic playbook.
 - `AGENTS.md` — agent-mode configuration for non-Claude-Code agents.
+
+## `CustomPrelude/`
+- `Linter.lean` — re-export of the `linter.fugue.*` style-linter family.
+- `Linter/Basic.lean` — `Finding`, the `mkFugueLinter` wrapper, the master `linter.fugue` toggle, the vendored-code skiplist, and the shared syntax walkers.
+- `Linter/Syntax.lean` — re-export of the `Syntax`-walking linters.
+- `Linter/Syntax/` — one module per `Syntax`-walking rule, named for the rule (`Lambda`, `ExactAbsurd`, …).
+- `Linter/Semantic.lean` — re-export of the `InfoTree`-reading linters.
+- `Linter/Semantic/` — one module per rule that reads goal states or re-elaborates (`ByExact`, …).
+- `Linter/Text.lean` — re-export of the linters that read a command's source span as text.
+- `Linter/Text/` — one module per text rule (`Comments`, …).
+- `Linter/External.lean` — imports the Mathlib linter modules the project opts into; `lakefile.lean`'s `linterOptions` block sets their values.
+- `Tactic.lean` — re-export of the project's own tactics.
+- `Tactic/Erwa.lean` — `erwa`: rewrite up to unfolding, then close by `assumption`.
+- `Tactic/SplitUsing.lean` — `split … using`: `split` with its introduced hypotheses named.
+- `Tactic/Injections.lean` — `injections … with`: `injections` with its equalities named.
+- `Tactic/IffIntro.lean` — `iff_intro` / `iff_rintro`: split an `Iff` and introduce one side each.
+- `Tactic/Trans.lean` — `trans'`: `trans` with its subgoals in the opposite order.
+- `Tactic/SeqFocusBracket.lean` — `t <;> [t₁ | t₂ | …]`: `seq_focus`'s notation respelled with `|`.
+- `Tactic/Selector.lean` — Rocq-style goal selectors `n:` / `1,3-5:` / `all:`, and the `conv` form.
 
 ## `Common/`
 - `Errors.lean` — diagnostic typeclasses and rendering.
@@ -195,6 +214,8 @@ Generic proof infrastructure.
 - `Check.lean` — one function per assertion.
 - `GoBuild.lean` — writes emitted Go to a temp module and runs `go build`.
 - `Report.lean` — verdicts and how they print.
+- `Linter.lean` — imports the `Tests/Linter/` modules so `lake test` elaborates them.
+- `Linter/` — one `#guard_msgs` module per `linter.fugue.*` linter, named for the linter.
 - `regression/` — `Accept*.tla`/`Reject*.tla` fixtures with optional `.expect.json` sidecars.
 - `regression/_stubs/AcceptInVariableWithoutParameter.go` — Go definitions a `goBuild` fixture needs.
 - `examples/` — larger worked examples, not run by `lake test`.
@@ -242,7 +263,8 @@ here on purpose — see this directory directly for contents.
 ## `scripts/`
 - `DumpFacts.lean` — extracts local theorems, class fields and tactics into the fact database.
 - `facts` — queries and curates that database.
-- `lean-style` — checks `.lean` sources against the mechanically-checkable style rules.
+- `OrphanCheck.lean` — lists `.lean` modules no library or executable root transitively imports (`lake env lean --run`). Ad-hoc, not hooked.
+- `Lint.lean` — runs Batteries' `simpNF` / `unusedArguments` / `docBlame` environment linters over the package (`lake build` then `lake env lean`). Ad-hoc, not hooked.
 - `structure-check` — checks this file against the tree.
 
 ## `.github/`
@@ -258,5 +280,5 @@ here on purpose — see this directory directly for contents.
 - `hooks/git-guardrails.sh` — blocks mutating git commands.
 - `hooks/facts-steer.sh` — steers declaration greps to `scripts/facts`.
 - `hooks/lean-reminder.sh` — bounds unbounded `.lean` reads.
-- `hooks/lean-style-check.sh` — runs `scripts/lean-style` on `Stop`.
+- `hooks/lean-style-check.sh` — builds `fugue` on `Stop` and blocks on project style-linter warnings.
 - `hooks/structure-check.sh` — runs `scripts/structure-check` on `Stop`.

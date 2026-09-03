@@ -31,7 +31,9 @@ MAP = os.path.join(ROOT, "STRUCTURE.md")
 CAP = 10
 
 # Directories the map covers as a directory rather than file by file, plus generated paths.
-COVERED_AS_DIR = ("Tests/regression/", "Tests/examples/", "docs/diagnostics/")
+COVERED_AS_DIR = ("Tests/regression/", "Tests/examples/", "docs/diagnostics/",
+                  "Tests/Linter/", "CustomPrelude/Linter/Syntax/",
+                  "CustomPrelude/Linter/Semantic/", "CustomPrelude/Linter/Text/")
 
 
 def tracked() -> list[str]:

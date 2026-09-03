@@ -132,8 +132,7 @@ def Block.concat_end_induct {α : Bool → Type} [(b : Bool) → SizeOf (α b)]
       (Block.concat_end_induct _ «end» concat)
 termination_by @sizeOf _ (Block._sizeOf_inst α false) B
 decreasing_by
-  all: simp_wf
-  · simp +arith [Block.sizeOf_ofList, List.dropLast_getLast_add_sizeOf_eq]
+  simp +arith [Block.sizeOf_ofList, List.dropLast_getLast_add_sizeOf_eq]
 
 theorem Block.ofList_cons_of_non_empty {α : Bool → Type} {Ss : List (α false)} {S : α false}
     (h : Ss ≠ []) :

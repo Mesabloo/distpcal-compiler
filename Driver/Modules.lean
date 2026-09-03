@@ -345,9 +345,9 @@ recomputed means. A caller that only wants the module itself — `Driver/Pipelin
 root — takes `.mod`. -/
 partial def compileModule (source : String) (containingDir : Option System.FilePath) (moduleId : String)
     (expectedName : Option String := none) (isRoot : Bool := false)
-    (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
-    (onModuleProgress : String → M Unit := fun _ ↦ pure ())
-    (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M ResolvedDep := do
+    (onModuleEvent : String → ModuleOutcome → M Unit := λ _ _ ↦ pure ())
+    (onModuleProgress : String → M Unit := λ _ ↦ pure ())
+    (logLine : String → M Unit := λ s ↦ liftM (IO.eprintln s : IO Unit)) : M ResolvedDep := do
   registerSource moduleId source
 
   let tokens ← match SurfaceTLAPlus.Lexer.lexModule source with
@@ -447,9 +447,9 @@ the dependency resolutions the cache check already had to perform for change det
 recompiles, and by that check's own conclusion — no dependency recomputed — those bindings are
 what the cached module was compiled against. -/
 partial def resolveModule (containingDir : Option System.FilePath) (name : String)
-    (onModuleEvent : String → ModuleOutcome → M Unit := fun _ _ ↦ pure ())
-    (onModuleProgress : String → M Unit := fun _ ↦ pure ())
-    (logLine : String → M Unit := fun s ↦ liftM (IO.eprintln s : IO Unit)) : M ResolvedDep := do
+    (onModuleEvent : String → ModuleOutcome → M Unit := λ _ _ ↦ pure ())
+    (onModuleProgress : String → M Unit := λ _ ↦ pure ())
+    (logLine : String → M Unit := λ s ↦ liftM (IO.eprintln s : IO Unit)) : M ResolvedDep := do
   if name ∈ (← readThe ResolutionStack) then
     throw (.cyclicExtends ((← readThe ResolutionStack).reverse ++ [name]))
   match ← locate name containingDir with

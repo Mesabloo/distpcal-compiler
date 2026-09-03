@@ -90,16 +90,12 @@ def _root_.TypedTLAPlus.Coercion.FreshFor : TypedTLAPlus.Coercion → Finset Str
   | .comp c₁ c₂, S => c₁.FreshFor S ∧ c₂.FreshFor S
 termination_by c => sizeOf c
 decreasing_by
-  all:
-    first
-      | decreasing_trivial
-      | (have hmem : f ∈ fields := ‹_›
-         obtain ⟨nm, cc, ty⟩ := f
-         calc
-          _ = sizeOf cc := rfl
-          _ < sizeOf (nm, cc, ty) := by decreasing_trivial
-          _ < sizeOf fields := List.sizeOf_lt_of_mem hmem
-          _ < _ := by decreasing_trivial)
+  -- every goal but the `record` field is `decreasing_trivial`; that one needs `f` destructured
+  -- so its `.2.1` projection reduces to a direct subterm.
+  1-2,4-7: decreasing_trivial
+  · obtain ⟨nm, cc, ty⟩ := f
+    have h := List.sizeOf_lt_of_mem ‹_ ∈ _›
+    apply lt_trans ?_ (lt_trans h ?_) <;> decreasing_trivial
 
 /-- `FreshFor` is antitone in the avoided set: fewer names to dodge is a weaker demand. Lets a
 recursive `evalCoerce` call at a sub-expression whose free variables have shrunk (they only ever
@@ -128,16 +124,12 @@ theorem _root_.TypedTLAPlus.Coercion.FreshFor.mono :
       exact ⟨h.1.mono hsub, h.2.mono hsub⟩
 termination_by c => sizeOf c
 decreasing_by
-  all:
-    first
-      | decreasing_trivial
-      | (have hmem : f ∈ fields := ‹_›
-         obtain ⟨nm, cc, ty⟩ := f
-         calc
-          _ = sizeOf cc := rfl
-          _ < sizeOf (nm, cc, ty) := by decreasing_trivial
-          _ < sizeOf fields := List.sizeOf_lt_of_mem hmem
-          _ < _ := by decreasing_trivial)
+  -- every goal but the `record` field is `decreasing_trivial`; that one needs `f` destructured
+  -- so its `.2.1` projection reduces to a direct subterm.
+  1,3-5: decreasing_trivial
+  · obtain ⟨nm, cc, ty⟩ := f
+    have h := List.sizeOf_lt_of_mem ‹_ ∈ _›
+    apply lt_trans ?_ (lt_trans h ?_) <;> decreasing_trivial
 
 /-- The model: an assignment of a value to every `CONSTANT` a run fixes one for, keyed the same way
 `Ξ` is (declaring module, then name) since a `CONSTANT`'s `.var` node carries the same `Origin.module`

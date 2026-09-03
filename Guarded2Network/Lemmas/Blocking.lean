@@ -81,9 +81,8 @@ theorem procBlockTransfer (hΞ : Ξ.WellScoped)
     have hmbeq : procMailbox algo' (name, v) = mbox psrc.name inbox :=
       procMailbox_eq hfind hpr hused'
     have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some v := by
-      rw [hproc.mem_agree' _ (fun c ib_ hmb ↦
-        (procMailbox_inbox_ne_selfName (href fun _ ↦ []) used hmb).symm)]
-      exact hself0
+      rwa [hproc.mem_agree' _ (λ c ib_ hmb ↦
+        (procMailbox_inbox_ne_selfName (href λ _ ↦ []) used hmb).symm)]
     have howned : (NetworkPlusCal.Process.codeTable Ξ Ω p').owned =
       (GuardedPlusCal.Process.codeTable Ξ Ω psrc).owned := hpr.ownedLabels_eq
     have sim : (⟨M₁, F₁, .none⟩ : LocalState V) ∼[Ξ, Ω, mbox psrc.name inbox, pref] ⟨M₂, F₂, .none⟩ := by
@@ -91,23 +90,23 @@ theorem procBlockTransfer (hΞ : Ξ.WellScoped)
     have hib : ∀ (c : ComputableGuardedPlusCal.Ref) (i : String),
         mbox psrc.name inbox = .some (c, i) → i ∉ GuardedPlusCal.Ref.freeVars c := by
       intro c i hmb
-      have hrxmb : rxMailbox p' = .some (c, i) := by rw [hpr.rxMailbox_eq hused']; exact hmb
+      have hrxmb : rxMailbox p' = .some (c, i) := by rwa [hpr.rxMailbox_eq hused']
       obtain ⟨lbl, tτ, hT⟩ := rxMailbox_mem hrxmb
       obtain ⟨-, hnf, hcc', hii'⟩ := hpr.rxThread hT
-      rw [hii', hcc']; exact hnf
+      rwa [hii', hcc']
     have hdrain : ∀ (c : ComputableGuardedPlusCal.Ref) (i : String)
         (cp : List (ComputableTLAPlus.PathStep V)), mbox psrc.name inbox = .some (c, i) →
         List.Forall₂ (GuardedPlusCal.EvalStep Ξ Ω M₁) c.args cp →
         F₂.lookup (⟨c.name, cp⟩ : ChanKey V) = .some [] := by
       intro c i cp hmb hcp
-      have hrxmb : rxMailbox p' = .some (c, i) := by rw [hpr.rxMailbox_eq hused']; exact hmb
+      have hrxmb : rxMailbox p' = .some (c, i) := by rwa [hpr.rxMailbox_eq hused']
       obtain ⟨lbl, tτ, hT⟩ := rxMailbox_mem hrxmb
       have hinf : i ∉ GuardedPlusCal.Ref.freeVars c := hib c i hmb
       obtain ⟨cp', hcp', hlk'⟩ := hrelay _ hT c lbl tτ i rfl
       have hagree : ∀ y ∈ GuardedPlusCal.Ref.freeVars c,
           Finmap.lookup y M₁ = Finmap.lookup y M₂ := by
         intro y hy
-        refine hproc.mem_agree' y (fun c' i' hmb' hyi' ↦ hinf ?_)
+        refine hproc.mem_agree' y (λ c' i' hmb' hyi' ↦ hinf ?_)
         rw [hmbeq, hmb] at hmb'
         obtain ⟨-, rfl⟩ := Prod.mk.injEq .. ▸ Option.some.inj hmb'
         exact hyi' ▸ hy
@@ -129,7 +128,7 @@ theorem procBlockTransfer (hΞ : Ξ.WellScoped)
       · obtain ⟨l₀, hl₀⟩ := hne
         exact ⟨l₀, hproc.1 ▸ hl₀.1, howned ▸ hl₀.2⟩
       · intro l hlL hlO
-        refine src_blocking_le (fun Br hBr ↦ ?_)
+        refine src_blocking_le (λ Br hBr ↦ ?_)
         obtain ⟨Br', hBr', href'⟩ := hsbr l Br hBr
         have htgt : (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) ∈
             NetworkPlusCal.AtomicBranch.blocking Ξ Ω Br' :=
@@ -161,7 +160,7 @@ theorem procDoneTransfer
   simp only [GuardedPlusCal.CodeTable.procDone, Set.mem_setOf_eq] at hdone ⊢
   rw [hL] at hdone
   have hpred : ∀ (a : ComputableGuardedPlusCal.Process) (b : ComputableNetworkPlusCal.Process),
-      (∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox a.name inbox) (c₀ a.name) inbox (fun _ ↦ []) a b) →
+      (∃ inbox, ProcessRefines (V := V) Ξ Ω (mbox a.name inbox) (c₀ a.name) inbox (λ _ ↦ []) a b) →
       (a.name == name) = (b.name == name) := by
     rintro a b ⟨_, hpr⟩
     rw [hpr.name_eq]
@@ -171,11 +170,11 @@ theorem procDoneTransfer
     | none =>
       simp only [GuardedPlusCal.Algorithm.algebra, hfinds, Option.elim_none, Set.inter_empty]
     | some psrc =>
-      obtain ⟨b, hb, -⟩ := (href fun _ ↦ []).find?_left hpred hfinds
+      obtain ⟨b, hb, -⟩ := (href λ _ ↦ []).find?_left hpred hfinds
       rw [hfind] at hb
       exact nomatch hb
   | some p' =>
-    obtain ⟨psrc, inbox, hfinds, -, hpr⟩ := find?_refines (href fun _ ↦ []) hfind
+    obtain ⟨psrc, inbox, hfinds, -, hpr⟩ := find?_refines (href λ _ ↦ []) hfind
     rw [tgt_algebra_table hfind] at hdone
     rw [src_algebra_table hfinds]
     change L₁ ∩ (NetworkPlusCal.Process.codeTable Ξ Ω p').owned = ∅ at hdone
@@ -282,7 +281,7 @@ theorem algRelatesTo.terminating_done (hΞ : Ξ.WellScoped) [DecidableEq V]
       (GuardedPlusCal.Algorithm.algebra Ξ Ω algo).aborting
       (NetworkPlusCal.Algorithm.algebra Ξ Ω algo').terminating :=
   StrongRefinement.Terminating.restrictEnd (algRelatesTo.terminating_reducing hΞ href used fresh)
-    (fun _ _ hR hdone ↦ algRelatesTo.isDone_of href hR hdone)
+    (λ _ _ hR hdone ↦ algRelatesTo.isDone_of href hR hdone)
 
 omit [SeqBuiltins V] in
 /-- **The algorithm-level refinement, whole.** All four components at the closed forms

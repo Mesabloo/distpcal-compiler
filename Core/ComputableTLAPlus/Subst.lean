@@ -58,25 +58,21 @@ def Expression.freeVars {α} (target : Expression α) : Finset String := match t
   | .false => ∅
 termination_by sizeOf target
 decreasing_by
-  all: simp_wf
-  all: first
-    | omega
-    | (have h := List.sizeOf_lt_of_mem _hes
-       try simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h := List.sizeOf_lt_of_mem _hfs
-       simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h := List.sizeOf_lt_of_mem _hbs
-       simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h := List.sizeOf_lt_of_mem _hupds
-       simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h1 := List.sizeOf_lt_of_mem _hupds
-       have h2 := List.sizeOf_lt_of_mem _hpath
-       simp only [Prod.mk.sizeOf_spec, Sum.inr.sizeOf_spec] at h1 h2
-       omega)
+  -- one selector per closing tactic. `try omega` clears every direct-subterm goal; the
+  -- membership goals that remain come in `match_source`'s constructor order, and each renumbers
+  -- from 1 after the selector above it closes its own.
+  1-17,19,22,24-27,30-38: decreasing_trivial
+  1,3-6:
+    have h := List.sizeOf_lt_of_mem ‹_ ∈ _›
+    apply lt_trans ?_ (lt_trans h ?_)
+      <;> decreasing_trivial
+  1:
+    calc
+      _ ≤ sizeOf (Sum.inr (α := String) e') := by decreasing_trivial
+      _ < sizeOf path := by decreasing_trivial
+      _ < sizeOf (path, v) := by decreasing_trivial
+      _ < sizeOf upds := by decreasing_trivial
+      _ < _ := by decreasing_trivial
 
 /-- Rebuild every `.var` node knowing the number of expression-level binders enclosing it: `f k τ o
 pos` is the replacement for a `.var τ o` at binder depth `k`. Each binder arm recurses into its
@@ -122,25 +118,19 @@ def Expression.mapVars {α} (f : Nat → α → Origin → SourceSpan → Expres
   | .false, pos => .false @@ pos
 termination_by sizeOf target
 decreasing_by
-  all: simp_wf
-  all: first
-    | omega
-    | (have h := List.sizeOf_lt_of_mem _hes
-       try simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h := List.sizeOf_lt_of_mem _hfs
-       simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h := List.sizeOf_lt_of_mem _hbs
-       simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h := List.sizeOf_lt_of_mem _hupds
-       simp only [Prod.mk.sizeOf_spec] at h
-       omega)
-    | (have h1 := List.sizeOf_lt_of_mem _hupds
-       have h2 := List.sizeOf_lt_of_mem _hpath
-       simp only [Prod.mk.sizeOf_spec, Sum.inr.sizeOf_spec] at h1 h2
-       omega)
+  -- same shape as `freeVars`' `decreasing_by` above.
+  1-17,19,22,24-27,30-38: decreasing_trivial
+  1,3-6:
+    have h := List.sizeOf_lt_of_mem ‹_ ∈ _›
+    apply lt_trans ?_ (lt_trans h ?_)
+      <;> decreasing_trivial
+  1:
+    calc
+      _ ≤ sizeOf (Sum.inr (α := String) e') := by decreasing_trivial
+      _ < sizeOf path := by decreasing_trivial
+      _ < sizeOf (path, v) := by decreasing_trivial
+      _ < sizeOf upds := by decreasing_trivial
+      _ < _ := by decreasing_trivial
 
 /-- The `mapVars` action `liftBound d` runs at every `.var` node: add `d` to a `.bound` index that
 sits at or past the current binder depth, leave everything else. Named so lemmas can talk about the
@@ -186,7 +176,7 @@ private theorem doubleAttach_collapse {β : Type} {l : List β} (f : {x // x ∈
     (hgf : ∀ (a : {x // x ∈ l}) (hm : f a ∈ l.attach.map f), g ⟨f a, hm⟩ = a.1) :
     (l.attach.map f).attach.map g = l := by
   simp only [List.map_attach_eq_pmap, List.pmap_pmap]
-  rw [List.pmap_congr_left (q := λ _ ↦ True) (H₂ := λ _ _ ↦ trivial)
+  rewrite [List.pmap_congr_left (q := λ _ ↦ True) (H₂ := λ _ _ ↦ trivial)
         (g := λ a _ ↦ (a.1 : β)) l.attach (λ a _ _ _ ↦ hgf a _)]
   simp [List.pmap_eq_map]
 
@@ -243,17 +233,15 @@ theorem Expression.mapVars_mapVars_id {α} {g h : Nat → α → Origin → Sour
     exact ih1 t v ha
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
-    all_goals first
-    | exact ih3
-    | · refine doubleAttach_collapse _ ?_
-        rintro ⟨⟨path, v⟩, hpv⟩ hm
-        refine Prod.ext ?_ (ih1 path v hpv)
-        refine doubleAttach_collapse _ ?_
-        rintro ⟨s, hs⟩ hm2
-        cases s with
-        | inl fld => rfl
-        | inr e'' => exact congrArg Sum.inr (ih2 path v hpv e'' hs)
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
+    refine doubleAttach_collapse _ ?_
+    rintro ⟨⟨path, v⟩, hpv⟩ hm
+    refine Prod.ext ?_ (ih1 path v hpv)
+    refine doubleAttach_collapse _ ?_
+    rintro ⟨fld | e'', hs⟩ hm2
+    · rfl
+    · exact congrArg Sum.inr (ih2 path v hpv e'' hs)
   | case17 k' bs other τ pos ih3 ih2 ih1 =>
     cases other with
     | none =>
@@ -274,13 +262,12 @@ theorem Expression.mapVars_mapVars_id {α} {g h : Nat → α → Origin → Sour
   | _ =>
     simp only [Expression.mapVars, registerSource, List.map_attach_eq_pmap, List.pmap_eq_map,
       List.map_map, Function.comp_def]
-    all_goals
-      ((try congr 1) <;>
+    all:
+      (try congr 1) <;>
         first
           | rfl
           | assumption
-          | (refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _)
-             exact by simp_all))
+          | (refine (List.map_congr_left (g := id) λ a ha ↦ ?_).trans (List.map_id _); simp_all)
 
 set_option maxHeartbeats 1000000 in
 /-- Two `mapVars` traversals commute when the left one runs `n + 1` binder levels deeper than the
@@ -302,39 +289,44 @@ theorem Expression.mapVars_shift_comm {α}
   | case1 k' τ o pos => simp only [Expression.mapVars]; exact H k' τ o pos
   | case2 k' g_ es pos ihg ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case6 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case15 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case11 k' fs pos ihfs =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact Prod.ext rfl (Prod.ext rfl (ihfs ann nm v hm))
   | case14 k' es pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact Prod.ext rfl (ihes t v hm)
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨path, v⟩, hpv⟩ := a
     refine Prod.ext ?_ (ih1 path v hpv)
     refine doubleAttach_map_congr λ s _ _ ↦ ?_
-    obtain ⟨s, hsp⟩ := s
-    cases s with
-    | inl fld => rfl
-    | inr e'' => exact congrArg Sum.inr (ih2 path v hpv e'' hsp)
+    obtain ⟨fld | e'', hsp⟩ := s
+    · rfl
+    · exact congrArg Sum.inr (ih2 path v hpv e'' hsp)
   | case17 k' bs other τ pos ih3 ih2 ih1 =>
     cases other with
     | none =>
@@ -352,7 +344,8 @@ theorem Expression.mapVars_shift_comm {α}
       · exact congrArg some ih1
   | _ =>
     simp only [Expression.mapVars, registerSource]
-    all: congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
 
 set_option maxHeartbeats 1000000 in
 /-- Two `mapVars` traversals at the *same* depth commute when the four `.var`-node actions commute
@@ -370,39 +363,44 @@ theorem Expression.mapVars_comm {α}
   | case1 k' τ o pos => simp only [Expression.mapVars]; exact H k' τ o pos
   | case2 k' g_ es pos ihg ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case6 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case15 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact doubleAttach_map_congr λ a _ _ ↦ ihes _ a.2
   | case11 k' fs pos ihfs =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact Prod.ext rfl (Prod.ext rfl (ihfs ann nm v hm))
   | case14 k' es pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact Prod.ext rfl (ihes t v hm)
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine doubleAttach_map_congr λ a _ _ ↦ ?_
     obtain ⟨⟨path, v⟩, hpv⟩ := a
     refine Prod.ext ?_ (ih1 path v hpv)
     refine doubleAttach_map_congr λ s _ _ ↦ ?_
-    obtain ⟨s, hsp⟩ := s
-    cases s with
-    | inl fld => rfl
-    | inr e'' => exact congrArg Sum.inr (ih2 path v hpv e'' hsp)
+    obtain ⟨fld | e'', hsp⟩ := s
+    · rfl
+    · exact congrArg Sum.inr (ih2 path v hpv e'' hsp)
   | case17 k' bs other τ pos ih3 ih2 ih1 =>
     cases other with
     | none =>
@@ -420,7 +418,8 @@ theorem Expression.mapVars_comm {α}
       · exact congrArg some ih1
   | _ =>
     simp only [Expression.mapVars, registerSource]
-    all: congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
 
 /-- Opening the binder `n + 1` levels out (`openVar name` at depth `n + 1`) commutes with the
 `liftBound 1` a splice under that binder carries: doing the lift first and opening at `n + 1`
@@ -652,11 +651,9 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
     simp only [Prod.mk.injEq] at hpair
     refine congr_arg₂ Prod.mk ?_ (ih1 path v hpv hpair.2 base)
     refine Eq.trans (List.map_congr_left λ s _ ↦ ?_) (List.attach_map_subtype_val path)
-    obtain ⟨s, hsp⟩ := s
-    have hs := attach_map_eq_self_of hpair.1 ⟨s, hsp⟩
-    cases s with
-    | inl fld => rfl
-    | inr e'' =>
+    obtain ⟨fld | e'', hsp⟩ := s
+    · rfl
+    · have hs := attach_map_eq_self_of hpair.1 ⟨.inr e'', hsp⟩
       simp only [Sum.inr.injEq] at hs
       exact congrArg Sum.inr (ih2 path v hpv e'' hsp hs base)
   | case13 k' g_ nm pos ihg =>
@@ -709,10 +706,10 @@ private theorem Expression.LC.of_openVar_eq_aux {α} {name : String}
       injection h with hbs hother
       rw [Option.some.injEq] at hother
       rw [hBs hbs, ih1 hother base]
-  | case18 => intro _ _; simp only [Expression.mapVars]
-  | case19 => intro _ _; simp only [Expression.mapVars]
-  | case20 => intro _ _; simp only [Expression.mapVars]
-  | case21 => intro _ _; simp only [Expression.mapVars]
+  | case18 => simp_intro _ _ [Expression.mapVars]
+  | case19 => simp_intro _ _ [Expression.mapVars]
+  | case20 => simp_intro _ _ [Expression.mapVars]
+  | case21 => simp_intro _ _ [Expression.mapVars]
 
 /-- The converse of `LC.mapVars_openVarLam_eq`: `openVar` fixing a term certifies it locally closed. -/
 theorem Expression.LC.of_openVar_eq {α} {name : String} {e : Expression α}
@@ -783,38 +780,43 @@ theorem Expression.mapVars_succ_base {α}
   | case1 k' τ o pos => simp only [Expression.mapVars]; exact hf k' τ o pos
   | case2 k' g_ es pos ihg ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact List.map_congr_left λ a _ ↦ ihes a.1 a.2
   | case6 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact List.map_congr_left λ a _ ↦ ihes a.1 a.2
   | case15 k' es τ pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     exact List.map_congr_left λ a _ ↦ ihes a.1 a.2
   | case11 k' fs pos ihfs =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine List.map_congr_left λ a _ ↦ ?_
     obtain ⟨⟨ann, nm, v⟩, hm⟩ := a
     exact Prod.ext rfl (Prod.ext rfl (ihfs ann nm v hm))
   | case14 k' es pos ihes =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine List.map_congr_left λ a _ ↦ ?_
     obtain ⟨⟨t, v⟩, hm⟩ := a
     exact Prod.ext rfl (ihes t v hm)
   | case12 k' g_ τ upds pos ih3 ih2 ih1 =>
     simp only [Expression.mapVars, registerSource]
-    congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
     refine List.map_congr_left λ a _ ↦ ?_
     obtain ⟨⟨path, v⟩, hpv⟩ := a
     refine Prod.ext (List.map_congr_left λ s _ ↦ ?_) (ih1 path v hpv)
-    obtain ⟨s, hsp⟩ := s
-    cases s with
-    | inl fld => rfl
-    | inr e'' => exact congrArg Sum.inr (ih2 path v hpv e'' hsp)
+    obtain ⟨fld | e'', hsp⟩ := s
+    · rfl
+    · exact congrArg Sum.inr (ih2 path v hpv e'' hsp)
   | case17 k' bs other τ pos ih3 ih2 ih1 =>
     cases other with
     | none =>
@@ -832,7 +834,8 @@ theorem Expression.mapVars_succ_base {α}
       · exact congrArg some ih1
   | _ =>
     simp only [Expression.mapVars, registerSource]
-    all: congr 1
+    -- wildcard arm: `simp only` finishes the leaf constructors, `congr 1` the compound ones
+    try congr 1
 
 /-- Iterated `mapVars_succ_base`: a depth-agnostic action's `mapVars` is depth-independent. -/
 theorem Expression.mapVars_base_irrel {α}
@@ -1121,10 +1124,9 @@ theorem Expression.LC.except_single {α} {g : Expression α} {τ : α}
   · exact hg f base h1 h2
   · refine congrArg (· :: []) (Prod.ext ?_ (hrhs f base h1 h2))
     exact Eq.trans (List.map_congr_left λ s hs ↦ by
-        obtain ⟨s, hsp⟩ := s
-        cases s with
-        | inl fld => rfl
-        | inr e'' => exact congrArg Sum.inr (hpath e'' hsp f base h1 h2))
+        obtain ⟨fld | e'', hsp⟩ := s
+        · rfl
+        · exact congrArg Sum.inr (hpath e'' hsp f base h1 h2))
       (List.attach_map_subtype_val path)
 
 /-- `liftBound` of a locally-closed term is locally closed (it is the term itself). -/

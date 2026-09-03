@@ -73,14 +73,13 @@ expression's own span, for the reason spelled out on `Coercion.apply`. -/
   | .comp c₁ c₂ => c₂.applyComputable (c₁.applyComputable e)
   termination_by sizeOf c
   decreasing_by
-    all: simp_wf
-    all:
-      first
-        | omega
-        | (have := List.sizeOf_lt_of_mem (List.getElem_mem (List.mem_range.mp ‹_›)); omega)
-        | (have h1 := List.sizeOf_lt_of_mem ‹(_, _, _) ∈ _›
-           simp only [Prod.mk.sizeOf_spec] at h1
-           omega)
+    1,4-7: decreasing_trivial
+    1:
+      have h := List.sizeOf_lt_of_mem (List.getElem_mem (List.mem_range.mp ‹_›))
+      apply lt_trans h
+      decreasing_trivial
+    · have h := List.sizeOf_lt_of_mem ‹_ ∈ _›
+      apply lt_trans ?_ (lt_trans h ?_) <;> decreasing_trivial
 
 end TypedTLAPlus
 
@@ -238,10 +237,9 @@ theorem openVar_applyComputable_aux (c : TypedTLAPlus.Coercion) (x : String) :
         = c.applyComputable (Expression.mapVars (Expression.openVarLam x) k e) := by
   intro e
   fun_induction TypedTLAPlus.Coercion.applyComputable c e with
-  | case1 => intro k; simp only [TypedTLAPlus.Coercion.applyComputable]
+  | case1 => simp_intro k [TypedTLAPlus.Coercion.applyComputable]
   | case2 => next e' pos =>
-    intro k
-    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, Expression.openVarLam,
+    simp_intro k [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, Expression.openVarLam,
       registerSource, List.attach_map_val, List.map_cons, List.map_nil]
   | case3 => next e' pos τ₀ i range =>
     intro k
@@ -250,8 +248,7 @@ theorem openVar_applyComputable_aux (c : TypedTLAPlus.Coercion) (x : String) :
       List.attach_map_val]
     rw [if_neg (by omega), if_neg (by omega)]
   | case4 => next e' pos n τ hn =>
-    intro k
-    simp only [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource,
+    simp_intro k [TypedTLAPlus.Coercion.applyComputable, Expression.mapVars, registerSource,
       List.attach_map_val, List.map_map, Function.comp_def]
   | case5 => next e' pos x' τ τ' cc ih =>
     intro k

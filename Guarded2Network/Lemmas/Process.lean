@@ -53,8 +53,7 @@ theorem BranchesFresh.evalArgs (hΞ : Ξ.WellScoped) {c₀ : ComputableGuardedPl
     {path : List (PathStep V)} :
     Ref.EvalArgs Ξ Ω σ.mem c₀ path ↔ Ref.EvalArgs Ξ Ω σ'.mem c₀ path := by
   refine AtomicBranch.reducing_evalArgs hΞ rfl (λ B' hB' S hS ↦ hf.gfresh S ?_) hf.afresh hf.alast step
-  rw [preconditionList, hB']
-  exact hS
+  rwa [preconditionList, hB']
 
 /-- **Picking a process projects the invariant.** One instance's `procRelatesTo`, together with the
 one FIFO equation `algRelatesTo` carries, *is* `relatesTo` on that instance's local state.
@@ -122,9 +121,9 @@ theorem procRelatesTo_of_relatesTo {mb : Mailbox} {pref : ChanKey V → List V}
     obtain ⟨-, -, cpath₀, hpath₀, hkey₀⟩ := hmatch
     obtain ⟨cpath, sv, vs, hpath, hinbox, hseq, hoff, hsplit⟩ := hrel.inbox_seq
     obtain rfl : cpath = cpath₀ := Ref.EvalArgs.inj hpath (hstable c inbox rfl cpath₀ hpath₀)
-    refine ⟨.some ⟨ibp.key, vs⟩,
-      ⟨rfl, hrel.mem_agree, ⟨sv, hinbox, hseq⟩, cpath, hpath, hkey₀⟩,
-      ?_, ?_, ?_, ?_⟩
+    exists .some ⟨ibp.key, vs⟩,
+      ⟨rfl, hrel.mem_agree, ⟨sv, hinbox, hseq⟩, cpath, hpath, hkey₀⟩
+    refine ⟨?_, ?_, ?_, ?_⟩
     · intro x hx
       obtain rfl := Option.some.inj hx
       exact ⟨vs, rfl⟩
@@ -136,8 +135,7 @@ theorem procRelatesTo_of_relatesTo {mb : Mailbox} {pref : ChanKey V → List V}
       exact hkc.symm
     · intro y hy
       obtain rfl := Option.some.inj hy
-      rw [hkey₀]
-      exact hsplit
+      rwa [hkey₀]
   | .none, .some _ => exact hmatch.elim
   | .some _, .none => exact hmatch.elim
 
@@ -308,11 +306,7 @@ theorem algRelatesTo.block_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq
     have hstable : ∀ (c : ComputableGuardedPlusCal.Ref) (inbox : String), mb p = .some (c, inbox) →
         ∀ path : List (PathStep V), Ref.EvalArgs Ξ Ω M₁ c path → Ref.EvalArgs Ξ Ω M₁' c path := by
       intro c inbox hmb path hp
-      have hflat : (⟨(⟨M₁, F₁, .none⟩ : LocalState V), ε', ⟨M₁', F₁', .some label'⟩⟩ :
-          LocalState V × Trace V × LocalState V) ∈
-          GuardedPlusCal.AtomicBranch.reducing Ξ Ω Br :=
-        hsstep
-      exact ((fresh Br hBr c inbox hmb).evalArgs hΞ hflat).mp hp
+      exact ((fresh Br hBr c inbox hmb).evalArgs hΞ hsstep).mp hp
     subst hQs
     rw [hT]
     obtain ⟨ib'p, hproc', hsame, hnone, hoffk, honk⟩ :=
@@ -360,7 +354,8 @@ theorem algRelatesTo.block_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq
         intro _ hy
         contradiction
       | .some y =>
-        refine ⟨Function.update pref y.key y.contents, ?_, ?_⟩
+        exists Function.update pref y.key y.contents
+        refine ⟨?_, ?_⟩
         · intro y' hy'
           obtain rfl := Option.some.inj hy'
           exact Function.update_self ..
@@ -379,9 +374,8 @@ theorem algRelatesTo.block_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq
         rwa [Function.update_self]
       · rw [GuardedPlusCal.Instances.update_of_ne hqp] at hq
         obtain ⟨σ', hσ', hrelq⟩ := hfwd q σ hq
-        refine ⟨σ', ?_, ?_⟩
-        · rwa [GuardedPlusCal.Instances.update_of_ne hqp]
-        · rwa [Function.update_of_ne hqp]
+        exists σ', by rwa [GuardedPlusCal.Instances.update_of_ne hqp]
+        rwa [Function.update_of_ne hqp]
     · intro q σ' hq
       dsimp only at hq ⊢
       by_cases hqp : q = p
@@ -653,7 +647,8 @@ theorem ProcessRefines.inits_eq (h : ProcessRefines (V := V) Ξ Ω mbox c₀ inb
       contradiction
     · rw [hn]
       nofun
-  refine ⟨GuardedPlusCal.initsOf news, ?_, ?_, ?_⟩
+  exists GuardedPlusCal.initsOf news
+  refine ⟨?_, ?_, ?_⟩
   · rw [NetworkPlusCal.Process.inits_eq, hlocal, GuardedPlusCal.Process.inits_eq,
       GuardedPlusCal.initsOf_append]
   · intro e he

@@ -256,12 +256,8 @@ where
     | .addMessage e₁ p₁ _, .addMessage e₂ p₂ _ => if p₁ ≥ p₂ then .gt else compareError e₁ e₂
   termination_by e₁ e₂ => (e₁, e₂)
   decreasing_by
-    all_goals simp_wf; subst_vars
-    · apply Prod.Lex.right
-      decreasing_trivial
-    · apply Prod.Lex.left
-      decreasing_trivial
-    · apply Prod.Lex.left
-      decreasing_trivial
+    · subst_vars; apply Prod.Lex.right; decreasing_trivial
+    · apply Prod.Lex.left; decreasing_trivial
+    · apply Prod.Lex.left; decreasing_trivial
 
 end

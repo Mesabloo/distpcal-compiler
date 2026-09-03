@@ -467,7 +467,7 @@ theorem Relation.omega.of_idle {α ε : Type _} [Monoid ε] [ωMonoid ε] {R : S
       have h₁ : j < j' := hmono.lt_iff_lt.mp hi
       have h₂ : j' < j + 1 := hmono.lt_iff_lt.mp hlt
       omega
-    show (σs (n j), es (n j), σs (n (j + 1))) ∈ R
+    change (σs (n j), es (n j), σs (n (j + 1))) ∈ R
     rw [hgap]
     exact hmoves j
   · exact ωMonoid.ωProd_comp es n hmono (λ i hi ↦ (hidle i hi).2)
@@ -511,11 +511,10 @@ theorem Relation.star.head {α ε : Type _} [Monoid ε] {R : Set (α × ε × α
   · intro i hi
     cases i with
     | zero =>
-      show (a, e, σs 0) ∈ R
-      rw [h₀]
-      exact h
+      change (a, e, σs 0) ∈ R
+      rwa [h₀]
     | succ i => exact hsteps i (by omega)
-  · show e * e' = _
+  · change e * e' = _
     rw [Monoid.partialProd_succ' _ n, he]
     rfl
 
@@ -580,8 +579,7 @@ theorem Relation.star.trans {α ε : Type _} [Monoid ε] {R : Set (α × ε × �
   induction n generalizing a σs es with
   | zero =>
     obtain rfl : a = b := hz.symm.trans hn
-    rw [Monoid.partialProd_zero, one_mul]
-    exact h₂
+    rwa [Monoid.partialProd_zero, one_mul]
   | succ n ih =>
     rw [Monoid.partialProd_succ', mul_assoc]
     exact Relation.star.head (hz ▸ hst 0 (by omega))

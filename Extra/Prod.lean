@@ -24,7 +24,7 @@ end Prod
 
 namespace MProd
   @[ext]
-  theorem MProd.ext {α β} {x y : MProd α β} : x.fst = y.fst → x.snd = y.snd → x = y := by
+  theorem ext {α β} {x y : MProd α β} : x.fst = y.fst → x.snd = y.snd → x = y := by
     intros fst_eq snd_eq
     obtain ⟨⟩ := x
     obtain ⟨⟩ := y

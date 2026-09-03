@@ -135,7 +135,7 @@ namespace AList
       by_cases k_in_keys : k ∈ x.entries.keys
       · obtain ⟨_, l₁, l₂, k_not_in, entries_eq, kerase_eq⟩ := List.exists_of_kerase k_in_keys
         rw [entries_eq, kerase_eq] at *
-        have k_not_in' : k ∉ (List.map (fun x ↦ ⟨x.fst, f x.fst x.snd⟩) l₁).keys := by
+        have k_not_in' : k ∉ (List.map (λ x ↦ ⟨x.fst, f x.fst x.snd⟩) l₁).keys := by
           rwa [List.keys_map_const]
         conv_rhs => rw [List.map_append, List.map_cons, List.kerase_append_right k_not_in']
         rw [List.kerase_cons_eq (by rfl), List.map_append]
@@ -193,7 +193,7 @@ namespace AList
       · apply eq_false
         exact h
 
-  theorem map_ne_eq.{u, v} {α : Type u} [DecidableEq α] {β : α → Type v} {l : AList β} {a : α} {f : (k : α) → β k → β k} (h : a ∉ l) : map (fun k' v ↦ if k' = a then f k' v else v) l = l := by
+  theorem map_ne_eq.{u, v} {α : Type u} [DecidableEq α] {β : α → Type v} {l : AList β} {a : α} {f : (k : α) → β k → β k} (h : a ∉ l) : map (λ k' v ↦ if k' = a then f k' v else v) l = l := by
     induction l with
     | H0 => rfl
     | IH a' b l _ IH =>

@@ -154,7 +154,7 @@ theorem mem_seqGraphFrom {z : Value} {start : ℕ} {vs : List Value} :
     rw [seqGraphFrom, ZFSet.mem_insert_iff, ih]
     iff_rintro (rfl | ⟨i, hi, rfl⟩) ⟨i, hi, rfl⟩
     · exact ⟨0, by simp, by simp⟩
-    · refine ⟨i + 1, by simpa using hi, ?_⟩
+    · exists i + 1, by simpa using hi
       have h : start + 1 + i = start + (i + 1) := by omega
       rw [h, List.getElem_cons_succ]
     · cases i with

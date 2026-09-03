@@ -361,17 +361,13 @@ namespace StrongRefinement
     by_cases! hall : ∀ i, cont i (σs i)
     · -- The source keeps up forever.
       left
-      have hR : ∀ i, R (σs i) (σts i) := by
-        rintro (_|i)
-        · exact R_σₛ_σₜ
-        · exact (hstep_of i (hall i)).1
       exact ⟨ωMonoid.ωProd es, T.Rτ_omega es ets (λ i ↦ (hstep_of i (hall i)).2.1),
         σs, es, hσs₀, λ i ↦ (hstep_of i (hall i)).2.2, rfl⟩
     · -- The source gets stuck; take the first index where it does.
       right
       -- The first index at which it gets stuck, as an opaque natural: `Nat.find` itself does not
       -- support the inductions below.
-      set m := Nat.find hall
+      let m := Nat.find hall
       have hm_spec : ¬cont m (σs m) := Nat.find_spec hall
       have hm_min i (hi : i < m) := not_not.mp (Nat.find_min hall hi)
 
@@ -420,7 +416,8 @@ namespace StrongRefinement
             apply T.Rτ_closed _ _ _ _ (ih (Nat.le_of_succ_le hn))
             exact (hstep_of n (hm_min n hn)).2.1
         obtain ⟨r, hr⟩ := ωMonoid.partialProd_dvd ets (m + 1)
-        refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
+        exists Monoid.partialProd es m * ea
+        refine ⟨?_, ?_⟩
         · rw [hr, Monoid.partialProd_succ, mul_assoc]
           apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
           apply Trace.scPrefix_rmul_right (hpp m le_rfl)
@@ -497,10 +494,6 @@ namespace StrongRefinement
     by_cases! hall : ∀ i, cont i (σs i)
     · -- The source keeps up forever, stepping or standing still.
       left
-      have hR : ∀ i, R (σs i) (σts i) := by
-        rintro (_ | i)
-        · exact R_σₛ_σₜ
-        · exact (hstep_of i (hall i)).1
       -- and it cannot stand still forever: each idle index drops `μ`, and `ℕ` is well-founded
       have hinf : ∀ N, ∃ i, N ≤ i ∧ (σs i, es i, σs (i + 1)) ∈ stepₛ := by
         by_contra! hno
@@ -529,7 +522,7 @@ namespace StrongRefinement
         hσs₀ ▸ Relation.omega.of_idle (λ i ↦ (hstep_of i (hall i)).2.2) hinf⟩
     · -- The source gets stuck; take the first index where it does.
       right
-      set m := Nat.find hall
+      let m := Nat.find hall
       have hm_spec : ¬cont m (σs m) := Nat.find_spec hall
       have hm_min i (hi : i < m) := not_not.mp (Nat.find_min hall hi)
 
@@ -571,8 +564,7 @@ namespace StrongRefinement
             rw [hsplit]
             obtain hs | ⟨hfix, hone⟩ := (hstep_of i (hm_min i hi')).2.2
             · exact Relation.star.lcomp₁_absorb (Relation.lcomp₁.intro (b := σs (i + 1)) hs htail)
-            · rw [hone, one_mul, ← hfix]
-              exact htail
+            · rwa [hone, one_mul, ← hfix]
 
         -- And its trace is a sequentially consistent prefix of the target's.
         have hpp : ∀ n, n ≤ m → T.Rτ (Monoid.partialProd es n) (Monoid.partialProd ets n) := by
@@ -583,7 +575,8 @@ namespace StrongRefinement
             apply T.Rτ_closed _ _ _ _ (ih (Nat.le_of_succ_le hn))
             exact (hstep_of n (hm_min n hn)).2.1
         obtain ⟨r, hr⟩ := ωMonoid.partialProd_dvd ets (m + 1)
-        refine ⟨Monoid.partialProd es m * ea, ?_, ?_⟩
+        exists Monoid.partialProd es m * ea
+        refine ⟨?_, ?_⟩
         · rw [hr, Monoid.partialProd_succ, mul_assoc]
           apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
           apply Trace.scPrefix_rmul_right (hpp m le_rfl)
@@ -616,10 +609,9 @@ namespace StrongRefinement
       subst hn
       obtain ⟨ε', hRτ, hmem⟩|⟨ε', hscp, hmem⟩ := refY (σts 0) e₂ σₛ hR hY
       · left
-        refine ⟨ε', ?_, ?_⟩
-        · rwa [Monoid.partialProd_zero, one_mul]
-        · rw [← one_mul ε']
-          apply Relation.lcomp₁.intro (Relation.star.refl σₛ) hmem
+        exists ε', by rwa [Monoid.partialProd_zero, one_mul]
+        rw [← one_mul ε']
+        apply Relation.lcomp₁.intro (Relation.star.refl σₛ) hmem
       · right
         refine ⟨ε', ?_, hmem⟩
         rwa [Monoid.partialProd_zero, one_mul]
@@ -630,14 +622,16 @@ namespace StrongRefinement
           ih σₛ' (λ i ↦ σts (i + 1)) (λ i ↦ ets (i + 1))
             (λ i hi ↦ hsteps (i + 1) (by omega)) hn hR'
         · left
-          refine ⟨e' * ε'', ?_, ?_⟩
+          exists e' * ε''
+          refine ⟨?_, ?_⟩
           · rw [Monoid.partialProd_succ' ets n, mul_assoc]
             apply T.Rτ_closed _ _ _ _ hRτ' hRτ''
           · obtain ⟨σᵣ, e₃, e₄, hs, hy, rfl⟩ := hmem''
             rw [← mul_assoc]
             apply Relation.lcomp₁.intro (Relation.star.head hmem' hs) hy
         · right
-          refine ⟨e' * ε'', ?_, ?_⟩
+          exists e' * ε''
+          refine ⟨?_, ?_⟩
           · rw [Monoid.partialProd_succ' ets n, mul_assoc]
             apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
             apply Trace.scPrefix_rmul_right hRτ' hscp''

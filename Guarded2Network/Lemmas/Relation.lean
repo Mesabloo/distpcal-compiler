@@ -225,8 +225,7 @@ theorem relatesTo.fifo_push {mbox : Mailbox} {pref : ChanKey V → List V} {σ�
     obtain rfl : us = ws := (List.append_cancel_right hus).symm
     simp only [Finmap.lookup_insert, Option.map_eq_map, Option.map_some, List.concat_eq_append,
       List.append_assoc]
-  · rw [Finmap.lookup_insert_of_ne _ hk, Finmap.lookup_insert_of_ne _ hk]
-    exact hus
+  · rwa [Finmap.lookup_insert_of_ne _ hk, Finmap.lookup_insert_of_ne _ hk]
 
 section Chan
 

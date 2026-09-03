@@ -79,7 +79,7 @@ theorem rxStep_step (hΞ : Ξ.WellScoped) {c : ComputableGuardedPlusCal.Ref} {in
   · exact ⟨new, Finmap.lookup_insert _, ExprSemantics.isSeq_of_seqAppend hseq happ⟩
   · intro k hk
     exact Finmap.lookup_insert_of_ne _ (hibkey ▸ hk)
-  · rw [hibkey] at hsplit ⊢
+  · rewrite [hibkey] at hsplit ⊢
     simp [Finmap.lookup_insert, hsplit, hfifo]
   · rw [hibkey, Finmap.lookup_insert]
     exact Option.some_ne_none _
@@ -198,21 +198,18 @@ theorem algRelatesTo.rx_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq ι
       rw [hS] at hq
       obtain rfl := Option.some.inj hq
       refine ⟨_, GuardedPlusCal.Instances.update_self .., ?_⟩
-      rw [Function.update_self, hmb]
-      exact hproc'
+      rwa [Function.update_self, hmb]
     · obtain ⟨σ', hσ', hrel⟩ := hfwd q σ hq
-      refine ⟨σ', ?_, ?_⟩
-      · rwa [GuardedPlusCal.Instances.update_of_ne hqp]
-      · rwa [Function.update_of_ne hqp]
+      exists σ', by rwa [GuardedPlusCal.Instances.update_of_ne hqp]
+      rwa [Function.update_of_ne hqp]
   · intro q σ' hq
     dsimp only at hq ⊢
     by_cases hqp : q = p
     · subst hqp
       rw [GuardedPlusCal.Instances.update_self] at hq
       obtain rfl := Option.some.inj hq
-      refine ⟨⟨M₁, L₁⟩, hS, ?_⟩
-      rw [Function.update_self, hmb]
-      exact hproc'
+      exists ⟨M₁, L₁⟩, hS
+      rwa [Function.update_self, hmb]
     · rw [GuardedPlusCal.Instances.update_of_ne hqp] at hq
       obtain ⟨σ, hσ, hrel⟩ := hbwd q σ' hq
       exact ⟨σ, hσ, by rwa [Function.update_of_ne hqp]⟩
@@ -262,8 +259,7 @@ theorem algRelatesTo.rx_step (hΞ : Ξ.WellScoped) {ι : Type u} [DecidableEq ι
   · intro k
     by_cases hkp : k = ibp.key
     · subst hkp
-      rw [Function.update_self]
-      exact hsplit'
+      rwa [Function.update_self]
     · rw [Function.update_of_ne hkp, hoff' k hkp]
       exact hfifo k
 

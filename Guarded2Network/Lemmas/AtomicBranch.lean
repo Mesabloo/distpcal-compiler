@@ -186,11 +186,11 @@ private theorem branch_blockTransfer (hΞ : Ξ.WellScoped) {mbox : Mailbox}
   rw [NetworkPlusCal.AtomicBranch.blocking_eq_precondition, ← listBlocking_toList_net] at hin
   have hdrained : Drained Ξ Ω mbox (⟨(⟨M₂, F₂, .none⟩ : LocalState V), ε⟩ : LocalState V × Trace V) := by
     intro c ib cp hmb hcp
-    refine hdrain c ib cp hmb ((Ref.EvalArgs.congr_of_agree hΞ (fun y hy ↦ ?_)).mpr hcp)
-    refine sim.mem_agree' y (fun _ ib₁ h ↦ ?_)
+    refine hdrain c ib cp hmb ((Ref.EvalArgs.congr_of_agree hΞ (λ y hy ↦ ?_)).mpr hcp)
+    refine sim.mem_agree' y (λ _ ib₁ h ↦ ?_)
     simp only [hmb, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    exact fun heq ↦ hib c ib hmb (heq ▸ hy)
+    exact λ heq ↦ hib c ib hmb (heq ▸ hy)
   rcases hblk _ ε _ sim ⟨hin, hdrained⟩ with ⟨ε', hτ, hb⟩ | ⟨ε', hpfx, ha⟩
   · obtain rfl : ε' = ε := hτ
     refine .inl ?_
@@ -397,6 +397,10 @@ private theorem eq_nil_of_not_cons
   | [] => rfl
   | (chan, τ) :: tail => (h chan τ tail rfl).elim
 
+-- `simp_all` in the `.rx` obligation is deliberate and load-bearing — see the comment at that
+-- step; it clears the locals hypotheses and normalizes the appended-thread list before the
+-- per-goal `refine`.
+set_option linter.flexible false in
 open Std.Do in
 /-- **One branch, compiled.** The two halves composed: `processPrecondition_spec` for the
 precondition, `actionBlock_refines` for the action block, and one `StrongRefinement.Comp` joining
@@ -444,29 +448,32 @@ private theorem stepBranch_spec (hΞ : Ξ.WellScoped) {chans : Guarded2NetworkCh
     refine ⟨⟨?_, ?_, ?_⟩, ⟨?_, ?_, ?_⟩, ?_⟩
     · exact branch_refines hΞ href afresh alast
     · rfl
-    · exact fun hib sim hdrain hin ↦ branch_blockTransfer hΞ href.blocking hib sim hdrain hin
+    · exact λ hib sim hdrain hin ↦ branch_blockTransfer hΞ href.blocking hib sim hdrain hin
     -- `or_imp`/`forall_and` split the appended `.rx` off the accumulated list; `IsRxThread` stays
     -- out of the simp set, one obligation per thread. The locals hypotheses are cleared first, so
     -- `simp_all` does not shred a pair-typed `∀ e ∈ …` it has no use for here.
     · clear hloc₀ hboth₀
       simp_all [RxOnly, or_imp, forall_and]
       -- what is left is the single new thread, at the label `freshName` just handed it: the mailbox
-      -- `simp_all` already rewrote to the right one, the channel's freshness is in context
-      all : refine ⟨rfl, ?_, _, _, rfl, _, rfl⟩
-      all : simp_all
+      -- `simp_all` already rewrote to the right one, the channel's freshness is in context.
+      -- `all:` here (not a `·`): `simp_all` above closes some per-thread VCs outright, leaving 0.
+      all: refine ⟨rfl, ?_, _, _, rfl, _, rfl⟩
+      all: simp_all
     -- the locals list: unchanged where nothing was registered, `inboxLocal_ite` where it was
     · clear href
-      first
+      solve
         | exact hloc₀
         | exact inboxLocal_ite hloc₀
     -- and the two lists stay empty together — where one grew so did the other, so both are non-empty
     · clear href
-      first
+      solve
         | exact hboth₀
-        | (refine iff_of_false (ite_isEmpty_concat_ne_nil _ _) ?_
-           first
-             | exact ne_nil_of_any ‹_›
-             | simp)
+        | {
+            refine iff_of_false (ite_isEmpty_concat_ne_nil _ _) ?_
+            solve
+              | exact ne_nil_of_any ‹_›
+              | simp
+        }
     · rintro (hH | ⟨c, r, coe, hmem⟩) hnil
       -- the carried half: a list this step found non-empty it also leaves non-empty, since the only
       -- thing done to it is a `concat`

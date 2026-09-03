@@ -240,9 +240,8 @@ theorem algRelatesTo.step_or_stutter (hΞ : Ξ.WellScoped) [DecidableEq V]
     -- a process only steps in a memory binding its own identity; the source's does because it agrees
     -- with the target's away from the generated `inbox`, which is not `self`
     have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some v := by
-      rw [hproc.mem_agree' _ (λ c inbox hmb ↦
+      rwa [hproc.mem_agree' _ (λ c inbox hmb ↦
         (procMailbox_inbox_ne_selfName (href λ _ ↦ []) used hmb).symm)]
-      exact hself
     -- a name resolving to no process has an empty table, contradicting the step in hand
     cases hfind : algo'.processes.find? (·.name == name) with
     | none =>
@@ -283,12 +282,12 @@ theorem algRelatesTo.step_or_stutter (hΞ : Ξ.WellScoped) [DecidableEq V]
       rcases algRelatesTo.block_step hΞ hbref hbfresh hrel hS hin hBr' hstep' hQs with
         ⟨M₁', F₁', ε', hrel', hτ, Br, hBr, hsstep⟩ | ⟨ε', hpfx, Br, hBr, habort⟩
       · have hsrc_reducing := src_reducing_le hBr hsstep
-        rw [← src_algebra_table hfinds] at hsrc_reducing
+        rw [← src_algebra_table (v := v) hfinds] at hsrc_reducing
         refine .inl ⟨_, ε', hrel', hτ, ?_⟩
         exact ⟨(name, v), ⟨M₁, L₁⟩, hS, ⟨M₁', insert l' (L₁ \ {l})⟩,
           .inl ⟨l, hlabel, l', hsrc_reducing, hself', rfl⟩, rfl⟩
       · have hsrc_aborting := src_aborting_le hBr habort
-        rw [← src_algebra_table hfinds] at hsrc_aborting
+        rw [← src_algebra_table (v := v) hfinds] at hsrc_aborting
         refine .inr (.inr ⟨ε', hpfx, Relation.star.le_lcomp₁ ?_⟩)
         exact ⟨(name, v), ⟨M₁, L₁⟩, hS, l, hlabel, hsrc_aborting, hself'⟩
   · -- a receiving thread relayed: the source does not move at all
@@ -306,10 +305,10 @@ theorem algRelatesTo.step_or_stutter (hΞ : Ξ.WellScoped) [DecidableEq V]
       obtain ⟨hmbeq, hfree, rfl, hibeq⟩ := hpr.rxThread hT
       subst ibf
       have hmailbox : procMailbox algo' (name, v) = .some (c₀ p.name, inbox) := by
-        rw [procMailbox_eq (v := v) hfind hpr hused]; exact hmbeq
+        rwa [procMailbox_eq (v := v) hfind hpr hused]
       obtain ⟨rfl, hrel', hsize⟩ := algRelatesTo.rx_step hΞ hmailbox hfree hrel hS hin hrx hQs
       refine .inr (.inl ⟨hrel', rfl, ?_⟩)
-      show GuardedPlusCal.FIFOs.size F₂' < GuardedPlusCal.FIFOs.size F₂
+      change GuardedPlusCal.FIFOs.size F₂' < GuardedPlusCal.FIFOs.size F₂
       omega
 
 omit [SeqBuiltins V] in
@@ -361,9 +360,8 @@ theorem algRelatesTo.immediateAbort [DecidableEq V]
     · rw [hq] at hm; exact ⟨σ, hq, hm⟩
   obtain ⟨⟨M₁, L₁⟩, hS, hproc⟩ := hbwd (name, v) ⟨M₂, L₂⟩ hin
   have hself' : Finmap.lookup GuardedPlusCal.selfName M₁ = .some v := by
-    rw [hproc.mem_agree' _ (λ c inbox hmb ↦
+    rwa [hproc.mem_agree' _ (λ c inbox hmb ↦
       (procMailbox_inbox_ne_selfName (href λ _ ↦ []) used hmb).symm)]
-    exact hself
   cases hfind : algo'.processes.find? (·.name == name) with
   | none =>
     simp only [NetworkPlusCal.Algorithm.algebra, hfind, Option.elim_none] at habort
@@ -465,13 +463,17 @@ private theorem mapM_processToNetwork_spec {globalChans : Guarded2NetworkChans}
   | vc5 | vc6 | vc7 | vc8 | vc9 | vc10 | vc11 | vc12 | vc13 | vc14 =>
     first
     | assumption
-    | (intro _ _
-       first
-       | assumption
-       | exact mbox ‹ComputableGuardedPlusCal.Process›.name
-       | exact c₀ ‹ComputableGuardedPlusCal.Process›.name
-       | (rw [‹ps = _ ++ _ :: _›] at fresh
-          exact fresh _ (List.mem_append_right _ List.mem_cons_self)))
+    | {
+        intro _ _
+        solve
+        | assumption
+        | exact mbox ‹ComputableGuardedPlusCal.Process›.name
+        | exact c₀ ‹ComputableGuardedPlusCal.Process›.name
+        | {
+            rw [‹ps = _ ++ _ :: _›] at fresh
+            exact fresh _ (List.mem_append_right _ List.mem_cons_self)
+        }
+    }
 
   case vc1.pre => exact .nil
   case vc2.post.success => exact id
@@ -774,8 +776,7 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
       exact GuardedPlusCal.InitProc.append_of hσinit hws
     refine ⟨_, (hinit.1 _ _).mpr ⟨q', List.mem_of_find?_eq_some hfind, self, ?_, ?_, htgt⟩,
       hrel q hq q' ibx hfind hpr self hself _ _ hσinit htgt⟩
-    · rw [hpr.identities_eq]
-      exact hself
+    · rwa [hpr.identities_eq]
     · rw [hpr.name_eq]
   -- and every compiled instance has a source one: strip the pass's initializers back off
   · rintro i σ' hσ'
@@ -787,8 +788,7 @@ theorem Algorithm.init_refines {key : String × V → ChanKey V}
     have hq : q ∈ algo.processes := List.mem_of_find?_eq_some hsrcfind
     rw [← hqname] at hfind ⊢
     have hself : self ∈ GuardedPlusCal.Process.identities (V := V) Ξ Ω q := by
-      rw [← hpr.identities_eq]
-      exact hself'
+      rwa [← hpr.identities_eq]
     obtain ⟨ninits, hsplit, -, -⟩ := hpr.inits_eq (used q hq ibx)
     rw [hsplit] at hσ'init
     obtain ⟨M, -, hM, -, -⟩ :=

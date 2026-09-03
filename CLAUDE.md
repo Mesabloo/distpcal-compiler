@@ -21,7 +21,7 @@ sequences where dropped conjunctions make order ambiguous. Resume right after.
 `OPEN_QUESTIONS.md`, `.claude/FINDINGS.md`, `.claude/tasklist*.md`, `.claude/plans/*`.
 
 **Normal prose:** source code and its doc comments, commit messages, PR bodies. What a doc comment
-may *say* is a separate rule — `INSTRUCTIONS.md` §Comments, enforced by `scripts/lean-style`.
+may *say* is a separate rule — `INSTRUCTIONS.md` §Comments, enforced by `linter.fugue.comments`.
 
 ## Lean proof rule — applies every time, no exceptions
 
@@ -29,8 +29,8 @@ Before output **any** Lean proof, check it against `LEAN_STYLE.md`. Every proof,
 one-liners and `have` bodies. Re-read that file; don't work from memory of it. Proof not done till
 it compile *and* match. Part B is a tactic playbook — check it before hand-rolling a proof step.
 
-`scripts/lean-style` enforce the mechanical rules on `Stop`. Passing checker ≠ matching file:
-checker only cover rules with unambiguous textual form.
+`linter.fugue.*` enforce the mechanical rules on `Stop`. Green build ≠ matching file: a linter
+only cover rules that never fire on correct code; the rest stay prose, a reader's job.
 
 **Never re-derive fact project already prove.** Before write proof step, query local fact database:
 

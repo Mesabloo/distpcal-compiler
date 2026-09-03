@@ -105,14 +105,14 @@ theorem mem_freeVars_except {f : Expression α} {τ : α}
   simp only [Finset.mem_union, mem_foldl_union_attach, Subtype.exists]
   refine or_congr Iff.rfl ⟨?_, ?_⟩
   · rintro ⟨u, hu, hbody⟩
-    refine ⟨u, hu, ?_⟩
+    exists u, hu
     rcases hbody with ⟨s, hs, hzs⟩ | hr
     · cases s with
       | inl => simp at hzs
       | inr e => exact .inl ⟨e, hs, by simpa using hzs⟩
     · exact .inr hr
   · rintro ⟨u, hu, hbody⟩
-    refine ⟨u, hu, ?_⟩
+    exists u, hu
     rcases hbody with ⟨e, he, hze⟩ | hr
     · exact .inl ⟨Sum.inr e, he, by simpa using hze⟩
     · exact .inr hr

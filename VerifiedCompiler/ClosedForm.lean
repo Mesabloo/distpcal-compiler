@@ -130,8 +130,8 @@ theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [ωMonoid ε]
       exact hpY
     · exact ⟨(e₁, b, e₂), hX, hb, he⟩
   choose! g hgX hgmem hgtrace using unf
-  set P : ℕ → α × ε := λ n ↦ Nat.rec (σ, e) (λ _ p ↦ (g p).2) n
-  set es : ℕ → ε := λ n ↦ (g (P n)).1
+  let P : ℕ → α × ε := λ n ↦ Nat.rec (σ, e) (λ _ p ↦ (g p).2) n
+  let es : ℕ → ε := λ n ↦ (g (P n)).1
   have inv : ∀ n, (∀ i, i < n → P i ∉ Y) →
       P n ∈ OrderHom.gfp (Relation.divFun X Y) ∧ e = Monoid.partialProd es n * (P n).2 ∧
         ∀ i, i < n → ((P i).1, es i, (P (i + 1)).1) ∈ X := by
@@ -143,13 +143,11 @@ theorem Relation.gfp_le_closedForm {α ε : Type _} [Monoid ε] [ωMonoid ε]
       obtain ⟨hg, htr, hst⟩ := ih (λ i hi ↦ hY i (by omega))
       have hnY : P n ∉ Y := hY n (by omega)
       refine ⟨hgmem _ hg hnY, ?_, ?_⟩
-      · rw [Monoid.partialProd_succ, mul_assoc, ← hgtrace _ hg hnY]
-        exact htr
+      · rwa [Monoid.partialProd_succ, mul_assoc, ← hgtrace _ hg hnY]
       · intro i hi
         rcases Nat.lt_or_ge i n with h | h
         · exact hst i h
-        · have hin : i = n := by omega
-          rw [hin]
+        · obtain rfl : i = n := by omega
           exact hgX _ hg hnY
   by_cases hstop : ∃ n, P n ∈ Y
   · obtain ⟨-, htr, hst⟩ := inv (Nat.find hstop) (λ j hj ↦ Nat.find_min hstop hj)

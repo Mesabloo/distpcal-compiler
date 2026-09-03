@@ -49,14 +49,7 @@ namespace Nat
       ind _ (by obtain _|_ := Nat.eq_or_lt_of_not_lt h₂ <;> trivial) (div.induct' k k_pos ind base₁ base₂ (n / k))
   termination_by n
   decreasing_by
-    · have h : n > k := by obtain _|_ := Nat.eq_or_lt_of_not_lt h₂ <;> trivial
-      apply div_lt_self
-      · trans k
-        · trans 1
-          · exact Nat.one_pos
-          · assumption
-        · assumption
-      · assumption
+    · exact div_lt_self (by omega) k_pos
 
   theorem add_ge_add_iff_right {k m n : Nat} : k + n ≥ m + n ↔ k ≥ m := Nat.add_le_add_iff_right
 

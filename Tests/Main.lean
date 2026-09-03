@@ -4,6 +4,7 @@ public import Tests.GoBuild
 public import Tests.Report
 public import Cli.Basic
 import Std.Sync.Mutex
+import Tests.Linter
 
 public section
 

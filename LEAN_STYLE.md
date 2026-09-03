@@ -5,8 +5,12 @@ Canonical: `INSTRUCTIONS.md` and memory point here, not the other way round.
 
 Vendored `Extra/Mathlib/**` exempt — upstream code, upstream style.
 
-Checker: `scripts/lean-style [FILE…]`. Runs on `Stop`, after proof compile. Style is finishing
-concern, never blocks mid-proof iteration.
+Enforcement: `linter.fugue.*` — one `@[linter]` per mechanically-checkable rule below
+(`CustomPrelude/Linter/`), plus the external linters `lakefile.lean` opts into. All warnings,
+never errors: style never blocks a proof that does not yet compile. Escape a site with
+`set_option linter.fugue.<name> false in …` and a one-line reason. A rule that would fire on
+correct code stays prose here — a reader's job. Ad-hoc, not hooked: `scripts/Lint.lean`
+(`simpNF`), `scripts/OrphanCheck.lean` (unreached modules).
 
 Citation after rule = real occurrence in this repo, as an example. Marked ✗ = counterexample.
 Citations illustrate the rule; this file is not a list of things to fix.
@@ -34,10 +38,28 @@ Citations illustrate the rule; this file is not a list of things to fix.
   what is left as the goal, no `?_` to count and no closing `⟩` to match. It descend through `∧`
   and finish with `trivial`, so a component already in context need not be named at all.
   Applies whenever the holes are **trailing** — hole nested inside a term (`Or.inr ?_`,
-  `λ i ↦ ?_`) stay `refine`, `exists` having no way to spell that.
+  `λ i ↦ ?_`) stay `refine`, neither `exists` nor `use` able to spell that.
   `Extra/Seq.lean:226`, `VerifiedCompiler/Denotational/StrongRefinement.lean:73`
   ✗ `VerifiedCompiler/Denotational/StrongRefinement.lean:77`, `:248` — legitimately `refine`,
   the hole sit under `Or.inr`
+
+  Both `exists` and `use` also break `∧` and any one-constructor structure/inductive — so
+  `exists h, w` descend through `∃ x, P x ∧ Q x` in one step. Over a bare two-field `∧` goal,
+  though, `refine ⟨_, ?_⟩` is idiomatic and stays.
+
+  **`use` when `exists`'s `trivial` overreach, or when the last conjunct also want supplying.**
+  `exists`'s closing `try trivial` run at *full* transparency and will shut a goal that is
+  `rfl`-by-unfold — then the next tactic hit "no goals". `use` discharge at *reducible*
+  transparency (`use (discharger := skip)` turn it off entirely), so it leave that goal open.
+  `exists` also must leave ≥1 goal — reject a witness list one short of the subgoal count; `use`
+  take the full list.
+
+  But `use`'s discharger still close a *variable* number of the split `∧` conjuncts, so `use w`
+  followed by a fixed `·` list is fragile — the bullet count shift under it. When the split must
+  be predictable (twin `iff_rintro` arms, a bulleted conjunction), `exists w` then explicit
+  `refine ⟨?_, …⟩`, or plain `refine ⟨w, ?_, …⟩` with `set_option linter.fugue.existsIntro false
+  in` and a one-line reason. `Core/ComputableTLAPlus/Semantics/Operational.lean`
+  (`evalCoerce'_seqToFun`), `VerifiedCompiler/Denotational/StrongRefinement.lean:419`
 - **Bullet every subgoal.** A tactic that split the goal is followed by one `·` per branch, always —
   never one bullet and then the next branch's tactics written unindented at the bullet's own column.
   Unbulleted, nothing marks where one branch ends and the next begins, and a later edit to the first
@@ -50,10 +72,38 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `tac_selector` syntax: `all: tac` instead of `all_goals tac`, `3: tac` instead of
   `on_goal 3 => tac`, and ranges/unions on top of that — `1,3-5,9-12: tac`. Works in `conv` too.
   Use it; the stdlib spellings are longer and cover less. Needs `meta import CustomPrelude` — add
-  the import rather than fall back to `all_goals`.
+  the import rather than fall back to `all_goals`. `linter.fugue.goalSelector`; `any_goals` is
+  useless (drop it, or `all:` if a selector is meant).
 
   **`all:` / `all_goals` over a *single* remaining goal is a `·` bullet.** The selector reads as
-  "every branch" and there is only one; a reader stops to look for the others. One goal, one bullet.
+  "every branch" and there is only one; a reader stops to look for the others. One goal, one
+  bullet. `linter.fugue.selectorOneGoal` (Sem) — fires only when *every* run of the selector node
+  saw exactly one goal (a `| _ =>` wildcard arm / post-`simp_all` VC block runs it with a varying
+  count).
+
+  **No parentheses around a selector's block** — `all: (tac)` → `all: tac`.
+  `linter.fugue.selectorParens`.
+- **`first` / `solve` / `<;>` / selector interplay.** One consolidated set; each is a
+  `linter.fugue.*`.
+
+  - A **selector wrapping `first | …` / `solve | …`** (≥2 alternatives) → tailor one alternative
+    per goal. `all: first | rfl | simp` says "some tactic in this list closes each goal" and hides
+    which; write `1: rfl`, `2,3: simp`. `selectorFirst`. Model:
+    `Core/ComputableTLAPlus/Semantics/Operational.lean:1983` (`1,2,9-14:` / `1-3:` / `all:`).
+  - A **selector wrapping a bare `try`** → name the goals `try` closes, or drop `try`+selector if
+    it closes all. `all: try simp` hides which goals `simp` shut. `selectorTry`.
+  - A **terminal `first | …` that must close the goal** → `solve | …`. In a compiling proof a
+    `first` at the end of a `by` / `·` / `{ }` / `case` arm always closed, so it is a `solve`,
+    which errors instead of silently leaving a goal. `firstVsSolve` (excludes `<;> first` and the
+    blanket-selector forms).
+  - **`first | t` / `solve | t`** with one alternative → `t`. `firstSolveSingle`.
+  - **`t <;> solve | s₁ | … | sₙ`** with pairwise-distinct `sᵢ` → `t <;> [s₁ | … | sₙ]` (the
+    project's pipe form, `CustomPrelude.lean`). Positional says which goal gets which script;
+    `solve` searches. `seqSolveBracket`.
+  - Batteries' **`t <;> [t₁; t₂; …]`** (`;` separators) → the project's `t <;> [t₁ | t₂ | …]`.
+    `seqFocusPipe`.
+  - **No parens around a `first` over a `cases`/`rcases`/`match` arm** — `firstParens`, full form
+    under the grouping rule below.
 - **`induction` / `fun_induction` carry their cases in `with | name => …`, never as bare `case name
   =>` blocks after the tactic.** `with` is checked for exhaustiveness — a constructor you forgot is
   an error at the `induction`, not a goal that silently survives to the end of the proof. The bare
@@ -99,12 +149,14 @@ Citations illustrate the rule; this file is not a list of things to fix.
   up: a tactic taking a *single* tactic argument (`mvcgen … with`) whose argument is really a
   sequence — `Guarded2Network/Lemmas/AtomicBranch.lean:174`. Ungrouped, the sequence silently
   truncates to its first tactic and the rest applies to whatever goal happens to be first.
+  `linter.fugue.blockLayout` (Txt) checks the multi-line layout; `mvcgenLayout` the `mvcgen`
+  `invariants`/`with` shape above. `{ }`-vs-`( )` by intent stays prose.
 
   **No parentheses around a `first` whose branch is a `cases`/`rcases`/`match` arm.** `| pat =>
   first` on one line, then its `| alt` branches indented under it — the `first` alternatives sit
   one column in from the arm's `|`, so indentation already says which `|` is whose. The wrapping
   `( … )` adds nothing. A multi-tactic *alternative* inside that `first` still groups — `{ … }` per
-  the rule above, since it is meant to close the goal.
+  the rule above, since it is meant to close the goal. `linter.fugue.firstParens` (Syn).
 - **No `rw [show … by …]`.** Inline `show`-by-tactic inside a rewrite hide a real proof step in a
   rewrite argument. State it as a `have` and rewrite with that.
   `Extra/Seq.lean:125` — `have hm : m = 0 := by omega`, then `rwa [hm] at h`
@@ -124,10 +176,13 @@ Citations illustrate the rule; this file is not a list of things to fix.
   line, and `omega` on it is then fine — the objection was to the position, not the tactic. `:373`,
   `:375`, where two `(by omega)`s became `simp +arith [← hi]` under their own `refine`/`apply`.
 
-  Too common to mechanize, so not in the checker.
+  `linter.fugue.byInArg` (`default := false`) covers the `(by …)`-as-function-arg shape; `byExact`
+  (Sem) and `exactBy` flag the `exact by`/`by exact` degenerate cases. The term-vs-`?_` judgement
+  above is not mechanized.
 - **Leave no live compiler warning.** Unused binder gets `_`, not a name. Unused section variable
   gets `omit`. `<;>` where `;` suffice gets `;`. Warnings accumulate until nobody reads them, and
-  the real one arrives unnoticed. Not in `scripts/lean-style` — needs a build.
+  the real one arrives unnoticed. Caught by the build, not a `linter.fugue.*` — `linter.extra`
+  (core) supplies `unnecessarySeqFocus` / `unreachableTactic`, `linter.unusedVariables` the rest.
   `Guarded2Network/Lemmas/Statement.lean:537` (`omit [ExprSemantics V] in`, which must go *above*
   the doc comment — after it, the parser reports `unexpected token 'omit'`).
   `mvcgen`'s experimental banner is expected, not a warning to chase.
@@ -135,7 +190,8 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `z` a hypothesis: retyping by defeq is `change Y at z` — the `have` leaves two names for one
   thing and hides that nothing was proved. `z` a nullary global: inline it at its use site instead
   of naming it, unless it is used several times or the name genuinely reads better than the term.
-  `Guarded2Network/Lemmas/Monad.lean:68`. `scripts/lean-style` checks the one-line form.
+  `Guarded2Network/Lemmas/Monad.lean:68`. `linter.fugue.haveBareName` (Syn) — the multi-line form
+  too, with a hyp-vs-global message via env lookup.
 - **A proof-local definition is a `let`, never a `set`.** `set` exists to abstract a term that
   *already occurs* in goal or context; a name for something new is `let`. Three things follow, all
   at `VerifiedCompiler/Denotational/StrongRefinement.lean:308`–`:314`, where four `set`s became four
@@ -267,8 +323,10 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `Core/ComputableTLAPlus/Semantics/Interface.lean` (`Memory.update_eq_some_iff`/`.update_eq_none_iff`
   /`.update_nil`), which replaced three copies of `unfold Memory.update` + `simp only
   [Option.bind_eq_some_iff]` + `obtain` in `Guarded2Network/Lemmas/Statement.lean`.
-  Not in `scripts/lean-style` — deciding whether a file "is about" the constant it unfolds needs
-  more than the text of one line.
+  `linter.fugue.unfoldForeign` (Sem, `default := false`) flags `unfold f` / `simp [def f]` when
+  `f`'s module differs from the current one. Off by default: this development spreads one
+  language's definitions and their lemmas across a directory of sibling files, so "another
+  module" reads too literally — opt in per file where the API boundary is real.
 - **A `have` re-derived in more than one proof is a lemma.** Hoist it, next to the class or
   definition it is about. Repeated `have`s drift apart under refactor and each copy has to be
   re-checked. `mulmono` is `T.Rτ_closed` repackaged and belongs beside the `Trace` class.
@@ -284,10 +342,11 @@ Citations illustrate the rule; this file is not a list of things to fix.
   `VerifiedCompiler/Denotational/StrongRefinement.lean:542` used to read `rintro ref₁ ref₃ ref₂`
   because `ref₃` was "the aborting one".
 - **Delete `have`/`haveI` the proof does not use.** Lean's linter does not catch an unused
-  `haveI`, so a dead instance survives every refactor that made it dead.
-  Checking a deletion needs a forced rebuild — delete the `.olean` first, else `lake build` replays
-  the cache and reports success over the unchanged source. The one this repo had was
+  `haveI`, so a dead instance survives every refactor that made it dead. The one this repo had was
   `haveI : Nonempty α := ⟨σ⟩` in front of a `choose!`, which does not need it.
+  `linter.fugue.unusedHave` (Sem): the introduced fvar does not occur in the continuation goal's
+  assignment (read from the command's last-finishing tactic snapshot; a continuation still
+  holding `sorry`/an unassigned mvar — a deferred `decreasing_by` — is skipped).
 - **Never `rename_i`, never `expose_names`.** Both reach for a hypothesis by *position* in the
   context — the one thing that changes under every edit to the tactic above them, silently and
   without a type error. The replacements, in order:
@@ -308,7 +367,8 @@ Citations illustrate the rule; this file is not a list of things to fix.
 
   The escape hatch is a syntax quotation: `CustomPrelude.lean:78`, `:82` build `rename_i` *into*
   `split … using` and `injections with`, which exist so that no proof has to write it.
-  `scripts/lean-style` checks for it outside quotations.
+  `linter.fugue.renameI` (Syn) — quotation interiors exempt (decision 9), so those two are not
+  flagged.
 - **`by classical` on one line.** Not `by`, then `classical` next line.
 - **`contradiction`, not `Option.noConfusion`.** `noConfusion` need its implicits line up, fail
   `Application type mismatch` when they don't.
@@ -330,23 +390,33 @@ Citations illustrate the rule; this file is not a list of things to fix.
 - **Aesop terminal or not at all** (plan §3 T1). Non-terminal aesop leave whatever search stopped
   at — same instability as non-terminal `simp`, worse, because later steps written against fixed
   goal order. `Core/NetworkPlusCal/Semantics/Lemmas.lean:449`
+  A plain non-terminal `aesop` self-warns (`warnOnNonterminal`); `linter.fugue.aesopTerminal`
+  (Syn) flags only the escape hatches that silence that self-warning.
 - **Signature indentation: binders 2, statement 4.** Continuation line carrying binders/hypotheses
   indent 2; line carrying the statement itself — after the top-level `:` — indent 4. Statement
   stay visually distinct from what it quantify over. Go-forward rule: most existing signatures put
-  binders at 4. Not in `scripts/lean-style` — telling a binder line from a wrapped statement
-  continuation need real parsing, and a crude version flag hundreds of conforming lines.
-  `VerifiedCompiler/Denotational/StrongRefinement.lean:91` ✗ `VerifiedCompiler/ClosedForm.lean:127`
+  binders at 4. `linter.fugue.sigIndent` (Txt, `default := false`) checks it — off by default
+  because the backlog is the whole tree; opt in per file with `set_option linter.fugue.sigIndent
+  true`. `VerifiedCompiler/Denotational/StrongRefinement.lean:91`
+  ✗ `VerifiedCompiler/ClosedForm.lean:127`
 
 ### Language conventions
 
 Set in `lakefile.lean`, not negotiable per-file:
 
 - **`autoImplicit` off.** Every implicit explicit, in `variable` block or signature.
-  `lakefile.lean:35`
+  `lakefile.lean:35`. `linter.fugue.autoImplicitOverride` (Syn) flags a per-file
+  `set_option autoImplicit true`.
 - **`pp.unicode.fun` on — write `λ x ↦ y`, never `fun x => y`.** `lakefile.lean:36`. Holds in
-  metaprogramming too, where the surrounding code is Lean's own: `CustomPrelude.lean:139`
+  metaprogramming *code*, where the surrounding code is Lean's own (`CustomPrelude.lean:139`) —
+  but **not inside a syntax quotation** `` `(…) ``, where `fun` / `rename_i` / `native_decide` is
+  the pattern being built, not a proof (decision 9). `linter.fugue.lambda` (Syn) stops descending
+  at quotation nodes.
+- **Tactic-position `sorry` → `admit`; term-position `sorry` stays.** The spelling then says which
+  scope the hole is in. `linter.fugue.admitScope` (Syn) — inverse of Mathlib's `style.admit`.
 - **`linter.missingDocs` off by default.** Missing-docs is style, not a build gate. Run the pass
-  on demand — `lake lint` (`docBlame`), or `lake build -KCHECK_DOC -R`. `lakefile.lean:21`
+  on demand — `lake env lean --run scripts/Lint.lean --all` (`docBlame`), or
+  `lake build -KCHECK_DOC -R`. `lakefile.lean:21`
 - **Adopt prior-art idioms:** `Located α` with `match_source`/`@@` pair, `Bifunctor`/`Bitraversable`
   on every two-parameter AST, type-level encoding of structural invariants where cheap.
 - **Pass naming `<Source>2<Target>`**, matching `lean_lib` shorthand in `lakefile.lean`.
@@ -364,8 +434,10 @@ Set in `lakefile.lean`, not negotiable per-file:
   `x @@ pos` defeq `x`, reduce away free. Don't work around it. `Common/Position.lean`
 - **New proof file checked only once something import it.** `lake build` with no target build
   `lean_exe fugue` alone; module outside that closure get stale olean replayed *silently* — build
-  report success over source that no longer compile. Wire new proof file into its pass's
-  `Lemmas.lean` as you create it. `Guarded2Network/Lemmas.lean`
+  report success over source that no longer compile. An orphan file is also never linted (no
+  `@[linter]` runs on unelaborated source). Wire new proof file into its pass's `Lemmas.lean` as
+  you create it. `Guarded2Network/Lemmas.lean`. `scripts/OrphanCheck.lean` lists what nothing
+  reaches (ad-hoc, not hooked).
 
 ---
 

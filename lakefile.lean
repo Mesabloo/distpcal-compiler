@@ -32,6 +32,65 @@ def buildType : BuildType := (get_config? BUILD_TYPE >>= BuildType.ofString?).ge
 abbrev moreLeanArgs : Array LeanOption := #[
   ⟨`linter.missingDocs, warnOnMissingDocs⟩ -- Warning on non-documented object
 ]
+/--
+Every external linter the project opts into. Each entry is a deliberate choice, not a bulk
+enable (`linter.all` would drag in slow linters and auto-adopt whatever a toolchain bump adds).
+`CustomPrelude/Linter/External.lean` imports the modules that register these; this block sets
+their values. Concatenated into `leanOptions` (hash-affecting) so a flip rebuilds the world
+once, the warnings enter Lake's log cache, and the Stop hook replays them thereafter.
+
+The Mathlib linters get the `weak.` name prefix: their `register_option` lives in a library,
+not the toolchain, so a `-D` for one is an error in any module that does not import its module
+(`CustomPrelude/Tactic/*`, early `Common/*`, the vendored `Extra/Mathlib/*`). `weak.` makes the
+`-D` a no-op where the option is unknown and sets it where it is known — which is exactly the
+CLI's import closure, where the linters are registered through `CustomPrelude`.
+-/
+abbrev linterOptions : Array LeanOption := #[
+  -- Core Lean — `register_builtin_option`, always known, no `weak.` needed.
+  -- `linter.omit` is deliberately NOT here: `LEAN_STYLE.md` prescribes `omit` for an unused
+  -- section variable, the opposite of what that linter wants.
+  ⟨`linter.defProp, true⟩,  -- a `Prop`-typed `def` should be a `theorem`
+  ⟨`linter.extra, true⟩,    -- the core copies of unnecessarySeqFocus / unreachableTactic / dupNamespace
+  -- but not its `unusedDecidableInType`: the Guarded→Network proof inherits `[DecidableEq ι]` from
+  -- a `variable` for `Finmap`/`Instances` operations in proof *terms*, not lemma types, and a
+  -- per-lemma `omit` would break those proofs.
+  ⟨`linter.extra.unusedDecidableInType, false⟩,
+  -- the core `linter.extra` copies supersede the dependencies' own — turn the duplicates off so
+  -- a hit is not reported twice.
+  ⟨`weak.linter.unnecessarySeqFocus, false⟩,   -- Batteries' copy
+  ⟨`weak.linter.unreachableTactic, false⟩,     -- Batteries' copy
+  ⟨`weak.linter.unusedDecidableInType, false⟩, -- Mathlib's copy
+  ⟨`weak.linter.dupNamespace, false⟩,          -- Mathlib's copy
+  -- Mathlib — library-registered, `weak.`-prefixed.
+  ⟨`weak.linter.flexible, true⟩,               -- no rigid tactic after a flexible one (non-terminal `simp`)
+  ⟨`weak.linter.style.nativeDecide, true⟩,     -- never `native_decide` / `decide +native`
+  ⟨`weak.linter.style.show, true⟩,
+  ⟨`weak.linter.style.openClassical, true⟩,
+  ⟨`weak.linter.style.cases, true⟩,            -- `cases`, not `cases'`
+  ⟨`weak.linter.style.induction, true⟩,        -- `induction`, not `induction'`
+  ⟨`weak.linter.style.refine, true⟩,           -- `refine`, not `refine'`
+  ⟨`weak.linter.style.missingEnd, true⟩,
+  ⟨`weak.linter.style.setOption, true⟩,
+  ⟨`weak.linter.style.nameCheck, true⟩,
+  -- `linter.style.whitespace` is deliberately NOT here: it wants every command at column 0, but
+  -- the project indents declarations inside a `namespace`, and it disagrees with the `Parser_`
+  -- combinator spacing (~500 hits, all the established layout). `sigIndent` (its binders-2 /
+  -- statement-4 rule) is therefore still uncovered.
+  ⟨`weak.linter.style.dollarSyntax, true⟩,     -- `<|`, not `$`
+  ⟨`weak.linter.style.cdot, true⟩,             -- `·` typed as `·`, and not isolated on its own line
+  -- `linter.style.docString` is deliberately NOT here: it wants a docstring to open with the
+  -- text (`/-- text`), the project opens multi-line docstrings with a newline and an indented
+  -- body (63 hits). `linter.style.docString.empty` (flags `/-- -/`) is default-on and stays.
+  -- `linter.style.emptyLine` is deliberately NOT here: the project uses blank lines to group
+  -- steps inside long tactic proofs and macro bodies; that linter forbids any blank within a
+  -- command (107 hits, all deliberate).
+  ⟨`weak.linter.oldObtain, true⟩,              -- `obtain … := …`, not the old `rcases … with …`
+  ⟨`weak.linter.haveLet, .ofNat 1⟩,            -- `have` vs `let`, active on noisy declarations
+  ⟨`weak.linter.globalAttributeIn, true⟩,
+  ⟨`weak.linter.auxLemma, true⟩,
+  ⟨`weak.linter.overlappingInstances, true⟩,
+  ⟨`weak.linter.unusedFintypeInType, true⟩,
+]
 @[inherit_doc Package.leanOptions]
 abbrev leanOptions : Array LeanOption := #[
   ⟨`autoImplicit, false⟩, -- Fully disable auto implicits
@@ -40,7 +99,7 @@ abbrev leanOptions : Array LeanOption := #[
   ⟨`pp.showLetValues.tactic.threshold, .ofNat 0⟩,
   ⟨`pp.showLetValues.threshold, .ofNat 0⟩,
   ⟨`mvcgen.warning, false⟩, -- `mvcgen` used deliberately project-wide; skip experimental-tactic notice
-]
+] ++ linterOptions
 @[inherit_doc Package.moreServerOptions]
 abbrev moreServerOptions : Array LeanOption := #[]
 

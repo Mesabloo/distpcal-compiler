@@ -30,22 +30,16 @@ namespace List
     | cons x xs IH =>
       constructor <;> intro h
       · obtain _|⟨_, h⟩ := h
-        · refine ⟨x, ?_, ?_⟩
-          · exact mem_cons_self
-          · assumption
+        · exists x, mem_cons_self
         · obtain ⟨y, y_in_xs, p_y⟩ := IH.mp h
-          refine ⟨y, ?_, ?_⟩
-          · exact mem_cons_of_mem _ y_in_xs
-          · assumption
+          exists y, mem_cons_of_mem _ y_in_xs
       · obtain ⟨y, y_in_x_xs, p_y⟩ := h
         obtain _|⟨_, y_in_xs⟩ := y_in_x_xs
         · apply Exists.here
           assumption
         · apply Exists.there
           apply IH.mpr
-          refine ⟨y, ?_, ?_⟩
-          · assumption
-          · assumption
+          exists y, y_in_xs
 
   instance (p : α → Prop) [DecidablePred p] : DecidablePred (Exists p) :=
     λ _ ↦ decidable_of_iff' _ (exists_iff_exists_mem p)
@@ -177,7 +171,7 @@ namespace List
           · exact Pxy
           · apply IH
 
-  def induction₂ {α β : Type _} {motive : (xs : List α) → (ys : List β) → xs.length = ys.length → Prop} (nil_nil : motive [] [] rfl) (cons_cons : ∀ x xs y ys, (len_eq : xs.length = ys.length) → motive xs ys len_eq → motive (x :: xs) (y :: ys) (Nat.succ_inj.mpr len_eq)) :
+  theorem induction₂ {α β : Type _} {motive : (xs : List α) → (ys : List β) → xs.length = ys.length → Prop} (nil_nil : motive [] [] rfl) (cons_cons : ∀ x xs y ys, (len_eq : xs.length = ys.length) → motive xs ys len_eq → motive (x :: xs) (y :: ys) (Nat.succ_inj.mpr len_eq)) :
     (xs : List α) → (ys : List β) → (len_eq : xs.length = ys.length) → motive xs ys len_eq
     | [], [], _ => nil_nil
     | _ :: _, _ :: _, len_eq => cons_cons _ _ _ _ (Nat.succ_inj.mp len_eq) (List.induction₂ nil_nil cons_cons _ _ _)
@@ -385,23 +379,23 @@ namespace List
             exact IH
 
   theorem getLast_sizeOf_lt [SizeOf α] {xs : List α} (h : xs ≠ []) : sizeOf (xs.getLast h) < sizeOf xs := by
-    fun_induction List.getLast xs h
-    · simp +arith
-    · rename sizeOf _ < sizeOf _ => IH
+    fun_induction List.getLast xs h with
+    | case1 => simp +arith
+    | case2 _ _ _ _ IH =>
       trans
       · exact IH
       · simp +arith
 
   theorem dropLast_sizeOf_le [SizeOf α] {xs : List α} : sizeOf xs.dropLast ≤ sizeOf xs := by
-    fun_induction List.dropLast xs
-    · rfl
-    · simp +arith [*]
-    · simp +arith [*]
+    fun_induction List.dropLast xs with
+    | case1 => rfl
+    | case2 => simp +arith [*]
+    | case3 => simp +arith [*]
 
   theorem dropLast_getLast_add_sizeOf_eq [SizeOf α] {xs : List α} (h : xs ≠ []) : 1 + sizeOf xs.dropLast + sizeOf (xs.getLast h) = sizeOf xs := by
-    fun_induction List.getLast xs h
-    · simp +arith
-    · rename 1 + sizeOf _ + sizeOf _ = sizeOf _ => IH
+    fun_induction List.getLast xs h with
+    | case1 => simp +arith
+    | case2 _ _ _ _ IH =>
       simp_rw [List.cons.sizeOf_spec] at IH ⊢
       simp +arith [← IH]
 
@@ -456,7 +450,7 @@ namespace List
     | [] => nil _
     | y :: ys => cons _ _ _ (zipper_induction (xs ++ [y]) ys nil cons)
 
-  def not_mem_union_iff [DecidableEq α] {x : α} {l₁ l₂ : List α} : x ∉ l₁ ∪ l₂ ↔ x ∉ l₁ ∧ x ∉ l₂ := by
+  theorem not_mem_union_iff [DecidableEq α] {x : α} {l₁ l₂ : List α} : x ∉ l₁ ∪ l₂ ↔ x ∉ l₁ ∧ x ∉ l₂ := by
     rw [List.mem_union_iff, not_or]
 
   theorem concat_perm_of_perm {x : α} {xs ys : List α} (h : xs ~ ys) : (xs.concat x) ~ (x :: ys) := by
@@ -545,7 +539,7 @@ namespace List
     | nil =>
       simp [removeAll, filter_singleton, Bool.cond_eq_ite, ite_cond_eq_false _ _ (eq_false h)]
     | cons x xs IH =>
-      simp [cons_removeAll, -concat_eq_append]
+      simp only [cons_removeAll, contains_eq_mem, decide_eq_false_iff_not, ite_not]
       split_ifs
       · rw [IH, concat_cons, removeAll_cons_of_mem ‹_›]
       · rw [concat_cons, IH, concat_cons, removeAll_cons_of_not_mem ‹_›]
@@ -838,7 +832,7 @@ namespace List
   lemma even_len_cons_cons_of_even_len {ys : List α} {y₁ y₂ : α} (even_ys_len : Even ys.length) : Even (y₁ :: y₂ :: ys).length := by
     grind only [= Nat.even_iff, = length_cons]
 
-  def zipperEvenInduction {motive : (xs : List α) → (ys : List α) → Even xs.length → Even ys.length → Prop} (xs ys : List α) (even_xs_len : Even xs.length) (even_ys_len : Even ys.length)
+  theorem zipperEvenInduction {motive : (xs : List α) → (ys : List α) → Even xs.length → Even ys.length → Prop} (xs ys : List α) (even_xs_len : Even xs.length) (even_ys_len : Even ys.length)
     (nil : ∀ xs even_xs_len, motive xs [] even_xs_len Even.zero)
     (cons_cons : ∀ xs y₁ y₂ ys even_xs_len even_ys_len,
       motive (xs ++ [y₁, y₂]) ys (length_append ▸ Even.add even_xs_len even_two) even_ys_len →

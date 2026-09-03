@@ -73,7 +73,7 @@ partial def mentionsSelf (name : String) (e : ComputablePlusCal.Expression) : Bo
 /-- Rewrite a function definition body's self-reference — `.module _ f`, since `f` is in scope for
 its own body — to the free name `f`, which is what `MkRecFn`'s generator parameter is called. -/
 private def bindSelf (f : String) (e : ComputablePlusCal.Expression) : ComputablePlusCal.Expression :=
-  e.mapVars (fun _ τ o pos ↦ match o with
+  e.mapVars (λ _ τ o pos ↦ match o with
     | .module _ n => if n == f then .var τ (.free n) @@ pos else .var τ o @@ pos
     | _ => .var τ o @@ pos) 0
 

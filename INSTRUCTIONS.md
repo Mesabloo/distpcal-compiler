@@ -51,8 +51,8 @@ Docstring say **what declaration is and what it guarantee**. Nothing else.
 - No commented-out code. Git have it.
 - `TODO` need subject: `TODO(<subject>): <what owed>`.
 
-`scripts/lean-style` enforce mechanical half, both direction (code rules and comment rules), on
-`Stop`. Judgment half — proof narration, consumer note, weak doc — stay reader job.
+`linter.fugue.comments` enforce the mechanical half. Judgment half — proof narration, consumer
+note, weak doc — stay reader job.
 
 `STRUCTURE.md` own rule: pure file map, one line per file, zero reference.
 `scripts/structure-check` enforce it, own hook, own switch `FUGUE_STRUCTURE_HOOK=off`.
@@ -90,8 +90,10 @@ reaching for). Don't restate rules here; that duplication is what the move remov
 
 Rules carried from prior art's `lakefile.lean`; raise open question before dropping any.
 
-Enforcement is `scripts/lean-style`, run on `Stop` over working-tree `.lean` files. Mechanical
-rules only — the judgment ones stay a reader's job.
+Enforcement is `linter.fugue.*` (`CustomPrelude/Linter/`) plus the external linters the lakefile
+opts into. Mechanical rules only — judgment ones, and any that would fire on correct code, stay
+prose in `LEAN_STYLE.md`. Escape a site with `set_option linter.fugue.<name> false in …` and a
+one-line reason.
 
 ## Build & iterate
 

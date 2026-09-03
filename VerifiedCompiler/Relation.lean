@@ -88,11 +88,11 @@ theorem Relation.TraceReflTransGen.tail_induction_on {α ε} [Monoid ε] {R : α
     | @head _ _ _ e₁ _ xRy _ IH =>
       apply IH
       · have : e₁ * Trace.τ = Trace.τ * e₁ := by rw [append_τ_eq, τ_append_eq]
-        simp [this]
+        simp only [this]
         exact tail _ xRy refl
       · intros _ _ e₂ e₃ _ h' ih
         have : e₁ * (e₂ * e₃) = e₁ * e₂ * e₃ := mul_assoc _ _ _ |>.symm
-        simp [this]
+        simp only [this]
         exact tail _ h' ih
 
 def Relation.iComp {α β δ ι ι'} (R : ι → α → β → Prop) (R' : ι' → β → δ → Prop) : ι × ι' → α → δ → Prop :=

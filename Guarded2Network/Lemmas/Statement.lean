@@ -226,8 +226,7 @@ theorem Memory.update_transfer {M₁ M₂ M₁' : Memory V} {x : String}
   obtain ⟨old, new, hold, hnew, rfl⟩ := ComputableTLAPlus.Memory.update_eq_some_iff.mp h₁
   refine ⟨M₂.insert x new,
     ComputableTLAPlus.Memory.update_eq_some_iff.mpr ⟨old, new, ?_, hnew, rfl⟩, ?_⟩
-  · rw [← hx]
-    exact hold
+  · rwa [← hx]
   · rw [Finmap.lookup_insert _, Finmap.lookup_insert _]
 
 /-- An update touches only the name it writes. What keeps the refinement invariant's *other*
@@ -289,8 +288,7 @@ theorem relatesTo.mem_congr (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : ChanK
     · rintro _ _ ⟨rfl, rfl⟩
       exact hy
     · exact (Ref.EvalArgs.congr_of_fresh hΞ hs hxc).mpr hpath
-    · rw [LocalState.mem_mk, ht inbox (Ne.symm hxi)]
-      exact hinbox
+    · rwa [LocalState.mem_mk, ht inbox (Ne.symm hxi)]
 
 /-! ## Action statements
 
@@ -488,8 +486,7 @@ theorem Statement.aborting_sim (hΞ : Ξ.WellScoped) {mbox : Mailbox} {pref : Ch
       ⟨M, F, v, rpath, hv, hrpath, hupd, rfl, rfl⟩
     · subst hlabel
       refine .inl (.inl (.inl ⟨M₁, F₁, ?_, rfl, rfl⟩))
-      rw [← Finmap.lookup_isSome, hagree r.name hrname, Finmap.lookup_isSome]
-      exact hmem
+      rwa [← Finmap.lookup_isSome, hagree r.name hrname, Finmap.lookup_isSome]
     · subst hlabel; exact .inl (.inl (.inr ⟨M₁, F₁, habort hfe hab, rfl, rfl⟩))
     · subst hlabel; exact .inl (.inr ⟨M₁, F₁, hpaths hfr hab, rfl, rfl⟩)
     · subst hlabel
