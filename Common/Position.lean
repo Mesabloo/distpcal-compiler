@@ -93,23 +93,30 @@ def SourceSpan.placeholder : SourceSpan := ⟨⟨1, 0⟩, ⟨1, 0⟩⟩
 instance : Append SourceSpan where
   append := SourceSpan.merge
 
-private def Internal.initSourceMap : IO (IO.Ref (Std.HashMap USize SourceSpan)) :=
-  IO.mkRef (Std.HashMap.emptyWithCapacity 60)
+private def Internal.initSourceMap : IO (IO.Ref (Std.TreeMap USize SourceSpan)) :=
+  IO.mkRef ∅
 
 /--
-  A hashmap associating arbitrary data to source positions.
+  A map associating arbitrary data to source positions.
+
+  Deliberately a `Std.TreeMap`, not a `Std.HashMap`. The map lives in a module-initializer
+  `IO.Ref`, whose contents the runtime marks multi-threaded; every `IO.Ref.modifyGet` re-marks
+  the value it stores. A hash map's bucket `Array` then fails `Array.uset`'s exclusivity check
+  on every insert and is deep-copied whole — O(size) per `registerSource`, O(size²) per compile.
+  A red-black tree's `insert` path-copies O(log size) nodes regardless of mark state, so the
+  marking costs nothing extra.
 -/
 @[never_extract, noinline, init Internal.initSourceMap]
-private unsafe opaque Internal.sourceMap : IO.Ref (Std.HashMap USize SourceSpan)
+private unsafe opaque Internal.sourceMap : IO.Ref (Std.TreeMap USize SourceSpan)
 
 @[never_extract, noinline]
 private unsafe def Internal.registerSourceImpl {α : Type} (x : α) (pos : SourceSpan) : α :=
   unsafeBaseIO do
-    Internal.sourceMap.modifyGet (x, Std.HashMap.insert · (ptrAddrUnsafe x) pos)
+    Internal.sourceMap.modifyGet (x, Std.TreeMap.insert · (ptrAddrUnsafe x) pos)
 
 @[never_extract, noinline]
 private unsafe def Internal.posOfImpl {α : Type} (x : α) : SourceSpan :=
-  (unsafeBaseIO Internal.sourceMap.get)[ptrAddrUnsafe x]?.getD default_or_ofNonempty%
+  ((unsafeBaseIO Internal.sourceMap.get).get? (ptrAddrUnsafe x)).getD default_or_ofNonempty%
 
 @[implemented_by Internal.registerSourceImpl, never_extract]
 abbrev registerSource {α : Type} (x : α) (_ : SourceSpan) : α := x
@@ -120,7 +127,7 @@ abbrev posOf {α : Type} (x : α) : SourceSpan := default_or_ofNonempty%
 
 @[never_extract, noinline]
 private unsafe def Internal.forgetSourcePositionsImpl : BaseIO Unit :=
-  Internal.sourceMap.set (Std.HashMap.emptyWithCapacity 60)
+  Internal.sourceMap.set ∅
 
 /--
   Drop every registered position. Call this at the start of a compile, never during one.
