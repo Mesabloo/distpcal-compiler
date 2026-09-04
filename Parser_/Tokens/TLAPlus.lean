@@ -55,6 +55,10 @@ namespace SurfaceTLAPlus
     | «->»
     | bang
     | at
+    /-- The weak-fairness prefix `WF_`. Lexed as its own token: `WF_e` is `WF_` then identifier `e`. -/
+    | «WF_»
+    /-- The strong-fairness prefix `SF_`. Lexed as its own token: `SF_e` is `SF_` then identifier `e`. -/
+    | «SF_»
     /-- `<<` `>>`. -/
     | angle (isLeft : Bool)
     /-- The delimiter `----` with at least 4 dashes. -/
@@ -125,6 +129,8 @@ namespace SurfaceTLAPlus
       | .«->» => r"symbol '->'"
       | .bang => "symbol '!'"
       | .at => "symbol '@'"
+      | .«WF_» => "keyword 'WF_'"
+      | .«SF_» => "keyword 'SF_'"
       | .langle => "symbol '<<'"
       | .rangle => "symbol '>>'"
       | .moduleStart len => s!"symbol '{String.replicate (len + 4) '-'}'"

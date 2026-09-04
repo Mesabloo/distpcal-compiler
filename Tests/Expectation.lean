@@ -83,6 +83,11 @@ structure Expectation : Type where
   to change. A regex over the rendered text would pin that wording, break on every improvement to
   it, and assert nothing the code does not already assert. -/
   errorCode : Option DiagnosticCode := none
+  /-- For a rejection, where the error must point, as it prints after `at `: either a bare start
+  cursor (`"2:24"`) or a full span (`"2:24-2:25"`). Unasserted when `none`. Distinct from
+  `errorCode`/`failsAt`: an error relocated to the start of its enclosing production keeps its code
+  and stage and only moves — this is the check that catches that. -/
+  errorPosition : Option String := none
   /-- For an acceptance, the minimum stage that must have completed. `none` falls back to
   `Expectation.defaultReaches`, derived from what the compile actually produced. -/
   reaches : Option Stage := none
@@ -153,6 +158,8 @@ private structure WarningSpec : Type where
 private structure ErrorSpec : Type where
   /-- The error's code, e.g. `"E0018"`. -/
   code : String
+  /-- Where the error must point, e.g. `"2:24"` or `"2:24-2:25"`. -/
+  position : Option String := none
   deriving FromJson
 
 /-- A whole sidecar, as written. -/
@@ -225,6 +232,7 @@ private def Sidecar.applyTo (s : Sidecar) (dir : Option System.FilePath) (base :
       | none => (⟨entry⟩ : System.FilePath)
       | some dir => dir / entry
   return { outcome, status, failsAt, reaches, errorCode, warnings, searchPath
+           errorPosition := s.error.bind ErrorSpec.position
            goBuild := s.goBuild.getD base.goBuild
            allowExtraWarnings := s.allowExtraWarnings.getD base.allowExtraWarnings
            suppressible := s.suppressible.getD base.suppressible

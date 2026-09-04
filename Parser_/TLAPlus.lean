@@ -19,14 +19,14 @@ public section
 /-! # A small lexer for TLA⁺ -/
 
 namespace SurfaceTLAPlus.Lexer
-  open Parser hiding eoption takeMany1 takeMany first
+  open Parser hiding eoption takeMany1 takeMany
   open Char
 
   section
     variable {σ τ α : Type _} {m : Type _ → Type _} [Monad m] [Parser.Stream σ τ]
 
     /-- Surrounds the result of a parser `p` with its starting and ending positions. -/
-    private def located (p : SimpleParserT PositionedSlice Char m α) : SimpleParserT PositionedSlice Char m (Located α) := do
+    private def located {ε} [Parser.Error ε PositionedSlice Char] (p : ParserT ε PositionedSlice Char m α) : ParserT ε PositionedSlice Char m (Located α) := do
       let startPos ← getPosition
       let res ← p
       let endPos ← getPosition
@@ -35,31 +35,38 @@ namespace SurfaceTLAPlus.Lexer
     /-- Skips whitespace: `p₁` consumes (at least 1) whitespace character, `p₂` line comments,
     `p₃` block comments. -/
     @[inline]
-    private def space [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] (p₁ p₂ p₃ : SimpleParserT σ τ m PUnit) : SimpleParserT σ τ m PUnit
+    private def space {ε} [Parser.Error ε σ τ] [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] (p₁ p₂ p₃ : ParserT ε σ τ m PUnit) : ParserT ε σ τ m PUnit
       := dropMany <| first [p₁, p₂, p₃]
 
     @[inline]
-    private def empty : SimpleParserT σ τ m PUnit :=
+    private def empty {ε} [Parser.Error ε σ τ] : ParserT ε σ τ m PUnit :=
       throwUnexpected none
 
     /-- Parse "blank" tokens, i.e. tokens which convey no syntactical relevance. -/
     @[inline]
-    private def ws [Parser.Stream σ Char] [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] : SimpleParserT σ Char m PUnit
+    private def ws {ε} [Parser.Stream σ Char] [Parser.Error ε σ Char] [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] : ParserT ε σ Char m PUnit
       := space (Unicode.whitespace >>= λ | '\t' => throwUnexpectedWithMessage (some '\t') "Horizontal tab characters (U+0009) are forbidden." | _ => pure ()) empty empty
 
     /-- Try to apply a parser, then consume some whitespace as defined by `SurfaceTLAPlus.Lexer.ws`. -/
     @[inline]
-    private def lexeme [Parser.Stream σ Char] [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] (p : SimpleParserT σ Char m α) : SimpleParserT σ Char m α :=
+    private def lexeme {ε} [Parser.Stream σ Char] [Parser.Error ε σ Char] [lt : LT (Stream.Position σ)] [le : LE (Stream.Position σ)] [DecidableRel lt.lt] [DecidableRel le.le] (p : ParserT ε σ Char m α) : ParserT ε σ Char m α :=
       p <* ws
   end
 
   section Tokens
     /-- Lex either a keyword or an identifier. -/
     private def identifierOrKeyword {α} : TLAPlusLexer (Token α) := do
-      let c ← Unicode.alpha <|> char '_'
-      let cs ← takeMany (withBacktracking <| Unicode.alpha <|> char '_' <|> (String.front ∘ toString) <$> Unicode.digit)
+      -- `WF_`/`SF_` are the one keyword pair that ends in `_` and binds as a bare prefix: `WF_e`
+      -- is the keyword `WF_` followed by the identifier `e`, so they are matched ahead of the
+      -- maximal-munch scan that would otherwise swallow `WF_e` whole. `WFoo` (no `_`) stays an
+      -- identifier.
+      (Token.«WF_» <$ withBacktracking (chars "WF_"))
+        <|> (Token.«SF_» <$ withBacktracking (chars "SF_"))
+        <|> do
+          let c ← Unicode.alpha <|> char '_'
+          let cs ← takeMany (withBacktracking <| Unicode.alpha <|> char '_' <|> (String.front ∘ toString) <$> Unicode.digit)
 
-      return mapKeywordToToken (String.ofList (cs.insertIdx 0 c).toList)
+          return mapKeywordToToken (String.ofList (cs.insertIdx 0 c).toList)
     where
       -- TODO(reserved): complete the TLA⁺ reserved-word list.
       mapKeywordToToken : String → Token α
@@ -92,259 +99,124 @@ namespace SurfaceTLAPlus.Lexer
         | "_" => .underscore
         | str => .identifier str
 
-    /-- Lex an operator or a reserved symbol. -/
-    private def symbol {α} : TLAPlusLexer (Token α) := first [
+    /-- A character trie over TLA⁺'s fixed operator and reserved-symbol spellings. -/
+    private structure OpTrie where
+      /-- The token the path to this node spells, when that path is a complete symbol. -/
+      tok : Option (Token (Located SurfacePlusCal.Token)) := none
+      /-- Child nodes, keyed by the next input character. -/
+      next : Array (Char × OpTrie) := #[]
+
+    private instance : Inhabited OpTrie := ⟨⟨none, #[]⟩⟩
+
+    private partial def OpTrie.insert (t : OpTrie) :
+        List Char → Token (Located SurfacePlusCal.Token) → OpTrie
+      | [], tk => { t with tok := some tk }
+      | c :: cs, tk =>
+        match t.next.findIdx? (·.1 == c) with
+        | some idx => { t with next := t.next.set! idx (c, t.next[idx]!.2.insert cs tk) }
+        | none => { t with next := t.next.push (c, OpTrie.insert ⟨none, #[]⟩ cs tk) }
+
+    /-- Build a trie from a table of spelling/token pairs. -/
+    private def OpTrie.ofList
+        (entries : List (String × Token (Located SurfacePlusCal.Token))) : OpTrie :=
+      entries.foldl (λ t e ↦ t.insert e.1.toList e.2) ⟨none, #[]⟩
+
+    /-- Consume input along `node` as far as any path reaches, returning the deepest complete
+    symbol met and the character count it spans. Consumes what it walks. -/
+    private partial def OpTrie.walk (node : OpTrie)
+        (best : Option (Nat × Token (Located SurfacePlusCal.Token))) (depth : Nat) :
+        TLAPlusLexer (Option (Nat × Token (Located SurfacePlusCal.Token))) := do
+      let best := match node.tok with
+        | some tk => some (depth, tk)
+        | none => best
+      match ← option? anyToken with
+      | some c =>
+        match node.next.find? (·.1 == c) with
+        | some entry => OpTrie.walk entry.2 best (depth + 1)
+        | none => return best
+      | none => return best
+
+    /-- Every fixed operator and reserved-symbol spelling, mapped to its token. Order is
+    irrelevant: `OpTrie` resolves ambiguity by longest match. -/
+    private def symbolTable : List (String × Token (Located SurfacePlusCal.Token)) :=
+      [ ("\\intersect", .infix .«\intersect»), ("\\in", .infix .«\in»),
+        ("\\notin", .infix .«\notin»), ("\\neg", .prefix .«\neg»), ("\\lnot", .prefix .«\lnot»),
+        ("\\A", .«\A»), ("\\E", .«\E»),
+        ("\\cup", .infix .«\cup»), ("\\cap", .infix .«\cap»), ("\\circ", .infix .«\circ»),
+        ("\\cong", .infix .«\cong»), ("\\cdot", .infix .«\cdot»),
+        ("\\oplus", .infix .«\oplus»), ("\\ominus", .infix .«\ominus»),
+        ("\\odot", .infix .«\odot»), ("\\otimes", .infix .«\otimes»),
+        ("\\oslash", .infix .«\oslash»), ("\\o", .infix .«\o»),
+        ("\\land", .infix .«\land»), ("\\lor", .infix .«\lor»), ("\\leq", .infix .«\leq»),
+        ("\\ll", .infix .«\ll»),
+        ("\\preceq", .infix .«\preceq»), ("\\prec", .infix .«\prec»),
+        ("\\propto", .infix .«\propto»),
+        ("\\subseteq", .infix .«\subseteq»), ("\\subset", .infix .«\subset»),
+        ("\\supseteq", .infix .«\supseteq»), ("\\supset", .infix .«\supset»),
+        ("\\succeq", .infix .«\succeq»), ("\\succ", .infix .«\succ»),
+        ("\\sqcap", .infix .«\sqcap»), ("\\sqcup", .infix .«\sqcup»),
+        ("\\sqsubseteq", .infix .«\sqsubseteq»), ("\\sqsubset", .infix .«\sqsubset»),
+        ("\\sqsupseteq", .infix .«\sqsupseteq»), ("\\sqsupset", .infix .«\sqsupset»),
+        ("\\simeq", .infix .«\simeq»), ("\\sim", .infix .«\sim»), ("\\star", .infix .«\star»),
+        ("\\geq", .infix .«\geq»), ("\\gg", .infix .«\gg»),
+        ("\\union", .infix .«\union»), ("\\uplus", .infix .«\uplus»),
+        ("\\times", .infix .«\times»), ("\\wr", .infix .«\wr»),
+        ("\\div", .infix .«\div»), ("\\doteq", .infix .«\doteq»),
+        ("\\bullet", .infix .«\bullet»), ("\\bigcirc", .infix .«\bigcirc»),
+        ("\\asymp", .infix .«\asymp»), ("\\approx", .infix .«\approx»),
+        ("\\equiv", .infix .«\equiv»),
+        ("\\X", .infix .«\X»), ("\\/", .infix .«\/»), ("\\", .infix .«\»),
+        ("...", .infix .«...»), ("..", .infix .«..»), (".", .infix .«.»),
+        ("==", .eqeq false), ("=>", .infix .«=>»), ("=|", .infix .«=|»),
+        ("=<", .infix .«=<»), ("=", .infix .«=»),
+        (",", .comma),
+        ("(+)", .infix .«(+)»), ("(-)", .infix .«(-)»), ("(.)", .infix .«(.)»),
+        ("(/)", .infix .«(/)»), ("(\\X)", .infix .«(\X)»), ("(", .lparen), (")", .rparen),
+        ("<=>", .infix .«<=>»), ("<=", .infix .«<=»), ("<<", .langle), ("<>", .prefix .«<>»),
+        ("<:", .infix .«<:»), ("<", .infix .«<»),
+        (">>_", .«>>_»), (">>", .rangle), (">=", .infix .«>=»), (">", .infix .«>»),
+        ("->", .«->»), ("-+->", .infix .«-+->»), ("--", .infix .«--»), ("-", .infix .«-»),
+        ("|->", .«|->»), ("|-", .infix .«|-»), ("||", .infix .«||»), ("|=", .infix .«|=»),
+        ("|", .infix .«|»),
+        ("{", .lbrace), ("}", .rbrace),
+        ("/\\", .infix .«/\»), ("/=", .infix .«/=»), ("//", .infix .«//»), ("/", .infix .«/»),
+        ("[]", .prefix .«[]»), ("[", .lbracket), ("]_", .«]_»), ("]", .rbracket),
+        ("::=", .infix .«::=»), (":=", .infix .«:=»), (":>", .infix .«:>»), (":", .colon),
+        ("~>", .infix .«~>»), ("~", .prefix .«~»),
+        ("^^", .infix .«^^»), ("^+", .postfix .«^+»), ("^*", .postfix .«^*»),
+        ("^#", .postfix .«^#»), ("^", .infix .«^»),
+        ("++", .infix .«++»), ("+", .infix .«+»),
+        ("'", .postfix .«'»),
+        ("!!", .infix .«!!»), ("!", .bang),
+        ("##", .infix .«##»), ("#", .infix .«#»),
+        ("$$", .infix .«$$»), ("$", .infix .«$»),
+        ("%%", .infix .«%%»), ("%", .infix .«%»),
+        ("&&", .infix .«&&»), ("&", .infix .«&»),
+        ("**", .infix .«**»), ("*", .infix .«*»),
+        ("??", .infix .«??»), ("?", .infix .«?»),
+        ("@@", .infix .«@@»), ("@", .at) ]
+
+    /-- The operator and reserved-symbol trie, built once from `symbolTable`. -/
+    private def symbolTrie : OpTrie := .ofList symbolTable
+
+    /-- Longest-match one operator or reserved symbol against `symbolTrie`, failing without
+    consuming when no spelling matches. -/
+    private def lexSymbol : TLAPlusLexer (Token (Located SurfacePlusCal.Token)) := do
+      match ← lookAhead (symbolTrie.walk none 0) with
+      | none => throwUnexpected none
+      | some (depth, .prefix .«[]») =>
+        -- `[]_` is `[` then `]_`, never `[]` then `_`.
+        match ← lookAhead (do drop depth anyToken; option? anyToken) with
+        | some '_' => drop 1 anyToken *> pure .lbracket
+        | _ => drop depth anyToken *> pure (.prefix .«[]»)
+      | some (depth, tk) => drop depth anyToken *> pure tk
+
+    /-- Lex an operator or a reserved symbol: the `----`/`====` module delimiters, which are runs
+    rather than fixed strings, then a longest-match walk over every other spelling. -/
+    private def symbol : TLAPlusLexer (Token (Located SurfacePlusCal.Token)) := first [
       (.moduleStart ∘ Array.size) <$> takeManyN 4 (char '-'),
       (.moduleEnd ∘ Array.size) <$> takeManyN 4 (char '='),
-      -- LaTeX-like notations or set difference or disjunction
-      char '\\' *> first [
-        char 'i' *> first [
-          char 'n' *> first [
-            .infix .«\intersect» <$ chars "tersect",
-            pure (.infix .«\in»)
-          ]
-        ],
-        char 'n' *> first [
-          .infix .«\notin» <$ chars "otin",
-          .prefix .«\neg» <$ chars "eg"
-        ],
-        -- TODO: lex the temporal quantifier `\AA`; it has no token yet.
-        .«\A» <$ char 'A',
-        .«\E» <$ char 'E',
-        char 'c' *> first [
-          .infix .«\cup» <$ chars "up",
-          .infix .«\cap» <$ chars "ap",
-          .infix .«\circ» <$ chars "irc",
-          .infix .«\cong» <$ chars "ong",
-          .infix .«\cdot» <$ chars "dot"
-        ],
-        char 'o' *> first [
-          .infix .«\oplus» <$ chars "plus",
-          .infix .«\ominus» <$ chars "minus",
-          .infix .«\odot» <$ chars "dot",
-          .infix .«\otimes» <$ chars "times",
-          .infix .«\oslash» <$ chars "slash",
-          pure (.infix .«\o»)
-        ],
-        char 'l' *> first [
-          .prefix .«\lnot» <$ chars "not",
-          .infix .«\land» <$ chars "and",
-          .infix .«\lor» <$ chars "or",
-          .infix .«\leq» <$ chars "eq",
-          .infix .«\ll» <$ chars "l"
-        ],
-        char 'p' *> first [
-          char 'r' *> first [
-            char 'e' *> first [
-              char 'c' *> first [
-                .infix .«\preceq» <$ chars "eq",
-                pure (.infix .«\prec»)
-              ]
-            ],
-            .infix .«\propto» <$ chars "opto"
-          ]
-        ],
-        char 's' *> first [
-          char 'u' *> first [
-            char 'b' *> first [
-              chars "set" *> first [
-                .infix .«\subseteq» <$ chars "eq",
-                pure (.infix .«\subset»)
-              ]
-            ],
-            char 'p' *> first [
-              chars "set" *> first [
-                .infix .«\supseteq» <$ chars "eq",
-                pure (.infix .«\supset»)
-              ]
-            ],
-            chars "cc" *> first [
-              .infix .«\succeq» <$ chars "eq",
-              pure (.infix .«\succ»)
-            ]
-          ],
-          char 'q' *> first [
-            char 'c' *> first [
-              .infix .«\sqcap» <$ chars "ap",
-              .infix .«\sqcup» <$ chars "up"
-            ],
-            chars "su" *> first [
-              char 'b' *> first [
-                chars "set" *> first [
-                  .infix .«\sqsubseteq» <$ chars "eq",
-                  pure (.infix .«\sqsubset»)
-                ]
-              ],
-              char 'p' *> first [
-                chars "set" *> first [
-                  .infix .«\sqsupseteq» <$ chars "eq",
-                  pure (.infix .«\sqsupset»)
-                ]
-              ]
-            ]
-          ],
-          chars "im" *> first [
-            .infix .«\simeq» <$ chars "eq",
-            pure (.infix .«\sim»)
-          ],
-          .infix .«\star» <$ chars "tar"
-        ],
-        char 'g' *> first [
-          .infix .«\geq» <$ chars "eq",
-          .infix .«\gg» <$ char 'g'
-        ],
-        char 'u' *> first [
-          .infix .«\union» <$ chars "nion",
-          .infix .«\uplus» <$ chars "plus"
-        ],
-        .infix .«\times» <$ chars "times",
-        .infix .«\wr» <$ chars "wr",
-        char 'd' *> first [
-          .infix .«\div» <$ chars "iv",
-          .infix .«\doteq» <$ chars "oteq"
-        ],
-        char 'b' *> first [
-          .infix .«\bullet» <$ chars "ullet",
-          .infix .«\bigcirc» <$ chars "igcirc"
-        ],
-        char 'a' *> first [
-          .infix .«\asymp» <$ chars "symp",
-          .infix .«\approx» <$ chars "pprox"
-        ],
-        .infix .«\equiv» <$ chars "equiv",
-        .infix .«\X» <$ char 'X',
-        .infix .«\/» <$ char '/',
-        pure (.infix .«\»)
-      ],
-      -- Other operators
-      char '.' *> first [
-        char '.' *> first [
-          .infix .«...» <$ char '.',
-          pure (.infix .«..»)
-        ],
-        pure (.infix .«.»)
-      ],
-      char '=' *> first [
-        .eqeq false <$ char '=',
-        .infix .«=>» <$ char '>',
-        .infix .«=|» <$ char '|',
-        .infix .«=<» <$ char '<',
-        pure (.infix .«=»)
-      ],
-      .comma <$ char ',',
-      char '(' *> first [
-        .infix .«(+)» <$ chars "+)",
-        .infix .«(-)» <$ chars "-)",
-        .infix .«(.)» <$ chars ".)",
-        .infix .«(/)» <$ chars "/)",
-        .infix .«(\X)» <$ chars "\\X)",
-        .lparen <$ notFollowedBy (char '*')
-      ],
-      .rparen <$ char ')',
-      char '<' *> first [
-        char '=' *> first [
-          .infix .«<=>» <$ char '>',
-          pure (.infix .«<=»)
-        ],
-        .langle <$ char '<',
-        .prefix .«<>» <$ char '>',
-        .infix .«<:» <$ char ':',
-        -- TODO: lex the substitution arrow `<-`; it has no token yet.
-        pure (.infix .«<»)
-      ],
-      char '>' *> first [
-        char '>' *> first [
-          .«>>_» <$ char '_',
-          pure .rangle
-        ],
-        .infix .«>=» <$ char '=',
-        pure (.infix .«>»)
-      ],
-      char '-' *> first [
-        .«->» <$ char '>',
-        .infix .«-+->» <$ chars "+->",
-        .infix .«--» <$ char '-',
-        pure (.infix .«-»)
-      ],
-      char '|' *> first [
-        char '-' *> first [
-          .«|->» <$ char '>',
-          pure (.infix .«|-»)
-        ],
-        .infix .«||» <$ char '|',
-        .infix .«|=» <$ char '=',
-        pure (.infix .«|»)
-      ],
-      .lbrace <$ char '{',
-      .rbrace <$ char '}',
-      char '/' *> first [
-        .infix .«/\» <$ char '\\',
-        .infix .«/=» <$ char '=',
-        .infix .«//» <$ char '/',
-        pure (.infix .«/»)
-      ],
-      char '[' *> first [
-        .prefix .«[]» <$ char ']' <* notFollowedBy (char '_'),
-        pure .lbracket
-      ],
-      char ']' *> first [
-        .«]_» <$ char '_',
-        pure .rbracket
-      ],
-      char ':' *> first [
-        .infix .«::=» <$ chars ":=",
-        .infix .«:=» <$ char '=',
-        .infix .«:>» <$ char '>',
-        pure .colon
-      ],
-      char '~' *> first [
-        .infix .«~>» <$ char '>',
-        pure (.prefix .«~»)
-      ],
-      char '^' *> first [
-        .infix .«^^» <$ char '^',
-        .postfix .«^+» <$ char '+',
-        .postfix .«^*» <$ char '*',
-        .postfix .«^#» <$ char '#',
-        pure (.infix .«^»)
-      ],
-      char '+' *> first [
-        .infix .«++» <$ char '+',
-        pure (.infix .«+»)
-      ],
-      .postfix .«'» <$ char '\'',
-      char '!' *> first [
-        .infix .«!!» <$ char '!',
-        pure .bang
-      ],
-      char '#' *> first [
-        .infix .«##» <$ char '#',
-        pure (.infix .«#»)
-      ],
-      char '$' *> first [
-        .infix .«$$» <$ char '$',
-        pure (.infix .«$»)
-      ],
-      char '%' *> first [
-        .infix .«%%» <$ char '%',
-        pure (.infix .«%»)
-      ],
-      char '&' *> first [
-        .infix .«&&» <$ char '&',
-        pure (.infix .«&»)
-      ],
-      char '*' *> first [
-        .infix .«**» <$ char '*',
-        pure (.infix .«*»)
-      ],
-      char '?' *> first [
-        .infix .«??» <$ char '?',
-        pure (.infix .«?»)
-      ],
-      char '@' *> first [
-        .infix .«@@» <$ char '@',
-        pure .at
-      ]
+      lexSymbol
     ]
 
     private def lineComment {α} : TLAPlusLexer (Token α) := do
@@ -429,9 +301,10 @@ namespace SurfaceTLAPlus.Lexer
     mkPosition (seg : Stream.Segment PositionedSlice) : SourceSpan :=
       ⟨posToLineCol seg.start, posToLineCol seg.stop⟩
 
-    errToUnexpected : Parser.Error.Simple PositionedSlice Char → Unexpected Char
-      | .unexpected pos token => { token, pos := mkPosition ⟨pos, pos⟩, hints := [] }
-      | .addMessage err _ msg => let err := errToUnexpected err; {err with hints := err.hints.concat msg }
+    errToUnexpected (e : ParseError PositionedSlice Char) : Unexpected Char :=
+      { token := e.unexpected
+        pos := e.posOverride.getD (mkPosition ⟨e.pos, e.pos⟩)
+        hints := e.expectedHints }
 end SurfaceTLAPlus.Lexer
 
 
@@ -439,30 +312,19 @@ end SurfaceTLAPlus.Lexer
 /-! # Main parser for a single TLA⁺ module -/
 
 namespace SurfaceTLAPlus.Parser
-  open _root_.Parser hiding eoption takeMany1 takeMany first
+  open _root_.Parser hiding eoption takeMany1 takeMany first sepBy sepBy1 sepNoEndBy1 sepEndBy1 withBacktracking tokenMap tokenFilter token anyToken withErrorMessage
+  open Parser_
 
   /--
     Attaches some location information to the result of a parser.
   -/
   private def located {α} (p : TLAPlusParser α) : TLAPlusParser α := do
-    let s ← getStream
+    let toks := (← getStream).toks
     let ⟨res, start, «end»⟩ ← withCapture p
-
-    if s.next.isEmpty then
-      -- EOF has been reached
-      let ⟨pos₁, _⟩ := fetchTk start s
-      let ⟨pos₂, _⟩ := fetchTk («end» - 1) s
-      return res @@ pos₁ ++ pos₂
-    else
-      let ⟨pos₁, _⟩ := fetchTk start s
-      let ⟨pos₂, _⟩ := fetchTk «end» s
-      return res @@ pos₁ ++ pos₂
-  where
-    fetchTk (n : Nat) (s : Stream.OfList _) :=
-      if n ≥ s.past.length then
-        s.next[n - s.past.length - 1]!
-      else
-        s.past[n]!
+    let spanAt := λ (i : Nat) ↦ (toks[i]?).elim SourceSpan.placeholder (·.segment)
+    -- The span runs from the first token `p` consumed to the last; `end` is one past it, and
+    -- equals `start` when `p` consumed nothing.
+    return res @@ (spanAt start ++ spanAt (if «end» > start then «end» - 1 else start))
 
   /-- Drops "blank" tokens. Use sparingly: comments must still be kept in some places, for type
   annotations. -/
@@ -496,22 +358,24 @@ namespace SurfaceTLAPlus.Parser
     p ws
 
   section Tokens
+    /-- Accepts `tk`, failing otherwise with `tk` itself named as what would have matched — every
+    call site gets a real "expected" hint for free, no per-site message needed. -/
     @[inline]
-    private def token (tk : Token (Located' SurfacePlusCal.Token)) : TLAPlusParser (Located' (Token (Located' SurfacePlusCal.Token))) := do
-      withBacktracking <| tokenFilter λ ⟨_, tk'⟩ => tk == tk'
+    private def token (tk : Token (Located' SurfacePlusCal.Token)) : TLAPlusParser (Located' (Token (Located' SurfacePlusCal.Token))) :=
+      withErrorMessage (toString tk) <| withBacktracking <| tokenFilter λ ⟨_, tk'⟩ => tk == tk'
 
     /-- Parse an identifier and return its raw name. -/
-    private def parseIdentifier : TLAPlusParser String := do
+    private def parseIdentifier : TLAPlusParser String := withErrorMessage "identifier" do
       let ⟨pos, .identifier str⟩ ← withBacktracking <| tokenFilter λ | ⟨_, .identifier _⟩ => true | _ => false
         | unreachable!
       return str @@ pos
 
-    private def parseNumber : TLAPlusParser String := do
+    private def parseNumber : TLAPlusParser String := withErrorMessage "number" do
       let ⟨pos, .number raw⟩ ← withBacktracking <| tokenFilter λ | ⟨_, .number _⟩ => true | _ => false
         | unreachable!
       return raw @@ pos
 
-    private def parseString : TLAPlusParser String := do
+    private def parseString : TLAPlusParser String := withErrorMessage "string" do
       let ⟨pos, .string raw⟩ ← withBacktracking <| tokenFilter λ | ⟨_, .string _⟩ => true | _ => false
         | unreachable!
       return raw @@ pos
@@ -612,7 +476,7 @@ namespace SurfaceTLAPlus.Parser
     private def tryParseAnnotations' : TypeParser (List (String.Pos.Raw × String.Pos.Raw × CommentAnnotation)) := do
       let ⟨anns, _⟩ ← takeUntil endOfInput <| first [
         .inl "@" <$ withBacktracking (chars "\\@"),
-        .inr <$> located parseAnnotation,
+        .inr <$> withBacktracking (located parseAnnotation),
         .inl <$> String.singleton <$> anyToken,
       ]
       return anns.toList.filterMap Sum.getRight?
@@ -630,8 +494,13 @@ namespace SurfaceTLAPlus.Parser
     private def commentIndexOf (boundaries : Array (String.Pos.Raw × String.Pos.Raw)) (pos : String.Pos.Raw) : Nat :=
       (boundaries.findIdx? λ (_, endOff) ↦ pos.byteIdx < endOff.byteIdx).getD (boundaries.size - 1)
 
+    /-- The position of a `TypeParser` failure's innermost `unexpected` — the flat-string offset
+    a `.addMessage` chain always bottoms out at. -/
+    private partial def annotationErrorPos : Parser.Error.Simple String.Slice Char → String.Pos.Raw
+      | .unexpected pos _ => pos
+      | .addMessage err _ _ => annotationErrorPos err
+
     private def tryParseAnnotations : TLAPlusParser (List CommentAnnotation) := do
-      let s ← getStream
       let comments ← takeMany <| withBacktracking <| tokenFilter λ | ⟨_, .inlineComment _⟩ | ⟨_, .blockComment _⟩ => true | _ => false
       let contents := comments.toList.map λ | ⟨_, .inlineComment c⟩ | ⟨_, .blockComment c⟩ => c | _ => unreachable!
 
@@ -645,9 +514,12 @@ namespace SurfaceTLAPlus.Parser
             let endPos := comments[commentIndexOf boundaries «end»]!.segment
             ann @@ startPos ++ endPos
         | .error _ e =>
-          dbg_trace e
-          -- TODO(annotation-errors): report `e` instead of a bare `unexpected`.
-          throw (Error.unexpected (Stream.getPosition s) none)
+          -- The failure's real position lives in the flat comment string's own numbering, not
+          -- this (outer, token-indexed) parser's — resolve it against `boundaries` now, while
+          -- `comments` is in scope, and hand the already-resolved span over via `posOverride`.
+          let span := comments[commentIndexOf boundaries (annotationErrorPos e)]!.segment
+          throw { pos := ← getPosition, unexpected := none
+                  expected := [s!"Malformed annotation: {toString e}"], posOverride := some span }
   end Annotations
   export Annotations (tryParseAnnotations)
 
@@ -900,29 +772,33 @@ namespace SurfaceTLAPlus.Parser
           | .infix .«\/» => .disj es.toList
           | _ => unreachable!
 
-      private def parseRecordLiteral : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> do
-        -- NOTE: do not use `brackets` here, as it may gobble type annotations
-        let _ ← token .lbracket
-        let fields ← sepBy1 comma do
-          let anns ← tryParseAnnotations
-          let var ← ws *> parseIdentifier
-          let _ ← ws *> token .«|->»
-          let expr ← expr ws
-          return ⟨anns, var, expr⟩
-        let _ ← token .rbracket
-        return .record fields.toList
+      /-- Read an already-parsed `x ∈ A` (or `⟨x, …⟩ ∈ A`) expression back as a `QuantifierBound`,
+      `anns` on its (first) binder. The load-bearing move of the `[`/`{` forms: the token *after*
+      the shared `x ∈ A` prefix (`|->` vs `->` vs `,`) is what says whether it was a binder, and
+      it can only be read once the prefix is parsed. -/
+      private def Expression.asBound? (anns : List CommentAnnotation) :
+          Expression (List CommentAnnotation) →
+          Option (QuantifierBound (List CommentAnnotation) (Expression (List CommentAnnotation)))
+        | .infixCall (.var x) .«\in» dom => some (.var anns x dom)
+        | .infixCall (.tuple xs) .«\in» dom => do
+          let names ← xs.mapM λ | .var x => some (([] : List CommentAnnotation), x) | _ => none
+          some (.varTuple names dom)
+        | _ => none
 
-      private def parseRecordSet : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> do
-        -- NOTE: do not use `brackets` here, as it may gobble type annotations
-        let _ ← token .lbracket
-        let fields ← sepBy1 comma do
-          let anns ← tryParseAnnotations
-          let var ← ws *> parseIdentifier
-          let _ ← ws *> token .colon
-          let expr ← expr ws
-          return ⟨anns, var, expr⟩
-        let _ ← token .rbracket
-        return .record fields.toList
+      /-- `x ∈ A` read back as the binder-and-domain of a set-collect, `anns` on the binder. -/
+      private def Expression.asCollectBinder? (anns : List CommentAnnotation) :
+          Expression (List CommentAnnotation) →
+          Option (IdentifierOrTuple (List CommentAnnotation) × Expression (List CommentAnnotation))
+        | .infixCall (.var x) .«\in» dom => some (.var anns x, dom)
+        | .infixCall (.tuple xs) .«\in» dom => do
+          let names ← xs.mapM λ | .var x => some (([] : List CommentAnnotation), x) | _ => none
+          some (.tuple names, dom)
+        | _ => none
+
+      /-- The bare field/variable name an expression is, if it is one. -/
+      private def Expression.asName? : Expression (List CommentAnnotation) → Option String
+        | .var x => some x
+        | _ => none
 
       private def parseQuantifierBound : TLAPlusParser (QuantifierBound (List CommentAnnotation) (Expression (List CommentAnnotation))) := first [
         .varTuple <$> angles (Array.toList <$> sepBy1 (ws *> comma) ((·, ·)
@@ -935,26 +811,30 @@ namespace SurfaceTLAPlus.Parser
         let _ ← ws *> token (.infix .«\in»)
         expr ws
 
-      private def parseFunctionLiteral : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> brackets do
-        let qs ← Array.toList <$> sepBy1 (ws *> comma) (parseQuantifierBound ws expr)
-        let _ ← ws *> token .«|->»
-        let expr ← expr ws
-        return .fn qs expr
-
-      private def parseSetLiteral : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> braces do
-        let es ← sepBy (ws *> comma) (expr ws)
-        return .set es.toList
-
       private def parseTupleLiteral : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> angles do
         let es ← sepBy (ws *> comma) (expr ws)
         return .tuple es.toList
 
       private def parseQuantifier : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> do
-        let q ← token .«\A» <|> token .«\E»
-        let vars ← first [
-          Sum.inl <$> sepBy1 (lexeme comma) (parseQuantifierBound ws expr),
-          Sum.inr <$> sepBy1 (lexeme comma) parseIdentifier,
-        ]
+        let q ← token .«\A» <||> token .«\E»
+        -- `x \in S` (bounded) and `x` (plain) share their leading identifier list; the token
+        -- right after it — `\in` versus `:` — is what tells them apart, so parse the list once
+        -- and read that token back. A leading `<<` is an unambiguous bounded tuple binder.
+        let vars : Sum (Array (QuantifierBound (List CommentAnnotation) (Expression (List CommentAnnotation)))) (Array String) ← do
+          match ← ws *> peek with
+          | ⟨_, .angle true⟩ => Sum.inl <$> sepBy1 (lexeme comma) (parseQuantifierBound ws expr)
+          | _ =>
+            let ids ← sepBy1 (lexeme comma)
+              ((·, ·) <$> (ws *> tryParseAnnotations) <*> (ws *> parseIdentifier))
+            match ← ws *> peek with
+            | ⟨_, .infix .«\in»⟩ =>
+              let _ ← ws *> token (.infix .«\in»)
+              let dom ← expr ws
+              let hd : QuantifierBound (List CommentAnnotation) (Expression (List CommentAnnotation)) :=
+                if h : ids.size = 1 then .var ids[0].fst ids[0].snd dom else .vars ids.toList dom
+              let tl ← takeMany (withBacktracking (lexeme comma) *> parseQuantifierBound ws expr)
+              pure (Sum.inl (#[hd] ++ tl))
+            | _ => pure (Sum.inr (ids.map (·.snd)))
         let _ ← lexeme <| token .colon
         let e ← expr ws
         return match q, vars with
@@ -964,47 +844,29 @@ namespace SurfaceTLAPlus.Parser
           | ⟨_, .«\E»⟩, .inr vs => .exists vs.toList e
           | _, _ => unreachable!
 
-      private def parseExcept (expr' : TLAPlusParser PUnit → Bool → TLAPlusParser (Expression (List CommentAnnotation))) : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> brackets do
-        let e ← expr ws
-        let _ ← ws *> token .except
-        let upds ← sepBy1 (ws *> comma) do
-          let _ ← ws *> token .bang
-          let index ← ws *> takeMany1 (first [
-            Sum.inl <$> (token (.infix .«.») *> parseIdentifier),
-            .inr <$> brackets (Array.toList <$> sepBy1 (ws *> comma) (expr ws)),
-          ])
-          let _ ← ws *> token (.infix .«=»)
-          let e ← expr' ws true
-          return ⟨index.toList, e⟩
-        return .except e upds.toList
-
-      private def parseSetMap : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> braces do
-        let e ← expr ws
-        let _ ← ws *> token .colon
-        let qs ← sepBy1 (ws *> comma) (parseQuantifierBound ws expr)
-        return .map' e qs.toList
-
-      private def parseSetCollect : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> braces do
-        let xs ← parseIdentifierOrTuple ws
-        let _ ← ws *> token (.infix .«\in»)
-        let e₁ ← expr ws
-        let _ ← ws *> token .colon
-        let e₂ ← expr ws
-        return .collect xs e₁ e₂
-
-      private def parseFunctionSet : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> brackets do
-        let e₁ ← expr ws
-        let _ ← ws *> token .«->»
-        let e₂ ← expr ws
-        return .fnSet e₁ e₂
+      /-- The `!…` index chain of one `EXCEPT` update: `.a`/`.b` record steps and `[i, j]` function
+      steps, in order. Shared by the update loop below. -/
+      private def parseExceptIndex : TLAPlusParser (List (String ⊕ List (Expression (List CommentAnnotation)))) := do
+        (·.toList) <$> takeMany1 do
+          match ← peek with
+          | ⟨_, .infix .«.»⟩ => Sum.inl <$> (token (.infix .«.») *> parseIdentifier)
+          | ⟨_, .bracket true⟩ => .inr <$> brackets (Array.toList <$> sepBy1 (ws *> comma) (expr ws))
+          | tk => throwExpected (some tk) ["'.'", "'['"]
 
       private def parseCase : TLAPlusParser (Expression (List CommentAnnotation)) := located <| ws *> do
         let _ ← token .case
-        let branches ← sepBy1 (ws *> token (.prefix .«[]»)) do
+        let mkBranch := do
           let cond ← expr ws
           let _ ← ws *> token .«->»
           let e ← expr ws
-          return ⟨cond, e⟩
+          pure (⟨cond, e⟩ : _ × _)
+        -- A `[]` introduces another branch unless `OTHER` follows it — one token of lookahead
+        -- separates the two, so the `[]` probe is atomic and the branch after it commits.
+        let branch₁ ← mkBranch
+        let branchₙ ← takeMany do
+          let _ ← withBacktracking (ws *> token (.prefix .«[]») <* notFollowedBy (ws *> token .other))
+          mkBranch
+        let branches := #[branch₁] ++ branchₙ
         let other ← eoption do
           let _ ← ws *> token (.prefix .«[]»)
           let _ ← ws *> token .other
@@ -1024,38 +886,147 @@ namespace SurfaceTLAPlus.Parser
     end
 
     mutual
-      private partial def parseAtom (ws : TLAPlusParser PUnit) (inUpdate : Bool := false) : TLAPlusParser (Expression (List CommentAnnotation)) := located <| first [
-        (.nat ·) <$> parseNumber,
-        (.var ·) <$> parseIdentifier,
-        (.str ·) <$> parseString,
-        Expression.true <$ token .true,
-        Expression.false <$ token .false,
-        if inUpdate then .at <$ token .at else throwUnexpected none,
-        parseIfThenElse ws (parseExpression · inUpdate),
-        parseJList (parseExpression · inUpdate),
-        parseRecordLiteral ws (parseExpression · inUpdate),
-        parseFunctionLiteral ws (parseExpression · inUpdate),
-        parseTupleLiteral ws (parseExpression · inUpdate),
-        parseSetLiteral ws (parseExpression · inUpdate),
-        parseQuantifier ws (parseExpression · inUpdate),
-        parseExcept ws (parseExpression · inUpdate) (parseExpression · ·),
-        -- Collect before map: `{x ∈ S : x ∈ T}` is a collect, not a map.
-        parseSetCollect ws (parseExpression · inUpdate),
-        parseSetMap ws (parseExpression · inUpdate),
-        parseRecordSet ws (parseExpression · inUpdate),
-        parseFunctionSet ws (parseExpression · inUpdate),
-        parseCase ws (parseExpression · inUpdate),
-        parseChoose ws (parseExpression · inUpdate),
-        located (.parens <$> parens (parseExpression ws inUpdate)),
-        located do
-          let _ ← lexeme <| token .lbracket
-          let e ← parseExpression ws inUpdate
-          let _ ← lexeme <| token .«]_»
-          let a ← parseAtom ws inUpdate
-          return .stutter e a
-      ]
+      /-- A primary expression, chosen by its first token — no backtracking between forms. The
+      `[` and `{` families, whose members share a leading expression, are each one production
+      (`parseBracketForm`/`parseBraceForm`) that parses that expression once and then dispatches
+      on the token after it. -/
+      private partial def parseAtom (ws : TLAPlusParser PUnit) (inUpdate : Bool := false) : TLAPlusParser (Expression (List CommentAnnotation)) :=
+        located <| ws *> do
+          match ← peek with
+          | ⟨_, .number _⟩ => (.nat ·) <$> parseNumber
+          | ⟨_, .identifier _⟩ => (.var ·) <$> parseIdentifier
+          | ⟨_, .string _⟩ => (.str ·) <$> parseString
+          | ⟨_, .true⟩ => Expression.true <$ token .true
+          | ⟨_, .false⟩ => Expression.false <$ token .false
+          | tk@⟨_, .at⟩ =>
+            if inUpdate then .at <$ token .at
+            else throwUnexpectedWithMessage (some tk) "'@' is only valid inside an EXCEPT update value"
+          | ⟨_, .if⟩ => parseIfThenElse ws (parseExpression · inUpdate)
+          | ⟨_, .infix .«/\»⟩ | ⟨_, .infix .«\/»⟩ => parseJList (parseExpression · inUpdate)
+          | ⟨_, .«\A»⟩ | ⟨_, .«\E»⟩ => parseQuantifier ws (parseExpression · inUpdate)
+          | ⟨_, .case⟩ => parseCase ws (parseExpression · inUpdate)
+          | ⟨_, .choose⟩ => parseChoose ws (parseExpression · inUpdate)
+          | ⟨_, .angle true⟩ => parseTupleLiteral ws (parseExpression · inUpdate)
+          | ⟨_, .paren true⟩ => located (.parens <$> parens (parseExpression ws inUpdate))
+          | ⟨_, .bracket true⟩ => parseBracketForm ws inUpdate
+          | ⟨_, .brace true⟩ => parseBraceForm ws inUpdate
+          | tk => throwExpected (some tk) ["number", "identifier", "string", "keyword 'TRUE'", "keyword 'FALSE'", "keyword 'IF'", "'/\\'", "'\\/'", "'\\A'", "'\\E'", "keyword 'CASE'", "keyword 'CHOOSE'", "'<<'", "'('", "'['", "'{'"]
 
-      partial def parseExpression (ws : TLAPlusParser PUnit := pure ()) (inUpdate : Bool := false) : TLAPlusParser (Expression (List CommentAnnotation)) := debug "expression" <| withErrorMessage "expected expression" do
+      /-- The `[`-led forms: `[a |-> e]` record, `[a : A]` record set, `[x \in S |-> e]` function
+      literal, `[A -> B]` function set, `[f EXCEPT !… = …]`, `[A]_e` stutter. Parse `[`, then one
+      expression, then let the next token — read against that expression's shape — decide. -/
+      private partial def parseBracketForm (ws : TLAPlusParser PUnit) (inUpdate : Bool) : TLAPlusParser (Expression (List CommentAnnotation)) :=
+        located <| ws *> do
+          let _ ← token .lbracket
+          let leadAnns ← tryParseAnnotations
+          let e₁ ← parseExpression ws inUpdate
+          let fieldsFrom (hd : List CommentAnnotation × String × Expression (List CommentAnnotation)) (sepTok : Token (Located' SurfacePlusCal.Token)) : TLAPlusParser (List (List CommentAnnotation × String × Expression (List CommentAnnotation))) := do
+            let rest ← takeMany do
+              let _ ← ws *> comma
+              let anns ← tryParseAnnotations
+              let f ← ws *> parseIdentifier
+              let _ ← ws *> token sepTok
+              let v ← parseExpression ws inUpdate
+              pure (anns, f, v)
+            pure (hd :: rest.toList)
+          match ← ws *> peek with
+          | ⟨_, .«|->»⟩ =>
+            let _ ← ws *> token .«|->»
+            match Expression.asName? e₁ with
+            | some fld =>
+              let v ← parseExpression ws inUpdate
+              let fields ← fieldsFrom (leadAnns, fld, v) .«|->»
+              let _ ← ws *> token .rbracket
+              return .record fields
+            | none =>
+              let some qb := Expression.asBound? leadAnns e₁
+                | throwUnexpectedWithMessage none "Expected a field name or a bound (`x \\in S`) before '|->'"
+              let body ← parseExpression ws inUpdate
+              let _ ← ws *> token .rbracket
+              return .fn [qb] body
+          | ⟨_, .comma⟩ =>
+            match Expression.asBound? leadAnns e₁ with
+            | some qb₀ =>
+              let more ← takeMany (ws *> comma *> parseQuantifierBound ws (parseExpression · inUpdate))
+              let _ ← ws *> token .«|->»
+              let body ← parseExpression ws inUpdate
+              let _ ← ws *> token .rbracket
+              return .fn (qb₀ :: more.toList) body
+            | none =>
+              let some x := Expression.asName? e₁
+                | throwUnexpectedWithMessage none "Expected an identifier or a bound (`x \\in S`) before ','"
+              let more ← takeMany do
+                let _ ← ws *> comma
+                let anns ← tryParseAnnotations
+                let n ← ws *> parseIdentifier
+                pure (anns, n)
+              let _ ← ws *> token (.infix .«\in»)
+              let dom ← parseExpression ws inUpdate
+              let _ ← ws *> token .«|->»
+              let body ← parseExpression ws inUpdate
+              let _ ← ws *> token .rbracket
+              return .fn [.vars ((leadAnns, x) :: more.toList) dom] body
+          | ⟨_, .colon⟩ =>
+            let _ ← ws *> token .colon
+            let some fld := Expression.asName? e₁
+              | throwUnexpectedWithMessage none "Expected a field name (identifier) before ':'"
+            let v ← parseExpression ws inUpdate
+            let fields ← fieldsFrom (leadAnns, fld, v) .colon
+            let _ ← ws *> token .rbracket
+            return .recordSet fields
+          | ⟨_, .«->»⟩ =>
+            let _ ← ws *> token .«->»
+            let e₂ ← parseExpression ws inUpdate
+            let _ ← ws *> token .rbracket
+            return .fnSet e₁ e₂
+          | ⟨_, .except⟩ =>
+            let _ ← ws *> token .except
+            let upds ← sepBy1 (ws *> comma) do
+              let _ ← ws *> token .bang
+              let index ← ws *> parseExceptIndex ws (parseExpression · inUpdate)
+              let _ ← ws *> token (.infix .«=»)
+              let e ← parseExpression ws true
+              pure (index, e)
+            let _ ← ws *> token .rbracket
+            return .except e₁ upds.toList
+          | ⟨_, .«]_»⟩ =>
+            let _ ← ws *> token .«]_»
+            let a ← parseAtom ws inUpdate
+            return .stutter e₁ a
+          | tk => throwExpected (some tk) ["'|->'", "','", "':'", "'->'", "keyword 'EXCEPT'", "']_'"]
+
+      /-- The `{`-led forms: `{}`/`{e, …}` set literal, `{x \in S : p}` set collect,
+      `{e : x \in S, …}` set map. Parse `{`, then (unless it is `}`) one expression, then dispatch
+      on the token after it. -/
+      private partial def parseBraceForm (ws : TLAPlusParser PUnit) (inUpdate : Bool) : TLAPlusParser (Expression (List CommentAnnotation)) :=
+        located <| ws *> do
+          let _ ← token .lbrace
+          let leadAnns ← tryParseAnnotations
+          match ← ws *> peek with
+          | ⟨_, .brace false⟩ =>
+            let _ ← ws *> token .rbrace
+            return .set []
+          | _ =>
+            let e₁ ← parseExpression ws inUpdate
+            match ← ws *> peek with
+            | ⟨_, .comma⟩ | ⟨_, .brace false⟩ =>
+              let more ← takeMany (ws *> comma *> parseExpression ws inUpdate)
+              let _ ← ws *> token .rbrace
+              return .set (e₁ :: more.toList)
+            | ⟨_, .colon⟩ =>
+              let _ ← ws *> token .colon
+              match Expression.asCollectBinder? leadAnns e₁ with
+              | some (binder, dom) =>
+                let pred ← parseExpression ws inUpdate
+                let _ ← ws *> token .rbrace
+                return .collect binder dom pred
+              | none =>
+                let qs ← sepBy1 (ws *> comma) (parseQuantifierBound ws (parseExpression · inUpdate))
+                let _ ← ws *> token .rbrace
+                return .map' e₁ qs.toList
+            | tk => throwExpected (some tk) ["','", "'}'", "':'"]
+
+      partial def parseExpression (ws : TLAPlusParser PUnit := pure ()) (inUpdate : Bool := false) : TLAPlusParser (Expression (List CommentAnnotation)) := debug "expression" <| withErrorMessage "expression" do
         let ⟨atoms, infixOps⟩ ← sepAccBy1 (parseInfixOperator ws) parseInfixAtom
         let expr := orderInput atoms (OperatorOrExpression.infix <$> infixOps)
         shuntingYard expr
@@ -1067,10 +1038,13 @@ namespace SurfaceTLAPlus.Parser
           let prefixOps ← Array.map .prefix <$> takeMany parsePrefixOperator
           let atom ← .atom <$> parseAtom ws inUpdate
           let postfixOps ← Array.map .postfix <$> takeMany parsePostfixOperator
-          let indices ← takeMany <| first [
-            .index <$> located ((Prod.mk true ∘ Array.toList) <$> brackets (sepBy1 comma <| parseExpression ws inUpdate)),
-            .index <$> located ((Prod.mk false ∘ Array.toList) <$> parens (sepBy comma <| parseExpression ws inUpdate)),
-          ]
+          let indices ← takeMany do
+            match ← peek with
+            | ⟨_, .bracket true⟩ =>
+              .index <$> located ((Prod.mk true ∘ Array.toList) <$> brackets (sepBy1 comma <| parseExpression ws inUpdate))
+            | ⟨_, .paren true⟩ =>
+              .index <$> located ((Prod.mk false ∘ Array.toList) <$> parens (sepBy comma <| parseExpression ws inUpdate))
+            | tk => throwExpected (some tk) ["'['", "'('"]
           return (prefixOps ++ #[atom] ++ postfixOps ++ indices).toList
 
         orderInput {α} : List (List α) → List α → List α
@@ -1086,12 +1060,13 @@ namespace SurfaceTLAPlus.Parser
     let mods ← sepBy1 (lexeme comma) parseIdentifier
     return mods.toList
 
+  -- `parseDeclaration` reaches these only after peeking their keyword, so they commit on it.
   private def parseAssume : TLAPlusParser (Expression (List CommentAnnotation)) := debug "assume" do
-    let _ ← withBacktracking <| token .assume
+    let _ ← token .assume
     parseExpression
 
   private def parseConstants : TLAPlusParser (List (String × List CommentAnnotation)) := debug "constant" do
-    let _ ← withBacktracking <| lexeme (pure ()) *> (token .constant <|> token .constants)
+    let _ ← token .constant <||> token .constants
 
     let vars ← sepBy1 comma do
       let ann ← tryParseAnnotations
@@ -1100,7 +1075,7 @@ namespace SurfaceTLAPlus.Parser
     return vars.toList
 
   private def parseVariables : TLAPlusParser (List (String × List CommentAnnotation)) := debug "variables" do
-    let _ ← withBacktracking <| lexeme (pure ()) *> (token .variable <|> token .variables)
+    let _ ← token .variable <||> token .variables
 
     let vars ← sepBy1 comma do
       let ann ← tryParseAnnotations
@@ -1109,41 +1084,56 @@ namespace SurfaceTLAPlus.Parser
     return vars.toList
 
   private def parseOperator : TLAPlusParser (List CommentAnnotation × String × List (String × Nat) × Expression (List CommentAnnotation)) := debug "operator def" do
-    let ann ← tryParseAnnotations
-    let var ← parseIdentifier
-    let args ← eoption <| lexeme <| parens <| sepBy comma do
+    -- `tryParseAnnotations` eats leading comments before it is known whether an operator
+    -- definition even follows (a comment can equally precede the PlusCal block or the module
+    -- footer), so the probe up to `==` is atomic; past `==` the rule commits.
+    let ⟨ann, var, args⟩ ← withBacktracking do
+      let ann ← tryParseAnnotations
       let var ← parseIdentifier
-      let argCount ← eoption <| parens <| Array.size <$> sepBy1 comma underscore
-      return ⟨var, argCount.getD 0⟩
-    let _ ← lexeme <| token (.eqeq false)
+      let args ← eoption <| lexeme <| parens <| sepBy comma do
+        let var ← parseIdentifier
+        let argCount ← eoption <| parens <| Array.size <$> sepBy1 comma underscore
+        return ⟨var, argCount.getD 0⟩
+      let _ ← lexeme <| token (.eqeq false)
+      pure (⟨ann, var, args⟩ : _ × _ × _)
     let expr ← parseExpression
     return ⟨ann, var, args.elim [] Array.toList, expr⟩
 
-  private def parseDeclaration : TLAPlusParser (Option (Declaration (List CommentAnnotation))) := located <| first [
-    (.some ∘ .assume) <$> parseAssume,
-    (.some ∘ .constants) <$> parseConstants,
-    (.some ∘ .variables) <$> parseVariables,
-    (λ ⟨a, b, c, d⟩ ↦ .some <| .operator a b c d) <$> parseOperator,
-    .none <$ tokenFilter λ | ⟨_, .moduleStart _⟩ => true | _ => false
-  ]
+  /-- One module-body declaration, chosen by the keyword that follows any leading comment run.
+    A comment or identifier (the default) is an operator definition — whose own probe up to `==`
+    is atomic, since a comment run can equally precede the PlusCal block or the module footer, in
+    which case it belongs to neither and must stay unconsumed. `----` ends the declaration run. -/
+  private def parseDeclaration : TLAPlusParser (Option (Declaration (List CommentAnnotation))) := located do
+    match ← lookAhead (lexeme (pure ()) *> peek) with
+    | ⟨_, .assume⟩ => (.some ∘ .assume) <$> (lexeme (pure ()) *> parseAssume)
+    | ⟨_, .constant⟩ | ⟨_, .constants⟩ => (.some ∘ .constants) <$> (lexeme (pure ()) *> parseConstants)
+    | ⟨_, .variable⟩ | ⟨_, .variables⟩ => (.some ∘ .variables) <$> (lexeme (pure ()) *> parseVariables)
+    | ⟨_, .moduleStart _⟩ =>
+      .none <$ (lexeme (pure ()) *> tokenFilter λ | ⟨_, .moduleStart _⟩ => true | _ => false)
+    | _ => (λ ⟨a, b, c, d⟩ ↦ .some <| .operator a b c d) <$> parseOperator
 
   private def parsePlusCalAlgorithm : TLAPlusParser (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) := do
     let ⟨pos, .pcal tks⟩ ← withBacktracking <| tokenFilter λ | ⟨_, .pcal _⟩ => true | _ => false
       | unreachable!
     let n := Stream.getPosition (← getStream)
-    let res ← (SurfacePlusCal.Parser.parseAlgorithm tryParseAnnotations parseExpression).run (Stream.mkOfList tks)
+    let res ← (SurfacePlusCal.Parser.parseAlgorithm tryParseAnnotations parseExpression).run (TokenStream.ofArray tks.toArray)
     match res with
     | .error _ err =>
       letI err := fromSurfacePlusCalError n pos tks err
       MonadExceptOf.throw err
-    | .ok s alg => assert! s.next.isEmpty; return alg
+    | .ok s alg => assert! s.atEnd; return alg
   where
-    fromSurfacePlusCalError : _ → _ → _ → Error.Simple _ _ → Error.Simple _ _
-      | n, pos, tks, .unexpected m _ => match tks[m-1]? with
-        | none => .unexpected n .none
-        | .some ⟨pos, .tla tk⟩ => .unexpected n (some ⟨pos, (⟨pos, ·⟩) <$> tk⟩)
-        | .some tk => .unexpected n (some ⟨pos, .pcal [tk]⟩)
-      | n, pos, tks, .addMessage err _ msg => .addMessage (fromSurfacePlusCalError n pos tks err) n msg
+    fromSurfacePlusCalError : _ → _ → _ →
+        ParseError (TokenStream (Located' SurfacePlusCal.Token)) (Located' SurfacePlusCal.Token) →
+        ParseError (TokenStream (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token))))
+          (Located' (SurfaceTLAPlus.Token (Located' SurfacePlusCal.Token)))
+      | n, blockPos, tks, err =>
+        { pos := n
+          expected := err.expected
+          unexpected := match tks[err.pos - 1]? with
+            | none => none
+            | some ⟨pos, .tla tk⟩ => some ⟨pos, (⟨pos, ·⟩) <$> tk⟩
+            | some tk => some ⟨blockPos, .pcal [tk]⟩ }
 
   /-- Parse a full module. -/
   def parseModule' : TLAPlusParser (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation)) := located do
@@ -1180,21 +1170,26 @@ namespace SurfaceTLAPlus.Parser
   def parseModule (tokens : Array (Located' (Token (Located' SurfacePlusCal.Token)))) :
     DiagT ParserWarning (Unexpected (Token (Located' SurfacePlusCal.Token))) Id
       (Module (SurfacePlusCal.Algorithm (List CommentAnnotation) (Expression (List CommentAnnotation))) (List CommentAnnotation)) :=
-      let (res, warnings) := (parseModule'.run (Stream.mkOfList tokens.toList)).run []
+      let (res, warnings) := (parseModule'.run (TokenStream.ofArray tokens)).run []
       (warnings.reverse, match res with
       | .error _ e => .error <| errToUnexpected e
       | .ok _ mod => .ok mod)
   where
-    errToUnexpected : Parser.Error.Simple (Stream.OfList _) (Located' (Token (Located' SurfacePlusCal.Token))) → Unexpected _
-      -- `n` points past the end of `tokens` when the error is genuinely "ran out of input"
+    errToUnexpected (e : ParseError (TokenStream _) (Located' (Token (Located' SurfacePlusCal.Token)))) :
+        Unexpected _ :=
+      match e.unexpected with
+      -- `e.pos` points past the end of `tokens` when the error is genuinely "ran out of input"
       -- (e.g. an unterminated module) -- fall back to the last real token's position rather
       -- than panicking on an out-of-bounds index.
-      | .unexpected n .none =>
-        { token := .none, pos := (tokens[n]? <|> tokens[tokens.size - 1]?).elim default (·.segment), hints := [] }
+      | none =>
+        { token := .none
+          pos := e.posOverride.getD ((tokens[e.pos]? <|> tokens[tokens.size - 1]?).elim default (·.segment))
+          hints := e.expectedHints }
       -- If an error occurs within a PlusCal algorithm, `.pcal [tk]` is returned as the offending token
-      | .unexpected _ (.some ⟨_, .pcal [tk]⟩) => { token := .some (.pcal [tk]), pos := tk.segment, hints := [] }
-      | .unexpected _ (.some ⟨pos, tk⟩) => { token := .some tk, pos, hints := [] }
-      | .addMessage err _ msg => let err := errToUnexpected err; { err with hints := err.hints.concat msg }
+      | some ⟨_, .pcal [tk]⟩ =>
+        { token := .some (.pcal [tk]), pos := e.posOverride.getD tk.segment, hints := e.expectedHints }
+      | some ⟨pos, tk⟩ =>
+        { token := .some tk, pos := e.posOverride.getD pos, hints := e.expectedHints }
 end SurfaceTLAPlus.Parser
 
 end

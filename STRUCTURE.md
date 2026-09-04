@@ -65,6 +65,7 @@ Generic data-structure lemmas and instances.
 
 ## `Parser_/`
 - `PlusCal.lean`, `TLAPlus.lean` — the two parsers.
+- `Stream.lean` — `TokenStream`, the `Array`-backed concrete stream with `O(1)` position.
 - `Common.lean` — shared combinators.
 - `Monad.lean` — the parser monad stack.
 - `Annotations.lean` — `@type`/`@parameter` annotation parsing.
@@ -273,6 +274,7 @@ here on purpose — see this directory directly for contents.
 
 ## `.claude/`
 - `plans/` — in-flight plan documents.
+- `bench/parser/` — parser-backtracking benchmark corpus, scripts, and pre-fix baseline.
 - `skills/` — agent skills available in this checkout.
 - `FINDINGS.md` — implementation findings log.
 - `facts/` — the local fact database, queried through `scripts/facts`.

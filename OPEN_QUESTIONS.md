@@ -84,34 +84,6 @@ lock* freezes every other block sharing that lock — potentially including the 
 eventually receiving. Failure mode is "one process goes locally unresponsive," not a
 system-wide deadlock.
 
-### 9.8 "Floating annotation" warning blocked by combinator backtracking
-A warning for an annotation-shaped comment with *no* consuming site nearby (as opposed to a real
-annotation attached to the wrong role at a real site, which stays in scope, §5.1) is blocked by
-how `Parser_/Common.lean`'s `first` — and `fgdorais/Parser`'s `first`/`orElse` beneath it —
-backtrack.
-
-**Mechanism:** `ParserT ε σ τ m α := σ → m (Parser.Result ε σ α)`. The failure branch resets only
-`Stream.Position`, never anything inside the base monad `m`. `first [parseAssume, parseConstants,
-parseVariables, parseOperator, ...]` (`parseDeclaration`) tries `parseConstants`/`parseVariables`
-before the correct `parseOperator`; both use `lexeme (pure ()) *> token .constants`/`(.variable
-<|> .variables)` — they skip past whatever comment sits there *before* checking their keyword and
-failing. Any `m`-side effect during that skip (an accumulated warning) survives the rollback. The
-generic `lexeme (pure ())`-before-keyword skip is load-bearing: it's what lets comments legally
-appear between declarations without being mistaken for consumed annotations.
-
-Fixing properly means giving `first`/`orElse` real commit semantics (failure after consuming
-input propagates instead of retrying siblings) — a core-combinator change risking other
-productions that rely on retry-after-partial-consumption. Placement checking proceeds with only
-the structural-role-mismatch half, which runs on the already-parsed AST and has none of this
-problem.
-
-**What's in the tree meanwhile:** `ParserWarning.unusedAnnotation` (`Parser_/Common.lean`) is
-declared with a `msgOf`/`posOf`/`name` instance but never constructed — the emit site is exactly
-what's blocked above. `-Wno-unused-annotation` is accepted — `knownWarnings` is derived from the
-diagnostic registry, so every registered warning's name is — it just has nothing to suppress yet. Open: keep the constructor as the landing site for whenever
-the combinator question is settled, or delete it and reintroduce it then. Keeping it now costs
-nothing but the dead constructor; deleting it loses the signpost.
-
 ### 9.10 `LAMBDA` — designed, not implemented
 Thesis has typing rules (Fig. 3.1.4), but neither `SurfaceTLAPlus.Expression` nor
 `CoreTLAPlus.Expression` has a constructor, and there's no `LAMBDA` lexer token. Out of scope;
@@ -133,16 +105,14 @@ Design, preserved:
 produces an identity coercion precisely because there's no `LAMBDA`-equivalent way to eta-expand
 into a new first-class operator value.
 
-### 9.11 Most temporal/action operators aren't parsed; `WF_`/`SF_` need a lexer change
+### 9.11 Most temporal/action operators aren't parsed; `WF_e(A)`/`SF_e(A)` have no parser rule
 `UNCHANGED`/`ENABLED`/prime/`~>`/`-+>`/`[]`/`<>` have real surface syntax and desugar to plain
 `opCall`s onto builtin `var`s, so the generic `OPERATOR CALL` rule already covers them. **Most
-other temporal/action operators are not parsed.** `WF_e(A)`/`SF_e(A)` (thesis Fig. 3.1.5) are a
-genuine lexing problem, not just a missing parser rule: `WF_e` must lex as **two** tokens (fixed
-`WF_` keyword, then identifier `e`), but maximal-munch identifier lexing swallows `WF_e` whole.
-
-Idea, not implemented: in the keyword checker, given an identifier-shaped token starting with
-`WF_`/`SF_`, if the remainder doesn't start with `_` or a digit, split into the keyword token plus
-a separate identifier token.
+other temporal/action operators are not parsed.** `WF_e(A)`/`SF_e(A)` (thesis Fig. 3.1.5) lex
+correctly — `WF_`/`SF_` are their own tokens (`Parser_/TLAPlus.lean`'s `identifierOrKeyword`
+matches them ahead of the maximal-munch identifier scan, so `WF_e` lexes as `WF_` then `e`,
+`RejectWeakFairnessNotParsed` pins it) — but `parseAtom` has no production for either: `WF_`/`SF_`
+reach the parser as unexpected tokens.
 
 `^+`/`^*`/`^#` (postfix action-closure) have **no documented typing rule anywhere** — not in the
 thesis, not standard TLA⁺ as far as traced. Left unbound in `builtinContext`; referencing one

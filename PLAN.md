@@ -261,11 +261,30 @@ fairness anywhere downstream, so `isFair` parsed and carried through purely for
 round-tripping — parser emits a warning (ties into `-W` flag surface, §2) the moment it
 sees `fair process`/`fair+`.
 
-**Known ergonomics gap:** syntax errors inside annotations are poor — positions aren't
-tracked within comments, an annotation error can't point at more than roughly "somewhere
-in this comment," worse across multiple comments. Fixing means threading real source
-positions through comment/annotation parsing, fiddly, worth doing eventually, not
-blocking pipeline construction.
+**`ParserWarning.unusedAnnotation` is declared, never constructed.** An annotation-shaped
+comment (`\* @type: …;`) sitting where nothing consumes it should warn rather than silently
+read as prose — mechanically blocked until `Parser_/Common.lean`'s `first`/`alt` got real
+commit semantics (a speculative parse that got abandoned used to leak whatever it emitted
+into `m`, since only `Stream.Position` rolled back on failure, not the base monad), fixed
+alongside the megaparsec choice-combinator rewrite (`MonadParserBacktrack` restores
+warnings too). The blocker is gone, but the emit site itself is a separate, real feature:
+most PlusCal statement kinds (`skip`, `goto`, `x := e`, `while`, `if`, `receive`, `send`,
+`either`, …) never call `tryParseAnnotations` before them at all — only `with`/`multicast`
+do — so a misplaced annotation there is absorbed as an ordinary comment token before it
+ever reaches annotation-parsing to be flagged. Detecting it generically means
+`parseUnlabeledStatement` calling `tryParseAnnotations` once up front and threading the
+result into every statement-kind parser, warning where it's non-empty and the kind isn't
+one that attaches it — deferred, not attempted. `ParserWarning.unusedAnnotation` stays as
+the documented landing site for whoever picks this up; `-Wno-unused-annotation` is already
+a valid flag (`-W` names are registry-derived, `Common/Diagnostics/Registry.lean`), it just
+has nothing to suppress yet.
+
+Syntax errors inside annotations point at a real position now: `tryParseAnnotations`
+resolves the failing offset in the flat concatenated-comment string back to its owning
+comment's own span (`commentBoundaries`/`commentIndexOf`, the same machinery the success
+path already used) and reports it via the outer parser's `posOverride` — the one field
+existing specifically because a sub-parser's own position numbering (a flat-string offset)
+isn't the outer, token-indexed parser's to express any other way.
 
 `\@` is an escaped, literal `@` in comments (`tryParseAnnotations'`,
 `Parser_/TLAPlus.lean`) — never starts an annotation, so prose can mention `@type`/

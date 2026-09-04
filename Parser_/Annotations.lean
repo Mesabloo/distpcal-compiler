@@ -71,7 +71,7 @@ section
     | .«@parameter» pos => pos
 
   section Types
-    open Parser hiding eoption takeMany takeMany1 first
+    open Parser hiding eoption takeMany takeMany1
     open Char
 
     private abbrev TypeParser := SimpleParser String.Slice Char
@@ -153,10 +153,10 @@ section
       let tks ← match SurfaceTLAPlus.Lexer.lexModule input with
         | .inl _ => throw <| .expressionParseFailure pos
         | .inr x => pure x
-      let expr ← match (SurfaceTLAPlus.Parser.parseExpression.run (Parser.Stream.mkOfList tks.toList)).run [] with
+      let expr ← match (SurfaceTLAPlus.Parser.parseExpression.run (TokenStream.ofArray tks)).run [] with
         | (.error _ _, _) => throw <| .expressionParseFailure pos
         | (.ok s x, _) =>
-          assert! s.next.isEmpty
+          assert! s.atEnd
           pure x
       return expr
   end Mailbox

@@ -90,6 +90,13 @@ instance : CompilerDiagnostic DriverError String where
     | .moduleNameMismatch _ declared expected =>
       s!"This file declares 'MODULE {declared}', but is named '{expected}.tla'."
     | .typeCheck _ e => CompilerDiagnostic.msgOf e
+  hintsOf
+    | .lex _ e => CompilerDiagnostic.hintsOf e
+    | .parse _ e => CompilerDiagnostic.hintsOf e
+    | .annotation _ e => CompilerDiagnostic.hintsOf e
+    | .desugar _ e => CompilerDiagnostic.hintsOf e
+    | .moduleNotFound _ | .ambiguousModule .. | .cyclicExtends _ | .moduleNameMismatch .. => []
+    | .typeCheck _ e => CompilerDiagnostic.hintsOf e
 
 /-- `DriverError`'s non-fatal counterpart — carries a warning from any pass, plus its owning
 `moduleId`, through `Driver/Modules.lean`'s accumulate-then-flush machinery. -/

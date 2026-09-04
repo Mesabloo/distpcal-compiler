@@ -70,6 +70,18 @@ def PipelineError.code : PipelineError → DiagnosticCode
   | .network e => CompilerDiagnostic.code e
   | .go e => CompilerDiagnostic.code e
 
+/-- Where this error points, from whichever pass produced it: the same span
+`CompilerDiagnostic.pretty` underlines. What a regression fixture asserts on when the *position* is
+the thing under test, which `code` and `stage` cannot express — an error relocated to the start of
+its enclosing production still carries the right code and stage. -/
+def PipelineError.posOf : PipelineError → SourceSpan
+  | .driver e => CompilerDiagnostic.posOf e
+  | .wellFormedness e => CompilerDiagnostic.posOf e
+  | .computable e => CompilerDiagnostic.posOf e
+  | .guarded e => CompilerDiagnostic.posOf e
+  | .network e => CompilerDiagnostic.posOf e
+  | .go e => CompilerDiagnostic.posOf e
+
 /-- Rendered form of `err`, against the source lines it belongs to: a driver error renders against
 its own module's lines (an error inside an `EXTENDS`-ed dependency is not about the main module),
 looked up in `sources`; everything past the driver only ever concerns the main module, so it
