@@ -6,6 +6,7 @@ public import Core.SurfaceTLAPlus.Syntax
 public import Core.SurfacePlusCal.Syntax
 public import Common.Position
 import Parser
+import Lean.Data.Trie
 meta import CustomPrelude
 import Parser_.PlusCal
 import Mathlib.Data.List.Basic
@@ -99,45 +100,8 @@ namespace SurfaceTLAPlus.Lexer
         | "_" => .underscore
         | str => .identifier str
 
-    /-- A character trie over TLA⁺'s fixed operator and reserved-symbol spellings. -/
-    private structure OpTrie where
-      /-- The token the path to this node spells, when that path is a complete symbol. -/
-      tok : Option (Token (Located SurfacePlusCal.Token)) := none
-      /-- Child nodes, keyed by the next input character. -/
-      next : Array (Char × OpTrie) := #[]
-
-    private instance : Inhabited OpTrie := ⟨⟨none, #[]⟩⟩
-
-    private partial def OpTrie.insert (t : OpTrie) :
-        List Char → Token (Located SurfacePlusCal.Token) → OpTrie
-      | [], tk => { t with tok := some tk }
-      | c :: cs, tk =>
-        match t.next.findIdx? (·.1 == c) with
-        | some idx => { t with next := t.next.set! idx (c, t.next[idx]!.2.insert cs tk) }
-        | none => { t with next := t.next.push (c, OpTrie.insert ⟨none, #[]⟩ cs tk) }
-
-    /-- Build a trie from a table of spelling/token pairs. -/
-    private def OpTrie.ofList
-        (entries : List (String × Token (Located SurfacePlusCal.Token))) : OpTrie :=
-      entries.foldl (λ t e ↦ t.insert e.1.toList e.2) ⟨none, #[]⟩
-
-    /-- Consume input along `node` as far as any path reaches, returning the deepest complete
-    symbol met and the character count it spans. Consumes what it walks. -/
-    private partial def OpTrie.walk (node : OpTrie)
-        (best : Option (Nat × Token (Located SurfacePlusCal.Token))) (depth : Nat) :
-        TLAPlusLexer (Option (Nat × Token (Located SurfacePlusCal.Token))) := do
-      let best := match node.tok with
-        | some tk => some (depth, tk)
-        | none => best
-      match ← option? anyToken with
-      | some c =>
-        match node.next.find? (·.1 == c) with
-        | some entry => OpTrie.walk entry.2 best (depth + 1)
-        | none => return best
-      | none => return best
-
     /-- Every fixed operator and reserved-symbol spelling, mapped to its token. Order is
-    irrelevant: `OpTrie` resolves ambiguity by longest match. -/
+    irrelevant: `symbolTrie` resolves ambiguity by longest match. -/
     private def symbolTable : List (String × Token (Located SurfacePlusCal.Token)) :=
       [ ("\\intersect", .infix .«\intersect»), ("\\in", .infix .«\in»),
         ("\\notin", .infix .«\notin»), ("\\neg", .prefix .«\neg»), ("\\lnot", .prefix .«\lnot»),
@@ -196,20 +160,29 @@ namespace SurfaceTLAPlus.Lexer
         ("??", .infix .«??»), ("?", .infix .«?»),
         ("@@", .infix .«@@»), ("@", .at) ]
 
-    /-- The operator and reserved-symbol trie, built once from `symbolTable`. -/
-    private def symbolTrie : OpTrie := .ofList symbolTable
+    /-- The operator and reserved-symbol trie, built once from `symbolTable`. Values pair each
+    token with its spelling's length, so a match tells `lexSymbol` how much input it consumed.
+    `noinline` pins that "built once": inlining would rebuild it on every `lexSymbol` call. -/
+    @[noinline]
+    private def symbolTrie : Lean.Data.Trie (Nat × Token (Located SurfacePlusCal.Token)) :=
+      symbolTable.foldl (init := .empty) λ t (spelling, tk) ↦ t.insert spelling (spelling.length, tk)
+
+    /-- Longest spelling in `symbolTable`, i.e. how far `lexSymbol` must look ahead to give
+    `symbolTrie` a chance at every entry. -/
+    private def maxSymbolLen : Nat := symbolTable.foldl (init := 0) (max · ·.1.length)
 
     /-- Longest-match one operator or reserved symbol against `symbolTrie`, failing without
     consuming when no spelling matches. -/
     private def lexSymbol : TLAPlusLexer (Token (Located SurfacePlusCal.Token)) := do
-      match ← lookAhead (symbolTrie.walk none 0) with
+      let cs ← lookAhead (takeUpTo maxSymbolLen anyToken)
+      match symbolTrie.matchPrefix (String.ofList cs.toList) {} with
       | none => throwUnexpected none
-      | some (depth, .prefix .«[]») =>
+      | some (len, .prefix .«[]») =>
         -- `[]_` is `[` then `]_`, never `[]` then `_`.
-        match ← lookAhead (do drop depth anyToken; option? anyToken) with
+        match cs[len]? with
         | some '_' => drop 1 anyToken *> pure .lbracket
-        | _ => drop depth anyToken *> pure (.prefix .«[]»)
-      | some (depth, tk) => drop depth anyToken *> pure tk
+        | _ => drop len anyToken *> pure (.prefix .«[]»)
+      | some (len, tk) => drop len anyToken *> pure tk
 
     /-- Lex an operator or a reserved symbol: the `----`/`====` module delimiters, which are runs
     rather than fixed strings, then a longest-match walk over every other spelling. -/

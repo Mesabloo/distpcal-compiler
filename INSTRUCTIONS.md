@@ -35,6 +35,10 @@ ambiguity: add there, don't decide unilaterally.
   stop, report, wait.
 - Prior art already solve something well: say so, reuse idea. "Fresh rewrite" is about
   architectural ownership, not novelty.
+- **Don't hand-roll a data structure that already exists.** Check Lean core (`Lean.Data.*`),
+  Batteries, Mathlib, project's own `CustomPrelude`/`Extra` before writing one. Existing
+  structure missing exact operation needed: wrap/extend it, don't reimplement it from scratch.
+  Genuinely nothing fit: fine to write own, note why in a doc comment.
 
 ## Comments
 
