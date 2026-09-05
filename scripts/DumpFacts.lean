@@ -1,9 +1,9 @@
 /-
 Extract every hand-written local theorem into a JSONL fact database.
 
-Run it from the project root, against an already-built project:
+Run it from the project root, against an already-built project (`lake build` first):
 
-    lake env lean --run scripts/DumpFacts.lean [OUT]
+    lake exe dumpFacts [OUT]
 
 `OUT` defaults to `.claude/facts/lemmas.jsonl`. One JSON object per line:
 

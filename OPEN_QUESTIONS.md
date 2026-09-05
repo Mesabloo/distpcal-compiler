@@ -23,9 +23,6 @@ Not blockers, none hit by §8's subset:
   (`TLAPlus.lean:376`); no handling of junk before/after the module (`TLAPlus.lean:1135`).
 - PlusCal `macro`/`procedure`/`define` unsupported (`PlusCal.lean:387`) —
   `Core/SurfacePlusCal/Syntax.lean` has no AST nodes for them.
-- `parseChannels`/`parseFifos` accept only a single bracket-index group (`chan[S]`), unlike
-  `Ref.args : List (String ⊕ List β)` which supports `x[i][j]` — blocks multi-dimensional
-  channel/fifo declarations.
 - `LET`/`IN` are lexed (`.let`/`.in` tokens exist) but have **no parser rule at all**. `CHOOSE`
   used to be in the same state; it now has one (`parseChoose`, bounded and unbounded both).
 - `@type` supports only the Apalache-style syntax (`Channel({type: Str, agent: Address})`); the

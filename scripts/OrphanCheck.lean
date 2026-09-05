@@ -3,7 +3,7 @@ List project `.lean` files that no library or executable root transitively impor
 
 Run from the project root, no build required:
 
-    lake env lean --run scripts/OrphanCheck.lean
+    lake exe orphanCheck
 
 An orphan module is never a build target and never a local import, so `lake build` / `lake test`
 never elaborate it — and no `@[linter]`, `linter.fugue.*` or external, ever runs on it

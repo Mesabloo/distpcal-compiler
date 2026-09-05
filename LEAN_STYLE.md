@@ -415,7 +415,7 @@ Set in `lakefile.lean`, not negotiable per-file:
 - **Tactic-position `sorry` → `admit`; term-position `sorry` stays.** The spelling then says which
   scope the hole is in. `linter.fugue.admitScope` (Syn) — inverse of Mathlib's `style.admit`.
 - **`linter.missingDocs` off by default.** Missing-docs is style, not a build gate. Run the pass
-  on demand — `lake env lean --run scripts/Lint.lean --all` (`docBlame`), or
+  on demand — `lake build && lake lint -- --all` (`docBlame`), or
   `lake build -KCHECK_DOC -R`. `lakefile.lean:21`
 - **Adopt prior-art idioms:** `Located α` with `match_source`/`@@` pair, `Bifunctor`/`Bitraversable`
   on every two-parameter AST, type-level encoding of structural invariants where cheap.

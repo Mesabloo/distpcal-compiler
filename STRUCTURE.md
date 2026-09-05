@@ -262,10 +262,10 @@ here on purpose — see this directory directly for contents.
 - `diagnostics/<code>.md` — one page per diagnostic code, printed by `fugue explain`.
 
 ## `scripts/`
-- `DumpFacts.lean` — extracts local theorems, class fields and tactics into the fact database.
+- `DumpFacts.lean` — extracts local theorems, class fields and tactics into the fact database (`lake exe dumpFacts`).
 - `facts` — queries and curates that database.
-- `OrphanCheck.lean` — lists `.lean` modules no library or executable root transitively imports (`lake env lean --run`). Ad-hoc, not hooked.
-- `Lint.lean` — runs Batteries' `simpNF` / `unusedArguments` / `docBlame` environment linters over the package (`lake build` then `lake env lean`). Ad-hoc, not hooked.
+- `OrphanCheck.lean` — lists `.lean` modules no library or executable root transitively imports (`lake exe orphanCheck`). Ad-hoc, not hooked.
+- `Lint.lean` — runs Batteries' `simpNF` / `unusedArguments` / `docBlame` environment linters over the package (`lake build` then `lake lint`, its `@[lint_driver]`). Ad-hoc, not hooked.
 - `structure-check` — checks this file against the tree.
 
 ## `.github/`

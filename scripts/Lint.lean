@@ -3,11 +3,12 @@ Run Batteries' environment linters — dead `simp` lemmas, unused arguments, mis
 over the project. These inspect *elaborated declarations*, which no `@[linter]` (`linter.fugue.*`
 or external) can do.
 
-    lake build && lake env lean --run scripts/Lint.lean [--all]
+    lake build && lake lint [-- --all]
 
-Ad-hoc: not on the `Stop` hook, not in CI. Run it before a release, or after a `simp`-set or an
-API change. `lake env lean` does not build the project — run `lake build` first. `simpNF` needs
-the whole project elaborated; expect a minute or two.
+`@[lint_driver]` in `lakefile.lean` wires this executable into `lake lint`; `lake exe lint [--all]`
+works the same. Ad-hoc: not on the `Stop` hook, not in CI. Run it before a release, or after a
+`simp`-set or an API change. Building the `lint` executable does not build the project — run
+`lake build` first. `simpNF` needs the whole project elaborated; expect a minute or two.
 
 Default: `simpNF` (dead / malformed `simp` lemmas — the check that matters and cannot be a
 tactic-syntax linter). `--all` adds `unusedArguments` (noisy here — every derived `Repr` ignores

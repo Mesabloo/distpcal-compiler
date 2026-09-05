@@ -55,7 +55,6 @@ FACTS_DIR = os.path.join(ROOT, ".claude", "facts")
 JSONL = os.path.join(FACTS_DIR, "lemmas.jsonl")
 NOTES = os.path.join(FACTS_DIR, "notes.jsonl")
 DB = os.path.join(FACTS_DIR, "index.db")
-EXTRACTOR = os.path.join("scripts", "DumpFacts.lean")
 
 WIDTH = int(os.environ.get("FACTS_WIDTH", "168"))
 DEFAULT_LIMIT = 8
@@ -569,8 +568,8 @@ def cmd_refresh(db, args: list[str], limit: int) -> None:
     print("$ lake build", flush=True)
     if subprocess.run(["lake", "build"], cwd=ROOT).returncode:
         die("build failed — the extract would be read off a stale environment")
-    print(f"$ lake env lean --run {EXTRACTOR}", flush=True)
-    if subprocess.run(["lake", "env", "lean", "--run", EXTRACTOR], cwd=ROOT).returncode:
+    print("$ lake exe dumpFacts", flush=True)
+    if subprocess.run(["lake", "exe", "dumpFacts"], cwd=ROOT).returncode:
         die("extraction failed — is the project built? try: lake build")
     conn = build_index()
     counts = conn.execute("SELECT kind, COUNT(*) FROM fact GROUP BY kind").fetchall()

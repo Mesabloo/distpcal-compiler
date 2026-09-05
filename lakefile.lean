@@ -273,6 +273,27 @@ through the compiler, in-process. -/
 lean_exe test where
   root := `Tests.Main
 
+/-- Lists project modules no library or executable root transitively imports (`lake exe
+orphanCheck`). Ad-hoc, not hooked — see `scripts/OrphanCheck.lean`. -/
+lean_exe orphanCheck where
+  root := `scripts.OrphanCheck
+
+/-- Batteries' environment linters (`simpNF`, and with `-- --all` also `unusedArguments`/
+`docBlame`) over every elaborated declaration. `@[lint_driver]` wires this into `lake lint`
+(`lake lint -- --all` for the wider set); needs the project already built — `lake build` first.
+Ad-hoc, not hooked — see `scripts/Lint.lean`. -/
+@[lint_driver]
+lean_exe lint where
+  root := `scripts.Lint
+  supportInterpreter := true
+
+/-- Extracts local theorems, definitions and tactics into `.claude/facts/lemmas.jsonl` (`lake exe
+dumpFacts [OUT]`); needs the project already built — `lake build` first. See
+`scripts/DumpFacts.lean`; driven by `scripts/facts refresh`. -/
+lean_exe dumpFacts where
+  root := `scripts.DumpFacts
+  supportInterpreter := true
+
 /-- Print `fugueVersion` to stdout and nothing else. Consumed by CI release tagging. -/
 script «get-version» do
   IO.println s!"{fugueVersion}"
