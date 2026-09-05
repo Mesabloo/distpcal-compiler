@@ -288,16 +288,13 @@ def runPipeline (source : String) (containingDir : Option System.FilePath) (modu
 
 /-- `runPipeline` with its flags and its state supplied: one compile, self-contained, from `IO`.
 Each call starts from a fresh `DriverState`, so nothing — module cache, fresh-name counter, source
-registry — carries over between two compiles in the same process. -/
+registry — carries over between two compiles in the same process. `Common/Position.lean`'s span
+map is the one piece of per-compile state that is not in `DriverState`, and needs none: it is
+process-global and grows rather than resets, which is safe for the reason its own module doc
+gives. -/
 def runPipelineIO (flags : FlagsEnv) (source : String) (containingDir : Option System.FilePath)
     (moduleId : String) (expectedName : Option String := none) (hooks : PipelineHooks := {}) :
-    IO PipelineResult := do
-  -- `Common/Position.lean`'s span map is the one piece of per-compile state that is not in
-  -- `DriverState`: it is a global keyed on pointer addresses, so entries from an earlier compile
-  -- in this process are live keys that a later compile's freshly-allocated nodes can collide
-  -- with. See `forgetSourcePositions` — clearing here is what makes a second compile in one
-  -- process behave like a first.
-  forgetSourcePositions
+    IO PipelineResult :=
   StateT.run' (ReaderT.run (runPipeline source containingDir moduleId expectedName hooks) flags) {}
 
 /-- The warnings this compile actually reports, in the order they were raised: everything a pass

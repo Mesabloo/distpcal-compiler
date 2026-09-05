@@ -125,32 +125,18 @@ infix:60 " @@ " => registerSource
 @[implemented_by Internal.posOfImpl, never_extract]
 abbrev posOf {α : Type} (x : α) : SourceSpan := default_or_ofNonempty%
 
-@[never_extract, noinline]
-private unsafe def Internal.forgetSourcePositionsImpl : BaseIO Unit :=
-  Internal.sourceMap.set ∅
+/-!
+  `Internal.sourceMap` has no clear operation: it grows for the life of the process. This is
+  sound for concurrent compiles as much as sequential ones. No two *live* values share an address,
+  and `posOf` requires holding the value to read its position — so whatever holds it is, by
+  definition, not dead, and its slot cannot have been reused by anything else in the meantime.
 
-/--
-  Drop every registered position. Call this at the start of a compile, never during one.
-
-  `registerSource`/`posOf` key on `ptrAddrUnsafe`, and the map outlives the values it describes.
-  That is harmless for a value that *was* registered — no two live values share an address, so its
-  own entry is the only one its address can hold. It is not harmless for a value that was never
-  registered and has its position read anyway: `posOf` cannot distinguish "no entry" from "an entry
-  left by something now dead", and it answers with the corpse's span.
-
-  **Registering is therefore an obligation on every pass, not a nicety.** This clear is the second
-  half of the same contract: it bounds an address's reuse to one compile, so a
-  node registered by a *previous* compile can never answer for a node in this one. Across compiles
-  the stale span would come from another file, where the line need not exist at all.
-
-  What this is **not** is a substitute for registering. A position that was never recorded has no
-  right answer, and clearing only changes which wrong answer is given. Nor does it make concurrent
-  compiles safe: the map is one global `IO.Ref` and clearing is itself destructive, so a clear on
-  one thread drops the spans another thread has registered so far. That is why `lake test` defaults
-  to `-j 1`.
+  Values that were never registered are a separate matter this map cannot fix by itself: nullary
+  constructors (`Expression.true`, `Statement.skip`) share one tagged-scalar address program-wide
+  and so cannot carry per-occurrence positions this way, and some compiled-in constants have no
+  source span to register at all. `Annotation`'s constructors carry an explicit `pos : SourceSpan`
+  field instead of using `registerSource`/`posOf`, for exactly this reason.
 -/
-@[implemented_by Internal.forgetSourcePositionsImpl, never_extract]
-def forgetSourcePositions : BaseIO Unit := pure ()
 
 open Lean Parser Term in section
   meta def posIndices : Parser := leading_parser

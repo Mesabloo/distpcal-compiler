@@ -200,12 +200,10 @@ private def runWorker (style : ReportStyle) (timeoutMs : Nat) (repoRoot : System
 
 Everything the *driver* owns is per-compile — flags, the fresh-name counter, the source registry,
 the module cache all live in `DriverState` — so two compiles in this process cannot see each other
-that way. The source-position side map is not: it is a process-global `IO.Ref`, cleared per compile,
-and one worker's clear lands in the middle of another's compile and drops the spans it has
-registered. The result is wrong-but-plausible line numbers rather than a crash.
-
-Hence the default of `jobs = 1`. The parallelism is a flag away once positions are per-compile
-state rather than a global keyed on addresses. -/
+that way. The source-position side map is not: it is a process-global `IO.Ref` (`Common
+/Position.lean`), but it is never cleared and no two live values share an address, so concurrent
+workers registering and reading positions do not interfere with each other either. `jobs` above 1
+is safe; the default below is just conservative, not load-bearing. -/
 private def runAll (style : ReportStyle) (jobs timeoutMs : Nat) (repoRoot : System.FilePath)
     (fxs : List Fixture) : IO (List FixtureReport) := do
   let printer ← Std.Mutex.new ()
@@ -286,7 +284,7 @@ private def cli : Cmd := `[Cli|
   "Run the regression suite in tests/regression."
 
   FLAGS:
-    j, jobs : Nat; "How many fixtures to compile at once. Defaults to 1 — anything higher races on Common/Position.lean's global source map (see `runAll`)."
+    j, jobs : Nat; "How many fixtures to compile at once. Defaults to 1; higher values are safe."
     v, verbose; "Show every check, not just the failing ones."
     "timeout" : Nat; "Milliseconds before a fixture is abandoned and reported as TIMEOUT. Defaults to 30000."
     l, list; "List the matching fixtures and what they claim, without running them."

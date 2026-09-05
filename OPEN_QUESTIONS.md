@@ -343,35 +343,6 @@ once that gap closes. Note the cost of parking it: a skipped fixture does not ru
 announce it when the gap closes — the `xfail` pair is what to watch instead. Both un-parkings above
 were noticed by hand, not by the suite, which is the point.
 
-### 9.24 The span map is still one global `IO.Ref`, so `lake test` stays `-j 1`
-Every pass now registers every position-carrying node it builds (`PLAN.md` §2, "Source
-positions"), so `posOf` no longer answers with a dead node's span for anything the pipeline
-constructs. What that fixed is *correctness within one compile*. It did not change the storage:
-`Common/Position.lean`'s map is a process-wide `IO.Ref (Std.HashMap USize SourceSpan)`, and
-`runPipelineIO` still calls `forgetSourcePositions` before each compile to keep one compile's
-entries from being live keys for the next one's freshly-allocated nodes.
-
-That clear is destructive and takes no lock, so two concurrent compiles in one process still
-break each other: one worker's clear drops spans the other has already registered. `Tests/Main
-.lean` therefore defaults to `-j 1`.
-
-**Open:** whether to make the map per-compile — an entry in `DriverState`, threaded like the
-fresh-name counter — or leave it global and accept sequential fixtures. Per-compile is the
-obvious answer for concurrency, but the map is reachable from `@@`/`posOf`, which are deliberately
-*pure* and callable from anywhere without a monad; giving them a per-compile home means either
-threading a reader through every construction site (losing exactly the property that makes `@@`
-cheap to write) or keeping a global handle that a compile swaps in and out, which is the same
-race in a different shape.
-
-Also open, and separable: a small residue of `posOf` reads still land on values nothing ever
-registered — statically allocated compiled-in constants, found by instrumenting `posOf` to report
-map misses across the fixture corpus. These are a weaker failure than an unregistered *heap* node: a static object's
-address is never recycled by the heap allocator, so the read returns `default` (line `0`, which
-`SourceSpan.placeholder`'s doc comment explains renders wrong) rather than an unrelated node's
-span. `Common/Errors.lean`'s renderer no longer panics on such a line — it degrades to a blank
-quoted line — so the symptom is a bad-looking diagnostic, not a crash. Which constants these are
-was not tracked down.
-
 ### 9.33 Reachability walk recurses into builtin-module definition bodies
 `WellFormedness/Reachability.lean`'s `walkReachable`, on a `.var _ (.module m name)` that resolves
 to an `operator`/`function`, recurses into its body — including when `m` is a builtin module
