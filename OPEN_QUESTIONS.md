@@ -372,13 +372,6 @@ span. `Common/Errors.lean`'s renderer no longer panics on such a line — it deg
 quoted line — so the symptom is a bad-looking diagnostic, not a crash. Which constants these are
 was not tracked down.
 
-### 9.32 `@type` parser needs parens around a unary operator's own parameter
-`\* @type: (Int) => Int;` parses; `\* @type: Int => Int;` fails at `E0005`. `Parser_/Annotations
-.lean`'s `parseType'` only accepts an operator type's argument list when it is parenthesised, so a
-one-argument operator type needs a paren pair a human would leave off. `((Int) => Int, Int) => Int`
-already parses (§9.23), so nested operator types work — this is only the bare unary case. Make the
-argument-list rule accept a single unparenthesised argument type, keeping the parenthesised form.
-
 ### 9.33 Reachability walk recurses into builtin-module definition bodies
 `WellFormedness/Reachability.lean`'s `walkReachable`, on a `.var _ (.module m name)` that resolves
 to an `operator`/`function`, recurses into its body — including when `m` is a builtin module
