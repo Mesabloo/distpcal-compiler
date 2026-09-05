@@ -288,7 +288,7 @@ private def cli : Cmd := `[Cli|
     v, verbose; "Show every check, not just the failing ones."
     "timeout" : Nat; "Milliseconds before a fixture is abandoned and reported as TIMEOUT. Defaults to 30000."
     l, list; "List the matching fixtures and what they claim, without running them."
-    f, feature : Array String; "Feature toggles, comma-separated. Only `no-color` so far."
+    f, feature : Array String; "Feature toggles, comma-separated. Only `no-color`."
 
   ARGS:
     ...filters : String; "Only run fixtures whose filename contains one of these."

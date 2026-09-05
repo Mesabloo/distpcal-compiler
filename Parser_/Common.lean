@@ -60,8 +60,7 @@ instance {σ τ} [Parser.Stream σ τ] : ErrorCombine (ParseError σ τ) where
 -- `Annotations.tryParseAnnotations'` (`Parser_/TLAPlus.lean`) runs over the library's own
 -- `Parser.Error.Simple` (`SimpleParser`, deliberately not migrated — its position space is a flat
 -- comment string, not any real stream a caller could report against). `alt`/`first` still work
--- over it, just without a real merge: the second alternative's error wins, same as before
--- `ErrorCombine` existed.
+-- over it, just without a real merge: the second alternative's error always wins.
 instance {σ τ} [Parser.Stream σ τ] : ErrorCombine (Parser.Error.Simple σ τ) where
   combine _ e₂ := e₂
 
@@ -439,9 +438,9 @@ def first {ε σ τ α : Type _} {m : Type _ → Type _}
 
 /-- `withErrorMessage msg p`: if `p` fails without consuming input, replace whatever it expected
 with `msg` (megaparsec's `<?>`/`label`); a failure that consumed input propagates untouched.
-Shadows the library's `withErrorMessage`, which wraps *unconditionally* — the reason
-`parseExpression`'s `"expected expression"` used to repeat once per level of its own recursive
-descent, since every nested call re-wrapped whatever the previous level had already wrapped. -/
+Shadows the library's `withErrorMessage`, which wraps *unconditionally*: used directly on a
+recursive-descent parser like `parseExpression`, every nested call would re-wrap whatever the
+previous level had already wrapped, repeating `"expected expression"` once per level. -/
 @[specialize]
 def withErrorMessage {ε σ τ m α} [Parser.Stream σ τ] [Parser.Error ε σ τ] [Monad m] [BEq (Stream.Position σ)] (msg : String) (p : ParserT ε σ τ m α) : ParserT ε σ τ m α := λ s ↦ do
   match ← p s with

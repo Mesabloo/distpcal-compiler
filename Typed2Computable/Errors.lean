@@ -24,7 +24,7 @@ inductive NonComputableConstruct : Type
 /-- `Typed2Computable`'s errors. -/
 inductive ComputableError : Type
   /-- The algorithm references `fnSet`/`recordSet` — genuinely not computable under this
-  compiler's finite-sets assumption, not previously enforced by `WellFormedness` (whose checks
+  compiler's finite-sets assumption, and not enforced by `WellFormedness` (whose checks
   ban temporal/action operators and unbounded quantifiers, not these). -/
   | notComputable (pos : SourceSpan) (construct : NonComputableConstruct)
   /-- Defense-in-depth: a construct `WellFormedness/Restrictions.lean`'s check 3 already

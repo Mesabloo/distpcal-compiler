@@ -87,7 +87,7 @@ structure CacheEntry (β : Type) : Type where
 
 /-- The module cache `Ξ`'s effect interface — `lookupModule`/`storeModule`. -/
 class MonadModuleCache (β : outParam Type) (m : Type → Type) where
-  /-- The cache entry recorded under this name, if any — not yet validated against any
+  /-- The cache entry recorded under this name, if any — unvalidated against any
   particular file; the caller compares `sourceHash` itself. -/
   lookupModule : String → m (Option (CacheEntry β))
   /-- Cache a checked module under its name. -/

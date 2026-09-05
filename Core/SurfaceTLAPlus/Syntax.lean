@@ -14,7 +14,7 @@ public import Extra.Prod
 
 /-!
   The surface syntax of TLA⁺ modules, as accepted by the parser — a CST close to the concrete
-  grammar (<https://lamport.azurewebsites.net/tla/TLAPlus2Grammar.tla>), not yet desugared.
+  grammar (<https://lamport.azurewebsites.net/tla/TLAPlus2Grammar.tla>), prior to desugaring.
 
   Positions are not stored structurally in these types: every constructor produced by the parser
   is tagged out-of-band via the `@@`/`posOf`/`match_source` mechanism in `Common/Position.lean`.

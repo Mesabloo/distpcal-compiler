@@ -12,11 +12,10 @@ public import Common.Position
 
 /-!
   The shape of a TLA⁺ declaration/module, shared verbatim by `SurfaceTLAPlus`, `CoreTLAPlus`,
-  `TypedTLAPlus` — each stage's `Declaration`/`Module` used to be identical source text, differing
-  only in which stage's `Expression` former they closed over. Parametrized here by that former
-  (`E`) so the shape and its `Functor`/`Traversable`/`Bifunctor`/`Bitraversable` instances are
-  defined once; each stage recovers its `Declaration`/`Module` via an `abbrev` over its
-  `Expression`.
+  `TypedTLAPlus`: each stage's `Declaration`/`Module` is identical except for which stage's
+  `Expression` former it closes over. Parametrized here by that former (`E`) so the shape and its
+  `Functor`/`Traversable`/`Bifunctor`/`Bitraversable` instances are defined once; each stage
+  recovers its `Declaration`/`Module` via an `abbrev` over its `Expression`.
 -/
 
 /-- A top-level TLA⁺ declaration. `RECURSIVE` and module `INSTANCE` are not represented. -/

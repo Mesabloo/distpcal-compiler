@@ -16,7 +16,7 @@ private local instance {α} [Inhabited α] : Inhabited (m α) := ⟨pure default
   Eliminates every `mvar` node inside `e`, walking bottom-up so a nested `mvar` resolves before
   an outer one that might wrap it. Each metavariable defaults to its recorded upper bound, if
   there's exactly one; no recorded bound is an unconstrained-metavariable error, and more than one
-  is not yet supported (would need per-site tracking to substitute soundly).
+  is unsupported (would need per-site tracking to substitute soundly).
 
   Only eliminates `Expression.mvar` wrapper nodes, not `Typ.mvar` occurrences embedded in a node's
   stored type field — those are resolved by `resolveMVars` below, as a second pass.
@@ -81,7 +81,7 @@ partial def resolveExprMVars (e : Expr) : m Expr := match_source e with
         | .pending _ | .failure => return e' -- unreachable: `b <: b` always succeeds reflexively
       | _ :: _ :: _ =>
         throw (.todo pos
-          "metavariable with more than one recorded upper bound — not yet supported")
+          "metavariable with more than one recorded upper bound — unsupported")
 
 /-- Substitutes every already-assigned metavariable inside `τ`, recursing into whatever
 `onUnassigned` returns for one that isn't. Shared by `resolveTypeMVars` (throws: every

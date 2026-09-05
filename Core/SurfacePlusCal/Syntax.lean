@@ -11,8 +11,8 @@ public section
 
 
 /-!
-  The surface syntax of Distributed PlusCal algorithms, as accepted by the parser — not yet
-  desugared into explicit-goto form.
+  The surface syntax of Distributed PlusCal algorithms, as accepted by the parser, prior to
+  desugaring into explicit-goto form.
 
   Positions are attached out-of-band via `@@`/`posOf`/`match_source` (`Common/Position.lean`),
   not stored structurally in these types.
@@ -61,7 +61,7 @@ instance : Bitraversable MulticastFilter where
   A PlusCal statement. `α` carries comment annotations (as in `SurfaceTLAPlus`), `β` is the
   embedded-expression type. A *block* (the body of `if`/`while`/`with`/`either`/…) is a flat
   `List (String ⊕ Statement α β)`: a leading label and the statement it labels are elements
-  of the same list, not yet separated into distinct fields.
+  of the same list; desugaring separates them into distinct fields.
 -/
 inductive Statement (α β : Type) : Type
   | skip

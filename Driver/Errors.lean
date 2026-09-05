@@ -19,7 +19,7 @@ public section
 /-- `moduleId` is the *offending module's own* key into the source registry
 (`Driver/Modules.lean`'s `MonadSourceRegistry`) — not necessarily the main module's: an error
 inside an `EXTENDS`-ed dependency must render against that dependency's own lines, not whichever
-module `Fugue.lean` originally started with. -/
+module the compile started from. -/
 inductive DriverError : Type
   /-- A lexing failure. -/
   | lex (moduleId : String) (e : Unexpected Char)
