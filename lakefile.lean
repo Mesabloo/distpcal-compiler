@@ -50,10 +50,12 @@ abbrev linterOptions : Array LeanOption := #[
   -- `linter.omit` is deliberately NOT here: `LEAN_STYLE.md` prescribes `omit` for an unused
   -- section variable, the opposite of what that linter wants.
   ⟨`linter.defProp, true⟩,  -- a `Prop`-typed `def` should be a `theorem`
-  ⟨`linter.extra, true⟩,    -- the core copies of unnecessarySeqFocus / unreachableTactic / dupNamespace
+  ⟨`linter.extra.unnecessarySeqFocus, true⟩, -- the core copies of unnecessarySeqFocus / unreachableTactic / dupNamespace
   -- but not its `unusedDecidableInType`: the Guarded→Network proof inherits `[DecidableEq ι]` from
   -- a `variable` for `Finmap`/`Instances` operations in proof *terms*, not lemma types, and a
   -- per-lemma `omit` would break those proofs.
+  ⟨`linter.extra.unreachableTactic, true⟩,
+  ⟨`linter.extra.dupNamespace, true⟩,
   ⟨`linter.extra.unusedDecidableInType, false⟩,
   -- the core `linter.extra` copies supersede the dependencies' own — turn the duplicates off so
   -- a hit is not reported twice.
