@@ -230,6 +230,12 @@ Go, not Lean — the library generated code links against. Every package is a su
 - `address.go` — `Address` and its ordering dictionary.
 - `comm_test.go`, `multicast_test.go`, `address_test.go` — their tests.
 
+### `runtime/comm/tcp/`
+- `tcp.go` — the `Name` address type and its gob registration.
+- `endpoint.go` — the `Sender`/`Receiver` implementations over TCP.
+- `nameserver.go` — the name server and its `Register`/`Lookup` clients.
+- `tcp_test.go` — their tests.
+
 ### `runtime/locks/`
 - `locks.go` — `Lock[T]`, `MkLock`, `Acquire`, `Release`.
 - `locks_test.go` — its tests.
