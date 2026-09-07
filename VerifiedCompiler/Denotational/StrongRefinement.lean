@@ -10,23 +10,39 @@ meta import CustomPrelude
 
 public section
 
+/-!
+# Strong behavior refinement
+
+`Terminating`, `Diverging`, `Aborting` and `Blocking` are the four shapes a behavior refinement
+takes, one per way a target run can end. `StrongRefinement` bundles all four for a single pass;
+the `Comp`, `Trans`, `Mono`, `star` and `sequential` lemmas are their algebra.
+
+Each definition is a commuting square, drawn in its doc comment:
+
+* top edge — the pre-relation `R` between a source configuration `σₛ` and a target `σₜ`;
+* verticals — one step of each semantics, right-labelled by the trace it emits (`ε'` source,
+  `ε` target); the left label names the source semantics taken, `sem_s` the one being matched
+  (reducing, diverging or blocking) and `sem_s'` the aborting one;
+* bottom row — where each side lands: `σₛ'`/`σₜ'` a configuration, `↯` an abort, `∞` a
+  divergence, `∅` a stuck configuration. `@.` is no edge.
+
+The source trace is existentially quantified and only ever related to the target's — by `Rτ` on a
+matched step, by `≼[Rτ]` (a sequentially consistent prefix, not a syntactic one; `\preceq` in the
+squares) on an abort — never shared. In each square the top and right edges are the hypothesis and
+the bottom and left are what the definition supplies; `amscd` draws every edge solid, so that
+split is not visible.
+-/
+
 namespace StrongRefinement
   variable {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R S : Rel α β) (Rτ : Rel εₛ εₜ)
 
   /--
-    Behavior refinement in the terminating case.
+    Behavior refinement for a target run that terminates.
 
-    - `semₛ` is the reducing semantics for the source language.
-    - `semₛ'` is the aborting semantics for the source language.
-    - `semₜ` is the reducing semantics for the target language.
+    From `R σₛ σₜ` and a `semₜ` step `(σₜ, ε, σₜ')`, the source either takes a matching `semₛ` step
+    to some `σₛ'` with `S σₛ' σₜ'` and `Rτ ε' ε`, or aborts via `semₛ'` on a trace with
+    `ε' ≼[Rτ] ε`. `S` is the post-relation, usually `R` again.
 
-    Given the top and right edges, the definition supplies the bottom and left edges below, or the
-    aborting alternative underneath that. Diagram notation used throughout this file:
-    `\mathit{sem}_s`/`\mathit{sem}_t` are `semₛ`/`semₜ`, `\varepsilon'`/`\varepsilon` are the
-    source/target traces, and `\lightning` marks "aborts instead". `amscd` (the `CD` environment
-    doc-gen4's MathJax renders) has no dashed-line primitive, so every edge below is drawn solid
-    regardless of whether it's a hypothesis or a conclusion — here top and right are given, bottom
-    and left are supplied.
     $$
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
@@ -39,16 +55,9 @@ namespace StrongRefinement
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
     @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t}V{\varepsilon}V \\
-    \lightning @. \sigma_t'
+    \unicode{x21AF} @. \sigma_t'
     \end{CD}
     $$
-    (`\preceq` above stands for `≼[Rτ]`; the first square's two vertical labels are related by `Rτ`
-    directly instead, not pictured.)
-
-    The source's trace is existentially quantified and related to the target's by `Rτ`, rather than
-    shared outright: a pass need not preserve a trace exactly, only up to `Rτ` (`0b`,
-    `VerifiedCompiler/Trace.lean`). The aborting disjunct's `≼[Rτ]` is the same relaxation applied to
-    *prefix*: not a syntactic prefix of the target's trace, but a sequentially consistent one.
   -/
   @[expose]
   protected def Terminating (semₛ : Set (α × εₛ × α)) (semₛ' : Set (α × εₛ)) (semₜ : Set (β × εₜ × β)) : Prop :=
@@ -56,11 +65,9 @@ namespace StrongRefinement
       (∃ (σₛ' : α) (ε' : εₛ), S σₛ' σₜ' ∧ Rτ ε' ε ∧ (σₛ, ε', σₛ') ∈ semₛ) ∨
       (∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ')
 
-  /-- Vertical composition. Concludes at `Rτ` itself: the proof naturally produces `Rτ ⊗ᵣ Rτ` — the
-  two factors' traces concatenate — and `Trace.rmul_self` says that is `Rτ` again. Running both
-  factors at the class rather than at two bare relations is what makes that collapse available;
-  the class's left-totality is needed anyway, for the branch where the source aborts inside the
-  *first* factor and the target's full trace still has to be matchable. -/
+  /-- Vertical composition: a `Terminating` refinement of `semₛ ∘ᵣ₂ semᵤ` against `semₜ ∘ᵣ₂ semᵥ`,
+  from one refinement of each factor sharing the middle relation `S`. Trace relation stays `Rτ`;
+  the composite aborting set is `semₛ' ∪ semₛ ∘ᵣ₁ semᵤ'`. -/
   protected theorem Terminating.Comp {R S T : Rel α β} [T₂ : Trace εₛ εₜ]
       {semₛ semᵤ : Set (α × εₛ × α)} {semₛ' semᵤ' : Set (α × εₛ)} {semₜ semᵥ : Set (β × εₜ × β)} :
       StrongRefinement.Terminating R S T₂.Rτ semₛ semₛ' semₜ →
@@ -87,9 +94,7 @@ namespace StrongRefinement
       exists εₛ₁
       exact ⟨Trace.scPrefix_rmul_left T₂.Rτ_total εₛ₁_scp_ε₁, Or.inl semₛ'_εₛ₁⟩
 
-  /-- Monotone in the state sets. There is no trace-relation axis: `Rτ` occurs only positively in
-  the conclusion, so widening it would be sound, but after the composition lemmas moved onto `Trace`
-  nothing needs it — every caller was already passing the identity. -/
+  /-- Monotone in the state sets: widen either source set, shrink the target set. -/
   protected theorem Terminating.Mono {R S : Rel α β} [T : Trace εₛ εₜ]
     {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semₛ' : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)}
     (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (concl : semᵤ ≤ semₜ) :
@@ -101,11 +106,9 @@ namespace StrongRefinement
     · exact Or.inl ⟨σₛ', ε', R_σₛ'_σᵤ', Rτ_ε'_ε, Set.mem_of_subset_of_mem hyp₁ sem_σₛ'⟩
     · exact Or.inr ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
 
-  /-- Both reduce sets cut down to the runs whose final state satisfies a predicate the post-relation
-  transports backward. Restricting the *target* set alone is `Mono`; restricting the *source* set is
-  not monotone — a smaller source set is harder to land in — so it needs the endpoint fact. This is
-  what turns a reachability relation (every partial run) into a terminating semantics (runs that end
-  in a distinguished class of states) on both sides of the refinement at once. -/
+  /-- Both reducing sets cut to the runs whose final state satisfies a predicate. `hback` carries
+  the target predicate back across `R`; without it, restricting the source set would not be
+  monotone. Turns a reachability relation into a terminating semantics on both sides at once. -/
   protected theorem Terminating.restrictEnd {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
       {Qₛ : α → Prop} {Qₜ : β → Prop}
@@ -124,16 +127,16 @@ namespace StrongRefinement
       StrongRefinement.Terminating R S T.Rτ semₛ semₛ' ∅ := by
     rintro _ _ _ _ _ (_|_)
 
-  /-- Doing nothing refines doing nothing. Runs at the canonical `Trace.Rτ` rather than at `Eq` or
-  at a bare relation plus a side condition: the single law the identity transition needs is
-  `Rτ_one`, which is one of the class's, and every use of this lemma is alongside the composition
-  lemmas that take the class anyway. -/
+  /-- Doing nothing refines doing nothing: `Relation.Idle` on the source refines `Relation.Idle`
+  on the target, at any aborting set. -/
   protected theorem Terminating.Id [T : Trace εₛ εₜ] {X} :
       StrongRefinement.Terminating R R T.Rτ Relation.Idle X Relation.Idle := by
     rintro σₜ σₜ' ε σₛ σₛRσₜ ⟨rfl, rfl⟩
     left
     exact ⟨σₛ, 1, σₛRσₜ, T.Rτ_one, rfl, rfl⟩
 
+  /-- `⋃₀` on all three sets: every target reducing set in `B` is refined by some source reducing
+  set in `A` and some source aborting set in `C`. -/
   protected theorem Terminating.sup {R S : Rel α β} [T : Trace εₛ εₜ] {A : Set (Set (α × εₛ × α))}
     {B : Set (Set (β × εₜ × β))} {C : Set (Set (α × εₛ))}
     (sup : ∀ y ∈ B, ∃ x ∈ A, ∃ z ∈ C, StrongRefinement.Terminating R S T.Rτ x z y) :
@@ -151,11 +154,8 @@ namespace StrongRefinement
       exists ε', ε'_scp_ε
       exact Set.mem_sUnion_of_mem abortₛ_σₛ abortₛ_in_C
 
-  /-- Binary union on both sides, the `Diverging.union` shape at `Terminating`. The aborting set is
-  shared and the summands are paired positionally, so there is nothing to choose: each disjunct is
-  discharged by its own refinement. `Terminating.sup` is the `⋃₀` generalization, where every target
-  summand picks its own source and aborting sets instead; this is its two-element special case, kept
-  separate because the positional pairing is what a union-shaped semantics actually wants. -/
+  /-- Binary union on the reducing sets, aborting set shared and summands paired positionally.
+  The two-element case of `Terminating.sup`. -/
   protected theorem Terminating.union {R S : Rel α β} [T : Trace εₛ εₜ]
       {Aₛ Bₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ × β)}
       (h₁ : StrongRefinement.Terminating R S T.Rτ Aₛ semₛ' Aₜ)
@@ -169,20 +169,14 @@ namespace StrongRefinement
       · exact Or.inl ⟨σₛ', ε', hS, hRτ, Or.inr h⟩
       · exact Or.inr ⟨ε', hscp, h⟩
 
-  /-- Terminating refinement for `R*`: the run the target takes is matched step by step, and the
-  source's traces concatenate. The operator-preservation law that replaces induction over
-  `Algebra.reducing`'s least fixed point.
+  /-- Terminating refinement for `Relation.star`: from a step-level refinement that answers one
+  target step with a source `Relation.star semₛ` run, a refinement of `Relation.star semₜ` with
+  aborting set `Relation.star semₛ ∘ᵣ₁ Yₛ`. The operator-preservation law standing in for induction
+  over `Algebra.reducing`'s least fixed point.
 
-  Three of the `Trace` class's laws are used here and nowhere in the finite composition lemmas:
-  `Rτ_one` for the empty run, `Rτ_closed` to concatenate two matched traces, and `Rτ_total` when the
-  source aborts at the very first step. `abs` places an abort reached partway into `semₛ'` itself;
-  at a closed-form aborting semantics it is `Relation.star.lcomp₁_absorb`.
-
-  **The source side is `Relation.star semₛ`, matched against a single target step in the
-  hypothesis.** A pass whose target takes steps with no source counterpart — Guarded→Network's `.rx`
-  thread — cannot instantiate `semₛ := stepₛ`, since no source step matches an `.rx` step. It
-  instantiates `semₛ := Relation.star stepₛ` instead, letting the source stutter, and
-  `Terminating.starStutter` below is that instantiation with the resulting `R**` collapsed. -/
+  The hypothesis answers a target step with a source *run*, not a source step, so a pass whose
+  target has steps with no source counterpart still fits it by instantiating `semₛ` at a `star`;
+  `Terminating.starStutter` packages that instantiation. -/
   protected theorem Terminating.star {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
       (ref : StrongRefinement.Terminating R R T.Rτ semₛ (Relation.star semₛ ∘ᵣ₁ Yₛ) semₜ) :
@@ -214,15 +208,9 @@ namespace StrongRefinement
         apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
         apply Trace.scPrefix_rmul_left T.Rτ_total hea
 
-  /-- **`Terminating.star` for a source that stutters.** The shape a pass whose target takes steps
-  the source cannot match needs: the hypothesis answers one target step with a whole source *run*
-  — possibly empty — and the conclusion is still stated at `Relation.star stepₛ`, not at `R**`.
-
-  Nothing new is proved here. `Terminating.star` at `semₛ := Relation.star stepₛ` produces
-  `Relation.star (Relation.star stepₛ)` on the source, and `Relation.star.star_eq` collapses it;
-  the point of the lemma is that no caller has to notice.
-
-  The absorption side condition is now discharged internally. -/
+  /-- `Terminating.star` with the source instantiated at `Relation.star stepₛ` and the resulting
+  doubled star collapsed, so a target step is answered by a source run — possibly empty — and the
+  conclusion still reads at `Relation.star stepₛ`. -/
   protected theorem Terminating.starStutter {R : Rel α β} [T : Trace εₛ εₜ]
       {stepₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)} {stepₜ : Set (β × εₜ × β)}
       (ref : StrongRefinement.Terminating R R T.Rτ (Relation.star stepₛ)
@@ -235,14 +223,11 @@ namespace StrongRefinement
     rwa [Relation.star.star_eq] at h
 
   /--
-    Behavior refinement in the diverging case.
+    Behavior refinement for a target run that diverges.
 
-    - `semₛ` is the diverging semantics for the source language.
-    - `semₛ'` is the aborting semantics for the source language.
-    - `semₜ` is the diverging semantics for the target language.
+    From `R σₛ σₜ` and a diverging `semₜ` run `(σₜ, ε)`, the source either diverges too via `semₛ`
+    with `Rτ ε' ε`, or aborts via `semₛ'` with `ε' ≼[Rτ] ε`.
 
-    Same diagram notation as `Terminating`; both columns run to `∞` when they diverge, or to
-    `\lightning` on the source side when it aborts instead:
     $$
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
@@ -255,7 +240,7 @@ namespace StrongRefinement
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
     @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t}V{\varepsilon}V \\
-    \lightning @. \infty
+    \unicode{x21AF} @. \infty
     \end{CD}
     $$
   -/
@@ -264,11 +249,9 @@ namespace StrongRefinement
     ∀ (σₜ : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ →
       (∃ ε' : εₛ, Rτ ε' ε ∧ (σₛ, ε') ∈ semₛ) ∨ (∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ')
 
-  /-- Vertical composition. Concludes about `Rτ₁ ⊔ (Rτ₁ ⊗ᵣ T₂.Rτ)`, not just `Rτ₁ ⊗ᵣ T₂.Rτ`: the
-  first branch below is a divergence that never reaches the second factor at all, so its
-  `Rτ₁`-relatedness has to survive as-is (via `Or.inl`) rather than being forced through a
-  repackaging that would need `T₂.Rτ` to relate the empty trace to itself. Only the sequenced
-  branch (`Or.inr`) needs `T₂`'s left-totality, same reason as `Terminating.Comp`. -/
+  /-- Vertical composition: a divergence of the first factor, or a terminating run of the first
+  then a divergence of the second, is a divergence of `semₛ'' ∪ semₛ ∘ᵣ₁ semᵤ''` against
+  `semₜ'' ∪ semₜ ∘ᵣ₁ semᵥ''`. Aborting set `semₛ' ∪ semₛ ∘ᵣ₁ semᵤ'`. -/
   protected theorem Diverging.Comp {R} [T₂ : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semᵤ' semᵤ'' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ'' semᵥ'' : Set (β × εₜ)} :
       StrongRefinement.Diverging R T₂.Rτ semₛ'' semₛ' semₜ'' →
@@ -299,6 +282,7 @@ namespace StrongRefinement
         exists εₛ₁
         refine ⟨Trace.scPrefix_mono (λ _ _ ↦ Or.inr) (Trace.scPrefix_rmul_left T₂.Rτ_total εₛ₁_scp_ε₁), Or.inl semₛ'_εₛ₁⟩
 
+  /-- Monotone: widen either source set, shrink the target diverging set. -/
   protected theorem Diverging.Mono {R} [T : Trace εₛ εₜ]
     {semᵣ'' semᵣ' semₛ'' semₛ' : Set (α × εₛ)} {semₜ'' semᵤ'' : Set (β × εₜ)}
     (hyp₁ : semₛ'' ≤ semᵣ'') (hyp₂ : semₛ' ≤ semᵣ') (concl : semᵤ'' ≤ semₜ'') :
@@ -312,24 +296,16 @@ namespace StrongRefinement
     · right
       exact ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp₂ sem_σₛ'⟩
 
+  /-- An empty target diverging set is refined by anything. -/
   protected theorem Diverging.Empty [T : Trace εₛ εₜ] {semₛ'' semₛ' : Set (α × εₛ)} :
       StrongRefinement.Diverging R T.Rτ semₛ'' semₛ' ∅ := by
     rintro _ _ _ _ (_|_)
 
-  /-- Divergence refinement for `R^∞`, the replacement for `Diverging.gfp`'s coinduction.
-
-  The target takes infinitely many steps; the source follows it one index at a time. Either it
-  keeps up forever — and then its trace is the infinite product of the traces it emitted, related
-  to the target's by `Rτ_omega` — or it aborts at some first index `n`, and the abort it reports is
-  the one it reaches after `n` steps.
-
-  Sequential, not König: the source run is built by choosing greedily at each index, never by
-  reconstructing an infinite witness from a family of finite approximants. Nothing here asks
-  whether the emitted traces are empty, so there is no productivity or fairness side condition —
-  a source that follows a silently-diverging target forever emits `1`, which is correct.
-
-  The aborting set is specialized to the closed form `Relation.star semₛ ∘ᵣ₁ Yₛ`, so absorption
-  (`semₛ ∘ᵣ₁ semₛ' ≤ semₛ'`) is discharged internally by `Relation.star.lcomp₁_absorb`. -/
+  /-- Divergence refinement for `Relation.omega`, standing in for coinduction. From a step-level
+  `Terminating` refinement, a refinement of `Relation.omega semₜ`: the source either keeps pace
+  with the target forever, its trace the infinite product related by `Rτ_omega`, or aborts at the
+  first index it cannot. The aborting set is fixed to the closed form `Relation.star semₛ ∘ᵣ₁ Yₛ`,
+  so its absorption law holds by `Relation.star.lcomp₁_absorb` rather than as a hypothesis. -/
   protected theorem Diverging.omega {R : Rel α β} [ωMonoid εₛ] [ωMonoid εₜ] [T : ωTrace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
       (ref : StrongRefinement.Terminating R R T.Rτ semₛ (Relation.star semₛ ∘ᵣ₁ Yₛ) semₜ) :
@@ -427,23 +403,12 @@ namespace StrongRefinement
           -- transparency `using` matches at does not see through.
           simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
 
-  /-- **Divergence refinement for a source that stutters.** The companion of
-  `Terminating.starStutter`/`Aborting.starStutter`, and the one that is *not* a two-line
-  instantiation: `Relation.omega (Relation.star stepₛ) ≤ Relation.omega stepₛ` is false — standing
-  still forever witnesses the left and nothing on the right — so there is no `star_eq` to collapse.
-
-  The shape that works instead is the familiar one from stuttering simulations: per target step the
-  source takes **one** step, or **none** with a well-founded measure `μ` strictly decreasing, or
-  aborts. The measure is what forbids an infinite idle tail, and so what makes the source's moves
-  cofinal; `Relation.omega.of_idle` then deletes the idle steps.
-
-  The stuttering branch requires the target's own trace to be `1` there. That is not a technicality
-  to be relaxed: a target step the source does not answer must be unobservable, or the two traces
-  could not agree. With it, `Rτ_omega` applies pointwise at the *original* indices — the source
-  emits `1` exactly where the target does — so nothing has to be reindexed on the target side.
-
-  `ωMonoid.ωProd_comp` handles the source side's reindexing. `abs` plays the same role it does in
-  `Diverging.omega`. -/
+  /-- Divergence refinement for a stuttering source, where instantiating `semₛ` at a `star` is not
+  available (`Relation.omega (Relation.star stepₛ) ≤ Relation.omega stepₛ` is false). The
+  hypothesis is a stuttering simulation: per target step the source takes one step, or none while
+  a well-founded measure `μ` on target configurations strictly drops, or aborts. The idle branch
+  requires the target trace to be `1` there — a step the source does not answer must be
+  unobservable. -/
   protected theorem Diverging.omegaStutter {R : Rel α β} [ωMonoid εₛ] [ωMonoid εₜ]
       [T : ωTrace εₛ εₜ] {stepₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)}
       {stepₜ : Set (β × εₜ × β)} {μ : β → ℕ}
@@ -586,14 +551,9 @@ namespace StrongRefinement
           -- transparency `using` matches at does not see through.
           simpa only [Nat.zero_add] using! habort m 0 (Nat.zero_add m)
 
-  /-- Divergence refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a divergence.
-
-  The other half of the closed form. A diverging semantics given as `gfp (λ x, Y ∪ X ∘ᵣ₁ x)` denotes
-  `(X* ∘ᵣ₁ Y) ∪ X^∞`, so a refinement framework that only covered `X^∞` would only cover instances
-  with `Y = ∅`. This lemma and `Diverging.omega` between them cover the general shape.
-
-  Simpler than `Diverging.omega`: the run is finite and handed over up front, so this is an
-  induction on its length with no choice and no `dvd`/`Rτ_one` obligation. -/
+  /-- Divergence refinement for `Relation.star semₛ ∘ᵣ₁ Yₛ`: finitely many steps, then a
+  divergence. With `Diverging.omega` it covers the general closed form — `gfp (λ x, Y ∪ X ∘ᵣ₁ x)`
+  denotes `(X* ∘ᵣ₁ Y) ∪ X^∞`, and `omega` alone would force `Y = ∅`. -/
   protected theorem Diverging.star {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
       {semₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
@@ -642,8 +602,7 @@ namespace StrongRefinement
         apply Trace.scPrefix_mono T.Rτ_closed.rmul_le
         apply Trace.scPrefix_rmul_left T.Rτ_total hea
 
-  /-- Binary union on both sides. The aborting set is shared, so unlike `Terminating.sup` there is
-  nothing to choose: each disjunct is discharged by its own refinement. -/
+  /-- Binary union on the diverging sets, aborting set shared. -/
   protected theorem Diverging.union {R : Rel α β} [T : Trace εₛ εₜ]
       {Aₛ Bₛ semₛ' : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
       (h₁ : StrongRefinement.Diverging R T.Rτ Aₛ semₛ' Aₜ)
@@ -658,8 +617,7 @@ namespace StrongRefinement
       · exact Or.inr ⟨ε', hscp, h⟩
 
   /-- The closed form in one piece: `gfp (λ x, Y ∪ X ∘ᵣ₁ x)` denotes `(X* ∘ᵣ₁ Y) ∪ X^∞`, and this
-  refines it as such. `Diverging.omega` is the `Y = ∅` special case, where the left summand is
-  empty; stating both means the framework does not silently assume that instantiation. -/
+  refines it as such. `Diverging.omega` is the `Y = ∅` special case. -/
   protected theorem Diverging.closedForm {R : Rel α β} [ωMonoid εₛ] [ωMonoid εₜ]
       [T : ωTrace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
@@ -674,18 +632,16 @@ namespace StrongRefinement
     · exact Diverging.omega ref
 
   /--
-    Behavior refinement in the aborting case.
+    Behavior refinement for a target run that aborts.
 
-    - `semₛ'` is the aborting semantics for the source language.
-    - `semₜ'` is the aborting semantics for the target language.
+    From `R σₛ σₜ` and an aborting `semₜ'` run `(σₜ, ε)`, the source aborts too via `semₛ'` with
+    `ε' ≼[Rτ] ε`. No bottom edge — an abort has no "after".
 
-    Same diagram notation as `Terminating`; there is no bottom edge here — an aborting state has no
-    "after", just the abort itself on each side:
     $$
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
     @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t'}V{\varepsilon}V \\
-    \lightning @. \lightning
+    \unicode{x21AF} @. \unicode{x21AF}
     \end{CD}
     $$
   -/
@@ -693,9 +649,8 @@ namespace StrongRefinement
   protected def Aborting (semₛ' : Set (α × εₛ)) (semₜ' : Set (β × εₜ)) : Prop :=
     ∀ (σₜ : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ' → ∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ'
 
-  /-- An abort *is* a divergence that always takes the aborting branch. The reducing set is
-  unconstrained because that branch never mentions it; `hle` places the witness in whichever
-  aborting set the diverging statement carries, which is rarely the same one. -/
+  /-- An abort is a divergence that always takes the aborting branch; the reducing set is
+  unconstrained. `hle` places the witness in whichever aborting set the diverging statement carries. -/
   protected theorem Aborting.toDiverging {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ semₛ' semₛ'' : Set (α × εₛ)} {semₜ' : Set (β × εₜ)}
       (h : StrongRefinement.Aborting R T.Rτ semₛ' semₜ') (hle : semₛ' ≤ semₛ'') :
@@ -704,8 +659,8 @@ namespace StrongRefinement
     obtain ⟨ε', hscp, h'⟩ := h σₜ ε σₛ hR hmem
     exact Or.inr ⟨ε', hscp, hle h'⟩
 
-  /-- The converse, when the two source sets coincide: with nowhere else for the matched branch to
-  land, `Rτ ε' ε` weakens to `ε' ≼[Rτ] ε` and the disjunction collapses. -/
+  /-- The converse of `Aborting.toDiverging` when the two source sets coincide: the matched branch
+  weakens into the aborting one, so the disjunction collapses. -/
   protected theorem Diverging.toAborting {R : Rel α β} [T : Trace εₛ εₜ] {semₛ' : Set (α × εₛ)}
       {semₜ' : Set (β × εₜ)} (h : StrongRefinement.Diverging R T.Rτ semₛ' semₛ' semₜ') :
         StrongRefinement.Aborting R T.Rτ semₛ' semₜ' := by
@@ -714,9 +669,8 @@ namespace StrongRefinement
     · exact ⟨ε', Trace.scPrefix_of hRτ, h'⟩
     · exact ⟨ε', hscp, h'⟩
 
-  /-- Horizontal composition, through an intermediate language with trace type `εₘ`. Needs `Rτ₁`
-  (the first leg) both left-total and closed — bundled as `T₁ : Trace εₛ εₘ` — per
-  `Trace.scPrefix_rcomp`. The second leg's `Rτ₂` needs nothing. -/
+  /-- Horizontal composition through an intermediate language with trace type `εₘ`. The first leg's
+  trace relation must be left-total and closed (bundled as `T₁`); the second leg's needs nothing. -/
   protected theorem Terminating.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ S₁ : Rel α β} {R₂ S₂ : Rel β γ}
     [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
     {semₛ : Set (α × εₛ × α)} {semₛ' : Set (α × εₛ)}
@@ -739,8 +693,8 @@ namespace StrongRefinement
       right
       exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, semₛ'_σₛ⟩
 
-  /-- Horizontal composition. Same `scPrefix_rcomp` shape as `Terminating.Trans`: only the first
-  leg's `Rτ₁` (bundled as `T₁`) needs laws. -/
+  /-- Horizontal composition through an intermediate language, `Terminating.Trans` for divergence:
+  only the first leg's trace relation needs laws (bundled as `T₁`). -/
   protected theorem Diverging.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
     {semₛ'' semₛ' : Set (α × εₛ)} {semₜ'' semₜ' : Set (β × εₘ)} {semᵤ'' : Set (γ × εₜ)} :
       StrongRefinement.Diverging R₁ T₁.Rτ semₛ'' semₛ' semₜ'' →
@@ -758,9 +712,8 @@ namespace StrongRefinement
       right
       exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, semₛ'_σₛ⟩
 
-  /-- Vertical composition. The proof produces the union `Rτ ⊔ Rτ ⊗ᵣ Rτ` — the first branch is an
-  abort inside the first factor, which never reaches the second, so its relatedness survives as-is
-  rather than being forced through `⊗ᵣ` — and `Trace.sup_rmul_self` collapses that back to `Rτ`. -/
+  /-- Vertical composition: an abort of the first factor, or a terminating run of the first then an
+  abort of the second, is an abort of `semₛ' ∪ semₛ ∘ᵣ₁ semᵤ'` against `semₜ' ∪ semₜ ∘ᵣ₁ semᵥ'`. -/
   protected theorem Aborting.Comp {R} [T₂ : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ' semᵤ' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' semᵥ' : Set (β × εₜ)} :
       StrongRefinement.Aborting R T₂.Rτ semₛ' semₜ' →
@@ -780,7 +733,7 @@ namespace StrongRefinement
         exists σₛ', εₛ₁, εₛ₂
       · exact ⟨εₛ₁, Trace.scPrefix_mono (λ _ _ ↦ Or.inr) (Trace.scPrefix_rmul_left T₂.Rτ_total εₛ₁_scp_ε₁), Or.inl semₛ'_εₛ₁⟩
 
-  /-- Horizontal composition. Same `scPrefix_rcomp` shape as `Terminating.Trans`. -/
+  /-- Horizontal composition through an intermediate language, `Terminating.Trans` for aborts. -/
   protected theorem Aborting.Trans {γ} {εₘ : Type _} [Monoid εₘ] {R₁ R₂} [T₁ : Trace εₛ εₘ] [T₂ : Trace εₘ εₜ]
     {semₛ' : Set (α × εₛ)} {semₜ' : Set (β × εₘ)} {semᵤ' : Set (γ × εₜ)} :
       StrongRefinement.Aborting R₁ T₁.Rτ semₛ' semₜ' →
@@ -791,6 +744,7 @@ namespace StrongRefinement
     obtain ⟨εₛ', εₛ'_scp_εₘ', sem_σₛ⟩ := ref₁ σₜ εₘ' σₛ R₁_σₛ_σₜ sem_σₜ
     exact ⟨εₛ', Trace.scPrefix_rcomp T₁.Rτ_total T₁.Rτ_closed εₛ'_scp_εₘ' εₘ'_scp_ε, sem_σₛ⟩
 
+  /-- Monotone: widen the source aborting set, shrink the target aborting set. -/
   protected theorem Aborting.Mono {R} [T : Trace εₛ εₜ]
     {semᵣ' semₛ' : Set (α × εₛ)} {semₜ' semᵤ' : Set (β × εₜ)}
     (hyp : semₛ' ≤ semᵣ') (concl : semᵤ' ≤ semₜ') :
@@ -800,10 +754,13 @@ namespace StrongRefinement
     obtain ⟨ε', ε'_scp_ε, sem_σₛ'⟩ := ref _ _ _ R_σᵣ'_σᵤ' (Set.mem_of_subset_of_mem concl sem_σᵤ')
     exact ⟨ε', ε'_scp_ε, Set.mem_of_subset_of_mem hyp sem_σₛ'⟩
 
+  /-- An empty target aborting set is refined by anything. -/
   protected theorem Aborting.Empty [T : Trace εₛ εₜ] {semₛ' : Set (α × εₛ)} :
       StrongRefinement.Aborting R T.Rτ semₛ' ∅ := by
     rintro _ _ _ _ (_|_)
 
+  /-- `⋃₀` on both sets: every target aborting set in `B` is refined by some source aborting set
+  in `A`. -/
   protected theorem Aborting.sup [T : Trace εₛ εₜ] {A : Set (Set (α × εₛ))} {B}
     (sup : ∀ y ∈ B, ∃ x ∈ A, StrongRefinement.Aborting R T.Rτ x y) :
       StrongRefinement.Aborting R T.Rτ (⋃₀ A) (⋃₀ B) := by
@@ -816,11 +773,8 @@ namespace StrongRefinement
     exists ε', ε'_scp_ε
     exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_A
 
-  /-- Binary union on both sides, the `Diverging.union` shape at `Aborting`. Simplest of the three:
-  `Aborting` carries no second source set, so there is nothing to share and nothing to choose —
-  each disjunct is discharged by its own refinement, and the witness is injected back into the
-  summand it came from. `Aborting.sup` is the `⋃₀` generalization, where every target summand picks
-  its own source set instead; this is its two-element special case with positional pairing. -/
+  /-- Binary union on both aborting sets, summands paired positionally. The two-element case of
+  `Aborting.sup`. -/
   protected theorem Aborting.union {R} [T : Trace εₛ εₜ]
       {Aₛ Bₛ : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
       (h₁ : StrongRefinement.Aborting R T.Rτ Aₛ Aₜ)
@@ -832,21 +786,13 @@ namespace StrongRefinement
     · obtain ⟨ε', hscp, h⟩ := h₂ σₜ ε σₛ hR hmem
       exact ⟨ε', hscp, Or.inr h⟩
 
-  /-- Aborting refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then an abort. The aborting
-  semantics of an algorithm has exactly this shape — `Algebra.aborting` is `step* ∘ᵣ₁ immediate` —
-  so this is the operator-preservation law that replaces induction over its least fixed point.
+  /-- Aborting refinement for `Relation.star semₛ ∘ᵣ₁ Yₛ`: finitely many steps, then an abort —
+  the shape of `Algebra.aborting` (`step* ∘ᵣ₁ immediate`). The operator-preservation law standing
+  in for induction over its least fixed point.
 
-  `Diverging.star` at the diagonal, with its two conclusions collapsed into one: `Aborting` has no
-  "matched exactly" disjunct, only the `≼` one, so the run's traces and the abort's are related the
-  same way whether the source kept up or stopped early. That collapse is `Diverging.toAborting`,
-  and reading the abort of `Yₛ` as an abort of the whole run is `Aborting.toDiverging` against
-  `Relation.star.le_lcomp₁` — so the induction over the run's length is not repeated here.
-
-  Note what is *not* a hypothesis. `Diverging.star` takes the source aborting set as a parameter
-  with an `abs` law relating it to `semₛ`; here that set is the conclusion's own left-hand side, so
-  absorption is `Relation.star.lcomp₁_absorb` rather than an assumption. The step-level refinement
-  therefore mentions `Relation.star semₛ ∘ᵣ₁ Yₛ` — not circular, just the source's actual aborting
-  semantics named where the framework needs it. -/
+  The step-level hypothesis names `Relation.star semₛ ∘ᵣ₁ Yₛ` as its aborting set — the
+  conclusion's own left-hand side. Not circular: its absorption law holds by
+  `Relation.star.lcomp₁_absorb`, so it is not an added assumption. -/
   protected theorem Aborting.star {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)}
       {semₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
@@ -857,13 +803,9 @@ namespace StrongRefinement
     StrongRefinement.Diverging.toAborting <|
       StrongRefinement.Diverging.star ref (refY.toDiverging Relation.star.le_lcomp₁)
 
-  /-- **`Aborting.star` for a source that stutters**, the companion of `Terminating.starStutter` and
-  needed for the same reason: a pass whose target takes steps the source cannot match answers one
-  target step with a whole source run, so the step-level refinement it can supply is stated at
-  `Relation.star stepₛ`.
-
-  As there, nothing new is proved — `Aborting.star` at `semₛ := Relation.star stepₛ`, with
-  `Relation.star.star_eq` collapsing the `R**` on both sides of the sandwich. -/
+  /-- `Aborting.star` with the source instantiated at `Relation.star stepₛ` and the doubled star
+  collapsed, so a target step is answered by a source run and the conclusion still reads at
+  `Relation.star stepₛ ∘ᵣ₁ Yₛ`. -/
   protected theorem Aborting.starStutter {R : Rel α β} [T : Trace εₛ εₜ]
       {stepₛ : Set (α × εₛ × α)} {Yₛ : Set (α × εₛ)}
       {stepₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
@@ -879,22 +821,18 @@ namespace StrongRefinement
     rwa [Relation.star.star_eq] at h
 
   /--
-    Behavior refinement in the blocking case.
+    Behavior refinement for a target run that blocks: a finite run ending in a configuration that
+    is stuck — nothing steps, nothing aborts — and is not terminal.
 
-    - `semₛ_blk` is the blocking semantics for the source language.
-    - `semₛ_abt` is the aborting semantics for the source language.
-    - `semₜ_blk` is the blocking semantics for the target language.
+    From `R σₛ σₜ` and a blocking `semₜ_blk` run `(σₜ, ε)`, the source either blocks too via
+    `semₛ_blk` with `Rτ ε' ε`, or aborts via `semₛ_abt` with `ε' ≼[Rτ] ε`. `∅` marks the stuck
+    configuration; no bottom edge.
 
-    A blocking behavior is a finite run ending in a configuration that is stuck — nothing can step
-    and nothing aborts — and not terminal. Its end is its input's stuck state, so there is no
-    bottom edge: the target's blocking run is matched either by a source blocking run emitting an
-    `Rτ`-related trace, or by a source abort emitting a sequentially consistent prefix. Same diagram
-    notation as `Terminating`, with `⊣` for a stuck configuration:
     $$
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
     @V{\mathit{sem}_s}V{\varepsilon'}V @V{\mathit{sem}_t}V{\varepsilon}V \\
-    \dashv @. \dashv
+    \emptyset @. \emptyset
     \end{CD}
     $$
     or
@@ -902,7 +840,7 @@ namespace StrongRefinement
     \begin{CD}
     \sigma_s @>R>> \sigma_t \\
     @V{\mathit{sem}_s'}V{\varepsilon' \preceq \varepsilon}V @V{\mathit{sem}_t}V{\varepsilon}V \\
-    \lightning @. \dashv
+    \unicode{x21AF} @. \emptyset
     \end{CD}
     $$
   -/
@@ -911,10 +849,9 @@ namespace StrongRefinement
     ∀ (σₜ : β) (ε : εₜ) (σₛ : α), R σₛ σₜ → (σₜ, ε) ∈ semₜ_blk →
       (∃ ε' : εₛ, Rτ ε' ε ∧ (σₛ, ε') ∈ semₛ_blk) ∨ (∃ ε' : εₛ, ε' ≼[Rτ] ε ∧ (σₛ, ε') ∈ semₛ_abt)
 
-  /-- Vertical composition: a blocking run of the second factor, reached after a terminating run of
-  the first, is a blocking run of the sequence. The aborting sets are the shared fallback, and the
-  first factor's `Terminating` supplies the run prefix. Shares `Diverging.Comp`'s conclusion shape,
-  the second source set read as aborting rather than diverging. -/
+  /-- Vertical composition: a blocking run of the second factor after a terminating run of the
+  first is a blocking run of the sequence, with the aborting sets as shared fallback. Same
+  conclusion shape as `Diverging.Comp`. -/
   protected theorem Blocking.Comp {R} [T₂ : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {semₛ_blk semₛ_abt semᵤ_blk semᵤ_abt : Set (α × εₛ)}
       {semₜ : Set (β × εₜ × β)} {semₜ_blk semᵥ_blk : Set (β × εₜ)} :
@@ -948,8 +885,7 @@ namespace StrongRefinement
       StrongRefinement.Blocking R T.Rτ semₛ_blk semₛ_abt ∅ :=
     StrongRefinement.Diverging.Empty R
 
-  /-- Binary union on the blocking sets, the aborting set shared: each summand is discharged by its
-  own refinement. -/
+  /-- Binary union on the blocking sets, aborting set shared. -/
   protected theorem Blocking.union {R : Rel α β} [T : Trace εₛ εₜ]
       {Aₛ Bₛ semₛ_abt : Set (α × εₛ)} {Aₜ Bₜ : Set (β × εₜ)}
       (h₁ : StrongRefinement.Blocking R T.Rτ Aₛ semₛ_abt Aₜ)
@@ -975,10 +911,9 @@ namespace StrongRefinement
       exists ε', ε'_scp_ε
       exact Set.mem_sUnion_of_mem abort_σₛ abortₛ_in_C
 
-  /-- Blocking refinement for `R* ∘ᵣ₁ Y`: finitely many steps, then a block. The blocking semantics
-  of an algorithm has exactly this shape — `step* ∘ᵣ₁ immediateBlock` — so this is the
-  operator-preservation law that replaces induction over its least fixed point. Shares
-  `Diverging.star`'s conclusion shape. -/
+  /-- Blocking refinement for `Relation.star semₛ ∘ᵣ₁ Yₛ`: finitely many steps, then a block — the
+  shape of an algorithm's blocking semantics (`step* ∘ᵣ₁ immediateBlock`). Operator-preservation
+  standing in for induction over its least fixed point; same conclusion shape as `Diverging.star`. -/
   protected theorem Blocking.star {R : Rel α β} [T : Trace εₛ εₜ]
       {semₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
       {semₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
@@ -988,10 +923,9 @@ namespace StrongRefinement
           (Relation.star semₜ ∘ᵣ₁ Yₜ) :=
     StrongRefinement.Diverging.star ref refY
 
-  /-- **`Blocking.star` for a source that stutters**, the companion of `Aborting.starStutter`: one
-  target step is answered by a whole source run, so the step-level refinement is stated at
-  `Relation.star stepₛ` and the result still at `Relation.star stepₛ ∘ᵣ₁ Yₛ`. `Relation.star.star_eq`
-  collapses the doubled star. -/
+  /-- `Blocking.star` with the source instantiated at `Relation.star stepₛ` and the doubled star
+  collapsed, so a target step is answered by a source run and the conclusion still reads at
+  `Relation.star stepₛ ∘ᵣ₁ Yₛ`. -/
   protected theorem Blocking.starStutter {R : Rel α β} [T : Trace εₛ εₜ]
       {stepₛ : Set (α × εₛ × α)} {immₛ Yₛ : Set (α × εₛ)}
       {stepₜ : Set (β × εₜ × β)} {Yₜ : Set (β × εₜ)}
@@ -1012,16 +946,11 @@ namespace StrongRefinement
 end StrongRefinement
 
 /--
-  Strong behavior refinement.
-
-  - `semₛ₁` is the reducing semantics for the source language.
-  - `semₛ₂` is the aborting semantics for the source language.
-  - `semₛ₃` is the diverging semantics for the source language.
-  - `semₜ₁` is the reducing semantics for the target language.
-  - `semₜ₂` is the aborting semantics for the target language.
-  - `semₜ₃` is the diverging semantics for the target language.
-  - `semₛ₄`/`semₜ₄` are the blocking semantics for the source/target language.
- -/
+  All four behavior refinements for one pass, sharing the pre-relation `R` and trace relation `Rτ`.
+  The aborting sets `semₛ₂`/`semₜ₂` are the fallback for the `terminating`, `diverging` and
+  `blocking` components alike; `semₛ₁`/`semₜ₁` reduce, `semₛ₃`/`semₜ₃` diverge, `semₛ₄`/`semₜ₄`
+  block.
+-/
 structure StrongRefinement {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R : Rel α β)
     (Rτ : Rel εₛ εₜ)
     (semₛ₁ : Set (α × εₛ × α)) (semₛ₂ semₛ₃ : Set (α × εₛ))
@@ -1035,10 +964,8 @@ structure StrongRefinement {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] 
 namespace StrongRefinement
   variable {εₛ εₜ : Type _} [Monoid εₛ] [Monoid εₜ] {α β : Type _} (R S : Rel α β)
 
-  /-- Vertical composition, at the trace relation both operands already run at. Each component's
-  own `Comp` absorbs the `⊗ᵣ`/`⊔` its proof produces (`Trace.rmul_self`, `Trace.sup_rmul_self`), so
-  nothing is left for a caller to repair — composing a chain of refinements stays at `Rτ` however
-  long the chain is. -/
+  /-- Vertical composition of two full refinements, staying at the trace relation `Rτ`. Composing a
+  chain stays at `Rτ` however long the chain. -/
   protected theorem Comp [T₂ : Trace εₛ εₜ]
     {semₛ semᵤ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛb semᵤ' semᵤ'' semᵤb : Set (α × εₛ)} {semₜ semᵥ : Set (β × εₜ × β)} {semₜ' semₜ'' semₜb semᵥ' semᵥ'' semᵥb : Set (β × εₜ)} :
       StrongRefinement R T₂.Rτ semₛ semₛ' semₛ'' semₜ semₜ' semₜ'' semₛb semₜb →
@@ -1047,6 +974,8 @@ namespace StrongRefinement
     rintro ⟨t₁, a₁, d₁, b₁⟩ ⟨t₂, a₂, d₂, b₂⟩
     exact ⟨Terminating.Comp t₁ t₂, Aborting.Comp a₁ a₂ t₁, Diverging.Comp d₁ d₂ t₁, Blocking.Comp b₁ b₂ t₁⟩
 
+  /-- A full refinement from just the terminating and aborting components, with the target
+  diverging and blocking sets empty. -/
   protected theorem ofNonDiverging [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛ''' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)} {semₜ' : Set (β × εₜ)}
     (h₁ : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ)
     (h₂ : StrongRefinement.Aborting R T.Rτ semₛ' semₜ') :
@@ -1057,6 +986,7 @@ namespace StrongRefinement
     · apply Diverging.Empty
     · apply Blocking.Empty
 
+  /-- A full refinement from just the terminating component, with every other target set empty. -/
   protected theorem ofTerminating [T : Trace εₛ εₜ] {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛ''' : Set (α × εₛ)} {semₜ : Set (β × εₜ × β)}
     (h : StrongRefinement.Terminating R R T.Rτ semₛ semₛ' semₜ) :
       StrongRefinement R T.Rτ semₛ semₛ' semₛ'' semₜ ∅ ∅ semₛ''' ∅ := by
@@ -1066,9 +996,9 @@ namespace StrongRefinement
     · apply Diverging.Empty
     · apply Blocking.Empty
 
-  /-- Horizontal composition. `T₁` bundles the first operand's trace relation with both its laws,
-  needed by `Terminating.Trans`/`Aborting.Trans`/`Diverging.Trans` alike. No union needed here,
-  unlike `Comp`: every execution genuinely passes through the intermediate language. -/
+  /-- Horizontal composition of two full refinements through an intermediate language. `T₁` bundles
+  the first leg's trace relation and its laws. No union in the conclusion, unlike `Comp`: every run
+  passes through the middle language. -/
   protected theorem Trans {γ} {εₘ : Type _} [Monoid εₘ] [T₁ : Trace εₛ εₘ] {R₁ R₂} [T₂ : Trace εₘ εₜ]
     {semₛ : Set (α × εₛ × α)} {semₛ' semₛ'' semₛb : Set (α × εₛ)}
     {semₜ : Set (β × εₘ × β)} {semₜ' semₜ'' semₜb : Set (β × εₘ)}
@@ -1083,6 +1013,7 @@ namespace StrongRefinement
     · exact Diverging.Trans ref₁_div ref₁_abort ref₂_div
     · exact Blocking.Trans ref₁_blk ref₁_abort ref₂_blk
 
+  /-- Monotone in all eight state sets: widen the four source sets, shrink the four target sets. -/
   protected theorem Mono {R} [T : Trace εₛ εₜ]
     {semᵣ semₛ : Set (α × εₛ × α)} {semᵣ' semᵣ'' semᵣb semₛ' semₛ'' semₛb : Set (α × εₛ)} {semₜ semᵤ : Set (β × εₜ × β)} {semₜ' semₜ'' semₜb semᵤ' semᵤ'' semᵤb : Set (β × εₜ)}
     (hyp₁ : semₛ ≤ semᵣ) (hyp₂ : semₛ' ≤ semᵣ') (hyp₃ : semₛ'' ≤ semᵣ'') (hyp₄ : semₛb ≤ semᵣb) (concl₁ : semᵤ ≤ semₜ) (concl₂ : semᵤ' ≤ semₜ') (concl₃ : semᵤ'' ≤ semₜ'') (concl₄ : semᵤb ≤ semₜb) :
@@ -1095,20 +1026,14 @@ namespace StrongRefinement
     · apply Diverging.Mono hyp₃ hyp₂ concl₃ ref₃
     · apply Blocking.Mono hyp₄ hyp₂ concl₄ ref₄
 
-  /-- All three cases at once, at the shapes a step-and-iterate semantics takes: `step*`,
-  `step* ∘ᵣ₁ immediate`, `(step* ∘ᵣ₁ Y) ∪ step^∞`.
+  /-- Assembles per-step refinements into a full `StrongRefinement` at the shapes a step-and-iterate
+  semantics takes: `step*`, `step* ∘ᵣ₁ immediate`, `(step* ∘ᵣ₁ Y) ∪ step^∞`,
+  `step* ∘ᵣ₁ blocking`. Standing in for induction over `Algebra`'s fixed points.
 
-  Three hypotheses, all about one step: a `Terminating` for the step itself, an `Aborting` for the
-  sets a step can abort into, and a `Diverging` for the sets it can diverge into. Everything else is
-  derived rather than assumed — the absorption law each preservation lemma wants is
-  `Relation.star.lcomp₁_absorb` at these shapes, not a side condition on the caller.
-
-  This is where the per-operator laws are assembled into one refinement, and it replaces induction
-  over three fixed points.
-
-  `Yₛ`/`Yₜ` are the immediate-divergence sets, kept general even though the algorithm layer has
-  none: whether a single step can diverge is a property of the semantics being refined, not of this
-  framework. `sequentialOmega` is the `Y = ∅` case, which is what `Algebra` instantiates. -/
+  Four hypotheses, each about one step: a `Terminating` for the step, and `Aborting`/`Diverging`/
+  `Blocking` for the sets a step can abort, diverge or block into. `Yₛ`/`Yₜ` are the
+  immediate-divergence sets — general because whether a step can diverge is a property of the
+  semantics, not this framework. `sequentialOmega` is the `Y = ∅` case that `Algebra` uses. -/
   protected theorem sequential [ωMonoid εₛ] [ωMonoid εₜ] [T : ωTrace εₛ εₜ] {R : Rel α β}
       {stepₛ : Set (α × εₛ × α)} {immₛ Yₛ blkₛ : Set (α × εₛ)}
       {stepₜ : Set (β × εₜ × β)} {immₜ Yₜ blkₜ : Set (β × εₜ)}
@@ -1127,12 +1052,9 @@ namespace StrongRefinement
     diverging := Diverging.closedForm ref refY
     blocking := Blocking.star ref refBlk
 
-  /-- `sequential` where no single step diverges, so the diverging component collapses to `step^∞`.
-
-  This is the algorithm layer's case — `CodeTable.procDiverging` is `∅`, an atomic block having no
-  non-terminating semantics — and the conclusion is then *definitionally* `Algebra.reducing`,
-  `.aborting`, `.diverging`, so a caller applies it without rewriting anything. The collapse is done
-  here, once, rather than at each use site. -/
+  /-- `sequential` at `Y = ∅`, so the diverging component is just `step^∞`. The algorithm layer's
+  case — an atomic block has no diverging semantics — where the conclusion is then definitionally
+  `Algebra.reducing`/`.aborting`/`.diverging`, applied without rewriting. -/
   protected theorem sequentialOmega [ωMonoid εₛ] [ωMonoid εₜ] [T : ωTrace εₛ εₜ] {R : Rel α β}
       {stepₛ : Set (α × εₛ × α)} {immₛ blkₛ : Set (α × εₛ)}
       {stepₜ : Set (β × εₜ × β)} {immₜ blkₜ : Set (β × εₜ)}
