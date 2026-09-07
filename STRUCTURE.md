@@ -219,7 +219,8 @@ Generic proof infrastructure.
 - `Linter/` — one `#guard_msgs` module per `linter.fugue.*` linter, named for the linter.
 - `regression/` — `Accept*.tla`/`Reject*.tla` fixtures with optional `.expect.json` sidecars.
 - `regression/_stubs/AcceptInVariableWithoutParameter.go` — Go definitions a `goBuild` fixture needs.
-- `examples/` — larger worked examples, not run by `lake test`.
+- `examples/` — larger worked example specs, not run by `lake test`.
+- `examples/PingPongs.md` — how to compile `PingPongs.tla` to Go and wire it into a runnable system.
 
 ## `runtime/`
 Go, not Lean — the library generated code links against. Every package is a subdirectory.
