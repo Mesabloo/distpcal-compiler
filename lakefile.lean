@@ -176,59 +176,46 @@ package Fugue where
 /-- The generated `Version.lean`. A `lean_lib` of its own for two reasons: `Fugue.lean` can only
 import a module some library claims (see `Fugue.Tests` below), and scoping it here means a version
 bump rebuilds this module and the CLI rather than everything sharing a library with it. -/
-@[default_target]
 lean_lib Fugue.Version where
   srcDir := versionSrcDir
   roots := #[`Version]
 
 /-- A custom prelude with various tactics and additional imports. -/
-@[default_target]
 lean_lib CustomPrelude
 /-- Extra definitions and theorems on common data structures. -/
 lean_lib Extra
 /-- Terminal progress bars. -/
-@[default_target]
 lean_lib ProgressBar
 /-- A library for compiler verification through denotational semantics. -/
-@[default_target]
 lean_lib VerifiedCompiler
 
 /-- Simple theories for various stuff (positions, diagnostics, etc.). -/
-@[default_target]
 lean_lib Fugue.Common where
   roots := #[`Common]
 /-- Definitions of ASTs and semantics for our intermediate languages, along with useful lemmas. -/
-@[default_target]
 lean_lib Fugue.Core where
   roots := #[`Core]
 /-- The parser for TLA+ modules and Distributed PlusCal algorithms. -/
-@[default_target]
 lean_lib Fugue.Parser where
   roots := #[`Parser_]
 /-- Surface-to-Core desugaring (TLA+ expressions and PlusCal statements). -/
-@[default_target]
 lean_lib Fugue.Desugarer where
   roots := #[`Desugarer]
 /-- Well-labelledness, variable well-scopedness, and no-bare-temporal-op checks over Core ASTs. -/
-@[default_target]
 lean_lib Fugue.WF where
   roots := #[`WellFormedness]
 /-- The bidirectional type checker, Core to Typed. -/
-@[default_target]
 lean_lib Fugue.Elaborator where
   roots := #[`Elaborator]
 /-- Recursive `EXTENDS` module resolution — not type-checking rules, but the driver-level
 orchestration around invoking them. -/
-@[default_target]
 lean_lib Fugue.Driver where
   roots := #[`Driver]
 /-- Translate the checked module into its computable (`ComputableTLAPlus`/`ComputablePlusCal`)
 fragment. -/
-@[default_target]
 lean_lib Fugue.T2C where
   roots := #[`Typed2Computable]
 /-- Transform typed PlusCal algorithms into Guarded PlusCal (the cflow/par/flat/reord pipeline). -/
-@[default_target]
 lean_lib Fugue.T2G where
   roots := #[`Computable2Guarded]
 /-- Compiler from Guarded PlusCal to Network PlusCal, including its refinement proof.
@@ -237,16 +224,18 @@ lean_lib Fugue.T2G where
 to the concrete `Value` semantics, `ZFSet` via `zflean`), so every consumer of this pass builds and
 checks that proof. The import is private because `zflean` reserves `ε` as term notation, which would
 otherwise shadow the `ε` type variables in `Driver` and the later passes. -/
-@[default_target]
 lean_lib Fugue.G2N where
   roots := #[`Guarded2Network]
 /-- Compiler from Network PlusCal to the Join Calculus. -/
 lean_lib Fugue.N2JC where
   roots := #[`Network2JoinCalculus]
 /-- Compiler from Network PlusCal to Go, including lock inference. -/
-@[default_target]
 lean_lib Fugue.N2Go where
   roots := #[`Network2Go]
+
+@[default_target]
+lean_lib Fugue.Docs where
+  roots := #[`Docs]
 
 /-- Linker flags for a `release` build of `fugue`: strip local symbols and dead code, spelled for
 the host platform's linker (`ld64` on macOS, GNU `ld` elsewhere). Empty on Windows. -/
