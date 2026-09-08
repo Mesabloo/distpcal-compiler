@@ -35,7 +35,7 @@ public structure Spinner : Type where
   /-- The task to be performed when cancelling the spinner. -/
   private cancelAction : IO.Ref CancelAction
 
-public def Spinner.newInner (spinner : SpinnerData) (message : Option String) (stream : Option IO.FS.Stream) : IO Spinner := do
+private def Spinner.newInner (spinner : SpinnerData) (message : Option String) (stream : Option IO.FS.Stream) : IO Spinner := do
   let stream ← match stream with | some s => pure s | none => IO.getStdout
   let chan : Std.CloseableChannel Spinner.Msg ← BaseIO.toIO Std.CloseableChannel.new
   let cancelAction : IO.Ref CancelAction ← IO.mkRef .erase
@@ -138,9 +138,11 @@ public protected def Spinner.cancel (spinner : Spinner) (act : CancelAction := .
 public protected def Spinner.isCancelled (spinner : Spinner) : IO Bool := IO.hasFinished spinner.task
 
 /-- Create a new spinner on `stdout` that will execute `endAction` when cancelled. -/
+@[no_expose]
 public protected abbrev Spinner.new (spinner : SpinnerData) (message : Option String) : IO Spinner :=
   Spinner.newInner spinner message none
 
 /-- Create a new spinner on the provided `stream` that will execute `endAction` when cancelled. -/
+@[no_expose]
 public protected abbrev Spinner.newOnStream (spinner : SpinnerData) (message : Option String) (stream : IO.FS.Stream) : IO Spinner :=
   Spinner.newInner spinner message (some stream)
