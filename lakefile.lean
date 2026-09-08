@@ -1,3 +1,5 @@
+module
+
 import Lake
 open Lake DSL
 
@@ -19,17 +21,17 @@ require "vtrelat" / "zflean" @ git s!"v{Lean.versionString}"
   Whether to emit `linter.missingDocs` warnings during the build. Off by default — missing-docs
   is a style concern, run on demand (`lake lint`, or this flag). Pass `-KCHECK_DOC -R` to enable.
 -/
-def warnOnMissingDocs : Bool := (get_config? CHECK_DOC).isSome
+meta def warnOnMissingDocs : Bool := (get_config? CHECK_DOC).isSome
 
 /--
   The current build type, determined from the CLI `-K` option `BUILD_TYPE`.
 
   See `Lake.BuildType.ofString?` for accepted formats. Parsing errors yield a debug build.
 -/
-def buildType : BuildType := (get_config? BUILD_TYPE >>= BuildType.ofString?).getD .debug
+meta def buildType : BuildType := (get_config? BUILD_TYPE >>= BuildType.ofString?).getD .debug
 
 @[inherit_doc Package.moreLeanArgs]
-abbrev moreLeanArgs : Array LeanOption := #[
+meta abbrev moreLeanArgs : Array LeanOption := #[
   ⟨`linter.missingDocs, warnOnMissingDocs⟩ -- Warning on non-documented object
 ]
 /--
@@ -45,7 +47,7 @@ not the toolchain, so a `-D` for one is an error in any module that does not imp
 `-D` a no-op where the option is unknown and sets it where it is known — which is exactly the
 CLI's import closure, where the linters are registered through `CustomPrelude`.
 -/
-abbrev linterOptions : Array LeanOption := #[
+meta abbrev linterOptions : Array LeanOption := #[
   -- Core Lean — `register_builtin_option`, always known, no `weak.` needed.
   -- `linter.omit` is deliberately NOT here: `LEAN_STYLE.md` prescribes `omit` for an unused
   -- section variable, the opposite of what that linter wants.
@@ -94,7 +96,7 @@ abbrev linterOptions : Array LeanOption := #[
   ⟨`weak.linter.unusedFintypeInType, true⟩,
 ]
 @[inherit_doc Package.leanOptions]
-abbrev leanOptions : Array LeanOption := #[
+meta abbrev leanOptions : Array LeanOption := #[
   ⟨`autoImplicit, false⟩, -- Fully disable auto implicits
   ⟨`pp.unicode.fun, true⟩, -- Pretty-print lambdas as `λ x ↦ y`
   ⟨`weak.linter.docPrime, false⟩, -- No warning when no doc on symbol ending with `'`
@@ -103,7 +105,7 @@ abbrev leanOptions : Array LeanOption := #[
   ⟨`mvcgen.warning, false⟩, -- `mvcgen` used deliberately project-wide; skip experimental-tactic notice
 ] ++ linterOptions
 @[inherit_doc Package.moreServerOptions]
-abbrev moreServerOptions : Array LeanOption := #[]
+meta abbrev moreServerOptions : Array LeanOption := #[]
 
 ------ Version
 
@@ -112,13 +114,13 @@ abbrev moreServerOptions : Array LeanOption := #[]
   `lake` reports it, and the generated `Version.lean` — see `versionModule` — is what the CLI
   prints.
 -/
-def fugueVersion : LeanVer := v!"0.1.0"
+meta def fugueVersion : LeanVer := v!"0.1.0"
 
 /-- Where the generated `Version.lean` is written, relative to the package root. Under `.lake/`
 but *outside* `.lake/build/`, which is what `lake clean` deletes: the generated source and the
 compiled configuration that writes it must disappear together (`rm -rf .lake`) or survive
 together, never one without the other. -/
-def versionSrcDir : System.FilePath := ".lake" / "version"
+meta def versionSrcDir : System.FilePath := ".lake" / "version"
 
 /--
   The contents of `Version.lean`, the generated module that carries `fugueVersion` into compiled
@@ -134,7 +136,7 @@ def versionSrcDir : System.FilePath := ".lake" / "version"
   `extraDepTargets` would not rebuild anything either (that trace reaches the module's *setup*,
   not the build of its artifacts).
 -/
-def versionModule : String := String.intercalate "\n" [
+meta def versionModule : String := String.intercalate "\n" [
   "module",
   "",
   "/-!",
@@ -154,6 +156,64 @@ def versionModule : String := String.intercalate "\n" [
   ""
 ]
 
+------ Diagnostic pages
+
+/-- `docs/diagnostics/`, relative to the package root: the canonical, hand-edited source of the
+pages `fugue explain <code>` prints. -/
+meta def diagnosticsDocsDir : System.FilePath := "docs" / "diagnostics"
+
+/-- Where the generated `DiagnosticPages.lean` is written. Under `.lake/` but outside
+`.lake/build/`, same rationale as `versionSrcDir`. -/
+meta def diagnosticPagesSrcDir : System.FilePath := ".lake" / "diagnostics"
+
+/-- Whether a `docs/diagnostics/` entry is a diagnostic page (`<CODE>.md`) rather than the
+`DIAG_STYLE.md` template or a stray file. -/
+meta def isDiagnosticPage (p : System.FilePath) : Bool :=
+  p.extension == some "md" && p.fileName != some "DIAG_STYLE.md"
+
+/-- Every diagnostic page under `dir`, as `(code, contents)` pairs — `("E0026", "# E0026: …")`. -/
+meta def readDiagnosticPages (dir : System.FilePath) : IO (Array (String × String)) := do
+  let ps := (← dir.readDir).filterMap fun e => if isDiagnosticPage e.path then some e.path else none
+  (ps.qsort (·.toString < ·.toString)).mapM fun p => do
+    return (p.fileStem.getD (toString p), ← IO.FS.readFile p)
+
+/-- The contents of `DiagnosticPages.lean`: `Diagnostics.embeddedPages`, mapping each diagnostic
+code to the rendered `docs/diagnostics/<code>.md`. Embedding the corpus is what lets an installed
+`fugue explain` print a page with no `docs/` tree beside the binary.
+
+A generated source file, like `Version.lean` and for the same reason — it is the one channel Lake
+traces. The corpus lives in a directory rather than the config, so a page edit does not
+re-elaborate `lakefile.lean`; the `genDiagnosticPages` target closes that gap, regenerating this
+file whenever the directory's `inputDir` trace changes. -/
+meta def diagnosticPagesModule (pages : Array (String × String)) : String :=
+  let items := (pages.qsort (·.1 < ·.1)).foldl (init := "")
+    fun acc (code, body) => acc ++ s!"  ({String.quote code}, {String.quote body}),\n"
+  String.intercalate "\n" [
+    "module",
+    "",
+    "/-!",
+    "  GENERATED FILE — do not edit, and do not commit.",
+    "",
+    "  Written from `docs/diagnostics/` — the canonical source of the pages `fugue explain <code>`",
+    "  prints — by `lakefile.lean` (cold-checkout bootstrap) and the `genDiagnosticPages` target",
+    "  (regenerated whenever a page changes).",
+    "-/",
+    "",
+    "public section",
+    "",
+    "namespace Diagnostics",
+    "",
+    "/-- Each diagnostic page, keyed by its code's printed form (`\"E0026\"`); the value is the",
+    "rendered `docs/diagnostics/<code>.md`. -/",
+    "def embeddedPages : List (String × String) := [",
+    items ++ "]",
+    "",
+    "end Diagnostics",
+    "",
+    "end",
+    ""
+  ]
+
 run_cmd do
   println! "Building package in {buildType} mode (with missing docs := {warnOnMissingDocs})"
   -- Runs when this file is elaborated, which is when it changes and no oftener — exactly when the
@@ -164,6 +224,16 @@ run_cmd do
   unless current == versionModule do
     IO.FS.createDirAll (__dir__ / versionSrcDir)
     IO.FS.writeFile path versionModule
+
+  -- Bootstrap `DiagnosticPages.lean` so module resolution succeeds on a cold checkout, before
+  -- `genDiagnosticPages` gets a turn. Full contents, not a stub, so a plain config refresh keeps
+  -- the embedded corpus current even without a build; the target then no-ops.
+  let pagesPath := __dir__ / diagnosticPagesSrcDir / "DiagnosticPages.lean"
+  let pagesModule := diagnosticPagesModule (← readDiagnosticPages (__dir__ / diagnosticsDocsDir))
+  let currentPages ← if ← pagesPath.pathExists then IO.FS.readFile pagesPath else pure ""
+  unless currentPages == pagesModule do
+    IO.FS.createDirAll (__dir__ / diagnosticPagesSrcDir)
+    IO.FS.writeFile pagesPath pagesModule
 
 ------- Config
 package Fugue where
@@ -179,6 +249,28 @@ bump rebuilds this module and the CLI rather than everything sharing a library w
 lean_lib Fugue.Version where
   srcDir := versionSrcDir
   roots := #[`Version]
+
+/-- Regenerates `DiagnosticPages.lean` from `docs/diagnostics/` whenever that directory's contents
+change. `inputDir` makes the directory a traced build input; `buildFileUnlessUpToDate'` rewrites
+the module only when the rendered contents differ, so an unchanged corpus rebuilds nothing. -/
+target genDiagnosticPages pkg : System.FilePath := do
+  let dirJob ← inputDir (pkg.dir / diagnosticsDocsDir) true isDiagnosticPage
+  dirJob.mapM fun files => do
+    let out := pkg.dir / diagnosticPagesSrcDir / "DiagnosticPages.lean"
+    buildFileUnlessUpToDate' out (text := true) do
+      let pages ← files.mapM fun p => do return (p.fileStem.getD (toString p), ← IO.FS.readFile p)
+      IO.FS.writeFile out (diagnosticPagesModule pages)
+    pure out
+
+/-- The generated `DiagnosticPages.lean` — `Diagnostics.embeddedPages`, every `fugue explain` page
+baked into the binary so an installed copy needs no `docs/` tree. Its own `lean_lib` like
+`Fugue.Version`: `Fugue.lean` can only import a module some library claims, and scoping it here
+keeps a page edit to rebuilding this module and the CLI. `extraDepTargets` runs
+`genDiagnosticPages` first, refreshing the file when the corpus changed. -/
+lean_lib Fugue.DiagnosticPages where
+  srcDir := diagnosticPagesSrcDir
+  roots := #[`DiagnosticPages]
+  extraDepTargets := #[`genDiagnosticPages]
 
 /-- A custom prelude with various tactics and additional imports. -/
 lean_lib CustomPrelude
@@ -239,7 +331,7 @@ lean_lib Fugue.Docs where
 
 /-- Linker flags for a `release` build of `fugue`: strip local symbols and dead code, spelled for
 the host platform's linker (`ld64` on macOS, GNU `ld` elsewhere). Empty on Windows. -/
-def releaseLinkArgs : Array String :=
+meta def releaseLinkArgs : Array String :=
   if System.Platform.isOSX then #["-Wl,-x,-dead_strip"]
   else if System.Platform.isWindows then #[]
   else #["-Wl,--strip-all"]
