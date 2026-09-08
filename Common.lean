@@ -16,9 +16,7 @@ public section
   language or a pass — source positions, the diagnostic registry and its rendering, CLI flags as a
   reader environment, and hygienic fresh names.
 
-  Nothing in the compiler imports this file. It exists so that `lake build Fugue.Common` resolves
-  the target (Lake looks for a module named after each `lean_lib` root) and so `doc-gen4` has one
-  entry point per library, same as `Core.lean` and the per-pass roots.
+  Nothing in the compiler imports this file directly.
 -/
 
 end

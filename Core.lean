@@ -36,9 +36,7 @@ public section
 /-!
   The `Fugue.Core` library's root module: every AST layer, in pipeline order, plus the semantics
   modules that hang off them. Nothing imports this file — each pass imports the individual layers it
-  needs. It exists so that the `lean_lib Fugue.Core` target (`roots := #[`Core]`) resolves, which
-  makes `lake build Fugue.Core` a usable check that the whole AST tier compiles, and gives
-  `doc-gen4` a single entry point covering it.
+  needs.
 -/
 
 end

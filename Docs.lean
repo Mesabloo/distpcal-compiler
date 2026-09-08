@@ -16,4 +16,6 @@ import Network2Go
 
 /-!
   Stub file that imports all of our modules. Fixes a race condition in the documentation generator.
+
+  All imports that are part of the project can be found by unfolding the `Imports` list on the right.
 -/
