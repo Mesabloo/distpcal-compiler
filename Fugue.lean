@@ -450,14 +450,52 @@ private def Diagnostics.Entry.listLine (entry : Diagnostics.Entry) : String :=
   let stage := entry.stage.name
   s!"{code}{String.replicate (8 - code.length) ' '}{stage}{String.replicate (16 - stage.length) ' '}{entry.summary}"
 
+/-- Joke answers for the codes at the two ends of the numbering and one that never existed. None is
+a `Diagnostics.entries` member, so `fugue explain --list` never lists them and the registry/page
+parity `#guard`s never ask for a `docs/diagnostics/` file; `explainCode` reaches them only after a
+code parses and resolves to no registered diagnostic. -/
+private def explainEasterEgg? (code : DiagnosticCode) : Option String :=
+  let page (summary reporter : String) (body : List String) : String :=
+    s!"{code}: {summary}\nReported by: {reporter}\n\n{String.intercalate " " body}"
+  match toString code with
+  | "E0000" => some <| page "everything is fine." "a clean build"
+      [ "Nothing went wrong. Not quietly, not subtly — nothing. You asked the compiler to"
+      , "explain the absence of a problem and it has complied. No steps to reproduce." ]
+  | "W0000" => some <| page "nothing worth mentioning." "a clean build"
+      [ "The compiler has nothing to warn you about. It would like you to know it checked."
+      , "It checked thoroughly. W0000 is the receipt." ]
+  | "E9999" => some <| page "held in reserve." "the kernel"
+      [ "The last error code. The compiler has assigned sixty-odd and is holding this one back"
+      , "— not for anything specific, it just dislikes the idea of reaching the end of the list"
+      , "with nothing in reserve." ]
+  | "W9999" => some <| page "as high as it goes." "arithmetic"
+      [ "There is no W10000. Raise nine thousand nine hundred and ninety-nine distinct kinds of"
+      , "warning and the compiler will consider a fifth digit. Until then this is the ceiling"
+      , "and you are nowhere near it." ]
+  | "W0666" => some <| page "nothing untoward." "the daemon"
+      [ "Not a real code. You know which number you typed. The compiler knows too. Neither of"
+      , "you needs to make it weird." ]
+  | _ => none
+
+-- Exactly the codes matched above, none of them registered: if a real diagnostic is ever given
+-- one of these numbers, this fails rather than letting the joke shadow it.
+#guard ["E0000", "W0000", "E9999", "W9999", "W0666"].all λ s ↦
+  match DiagnosticCode.ofString? s with
+  | some c => (explainEasterEgg? c).isSome && (Diagnostics.find? c).isNone
+  | none => false
+
 /-- Print everything known about one code: its registry entry, then its page if one has been
-written. Returns whether the code was a registered one. -/
+written. Returns whether `explain` had an answer — a registered code, or one of the joke codes
+`explainEasterEgg?` covers. -/
 private def explainCode (raw : String) : IO Bool := do
   let some code := DiagnosticCode.ofString? raw
     | IO.eprintln s!"error: '{raw}' is not a diagnostic code. Codes look like 'E0042' or 'W0003'."
       return false
   let some entry := Diagnostics.find? code
-    | IO.eprintln s!"error: no diagnostic is registered under '{code}'. \
+    | if let some easterEgg := explainEasterEgg? code then
+        IO.println easterEgg
+        return true
+      IO.eprintln s!"error: no diagnostic is registered under '{code}'. \
 Run 'fugue explain --list' to see every code."
       return false
   IO.println s!"{code}: {entry.summary}"
