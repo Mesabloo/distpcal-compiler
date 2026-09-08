@@ -171,20 +171,14 @@ meta def diagnosticPagesSrcDir : System.FilePath := ".lake" / "diagnostics"
 meta def isDiagnosticPage (p : System.FilePath) : Bool :=
   p.extension == some "md" && p.fileName != some "DIAG_STYLE.md"
 
-/-- Every diagnostic page under `dir`, as `(code, contents)` pairs — `("E0026", "# E0026: …")`. -/
-meta def readDiagnosticPages (dir : System.FilePath) : IO (Array (String × String)) := do
-  let ps := (← dir.readDir).filterMap fun e => if isDiagnosticPage e.path then some e.path else none
-  (ps.qsort (·.toString < ·.toString)).mapM fun p => do
-    return (p.fileStem.getD (toString p), ← IO.FS.readFile p)
-
 /-- The contents of `DiagnosticPages.lean`: `Diagnostics.embeddedPages`, mapping each diagnostic
 code to the rendered `docs/diagnostics/<code>.md`. Embedding the corpus is what lets an installed
 `fugue explain` print a page with no `docs/` tree beside the binary.
 
 A generated source file, like `Version.lean` and for the same reason — it is the one channel Lake
-traces. The corpus lives in a directory rather than the config, so a page edit does not
-re-elaborate `lakefile.lean`; the `genDiagnosticPages` target closes that gap, regenerating this
-file whenever the directory's `inputDir` trace changes. -/
+traces. The `run_cmd` below writes an empty one at config time so module resolution has a file to
+find; `genDiagnosticPages` fills it with the real corpus during the build and keeps it current
+whenever the directory's `inputDir` trace changes. Passed `#[]` it renders the empty stub. -/
 meta def diagnosticPagesModule (pages : Array (String × String)) : String :=
   let items := (pages.qsort (·.1 < ·.1)).foldl (init := "")
     fun acc (code, body) => acc ++ s!"  ({String.quote code}, {String.quote body}),\n"
@@ -194,9 +188,9 @@ meta def diagnosticPagesModule (pages : Array (String × String)) : String :=
     "/-!",
     "  GENERATED FILE — do not edit, and do not commit.",
     "",
-    "  Written from `docs/diagnostics/` — the canonical source of the pages `fugue explain <code>`",
-    "  prints — by `lakefile.lean` (cold-checkout bootstrap) and the `genDiagnosticPages` target",
-    "  (regenerated whenever a page changes).",
+    "  `Diagnostics.embeddedPages`, rendered from `docs/diagnostics/` by the `genDiagnosticPages`",
+    "  target in `lakefile.lean`. `lakefile.lean`'s `run_cmd` writes an empty version of this file",
+    "  at config time; the target fills it and keeps it current as pages change.",
     "-/",
     "",
     "public section",
@@ -225,15 +219,14 @@ run_cmd do
     IO.FS.createDirAll (__dir__ / versionSrcDir)
     IO.FS.writeFile path versionModule
 
-  -- Bootstrap `DiagnosticPages.lean` so module resolution succeeds on a cold checkout, before
-  -- `genDiagnosticPages` gets a turn. Full contents, not a stub, so a plain config refresh keeps
-  -- the embedded corpus current even without a build; the target then no-ops.
+  -- Write an empty `DiagnosticPages.lean` so module resolution has a file to find on a cold
+  -- checkout, before `genDiagnosticPages` gets a turn. Only when absent — the target owns the
+  -- file's contents once it exists, and `translate-config` (docs CI) relies on this stub being
+  -- valid Lean without the target having run.
   let pagesPath := __dir__ / diagnosticPagesSrcDir / "DiagnosticPages.lean"
-  let pagesModule := diagnosticPagesModule (← readDiagnosticPages (__dir__ / diagnosticsDocsDir))
-  let currentPages ← if ← pagesPath.pathExists then IO.FS.readFile pagesPath else pure ""
-  unless currentPages == pagesModule do
+  unless ← pagesPath.pathExists do
     IO.FS.createDirAll (__dir__ / diagnosticPagesSrcDir)
-    IO.FS.writeFile pagesPath pagesModule
+    IO.FS.writeFile pagesPath (diagnosticPagesModule #[])
 
 ------- Config
 package Fugue where

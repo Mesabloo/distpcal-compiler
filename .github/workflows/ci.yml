@@ -41,8 +41,13 @@ jobs:
           # No GitHub Actions cache service under `act` (env.ACT=true); skip it locally.
           use-github-cache: ${{ env.ACT != 'true' }}
           # `fugue` is no longer a default target (the libraries are, for doc-gen4), so name it.
-          # `linter.missingDocs` is off by default now (see lakefile.lean); no flag needed.
-          build-args: 'fugue -KBUILD_TYPE=release'
+          # `linter.missingDocs` is off by default (see lakefile.lean); no flag needed.
+          # `-R` on this first `lake` of the job re-elaborates `lakefile.lean` rather than trusting
+          # a cached `lakefile.olean`: the GitHub Actions cache is keyed on `lake-manifest.json`,
+          # not the config, so a config-only change (and the `run_cmd` that bootstraps
+          # `.lake/version` / `.lake/diagnostics`) is otherwise skipped on a cache hit. Every later
+          # `lake` in the job reuses the reconfigured olean this writes.
+          build-args: '-R fugue -KBUILD_TYPE=release'
           test-args: ''
 
       - name: Read version
@@ -174,10 +179,13 @@ jobs:
 
       # doc-gen4 / docgen-action read lakefile.toml; this project ships lakefile.lean.
       # `translate-config` errors if a lakefile.toml already exists — non-fatal, docgen-action
-      # reports clearly if the toml is genuinely missing.
+      # reports clearly if the toml is genuinely missing. `-R` (first `lake` of this job — the
+      # `Set up Lake` step above runs none, with build/test/lint all off) re-elaborates the config
+      # so its `run_cmd` writes `.lake/diagnostics/DiagnosticPages.lean`; a cache-restored
+      # `lakefile.olean` would otherwise skip it and leave that module unresolvable.
       - name: Translate lakefile.lean to lakefile.toml
         continue-on-error: true
-        run: lake translate-config toml
+        run: lake -R translate-config toml
 
       - name: Build API docs (doc-gen4) and deploy to Pages
         uses: leanprover-community/docgen-action@56023ee2a4b3630c1071825be5bafdb43f540bbd # main
