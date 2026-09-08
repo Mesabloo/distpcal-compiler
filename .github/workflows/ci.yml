@@ -134,13 +134,31 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # The version is hand-bumped in `lakefile.lean`, so many master pushes share one tag, and
+      # `v<version>` usually already points at an older commit. Delete the release and the tag so
+      # the next step recreates both at the current commit: the release's auto-generated source
+      # archives are cut from the tag, so a stale tag would ship source that predates the binaries.
+      # `--cleanup-tag` drops the tag when a release exists; the API call clears a stray tag that
+      # was left without one.
+      - name: Delete existing release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          tag="v${{ needs.build.outputs.version }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag"
+          fi
+
       - name: Create release and upload archives
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           tag: v${{ needs.build.outputs.version }}
           commit: ${{ github.sha }}
           artifacts: dist/*
-          skipIfReleaseExists: true
           makeLatest: true
           artifactErrorsFailBuild: true
           body: "Prebuilt `fugue` binaries. See `README.md` in each archive for install steps."
